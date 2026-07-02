@@ -63,6 +63,16 @@ https://jayitsaha.github.io/PersonalSkillUp/AI/explainers/<slug>_explainer.html
 The `<slug>` MUST be identical in the HTML filename and the Explainer URL.
 Slug = concise snake_case of the topic (shorten very long names sensibly, keep it recognizable).
 
+## Step 3.5 — ANTI-TIMEOUT PROTOCOL (MANDATORY)
+
+Building an ~800-line HTML file in a single giant Write causes stream-idle timeouts.
+ALWAYS build the HTML in STAGES with multiple tool calls:
+1. Write a compact skeleton first (head + CSS `:root` tokens + header + empty card divs + `<script>` scaffold).
+2. Add each educational card with a SEPARATE Edit call.
+3. Add the visualization JS logic in 1–2 more Edits.
+4. Run short numpy/scipy Bash checks BETWEEN stages to verify numbers (this also keeps the stream active).
+Keep each individual tool call's output modest. Never emit one massive block.
+
 ## Step 4 — Do NOT git push. Do NOT git commit.
 
 The user pushes manually. Leave files on disk.
