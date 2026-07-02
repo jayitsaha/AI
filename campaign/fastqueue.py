@@ -98,11 +98,9 @@ def main():
     open(NEXT, "w").write("\n".join(lines))
     print("\n".join(lines))
 
-    if args.limit:  # advance cursor past this batch, mark them consumed
+    if args.limit:  # advance cursor past this batch (do NOT mark completed —
+        # failures must stay visible; reconcile from Notion truth handles gaps)
         open(CURSOR, "w").write(str(i))
-        # optimistically record as completed so re-runs skip them
-        completed.update(idx for (idx, _, _) in batch)
-        json.dump(sorted(completed), open(DONE, "w"))
 
 
 if __name__ == "__main__":

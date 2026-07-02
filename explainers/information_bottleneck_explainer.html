@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Information Bottleneck Method — Interactive Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;padding:0 0 60px}
+a{color:var(--blue-mid);text-decoration:none}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:2rem 1.5rem 1.5rem;text-align:center}
+.header h1{font-size:clamp(1.4rem,4vw,2rem);font-weight:800;letter-spacing:-0.03em;color:var(--text);margin-bottom:0.3rem}
+.header .subtitle{font-size:14px;color:var(--text2);max-width:560px;margin:0 auto 0.75rem}
+.tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+.container{max-width:900px;margin:0 auto;padding:1.5rem 1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.section-title{font-size:18px;font-weight:700;color:var(--text)}
+p{margin-bottom:0.75rem;color:var(--text2);font-size:14.5px}
+p:last-child{margin-bottom:0}
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+ul,ol{padding-left:1.4rem;color:var(--text2);font-size:14.5px}
+li{margin-bottom:0.4rem}
+/* ── Visualization area ── */
+.viz-outer{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.viz-title{font-size:18px;font-weight:700;margin-bottom:1rem;text-align:center}
+.tabs{display:flex;gap:6px;justify-content:center;margin-bottom:1.25rem;flex-wrap:wrap}
+.tab-btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:7px 16px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .2s}
+.tab-btn.active{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+/* ── Info Plane canvas ── */
+#planeCanvas{display:block;width:100%;max-width:640px;height:auto;margin:0 auto;border-radius:var(--radius);border:1px solid var(--border)}
+.legend-row{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text2)}
+.legend-item{display:flex;align-items:center;gap:6px}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+/* ── IB Curve canvas ── */
+#ibCurveCanvas{display:block;width:100%;max-width:640px;height:auto;margin:0 auto;border-radius:var(--radius);border:1px solid var(--border)}
+/* ── Compression slider panel ── */
+.slider-panel{background:var(--bg2);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem}
+.slider-group{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.slider-label{font-size:13px;font-weight:600;min-width:130px;color:var(--text)}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid)}
+input[type=range]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2)}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer}
+/* ── Step info card ── */
+.step-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem}
+.step-badge{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:20px;background:var(--purple-bg);color:var(--purple-mid);margin-bottom:0.5rem}
+.step-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:0.4rem}
+.step-desc{font-size:13.5px;color:var(--text2);line-height:1.55}
+/* ── Controls ── */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:white}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all .25s;cursor:pointer}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3)}
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto;margin:0.75rem 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--border)}
+th{font-weight:700;background:var(--bg2);color:var(--text)}
+td{color:var(--text2)}
+tr:last-child td{border-bottom:none}
+/* code */
+pre{background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;margin:0.75rem 0}
+code{font-family:var(--mono);font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Information Bottleneck Method</h1>
+  <div class="subtitle">Finding the minimal sufficient statistic: compress X into T while preserving what matters about Y.</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Information Theory</span>
+    <span class="tag tag-category">Deep Learning Theory</span>
+    <span class="tag tag-complexity">I(X;T) − βI(T;Y)</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ══ CARD 1: Understanding ══ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+
+  <p><strong>What is this?</strong> Imagine you're studying for an exam. You have a thick textbook (X) and you want to write a cheat sheet (T) that fits on one page — but you still want to ace the exam (predict Y). The Information Bottleneck method is a principled theory for finding <em>exactly</em> that cheat sheet: the most compressed representation T that still retains the information needed to predict Y.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Real-World Analogy</div>
+    <p style="margin:0;font-size:14px">A radio station compresses voice (X) into a broadcast signal (T) that can be decoded at the receiver (Y = reconstructed voice). Good compression squeezes bandwidth while minimising quality loss. IB asks: what is the <em>minimal</em> signal that preserves voice quality — and gives a precise mathematical answer.</p>
+  </div>
+
+  <p><strong>One-sentence summary:</strong> The Information Bottleneck finds a stochastic mapping \(p(T|X)\) that minimises the mutual information \(I(X;T)\) (compression) while maximising \(I(T;Y)\) (relevance), controlled by a single Lagrange multiplier \(\beta\).</p>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">If you remember one thing</div>
+    <p style="margin:0;font-size:14px">IB solves \(\min_{p(T|X)}\, I(X;T) - \beta\, I(T;Y)\). Small \(\beta\) → maximum compression; large \(\beta\) → maximum relevance. The full trade-off curve, the <em>IB curve</em>, is the Pareto frontier of compression vs. relevance.</p>
+  </div>
+</div>
+
+<!-- ══ CARD 2: How It Works ══ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works — Mathematical Core</div>
+  </div>
+
+  <p>We have three random variables: input \(X\), label \(Y\), and compressed representation \(T\). The joint distribution \(p(X, Y)\) is given by the data. We search over all stochastic encoders \(p(T|X)\).</p>
+
+  <p><strong>The IB Lagrangian (what we minimise):</strong></p>
+  <div class="eq">$$\mathcal{L}[p(T|X)] = I(X;\,T) \;-\; \beta\; I(T;\,Y)$$</div>
+
+  <p>where \(\beta \geq 0\) is the trade-off parameter. Expanding using the data-processing inequality:</p>
+  <div class="eq">$$I(X;\,T) = \sum_{x,t} p(x)\, p(t|x)\,\log\frac{p(t|x)}{p(t)}$$</div>
+  <div class="eq">$$I(T;\,Y) = \sum_{t,y} p(t)\, p(y|t)\,\log\frac{p(y|t)}{p(y)}$$</div>
+
+  <p><strong>The self-consistent IB equations</strong> (Tishby et al., 1999). Setting \(\delta\mathcal{L}/\delta p(T|X) = 0\) gives the Blahut-Arimoto-like fixed-point equations:</p>
+  <div class="eq">$$p(t|x) = \frac{p(t)}{Z(\beta,x)}\exp\!\left(-\beta\; D_{\mathrm{KL}}\!\left[p(Y|x)\,\big\|\,p(Y|t)\right]\right)$$</div>
+  <div class="eq">$$p(t) = \sum_x p(t|x)\, p(x)$$</div>
+  <div class="eq">$$p(y|t) = \sum_x p(y|x)\, p(x|t)$$</div>
+
+  <p>These three equations are iterated to convergence for each \(\beta\). The partition function \(Z(\beta, x)\) normalises \(p(t|x)\) to sum to 1 over \(t\).</p>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">The Markov Chain</div>
+    <p style="margin:0;font-size:14px">A critical constraint: \(Y \to X \to T\) must form a Markov chain — \(T\) is computed only from \(X\), and may only know about \(Y\) through \(X\). This encodes the idea that T is a <em>lossy compression</em> of X, not a side channel to Y.</p>
+  </div>
+
+  <p><strong>IB curve & phase transitions.</strong> As \(\beta\) increases from 0 to \(\infty\), the optimal \(T\) goes from a single point (completely compressed, \(I(X;T)=0\)) to \(T=X\) (no compression). The curve of achievable \((I(X;T),\, I(T;Y))\) pairs is the <em>IB curve</em>. It is concave and has discrete "phase transitions" where the optimal number of clusters in \(T\) jumps.</p>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Common Confusion</div>
+    <p style="margin:0;font-size:14px">\(\beta\) is <em>not</em> a compression ratio. It is a Lagrange multiplier: it controls the slope of the tangent to the IB curve. Different \(\beta\) values trace out different operating points on the Pareto frontier.</p>
+  </div>
+</div>
+
+<!-- ══ CARD 3: Deep Learning Connection ══ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">IB & Deep Learning — Tishby's Information Plane</div>
+  </div>
+
+  <p>In 2017, Tishby & Schwartz-Ziv proposed viewing each layer \(h_k\) of a deep neural network as a compressed representation of the input, and tracking \((I(X;h_k),\, I(h_k;Y))\) during training — the <em>information plane</em>.</p>
+
+  <p><strong>The two-phase training hypothesis:</strong></p>
+  <ul>
+    <li><strong>Fitting phase (early training):</strong> \(I(X;T)\) and \(I(T;Y)\) both increase — the network memorises training data.</li>
+    <li><strong>Compression phase (later training):</strong> \(I(T;Y)\) stabilises while \(I(X;T)\) <em>decreases</em> — the network forgets irrelevant input details, compressing toward the IB optimal.</li>
+  </ul>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Key Insight</div>
+    <p style="margin:0;font-size:14px">If a deep net implements the IB principle, each layer is closer to the IB curve than the previous one. The final layer representation ideally sits <em>on</em> the IB curve for the target \(\beta\).</p>
+  </div>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Ongoing Debate</div>
+    <p style="margin:0;font-size:14px">Saxe et al. (2019) showed the compression phase is artefact-dependent — it appears with saturating activations (tanh) but not ReLU. The IB interpretation of deep learning remains an active research area, not settled consensus.</p>
+  </div>
+
+  <p><strong>Variational IB (VIB).</strong> For continuous \(X\) and neural networks, the IB is approximated as a variational bound (Alemi et al., 2017). The encoder outputs a Gaussian \(p(T|X) = \mathcal{N}(\mu(X), \Sigma(X))\) and the objective becomes:</p>
+  <div class="eq">$$\mathcal{L}_{\mathrm{VIB}} = \mathbb{E}_{x,y}\!\left[\mathbb{E}_{t\sim p(t|x)}\!\left[\log q(y|t)\right] - \beta\, D_{\mathrm{KL}}\!\left[p(t|x)\,\big\|\,r(t)\right]\right]$$</div>
+  <p>where \(r(t)\) is a marginal prior (often \(\mathcal{N}(0,I)\)). This is exactly a \(\beta\)-VAE with a classification head — connecting IB to variational autoencoders.</p>
+</div>
+
+<!-- ══ CARD 4: Interactive Visualization ══ -->
+<div class="viz-outer">
+  <div class="viz-title">Interactive Information Plane & IB Curve</div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('plane')">Information Plane</button>
+    <button class="tab-btn" onclick="switchTab('ibcurve')">IB Curve &amp; β</button>
+    <button class="tab-btn" onclick="switchTab('compress')">Compression Simulation</button>
+  </div>
+
+  <!-- TAB 1: Information Plane -->
+  <div class="tab-panel active" id="tab-plane">
+    <p style="text-align:center;font-size:13px;color:var(--text2);margin-bottom:0.75rem">
+      Tishby's information plane: each layer's \((I(X;T), I(T;Y))\) coordinate during training. Step through training epochs.
+    </p>
+    <canvas id="planeCanvas" width="640" height="440"></canvas>
+    <div class="legend-row">
+      <span class="legend-item"><span class="legend-dot" style="background:#185FA5"></span>Layer 1</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#534AB7"></span>Layer 2</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#3B6D11"></span>Layer 3</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#A32D2D"></span>Layer 4</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#854F0B"></span>Layer 5</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#00ACC1"></span>IB Curve (Pareto)</span>
+    </div>
+    <div class="step-card" id="planeStepCard">
+      <div class="step-badge" id="planeBadge">Epoch 0</div>
+      <div class="step-title" id="planeTitle">Initialisation</div>
+      <div class="step-desc" id="planeDesc">At random initialisation all layers cluster near the input axis — high I(X;T), near-zero I(T;Y). No useful prediction yet.</div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="planePrev" onclick="planeGo(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="planeNext" onclick="planeGo(1)">Next →</button>
+      <button class="btn" onclick="planeReset()">Reset</button>
+    </div>
+    <div class="progress-wrap" id="planeDots"></div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+  </div>
+
+  <!-- TAB 2: IB Curve -->
+  <div class="tab-panel" id="tab-ibcurve">
+    <p style="text-align:center;font-size:13px;color:var(--text2);margin-bottom:0.75rem">
+      The IB curve: Pareto frontier of compression vs. relevance. Move β to see the operating point.
+    </p>
+    <canvas id="ibCurveCanvas" width="640" height="440"></canvas>
+    <div class="slider-panel" style="max-width:480px;margin:0.75rem auto 0">
+      <div class="slider-group">
+        <span class="slider-label">β (trade-off)</span>
+        <input type="range" id="betaSlider" min="0" max="100" value="30" step="1" oninput="updateIBCurve()"/>
+        <span class="slider-value" id="betaVal">0.30</span>
+      </div>
+    </div>
+    <div class="step-card">
+      <div class="step-badge" id="ibBadge">β = 0.30</div>
+      <div class="step-title" id="ibTitle">Moderate compression</div>
+      <div class="step-desc" id="ibDesc">At this β the optimal T retains partial information about Y while discarding roughly half of the input information. Increasing β pushes toward perfect relevance (T ≈ X); decreasing toward maximum compression (T is a constant).</div>
+    </div>
+    <div class="legend-row" style="margin-top:10px">
+      <span class="legend-item"><span class="legend-dot" style="background:#00ACC1"></span>IB curve (achievable)</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#534AB7"></span>Operating point</span>
+      <span class="legend-item"><span class="legend-dot" style="background:rgba(83,74,183,0.2);border:1px solid #534AB7;border-radius:0"></span>Achievable region</span>
+    </div>
+  </div>
+
+  <!-- TAB 3: Compression Simulation -->
+  <div class="tab-panel" id="tab-compress">
+    <p style="text-align:center;font-size:13px;color:var(--text2);margin-bottom:0.75rem">
+      Simulate IB compression: X has 8 symbols, Y has 4 classes. Adjust β to see how the bottleneck clusters X.
+    </p>
+    <div class="slider-panel" style="max-width:500px;margin:0 auto 1rem">
+      <div class="slider-group">
+        <span class="slider-label">β (relevance weight)</span>
+        <input type="range" id="betaCompress" min="1" max="50" value="15" step="1" oninput="updateCompress()"/>
+        <span class="slider-value" id="betaCompressVal">1.5</span>
+      </div>
+    </div>
+    <canvas id="compressCanvas" width="640" height="360"></canvas>
+    <div class="step-card">
+      <div class="step-badge" id="compressBadge">Clusters: ?</div>
+      <div class="step-title">Cluster assignment</div>
+      <div class="step-desc" id="compressDesc">At low β, all X symbols map to a single cluster (full compression). As β increases, the encoder discovers the minimum number of clusters needed to distinguish Y classes — matching the IB phase transitions.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CARD 5: Key Takeaways ══ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways &amp; When to Use</div>
+  </div>
+  <ul>
+    <li><strong>Use IB when</strong> you need principled feature compression that provably retains task-relevant information.</li>
+    <li><strong>Variational IB (VIB)</strong> is the practical neural-network version — a β-VAE with a classification head.</li>
+    <li><strong>The information plane</strong> is a diagnostic tool: plotting layer coordinates during training reveals fitting vs. compression phases.</li>
+    <li><strong>Phase transitions</strong> in the IB curve correspond to the minimum number of clusters needed to separate classes — a fundamental result.</li>
+    <li><strong>Related:</strong> Rate-distortion theory (continuous X/Y), β-VAE, mutual information neural estimation (MINE), sufficient statistics.</li>
+  </ul>
+  <div class="concept-box insight">
+    <div class="concept-box-title">Connection to Sufficiency</div>
+    <p style="margin:0;font-size:14px">The IB optimal T is the <em>minimal sufficient statistic</em> of X for Y. When \(\beta \to \infty\), \(T\) is a sufficient statistic; for finite \(\beta\) it is an approximate (lossy) sufficient statistic — the "relevant" component of X.</p>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ══════════════════════════════════════════════════
+//  INFORMATION PLANE VISUALISATION
+// ══════════════════════════════════════════════════
+
+// Realistic layer trajectories (5 layers, 8 epochs)
+// Format: [epoch][layer] = {ixt, ity}
+// ixt = I(X;T), ity = I(T;Y), scaled to [0,1] space
+// Based on Tishby (2017) qualitative behaviour:
+//   Early: all layers near ixt≈high, ity≈low
+//   Mid: ity rises rapidly (fitting phase)
+//   Late: ixt drops (compression phase), ity plateaus
+
+const planeData = (() => {
+  // nEpochs=8, nLayers=5
+  // Each layer starts near (9-layer_idx, 0) and moves toward IB curve
+  const epochs = 8;
+  const layers = 5;
+  const maxX = 10; // max I(X;T) in bits
+  const maxY = 2.5; // max I(T;Y) in bits
+
+  // Layer colours
+  const cols = ['#185FA5','#534AB7','#3B6D11','#A32D2D','#854F0B'];
+
+  // Trajectories: [layer][epoch] = {ixt,ity}
+  // Layer 0 (closest to input) compresses most slowly
+  // Layer 4 (closest to output) reaches IB curve fastest
+  const traj = [
+    // Layer 0: near-input, high ixt
+    [{ixt:9.1,ity:0.05},{ixt:9.3,ity:0.9},{ixt:9.4,ity:1.8},{ixt:9.4,ity:2.1},
+     {ixt:9.3,ity:2.2},{ixt:9.1,ity:2.25},{ixt:8.8,ity:2.28},{ixt:8.5,ity:2.3}],
+    // Layer 1
+    [{ixt:7.2,ity:0.04},{ixt:7.4,ity:1.0},{ixt:7.6,ity:1.85},{ixt:7.5,ity:2.1},
+     {ixt:7.2,ity:2.18},{ixt:6.8,ity:2.22},{ixt:6.3,ity:2.25},{ixt:5.9,ity:2.28}],
+    // Layer 2
+    [{ixt:5.5,ity:0.04},{ixt:5.7,ity:1.1},{ixt:5.9,ity:1.9},{ixt:5.7,ity:2.1},
+     {ixt:5.3,ity:2.2},{ixt:4.8,ity:2.25},{ixt:4.2,ity:2.28},{ixt:3.8,ity:2.3}],
+    // Layer 3
+    [{ixt:3.8,ity:0.03},{ixt:4.0,ity:1.2},{ixt:4.1,ity:1.95},{ixt:4.0,ity:2.15},
+     {ixt:3.6,ity:2.25},{ixt:3.0,ity:2.3},{ixt:2.4,ity:2.32},{ixt:2.0,ity:2.34}],
+    // Layer 4 (output): fastest to compress
+    [{ixt:2.5,ity:0.03},{ixt:2.8,ity:1.3},{ixt:3.0,ity:2.0},{ixt:2.8,ity:2.25},
+     {ixt:2.3,ity:2.32},{ixt:1.7,ity:2.36},{ixt:1.2,ity:2.38},{ixt:0.9,ity:2.4}],
+  ];
+
+  return {epochs, layers, cols, traj, maxX, maxY};
+})();
+
+let planeStep = 0;
+const planeTotalSteps = planeData.epochs;
+
+const planeStepInfo = [
+  {badge:'Epoch 0', title:'Random Initialisation', desc:'At random initialisation all layers cluster near the input axis — high I(X;T), near-zero I(T;Y). The network has not learned anything yet; every layer just passes (noisy) input information.'},
+  {badge:'Epoch 1', title:'Fitting Phase Begins', desc:'I(T;Y) rises sharply as the network learns to predict the labels. I(X;T) barely changes — the network is memorising, not yet compressing. This is the fitting phase.'},
+  {badge:'Epoch 2', title:'Rapid Fitting', desc:'All layers continue moving upward in I(T;Y). The network is aggressively fitting the training data. I(X;T) may even increase slightly as layers capture more input detail.'},
+  {badge:'Epoch 3', title:'Peak I(X;T)', desc:'I(T;Y) is near its maximum. I(X;T) peaks. The network has learned all the discriminative patterns but also retains significant irrelevant information.'},
+  {badge:'Epoch 4', title:'Compression Begins', desc:'I(X;T) starts to decrease — the compression phase. The network begins discarding input information that is not useful for predicting Y, moving left on the information plane.'},
+  {badge:'Epoch 5', title:'Compression in Progress', desc:'Layers further from the input compress faster. Deeper layers (red, amber) move sharply left; earlier layers (blue) compress slowly. This mirrors how deep nets learn hierarchical abstractions.'},
+  {badge:'Epoch 6', title:'Approaching IB Curve', desc:'Layers are approaching the theoretically optimal IB curve (shown in cyan). Each layer's representation is becoming a more efficient, compressed version of the input.'},
+  {badge:'Epoch 7', title:'Near-Optimal Compression', desc:'Training converges. Layers sit close to or on the IB curve — each is nearly an optimal lossy compression of X for predicting Y at its particular I(X;T) operating point.'},
+];
+
+function drawPlane(ctx, W, H, step) {
+  const {traj, maxX, maxY, cols} = planeData;
+  const PAD = {left:55, right:20, top:20, bottom:50};
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const toCanvas = (ixt, ity) => ({
+    x: PAD.left + (ixt / maxX) * plotW,
+    y: PAD.top + plotH - (ity / maxY) * plotH
+  });
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw IB curve (concave, from (0,0) to (maxX,maxY))
+  // Parameterise: ity = maxY * (1 - exp(-k * ixt / maxX))
+  const k = 3.5;
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ACC1';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6,4]);
+  for (let i = 0; i <= 200; i++) {
+    const ixt = (i / 200) * maxX;
+    const ity = maxY * (1 - Math.exp(-k * ixt / maxX));
+    const p = toCanvas(ixt, ity);
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Shade achievable region (below IB curve)
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(0,172,193,0.07)';
+  for (let i = 0; i <= 200; i++) {
+    const ixt = (i / 200) * maxX;
+    const ity = maxY * (1 - Math.exp(-k * ixt / maxX));
+    const p = toCanvas(ixt, ity);
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  {const corner1 = toCanvas(maxX, 0); const corner2 = toCanvas(0, 0);
+   ctx.lineTo(corner1.x, corner1.y); ctx.lineTo(corner2.x, corner2.y);}
+  ctx.closePath(); ctx.fill();
+
+  // IB curve label
+  {const p = toCanvas(6.5, maxY * (1 - Math.exp(-k * 6.5 / maxX)));
+   ctx.fillStyle = '#00ACC1'; ctx.font = 'bold 11px DM Sans,sans-serif';
+   ctx.fillText('IB curve', p.x + 6, p.y - 6);}
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.07)'; ctx.lineWidth = 1;
+  for (let g = 0; g <= 5; g++) {
+    const ixt = g * (maxX / 5);
+    const p = toCanvas(ixt, 0);
+    ctx.beginPath(); ctx.moveTo(p.x, PAD.top); ctx.lineTo(p.x, PAD.top + plotH); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(ixt.toFixed(0), p.x, PAD.top + plotH + 18);
+  }
+  for (let g = 0; g <= 5; g++) {
+    const ity = g * (maxY / 5);
+    const p = toCanvas(0, ity);
+    ctx.beginPath(); ctx.moveTo(PAD.left, p.y); ctx.lineTo(PAD.left + plotW, p.y); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(ity.toFixed(1), PAD.left - 6, p.y + 4);
+  }
+
+  // Axis labels
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.font = 'bold 12px DM Sans,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('I(X; T) — Input Information Retained', PAD.left + plotW / 2, H - 8);
+  ctx.save(); ctx.translate(14, PAD.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('I(T; Y) — Label Information', 0, 0); ctx.restore();
+
+  // Axis border
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(PAD.left, PAD.top, plotW, plotH);
+
+  // Draw trajectories up to current step
+  for (let l = 0; l < 5; l++) {
+    const col = cols[l];
+    // Path
+    ctx.beginPath();
+    ctx.strokeStyle = col + 'aa';
+    ctx.lineWidth = 1.5;
+    for (let s = 0; s <= step && s < planeTotalSteps; s++) {
+      const p = toCanvas(traj[l][s].ixt, traj[l][s].ity);
+      s === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    // Dots for each visible step
+    for (let s = 0; s <= step && s < planeTotalSteps; s++) {
+      const p = toCanvas(traj[l][s].ixt, traj[l][s].ity);
+      const isCurrent = (s === step);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isCurrent ? 7 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = isCurrent ? col : col + '88';
+      ctx.fill();
+      if (isCurrent) {
+        ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
+        // label
+        ctx.fillStyle = col; ctx.font = 'bold 11px DM Sans,sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText(`L${l+1}`, p.x + 9, p.y + 4);
+      }
+    }
+  }
+}
+
+function planeReset() {
+  planeStep = 0;
+  refreshPlane();
+}
+function planeGo(d) {
+  planeStep = Math.max(0, Math.min(planeTotalSteps - 1, planeStep + d));
+  refreshPlane();
+}
+function refreshPlane() {
+  const canvas = document.getElementById('planeCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 640;
+  const H = Math.round(W * 440 / 640);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  drawPlane(ctx, W, H, planeStep);
+
+  const info = planeStepInfo[planeStep];
+  document.getElementById('planeBadge').textContent = info.badge;
+  document.getElementById('planeTitle').textContent = info.title;
+  document.getElementById('planeDesc').textContent = info.desc;
+  document.getElementById('planePrev').disabled = planeStep === 0;
+  document.getElementById('planeNext').disabled = planeStep === planeTotalSteps - 1;
+
+  const dots = document.getElementById('planeDots');
+  dots.innerHTML = '';
+  for (let i = 0; i < planeTotalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < planeStep ? ' done' : '') + (i === planeStep ? ' active' : '');
+    d.onclick = () => { planeStep = i; refreshPlane(); };
+    dots.appendChild(d);
+  }
+  if (window.renderMathInElement) window.renderMathInElement(document.getElementById('planeStepCard'));
+}
+
+// ══════════════════════════════════════════════════
+//  IB CURVE VISUALISATION
+// ══════════════════════════════════════════════════
+function drawIBCurve(beta) {
+  const canvas = document.getElementById('ibCurveCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 640;
+  const H = Math.round(W * 440 / 640);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  const maxIXT = 10, maxITY = 3;
+  const PAD = {left:55, right:20, top:20, bottom:50};
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const toC = (ixt, ity) => ({
+    x: PAD.left + (ixt / maxIXT) * plotW,
+    y: PAD.top + plotH - (ity / maxITY) * plotH
+  });
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Achievable region fill
+  const k = 3.0;
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(0,172,193,0.08)';
+  for (let i = 0; i <= 200; i++) {
+    const ixt = (i / 200) * maxIXT;
+    const ity = maxITY * (1 - Math.exp(-k * ixt / maxIXT));
+    const p = toC(ixt, ity);
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  {const c1 = toC(maxIXT, 0), c2 = toC(0, 0);
+   ctx.lineTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);}
+  ctx.closePath(); ctx.fill();
+
+  // Grid
+  ctx.strokeStyle = 'rgba(0,0,0,0.07)'; ctx.lineWidth = 1;
+  for (let g = 0; g <= 5; g++) {
+    const ixt = g * (maxIXT / 5);
+    const p = toC(ixt, 0);
+    ctx.beginPath(); ctx.moveTo(p.x, PAD.top); ctx.lineTo(p.x, PAD.top + plotH); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(ixt.toFixed(0), p.x, PAD.top + plotH + 18);
+    const ity = g * (maxITY / 5);
+    const q = toC(0, ity);
+    ctx.beginPath(); ctx.moveTo(PAD.left, q.y); ctx.lineTo(PAD.left + plotW, q.y); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.textAlign = 'right';
+    ctx.fillText(ity.toFixed(1), PAD.left - 6, q.y + 4);
+  }
+
+  // IB curve
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ACC1'; ctx.lineWidth = 2.5; ctx.setLineDash([]);
+  for (let i = 0; i <= 200; i++) {
+    const ixt = (i / 200) * maxIXT;
+    const ity = maxITY * (1 - Math.exp(-k * ixt / maxIXT));
+    const p = toC(ixt, ity);
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+
+  // β tangent line: slope = dity/dixt at operating point = β
+  // On IB curve ity = C(1-e^{-k*ixt/X}), d(ity)/d(ixt) = C*k/X * e^{-k*ixt/X}
+  // Find ixt s.t. derivative = β (clamped to curve)
+  // derivative = (maxITY * k / maxIXT) * exp(-k * ixt / maxIXT)
+  // => ixt = -maxIXT/k * ln(beta * maxIXT / (maxITY * k))
+  const slope = beta; // the slope of the tangent is β in the Lagrangian
+  const innerArg = (slope * maxIXT) / (maxITY * k);
+  let opIXT, opITY;
+  if (innerArg > 0 && innerArg < 1) {
+    opIXT = (-maxIXT / k) * Math.log(innerArg);
+    opIXT = Math.max(0.1, Math.min(maxIXT - 0.1, opIXT));
+    opITY = maxITY * (1 - Math.exp(-k * opIXT / maxIXT));
+  } else if (innerArg >= 1) {
+    // beta very small → near origin
+    opIXT = 0.2; opITY = maxITY * (1 - Math.exp(-k * 0.2 / maxIXT));
+  } else {
+    // beta very large → near top-right
+    opIXT = maxIXT * 0.95; opITY = maxITY * (1 - Math.exp(-k * 0.95));
+  }
+
+  const op = toC(opIXT, opITY);
+
+  // Draw tangent line through op with slope beta (in data space = dity/dixt = beta → in canvas: -canvas_beta)
+  const canvasSlope = -beta * (plotH / maxITY) / (plotW / maxIXT);
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(83,74,183,0.35)'; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]);
+  const dx = 200;
+  ctx.moveTo(op.x - dx, op.y - canvasSlope * (-dx));
+  ctx.lineTo(op.x + dx, op.y - canvasSlope * dx);
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Operating point
+  ctx.beginPath();
+  ctx.arc(op.x, op.y, 10, 0, Math.PI * 2);
+  ctx.fillStyle = '#534AB7'; ctx.fill();
+  ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#534AB7'; ctx.font = 'bold 11px DM Sans,sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(`β=${beta.toFixed(2)}`, op.x + 14, op.y + 4);
+
+  // Projections
+  ctx.strokeStyle = 'rgba(83,74,183,0.3)'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(op.x, op.y); ctx.lineTo(op.x, PAD.top + plotH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(op.x, op.y); ctx.lineTo(PAD.left, op.y); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Axis values at op
+  ctx.fillStyle = '#534AB7'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(opIXT.toFixed(1), op.x, PAD.top + plotH + 18);
+  ctx.textAlign = 'right';
+  ctx.fillText(opITY.toFixed(2), PAD.left - 6, op.y + 4);
+
+  // Labels
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.font = 'bold 12px DM Sans,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('I(X; T) — Compression (bits)', PAD.left + plotW / 2, H - 8);
+  ctx.save(); ctx.translate(14, PAD.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('I(T; Y) — Relevance (bits)', 0, 0); ctx.restore();
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(PAD.left, PAD.top, plotW, plotH);
+
+  // IB label
+  {const p = toC(7, maxITY * (1 - Math.exp(-k * 7 / maxIXT)) + 0.15);
+   ctx.fillStyle = '#00ACC1'; ctx.font = 'bold 11px DM Sans,sans-serif'; ctx.textAlign = 'left';
+   ctx.fillText('IB curve', p.x, p.y);}
+
+  return {opIXT, opITY};
+}
+
+function updateIBCurve() {
+  const raw = parseInt(document.getElementById('betaSlider').value, 10);
+  const beta = raw / 100;
+  document.getElementById('betaVal').textContent = beta.toFixed(2);
+  const op = drawIBCurve(beta);
+  document.getElementById('ibBadge').textContent = `β = ${beta.toFixed(2)}`;
+  let title, desc;
+  if (beta < 0.05) {
+    title = 'Maximum compression (β ≈ 0)';
+    desc = 'At β=0 the Lagrangian ignores I(T;Y) entirely. The optimal T is a constant — complete compression, zero relevance. Every X maps to the same symbol.';
+  } else if (beta < 0.2) {
+    title = 'High compression, low relevance';
+    desc = `Operating near the origin: I(X;T)≈${op.opIXT.toFixed(1)} bits. The bottleneck is very tight — T retains only I(T;Y)≈${op.opITY.toFixed(2)} bits of Y's information.`;
+  } else if (beta < 0.6) {
+    title = 'Moderate compression';
+    desc = `A balanced trade-off: I(X;T)≈${op.opIXT.toFixed(1)} bits, I(T;Y)≈${op.opITY.toFixed(2)} bits. The tangent slope β = ${beta.toFixed(2)} selects this point on the IB curve. Increasing β moves right along the curve.`;
+  } else if (beta < 0.9) {
+    title = 'Low compression, high relevance';
+    desc = `I(X;T)≈${op.opIXT.toFixed(1)} bits — retaining most input information. I(T;Y)≈${op.opITY.toFixed(2)} bits approaches the theoretical maximum. Little is discarded.`;
+  } else {
+    title = 'No compression (β → ∞)';
+    desc = 'As β→∞, the penalty on I(T;Y) dominates and the optimal T = X (no compression). I(X;T) equals the entropy H(X) and I(T;Y) = I(X;Y).';
+  }
+  document.getElementById('ibTitle').textContent = title;
+  document.getElementById('ibDesc').textContent = desc;
+}
+
+// ══════════════════════════════════════════════════
+//  COMPRESSION SIMULATION
+// ══════════════════════════════════════════════════
+// 8 input symbols x0..x7, 4 output classes y0..y3
+// p(Y|X) matrix:
+const pYgX = [
+  [0.8, 0.1, 0.05, 0.05],  // x0 → mostly y0
+  [0.7, 0.2, 0.05, 0.05],  // x1 → mostly y0
+  [0.1, 0.8, 0.05, 0.05],  // x2 → mostly y1
+  [0.1, 0.75, 0.1, 0.05],  // x3 → mostly y1
+  [0.05, 0.1, 0.75, 0.1],  // x4 → mostly y2
+  [0.05, 0.05, 0.8, 0.1],  // x5 → mostly y2
+  [0.05, 0.05, 0.1, 0.8],  // x6 → mostly y3
+  [0.05, 0.1, 0.05, 0.8],  // x7 → mostly y3
+];
+const nX = 8, nY = 4;
+const pX = Array(nX).fill(1/nX); // uniform
+
+function klDiv(p, q) {
+  let kl = 0;
+  for (let i = 0; i < p.length; i++) {
+    if (p[i] > 1e-12 && q[i] > 1e-12) kl += p[i] * Math.log(p[i] / q[i]);
+  }
+  return kl;
+}
+
+function ibIterate(nT, beta, iters=60) {
+  // Random init for p(T|X): nX × nT
+  let pTgX = Array.from({length:nX}, () => {
+    let r = Array.from({length:nT}, () => Math.random()+0.01);
+    const s = r.reduce((a,b)=>a+b);
+    return r.map(v=>v/s);
+  });
+
+  for (let iter = 0; iter < iters; iter++) {
+    // p(T) = sum_x p(x) p(T|x)
+    let pT = Array(nT).fill(0);
+    for (let x=0;x<nX;x++) for (let t=0;t<nT;t++) pT[t] += pX[x]*pTgX[x][t];
+    // p(Y|T) = sum_x p(Y|x) p(x|T) = sum_x p(Y|x) p(T|x) p(x) / p(T)
+    let pYgT = Array.from({length:nT},()=>Array(nY).fill(0));
+    for (let t=0;t<nT;t++) {
+      if (pT[t] < 1e-12) {pYgT[t]=Array(nY).fill(1/nY); continue;}
+      for (let x=0;x<nX;x++) {
+        const w = pTgX[x][t]*pX[x]/pT[t];
+        for (let y=0;y<nY;y++) pYgT[t][y] += pYgX[x][y]*w;
+      }
+    }
+    // Update p(T|x) using IB fixed-point
+    let newPTgX = Array.from({length:nX},()=>Array(nT).fill(0));
+    for (let x=0;x<nX;x++) {
+      let row = Array(nT).fill(0);
+      for (let t=0;t<nT;t++) {
+        const kl = klDiv(pYgX[x], pYgT[t]);
+        row[t] = pT[t] * Math.exp(-beta * kl);
+      }
+      const s = row.reduce((a,b)=>a+b,0)+1e-15;
+      newPTgX[x] = row.map(v=>v/s);
+    }
+    pTgX = newPTgX;
+  }
+
+  // Compute I(X;T) and I(T;Y)
+  let pT = Array(nT).fill(0);
+  for (let x=0;x<nX;x++) for (let t=0;t<nT;t++) pT[t] += pX[x]*pTgX[x][t];
+  let iXT = 0;
+  for (let x=0;x<nX;x++) for (let t=0;t<nT;t++) {
+    const jt = pX[x]*pTgX[x][t];
+    if (jt>1e-12 && pT[t]>1e-12 && pX[x]>1e-12) iXT += jt*Math.log2(pTgX[x][t]/pT[t]);
+  }
+  let pYgT = Array.from({length:nT},()=>Array(nY).fill(0));
+  for (let t=0;t<nT;t++) {
+    if (pT[t]<1e-12) {pYgT[t]=Array(nY).fill(1/nY); continue;}
+    for (let x=0;x<nX;x++) {
+      const w=pTgX[x][t]*pX[x]/pT[t];
+      for (let y=0;y<nY;y++) pYgT[t][y]+=pYgX[x][y]*w;
+    }
+  }
+  let pY = Array(nY).fill(0);
+  for (let t=0;t<nT;t++) for (let y=0;y<nY;y++) pY[y]+=pT[t]*pYgT[t][y];
+  let iTY = 0;
+  for (let t=0;t<nT;t++) for (let y=0;y<nY;y++) {
+    const jt=pT[t]*pYgT[t][y];
+    if (jt>1e-12&&pY[y]>1e-12) iTY+=jt*Math.log2(pYgT[t][y]/pY[y]);
+  }
+
+  // Determine cluster assignment: argmax t for each x
+  const assign = pTgX.map(row => row.indexOf(Math.max(...row)));
+  // Count effective clusters (those with pT > threshold)
+  const effClusters = pT.filter(v=>v>0.02).length;
+  return {pTgX, pT, iXT: Math.max(0, iXT), iTY: Math.max(0, iTY), assign, effClusters};
+}
+
+function updateCompress() {
+  const raw = parseInt(document.getElementById('betaCompress').value, 10);
+  const beta = raw / 10;
+  document.getElementById('betaCompressVal').textContent = beta.toFixed(1);
+
+  // Choose nT: more clusters at higher beta
+  let nT;
+  if (beta < 1.5) nT = 1;
+  else if (beta < 2.5) nT = 2;
+  else if (beta < 3.5) nT = 3;
+  else nT = 4;
+
+  const res = ibIterate(nT, beta);
+  drawCompress(res, beta);
+  document.getElementById('compressBadge').textContent = `β=${beta.toFixed(1)}, Clusters: ${res.effClusters}`;
+  const descs = {1:'β is small: T=1 cluster for all X symbols. Minimum rate, zero relevance — the encoder collapses everything.',2:'β increased: 2 clusters emerge. X symbols that strongly predict Y=0,1 form one cluster; Y=2,3 form another.',3:'β = 3 clusters: each Y class gets roughly its own cluster in T. The encoder separates y0/y1 from y2/y3 from ambiguous symbols.',4:'β large: 4 clusters — one per Y class. T is an almost-sufficient statistic. Further increasing β leaves T≈X.'};
+  document.getElementById('compressDesc').textContent = descs[Math.min(res.effClusters,4)] || descs[4];
+}
+
+function drawCompress(res, beta) {
+  const canvas = document.getElementById('compressCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 640;
+  const H = Math.round(W * 360 / 640);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const {assign, iXT, iTY} = res;
+  const clusterCols = ['#185FA5','#534AB7','#3B6D11','#A32D2D','#854F0B','#00ACC1'];
+  const xLabels = ['x₀','x₁','x₂','x₃','x₄','x₅','x₆','x₇'];
+  const yLabels = ['y₀','y₁','y₂','y₃'];
+
+  const PAD = 30;
+  const boxW = Math.floor((W - 2*PAD - 100) / nX);
+  const boxH = 60;
+  const startX = PAD + 50;
+  const rowY = [H*0.15, H*0.5, H*0.78];
+
+  // Title row: I(X;T) and I(T;Y)
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.font = 'bold 12px DM Sans,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(`I(X;T) = ${iXT.toFixed(2)} bits    I(T;Y) = ${iTY.toFixed(2)} bits`, W/2, 18);
+
+  // Draw X symbols
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Input X symbols', W/2, rowY[0] - 24);
+  for (let x=0;x<nX;x++) {
+    const bx = startX + x * boxW;
+    const by = rowY[0];
+    const col = clusterCols[assign[x] % clusterCols.length];
+    ctx.fillStyle = col + '33';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(bx, by, boxW-6, boxH, 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col; ctx.font = 'bold 13px DM Sans,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(xLabels[x], bx + (boxW-6)/2, by + 22);
+    ctx.font = '10px DM Sans,sans-serif'; ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    const dominant = pYgX[x].indexOf(Math.max(...pYgX[x]));
+    ctx.fillText(`→${yLabels[dominant]}`, bx + (boxW-6)/2, by + 42);
+  }
+
+  // Draw cluster T layer
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Bottleneck T (clusters)', W/2, rowY[1] - 18);
+  const clustersUsed = [...new Set(assign)].sort();
+  const clW = Math.min(100, (W - 2*PAD) / clustersUsed.length - 12);
+  const totalClW = clustersUsed.length * (clW + 10);
+  const clStartX = (W - totalClW) / 2;
+  for (let ci=0;ci<clustersUsed.length;ci++) {
+    const t = clustersUsed[ci];
+    const bx = clStartX + ci*(clW+10);
+    const by = rowY[1];
+    const col = clusterCols[t % clusterCols.length];
+    const members = assign.map((a,i)=>a===t?xLabels[i]:null).filter(Boolean);
+    ctx.fillStyle = col + '22'; ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.roundRect(bx, by, clW, 52, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col; ctx.font = 'bold 13px DM Sans,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`t${t+1}`, bx+clW/2, by+20);
+    ctx.font = '10px DM Sans,sans-serif'; ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillText(`{${members.join(',')}}`, bx+clW/2, by+38);
+    // Draw arrows from X symbols to cluster
+    for (let x=0;x<nX;x++) {
+      if (assign[x]===t) {
+        const srcX = startX + x*boxW + (boxW-6)/2;
+        const srcY = rowY[0] + boxH;
+        const dstX = bx + clW/2;
+        const dstY = by;
+        ctx.beginPath();
+        ctx.strokeStyle = col + '55'; ctx.lineWidth = 1.5; ctx.setLineDash([3,3]);
+        ctx.moveTo(srcX, srcY); ctx.lineTo(dstX, dstY); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // Draw Y labels
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.font = '11px DM Sans,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Output Y (labels)', W/2, rowY[2] - 18);
+  const yW = 60;
+  const yStartX = (W - nY*(yW+10)) / 2;
+  for (let y=0;y<nY;y++) {
+    const bx = yStartX + y*(yW+10);
+    const by = rowY[2];
+    ctx.fillStyle = 'rgba(59,109,17,0.1)'; ctx.strokeStyle = '#3B6D11'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(bx,by,yW,40,8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3B6D11'; ctx.font = 'bold 13px DM Sans,sans-serif'; ctx.textAlign='center';
+    ctx.fillText(yLabels[y], bx+yW/2, by+26);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  TAB SWITCHING
+// ══════════════════════════════════════════════════
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  event.target.classList.add('active');
+  if (id==='plane') refreshPlane();
+  if (id==='ibcurve') updateIBCurve();
+  if (id==='compress') updateCompress();
+}
+
+// ══════════════════════════════════════════════════
+//  KEYBOARD NAV
+// ══════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  const activePlane = document.getElementById('tab-plane').classList.contains('active');
+  if (activePlane) {
+    if (e.key==='ArrowRight') planeGo(1);
+    if (e.key==='ArrowLeft') planeGo(-1);
+    if (e.key==='r'||e.key==='R') planeReset();
+  }
+});
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  refreshPlane();
+  updateIBCurve();
+  updateCompress();
+  if (window.renderMathInElement) renderMathInElement(document.body, {
+    delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+  });
+});
+window.addEventListener('resize', () => {
+  const activePlane = document.getElementById('tab-plane').classList.contains('active');
+  const activeIB = document.getElementById('tab-ibcurve').classList.contains('active');
+  const activeCompress = document.getElementById('tab-compress').classList.contains('active');
+  if (activePlane) refreshPlane();
+  if (activeIB) updateIBCurve();
+  if (activeCompress) updateCompress();
+});
+</script>
+</body>
+</html>
