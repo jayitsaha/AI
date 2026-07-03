@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Population-based Training (PBT)</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });"></script>
+
+  <style>
+    /* ===== DESIGN TOKENS ===== */
+    :root {
+      --bg: #f9f8f5; --bg2: #f0efe9; --surface: #ffffff;
+      --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+      --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --sans: 'DM Sans', system-ui, sans-serif;
+      --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+      --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+      --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+      --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+      --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+      --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+      --radius: 10px; --radius-lg: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+        --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+        --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+        --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+        --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+        --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+        --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+        --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+        --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+      }
+    }
+
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    a { color: var(--blue-mid); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ===== LAYOUT ===== */
+    .page-wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+    /* ===== HEADER ===== */
+    .page-header {
+      text-align: center;
+      padding: 2.5rem 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+    .page-header h1 {
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 0.6rem;
+    }
+    .page-header .subtitle {
+      color: var(--text2);
+      font-size: 1rem;
+      max-width: 600px;
+      margin: 0 auto 1.2rem;
+    }
+    .tags { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+    .tag {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .tag-advanced { background: var(--red-bg); border: 1px solid var(--red-border); color: var(--red-text); }
+    .tag-category { background: var(--purple-bg); border: 1px solid var(--purple-border); color: var(--purple-text); }
+    .tag-complexity { background: var(--amber-bg); border: 1px solid var(--amber-border); color: var(--amber-text); }
+
+    /* ===== COLLAPSIBLE CARDS ===== */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.07); }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.1rem 1.4rem;
+      cursor: pointer;
+      user-select: none;
+      gap: 1rem;
+    }
+    .card-header:hover { background: var(--bg2); }
+    .card-title-group { display: flex; align-items: center; gap: 0.75rem; }
+    .card-num {
+      display: flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--purple-bg);
+      border: 1px solid var(--purple-border);
+      color: var(--purple-mid);
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .card-title { font-weight: 600; font-size: 1rem; }
+    .card-chevron { color: var(--text3); transition: transform 0.25s; font-size: 18px; flex-shrink: 0; }
+    .card.open .card-chevron { transform: rotate(180deg); }
+    .card-body { display: none; padding: 0 1.4rem 1.4rem; }
+    .card.open .card-body { display: block; }
+
+    /* ===== PROSE ===== */
+    p { margin-bottom: 0.85rem; }
+    h3 { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 1.25rem 0 0.5rem; }
+    ul, ol { margin: 0.5rem 0 0.85rem 1.4rem; }
+    li { margin-bottom: 0.3rem; }
+
+    /* ===== CALLOUT BOXES ===== */
+    .callout {
+      padding: 0.85rem 1.1rem;
+      border-radius: var(--radius);
+      border-left: 4px solid;
+      margin: 1rem 0;
+      font-size: 0.93rem;
+    }
+    .callout.green { background: var(--green-bg); border-color: var(--green-border); color: var(--green-text); }
+    .callout.amber { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-text); }
+    .callout.blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue-text); }
+    .callout.red { background: var(--red-bg); border-color: var(--red-border); color: var(--red-text); }
+    .callout .callout-label {
+      font-weight: 700; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
+      display: block; margin-bottom: 0.35rem;
+    }
+
+    /* ===== MATH ===== */
+    .eq {
+      text-align: center;
+      padding: 14px 20px;
+      margin: 0.75rem 0;
+      background: var(--cyan-bg);
+      border: 1px solid var(--cyan-border);
+      border-radius: var(--radius);
+      color: var(--cyan-text);
+      overflow-x: auto;
+    }
+
+    /* ===== PSEUDOCODE ===== */
+    .pseudocode {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.2rem;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.8;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      counter-reset: line-counter;
+    }
+    .pseudocode .line { display: flex; gap: 0.75rem; }
+    .pseudocode .ln {
+      color: var(--text3);
+      min-width: 20px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .pseudocode .code { color: var(--text); }
+    .pseudocode .kw { color: var(--purple-mid); font-weight: 600; }
+    .pseudocode .fn { color: var(--blue-mid); }
+    .pseudocode .cm { color: var(--text3); font-style: italic; }
+    .pseudocode .indent1 { padding-left: 1.5rem; }
+    .pseudocode .indent2 { padding-left: 3rem; }
+    .pseudocode .indent3 { padding-left: 4.5rem; }
+
+    /* ===== TABLES ===== */
+    .tbl-wrap { overflow-x: auto; margin: 0.75rem 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    th {
+      background: var(--bg2);
+      padding: 9px 12px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: var(--text2);
+      border-bottom: 2px solid var(--border2);
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg2); }
+
+    /* ===== CONTROLS ===== */
+    .controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+    .btn {
+      font-family: var(--sans); font-size: 13px; font-weight: 600;
+      padding: 10px 20px; border-radius: var(--radius);
+      border: 1px solid var(--border2); background: var(--surface);
+      color: var(--text); cursor: pointer; transition: all 0.2s;
+    }
+    .btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+    .btn-primary:hover { background: var(--purple-mid); color: #fff; }
+    .btn-red { background: var(--red-bg); border-color: var(--red-border); color: var(--red-mid); }
+
+    .progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+    .dot.active { background: var(--purple-mid); transform: scale(1.3); }
+    .dot.done { background: var(--green-mid); }
+    .kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+    /* ===== SIMULATION ===== */
+    #sim-container {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+    .sim-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .sim-label { font-weight: 700; font-size: 12px; letter-spacing: 0.06em; color: var(--text2); text-transform: uppercase; }
+    .sync-counter {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--purple-mid);
+      font-weight: 600;
+    }
+    /* Worker rows */
+    .workers-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.25rem; }
+    .worker-row {
+      display: grid;
+      grid-template-columns: 80px 1fr 72px 80px;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      transition: all 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .worker-row.top-performer { border-color: var(--green-border); background: var(--green-bg); }
+    .worker-row.bottom-performer { border-color: var(--red-border); background: var(--red-bg); }
+    .worker-row.flash-exploit { animation: flashExploit 0.6s ease; }
+    @keyframes flashExploit {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.02); box-shadow: 0 0 15px rgba(83,74,183,0.35); }
+      60% { transform: scale(1.01); }
+      100% { transform: scale(1); }
+    }
+    .worker-label { font-weight: 700; font-size: 12px; display: flex; align-items: center; gap: 5px; }
+    .worker-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .bar-wrap {
+      height: 16px;
+      background: var(--bg2);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 8px;
+      transition: width 0.5s ease;
+    }
+    .worker-score {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      text-align: right;
+    }
+    .worker-lr {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      text-align: right;
+    }
+    .exploit-badge {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--purple-mid);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .exploit-badge.visible { opacity: 1; }
+
+    /* Status indicator */
+    .sim-status {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      min-height: 36px;
+      transition: all 0.3s;
+    }
+    .sim-status.training { color: var(--blue-mid); background: var(--blue-bg); border: 1px solid var(--blue-border); }
+    .sim-status.syncing { color: var(--amber-mid); background: var(--amber-bg); border: 1px solid var(--amber-border); }
+    .sim-status.exploiting { color: var(--purple-mid); background: var(--purple-bg); border: 1px solid var(--purple-border); }
+    .sim-status.done { color: var(--green-mid); background: var(--green-bg); border: 1px solid var(--green-border); }
+
+    /* HP Schedule Chart */
+    .chart-section { margin-top: 1rem; }
+    .chart-title { font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+    #hp-canvas {
+      width: 100%;
+      height: 180px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: block;
+    }
+
+    /* Timeline */
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-top: 1rem;
+      overflow-x: auto;
+    }
+    .tl-seg {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 60px;
+    }
+    .tl-line {
+      height: 4px;
+      background: var(--border2);
+      width: 100%;
+      position: relative;
+      transition: background 0.4s;
+    }
+    .tl-line.passed { background: var(--green-mid); }
+    .tl-node {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--border2);
+      border: 2px solid var(--surface);
+      box-shadow: 0 0 0 2px var(--border2);
+      transition: all 0.4s;
+      flex-shrink: 0;
+    }
+    .tl-node.passed { background: var(--green-mid); box-shadow: 0 0 0 2px var(--green-mid); }
+    .tl-node.active { background: var(--purple-mid); box-shadow: 0 0 0 2px var(--purple-mid); animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.25)} }
+    .tl-label { font-size: 10px; color: var(--text3); font-weight: 600; }
+
+    /* Info card */
+    .info-card {
+      margin-top: 1rem;
+      padding: 0.85rem 1.1rem;
+      background: var(--blue-bg);
+      border: 1px solid var(--blue-border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      color: var(--blue-text);
+      min-height: 60px;
+      transition: all 0.3s;
+    }
+    .info-card strong { font-weight: 700; }
+
+    /* ===== COMPARISON TABLE BADGES ===== */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-green { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+    .badge-red { background: var(--red-bg); color: var(--red-mid); border: 1px solid var(--red-border); }
+    .badge-amber { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+    .badge-blue { background: var(--blue-bg); color: var(--blue-mid); border: 1px solid var(--blue-border); }
+    .badge-purple { background: var(--purple-bg); color: var(--purple-mid); border: 1px solid var(--purple-border); }
+
+    /* CHART LEGEND */
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text2); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 600px) {
+      .worker-row { grid-template-columns: 64px 1fr 60px 72px; }
+      #hp-canvas { height: 140px; }
+      .card-header { padding: 0.9rem 1rem; }
+      .card-body { padding: 0 1rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- ===== HEADER ===== -->
+  <header class="page-header">
+    <h1>Population-based Training (PBT)</h1>
+    <p class="subtitle">Discover hyperparameter schedules through parallel training &amp; competitive selection</p>
+    <div class="tags">
+      <span class="tag tag-advanced">Advanced</span>
+      <span class="tag tag-category">HPO / Optimization</span>
+      <span class="tag tag-complexity">Population &times; Steps</span>
+    </div>
+  </header>
+
+  <!-- ===== CARD 1: Understanding the Concept ===== -->
+  <div class="card open" id="card1">
+    <div class="card-header" onclick="toggleCard('card1')">
+      <div class="card-title-group">
+        <span class="card-num">1</span>
+        <span class="card-title">Understanding the Concept</span>
+      </div>
+      <span class="card-chevron">&#9660;</span>
+    </div>
+    <div class="card-body">
+      <p>
+        Population-based Training (PBT) simultaneously trains a <em>population of N models in parallel</em>.
+        Every T steps it evaluates all members, then the bottom-k models <strong>EXPLOIT</strong> (copy the
+        weights of a top performer) and <strong>EXPLORE</strong> (randomly perturb that worker's hyperparameters).
+        Instead of picking a fixed hyperparameter value before training starts, PBT discovers an
+        <em>adaptive schedule</em> where hyperparameters change throughout training.
+      </p>
+
+      <div class="callout green">
+        <span class="callout-label">Key Insight</span>
+        PBT produces a <strong>hyperparameter schedule</strong>, not a single fixed value — the learning rate at
+        step 10,000 may be completely different from step 1,000.
+      </div>
+
+      <h3>The Evolutionary Analogy</h3>
+      <p>
+        Think of PBT as <strong>natural selection for neural networks</strong>. Weak organisms (models with poor
+        scores) die and are replaced by offspring that inherit winning genes (weights from a top performer)
+        but with random mutations (hyperparameter perturbations). Over time, the population converges toward
+        a high-performing configuration — but one that <em>changes over the course of training</em> rather
+        than staying fixed.
+      </p>
+
+      <h3>Why Not Just Tune Once at the Start?</h3>
+      <p>
+        A learning rate that works well early in training (when gradients are large and noisy) may be completely
+        wrong later (when fine-tuning near a minimum). Standard HPO finds one value for the whole run. PBT
+        finds the best value for <em>each phase</em> of training automatically, without requiring the human
+        to specify a schedule in advance.
+      </p>
+
+      <ul>
+        <li><strong>Grid Search:</strong> Tries all combinations — exponentially expensive, no adaptation</li>
+        <li><strong>Bayesian Optimisation:</strong> Smarter search, but still produces a fixed HP value per run</li>
+        <li><strong>PBT:</strong> Adapts HPs <em>during</em> each run based on what's working right now</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===== CARD 2: How PBT Works Internally ===== -->
+  <div class="card" id="card2">
+    <div class="card-header" onclick="toggleCard('card2')">
+      <div class="card-title-group">
+        <span class="card-num">2</span>
+        <span class="card-title">How PBT Works Internally</span>
+      </div>
+      <span class="card-chevron">&#9660;</span>
+    </div>
+    <div class="card-body">
+      <h3>Algorithm Step-by-Step</h3>
+      <div class="pseudocode">
+        <div class="line"><span class="ln">1</span><span class="code"><span class="kw">Initialise</span> population of N workers, each with random θ (weights) and h (hyperparams)</span></div>
+        <div class="line"><span class="ln">2</span><span class="code"><span class="kw">while</span> training_budget_not_exhausted:</span></div>
+        <div class="line"><span class="ln">3</span><span class="code indent1"><span class="cm">// Each worker trains independently for T steps</span></span></div>
+        <div class="line"><span class="ln">4</span><span class="code indent1"><span class="kw">for each</span> worker i <span class="kw">in</span> population:</span></div>
+        <div class="line"><span class="ln">5</span><span class="code indent2">θ_i ← <span class="fn">train</span>(θ_i, h_i, steps=T)</span></div>
+        <div class="line"><span class="ln">6</span><span class="code"></span></div>
+        <div class="line"><span class="ln">7</span><span class="code indent1"><span class="cm">// Synchronisation point: evaluate all workers</span></span></div>
+        <div class="line"><span class="ln">8</span><span class="code indent1"><span class="kw">for each</span> worker i:</span></div>
+        <div class="line"><span class="ln">9</span><span class="code indent2">Q_i ← <span class="fn">evaluate</span>(θ_i, h_i)   <span class="cm">// score metric (val loss, reward, etc.)</span></span></div>
+        <div class="line"><span class="ln">10</span><span class="code"></span></div>
+        <div class="line"><span class="ln">11</span><span class="code indent1"><span class="cm">// Exploit/Explore for underperforming workers</span></span></div>
+        <div class="line"><span class="ln">12</span><span class="code indent1"><span class="kw">for each</span> worker i <span class="kw">in</span> bottom_fraction(population, p_exploit):</span></div>
+        <div class="line"><span class="ln">13</span><span class="code indent2">j ← <span class="fn">sample_from_top_fraction</span>(population)  <span class="cm">// pick a winner</span></span></div>
+        <div class="line"><span class="ln">14</span><span class="code indent2"><span class="cm">// EXPLOIT: copy weights AND hyperparams from winner</span></span></div>
+        <div class="line"><span class="ln">15</span><span class="code indent2">θ_i, h_i ← θ_j, h_j</span></div>
+        <div class="line"><span class="ln">16</span><span class="code indent2"><span class="cm">// EXPLORE: perturb the copied hyperparameters</span></span></div>
+        <div class="line"><span class="ln">17</span><span class="code indent2">h_i ← <span class="fn">perturb</span>(h_i)</span></div>
+        <div class="line"><span class="ln">18</span><span class="code"></span></div>
+        <div class="line"><span class="ln">19</span><span class="code indent1">Workers resume training from their new (θ_i, h_i)</span></div>
+      </div>
+
+      <h3>EXPLORE Strategies</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>How It Works</th>
+              <th>Best For</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Perturb</strong></td>
+              <td>Multiply by \(\mathcal{U}(0.8, 1.2)\)</td>
+              <td>Continuous HPs (learning rate, momentum)</td>
+            </tr>
+            <tr>
+              <td><strong>Resample</strong></td>
+              <td>Draw fresh from original prior</td>
+              <td>Categorical HPs (optimizer type, activation)</td>
+            </tr>
+            <tr>
+              <td><strong>Noise Injection</strong></td>
+              <td>Add \(\mathcal{N}(0, \sigma)\)</td>
+              <td>Bounded numeric HPs (dropout rate, weight decay)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Two Critical Design Choices</h3>
+      <ul>
+        <li><strong>Synchronisation period T:</strong> Too short &rarr; workers can't diverge meaningfully; too long &rarr; wasted compute on bad configs</li>
+        <li><strong>Fraction to exploit \(p_{exploit}\):</strong> Typically 20-25% of the population. Too high causes premature convergence; too low wastes compute on poor configs</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===== CARD 3: The Math ===== -->
+  <div class="card" id="card3">
+    <div class="card-header" onclick="toggleCard('card3')">
+      <div class="card-title-group">
+        <span class="card-num">3</span>
+        <span class="card-title">The Mathematics of PBT</span>
+      </div>
+      <span class="card-chevron">&#9660;</span>
+    </div>
+    <div class="card-body">
+      <p>Let the population be defined as:</p>
+      <div class="eq">$$\mathcal{P} = \{(\theta_i, h_i)\}_{i=1}^N$$</div>
+      <p>
+        where \(\theta_i\) are the model weights for worker \(i\), and \(h_i\) are its hyperparameters.
+        After \(T\) steps of training, each worker achieves a score:
+      </p>
+      <div class="eq">$$Q_i = Q(\theta_i, h_i)$$</div>
+
+      <h3>Exploit Rule</h3>
+      <p>
+        If worker \(i\) is an underperformer (\(Q_i &lt; Q_j\) for some high-performing worker \(j\)),
+        we copy both the weights AND hyperparameters:
+      </p>
+      <div class="eq">$$(\theta_i, h_i) \leftarrow (\theta_j, h_j)$$</div>
+
+      <h3>Explore Rule (Multiplicative Perturbation)</h3>
+      <p>
+        After copying, we perturb each hyperparameter dimension \(k\) by a random factor:
+      </p>
+      <div class="eq">$$h_i^{(k)} \leftarrow h_j^{(k)} \cdot \mathcal{U}(1-\delta,\ 1+\delta), \quad \delta \in (0,1)$$</div>
+      <p>
+        Common choices: \(\delta = 0.2\) (giving a \(\pm 20\%\) perturbation window). This ensures
+        the new hyperparameter stays in the same order of magnitude as the winner, while allowing
+        fine-grained exploration.
+      </p>
+
+      <h3>The Hyperparameter Schedule</h3>
+      <p>
+        The effective hyperparameter trajectory for worker \(i\) across all synchronisation checkpoints
+        \(t_0 &lt; t_1 &lt; \ldots &lt; t_K\) is:
+      </p>
+      <div class="eq">$$\mathbf{h}_i^* = \{h_i^{(t_0)},\ h_i^{(t_1)},\ \ldots,\ h_i^{(t_K)}\}$$</div>
+      <p>
+        This is the key insight: the <em>schedule space</em> of possible HP trajectories is
+        exponentially larger than the per-step HP space. PBT implicitly searches this richer space
+        by combining parallel exploration with weight-level exploitation.
+      </p>
+
+      <div class="callout amber">
+        <span class="callout-label">Common Misconception</span>
+        <strong>PBT is NOT a multi-armed bandit.</strong> Exploit/explore in PBT does not use a Bayesian prior or
+        posterior over hyperparameters. It is fundamentally a <strong>genetic algorithm</strong> operating
+        on the joint space of model weights &theta; and hyperparameters <em>h</em>. The key difference:
+        PBT copies weight checkpoints (not just HP values), making exploit far more powerful than
+        any bandit-style warm-start.
+      </div>
+
+      <h3>Convergence Intuition</h3>
+      <p>
+        Under mild conditions (sufficient population size, appropriate \(T\)), PBT can be viewed as
+        stochastic gradient descent in the joint \((\theta, h)\) space, where the exploit step
+        provides a noisy gradient step in HP space guided by empirical performance differences
+        \(Q_j - Q_i\).
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== CARD 4: Interactive Simulation ===== -->
+  <div class="card open" id="card4">
+    <div class="card-header" onclick="toggleCard('card4')">
+      <div class="card-title-group">
+        <span class="card-num">4</span>
+        <span class="card-title">Interactive Simulation</span>
+      </div>
+      <span class="card-chevron">&#9660;</span>
+    </div>
+    <div class="card-body">
+      <p style="color:var(--text2); font-size:13px; margin-bottom:0.75rem;">
+        Watch 6 workers train in parallel. At each sync point, the bottom 2 workers copy weights from
+        the top performers (EXPLOIT) and perturb their learning rates (EXPLORE). The HP Schedule chart
+        shows how each worker's learning rate evolves over time.
+      </p>
+
+      <div id="sim-container">
+        <div class="sim-top-row">
+          <span class="sim-label">PBT Simulation</span>
+          <span class="sync-counter" id="sync-counter">Sync Round: 0 / 5</span>
+        </div>
+
+        <div class="sim-status training" id="sim-status">
+          Press Play to start training...
+        </div>
+
+        <!-- Worker rows -->
+        <div class="workers-grid" id="workers-grid">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- HP Schedule Canvas -->
+        <div class="chart-section">
+          <div class="chart-title">Hyperparameter Schedule (Learning Rate per Worker)</div>
+          <canvas id="hp-canvas"></canvas>
+          <div class="chart-legend" id="chart-legend"></div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline-row" id="timeline-row"></div>
+
+        <!-- Info card -->
+        <div class="info-card" id="info-card">
+          <strong>Before training begins:</strong> Each worker starts with a randomly assigned learning rate.
+          Press Play to watch PBT in action.
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btn-prev" onclick="simPrev()" disabled>&#8592; Prev</button>
+        <button class="btn btn-primary" id="btn-play" onclick="simTogglePlay()">&#9654; Play</button>
+        <button class="btn" id="btn-next" onclick="simNext()">Next &#8594;</button>
+        <button class="btn btn-red" id="btn-reset" onclick="simReset()">&#8635; Reset</button>
+      </div>
+
+      <div class="progress-wrap" id="progress-dots"></div>
+      <div class="kbd-hint">Keyboard: ← → to navigate &nbsp;|&nbsp; Space to play/pause &nbsp;|&nbsp; R to reset</div>
+    </div>
+  </div>
+
+  <!-- ===== CARD 5: Takeaways & Comparisons ===== -->
+  <div class="card" id="card5">
+    <div class="card-header" onclick="toggleCard('card5')">
+      <div class="card-title-group">
+        <span class="card-num">5</span>
+        <span class="card-title">Takeaways &amp; Comparisons</span>
+      </div>
+      <span class="card-chevron">&#9660;</span>
+    </div>
+    <div class="card-body">
+      <h3>PBT vs. Alternatives</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>HPs</th>
+              <th>Parallelism</th>
+              <th>Adapts During Training</th>
+              <th>Compute Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Grid Search</strong></td>
+              <td>Fixed</td>
+              <td><span class="badge badge-red">None</span></td>
+              <td><span class="badge badge-red">No</span></td>
+              <td><span class="badge badge-red">Very High</span></td>
+            </tr>
+            <tr>
+              <td><strong>Random Search</strong></td>
+              <td>Fixed</td>
+              <td><span class="badge badge-red">None</span></td>
+              <td><span class="badge badge-red">No</span></td>
+              <td><span class="badge badge-amber">Medium</span></td>
+            </tr>
+            <tr>
+              <td><strong>Bayesian Opt.</strong></td>
+              <td>Fixed</td>
+              <td><span class="badge badge-amber">Sequential</span></td>
+              <td><span class="badge badge-red">No</span></td>
+              <td><span class="badge badge-amber">Medium</span></td>
+            </tr>
+            <tr>
+              <td><strong>Hyperband</strong></td>
+              <td>Fixed</td>
+              <td><span class="badge badge-blue">Yes (bracket)</span></td>
+              <td><span class="badge badge-red">No</span></td>
+              <td><span class="badge badge-amber">Medium</span></td>
+            </tr>
+            <tr>
+              <td><strong>PBT</strong></td>
+              <td><span class="badge badge-green">Schedule</span></td>
+              <td><span class="badge badge-green">Full (population)</span></td>
+              <td><span class="badge badge-green">Yes</span></td>
+              <td><span class="badge badge-amber">High</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>When to Use PBT</h3>
+      <ul>
+        <li><strong>Long training runs</strong> — RL agents, large neural networks where HPs matter at different phases</li>
+        <li><strong>Compute budget allows &ge;8 parallel workers</strong> — otherwise the population is too small to be meaningful</li>
+        <li><strong>HPs interact with training dynamics</strong> — learning rate schedule, entropy coefficient in RL, temperature annealing</li>
+        <li><strong>You suspect a fixed HP is suboptimal</strong> — when you know the HP should change but don't know how</li>
+      </ul>
+
+      <h3>When NOT to Use PBT</h3>
+      <ul>
+        <li>Small datasets where each run is fast — use random search or Bayesian optimisation instead</li>
+        <li>Tight compute budgets with fewer than 4 workers</li>
+        <li>Short training runs where HPs don't interact with training dynamics</li>
+        <li>When you already have a well-validated fixed HP schedule from prior experiments</li>
+      </ul>
+
+      <div class="callout blue">
+        <span class="callout-label">Historical Context</span>
+        PBT was introduced by <strong>Jaderberg et al. (2017)</strong> at DeepMind. It was used to train
+        AlphaGo-style agents for games — and found learning rate schedules that human experts could not
+        have designed manually. The key discovery: the optimal learning rate for RL agents should
+        <em>rise initially</em> (to encourage exploration) then <em>decay</em>, but the exact shape
+        of this schedule depends on the specific game and architecture in a way only PBT can discover automatically.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-wrap -->
+
+<script>
+// ===================================================
+// CARD TOGGLE
+// ===================================================
+function toggleCard(id) {
+  const card = document.getElementById(id);
+  card.classList.toggle('open');
+}
+
+// ===================================================
+// SIMULATION DATA (Deterministic)
+// ===================================================
+const WORKER_COLORS = [
+  { main: '#185FA5', bg: '#E6F1FB', border: '#85B7EB' },   // blue  - W1
+  { main: '#3B6D11', bg: '#EAF3DE', border: '#97C459' },   // green - W2
+  { main: '#854F0B', bg: '#FAEEDA', border: '#EF9F27' },   // amber - W3
+  { main: '#A32D2D', bg: '#FCEBEB', border: '#F09595' },   // red   - W4
+  { main: '#534AB7', bg: '#EEEDFE', border: '#AFA9EC' },   // purple- W5
+  { main: '#00ACC1', bg: '#E0F7FA', border: '#4DD0E1' },   // cyan  - W6
+];
+
+// Initial learning rates for 6 workers
+const INIT_LR = [0.01, 0.05, 0.001, 0.02, 0.005, 0.1];
+
+// Sync round data: scores before sync, then exploit targets
+const SYNC_ROUNDS = [
+  {
+    round: 1,
+    scores: [0.72, 0.85, 0.61, 0.78, 0.55, 0.90],
+    bottom: [2, 4],       // 0-indexed workers (score 0.61, 0.55)
+    top: [5, 1],          // exploit source (0-indexed, scores 0.90, 0.85)
+    newLR: [null, null, 0.092, null, 0.058, null],  // null = unchanged
+    desc: `<strong>Sync Round 1:</strong> Workers 3 &amp; 5 score lowest (0.61, 0.55). They EXPLOIT workers 6 &amp; 2
+    (scores 0.90, 0.85): copy their weights, then EXPLORE by multiplying LR by a random factor.
+    Worker 3: LR 0.001 &rarr; 0.092 (copied 0.1, &times;0.92). Worker 5: LR 0.005 &rarr; 0.058 (copied 0.05, &times;1.16).`
+  },
+  {
+    round: 2,
+    scores: [0.79, 0.88, 0.83, 0.82, 0.84, 0.93],
+    bottom: [0, 3],       // workers 1,4 score lowest (0.79, 0.82)
+    top: [5, 1],          // exploit workers 6,2
+    newLR: [0.11, null, null, 0.046, null, null],
+    desc: `<strong>Sync Round 2:</strong> Workers 1 &amp; 4 score lowest (0.79, 0.82). Worker 3 &amp; 5 have improved
+    dramatically after last round's exploit! Workers 1 &amp; 4 now EXPLOIT workers 6 &amp; 2.
+    Worker 1: LR 0.01 &rarr; 0.11 (copied 0.1, &times;1.10). Worker 4: LR 0.02 &rarr; 0.046 (copied 0.05, &times;0.92).`
+  },
+  {
+    round: 3,
+    scores: [0.87, 0.90, 0.88, 0.86, 0.89, 0.94],
+    bottom: [3, 0],
+    top: [5, 1],
+    newLR: [0.097, null, null, 0.104, null, null],
+    desc: `<strong>Sync Round 3:</strong> The population is converging — all scores now above 0.86! Workers 4 &amp; 1
+    are still at the bottom. They exploit again. Notice how the learning rates are clustering around
+    ~0.09-0.11, the region that seems to work best at this stage of training.`
+  },
+  {
+    round: 4,
+    scores: [0.91, 0.92, 0.91, 0.90, 0.92, 0.95],
+    bottom: [3, 0],
+    top: [5, 1],
+    newLR: [0.084, null, null, 0.091, null, null],
+    desc: `<strong>Sync Round 4:</strong> Scores are high and tightly clustered (0.90–0.95). The HP schedule has
+    converged: most workers are using LRs near 0.09. Worker 6 remains the consistent top performer.
+    The exploit/explore mechanism is now fine-tuning within a discovered optimal region.`
+  },
+  {
+    round: 5,
+    scores: [0.92, 0.93, 0.92, 0.91, 0.93, 0.96],
+    bottom: [3, 0],
+    top: [5, 1],
+    newLR: [0.095, null, null, 0.087, null, null],
+    desc: `<strong>Sync Round 5 (Final):</strong> Population has fully converged to a discovered LR schedule near 0.09–0.10.
+    The final best score is <strong>0.96</strong> (Worker 6). No human-designed LR schedule was needed — PBT
+    found that starting high (~0.1) and staying near that range works best for this training run.`
+  }
+];
+
+// ===================================================
+// SIM STATE
+// ===================================================
+let simState = {
+  currentRound: -1,   // -1 = initial (before any sync)
+  phase: 'idle',      // idle | training | syncing | exploiting | done
+  playing: false,
+  playTimer: null,
+  workerScores: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+  workerLR: [...INIT_LR],
+  trainingTimer: null,
+  trainingProgress: 0,
+  syncPhaseStep: 0,
+  hpHistory: [],       // array of [LR0..5] snapshots, one per sync point
+};
+
+// ===================================================
+// BUILD INITIAL DOM
+// ===================================================
+function buildWorkerRows() {
+  const grid = document.getElementById('workers-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const row = document.createElement('div');
+    row.className = 'worker-row';
+    row.id = `worker-row-${i}`;
+    row.innerHTML = `
+      <div class="worker-label">
+        <div class="worker-dot" style="background:${WORKER_COLORS[i].main}"></div>
+        Worker ${i+1}
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-fill" id="bar-${i}" style="width:0%; background:${WORKER_COLORS[i].main}"></div>
+      </div>
+      <div class="worker-score" id="score-${i}">0.00</div>
+      <div class="worker-lr" id="lr-${i}">LR: ${simState.workerLR[i].toFixed(3)}</div>
+      <div class="exploit-badge" id="badge-${i}"></div>
+    `;
+    grid.appendChild(row);
+  }
+}
+
+function buildLegend() {
+  const legend = document.getElementById('chart-legend');
+  legend.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<div class="legend-dot" style="background:${WORKER_COLORS[i].main}"></div>Worker ${i+1}`;
+    legend.appendChild(item);
+  }
+}
+
+function buildTimeline() {
+  const row = document.getElementById('timeline-row');
+  row.innerHTML = '';
+  for (let r = 0; r < 5; r++) {
+    const seg = document.createElement('div');
+    seg.className = 'tl-seg';
+    seg.innerHTML = `
+      <div class="tl-line" id="tl-line-${r}"></div>
+      <div class="tl-node" id="tl-node-${r}"></div>
+      <div class="tl-label">Sync ${r+1}</div>
+    `;
+    row.appendChild(seg);
+  }
+}
+
+function buildProgressDots() {
+  const wrap = document.getElementById('progress-dots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'dot';
+    dot.id = `dot-${i}`;
+    dot.onclick = () => jumpToRound(i);
+    wrap.appendChild(dot);
+  }
+}
+
+// ===================================================
+// RENDERING
+// ===================================================
+function renderWorkers() {
+  for (let i = 0; i < 6; i++) {
+    const score = simState.workerScores[i];
+    const lr = simState.workerLR[i];
+    document.getElementById(`bar-${i}`).style.width = `${score * 100}%`;
+    document.getElementById(`score-${i}`).textContent = score.toFixed(2);
+    document.getElementById(`lr-${i}`).textContent = `LR: ${lr.toFixed(3)}`;
+  }
+}
+
+function renderTimeline() {
+  for (let r = 0; r < 5; r++) {
+    const node = document.getElementById(`tl-node-${r}`);
+    const line = document.getElementById(`tl-line-${r}`);
+    node.className = 'tl-node';
+    line.className = 'tl-line';
+    if (r < simState.currentRound) {
+      node.classList.add('passed');
+      line.classList.add('passed');
+    } else if (r === simState.currentRound) {
+      node.classList.add('active');
+    }
+  }
+}
+
+function renderProgressDots() {
+  for (let i = 0; i < 5; i++) {
+    const dot = document.getElementById(`dot-${i}`);
+    dot.className = 'dot';
+    if (i < simState.currentRound) dot.classList.add('done');
+    else if (i === simState.currentRound) dot.classList.add('active');
+  }
+}
+
+function renderWorkerHighlights(bottom, top) {
+  for (let i = 0; i < 6; i++) {
+    const row = document.getElementById(`worker-row-${i}`);
+    row.className = 'worker-row';
+    if (bottom && bottom.includes(i)) row.classList.add('bottom-performer');
+    else if (top && top.includes(i)) row.classList.add('top-performer');
+  }
+}
+
+function clearWorkerHighlights() {
+  for (let i = 0; i < 6; i++) {
+    document.getElementById(`worker-row-${i}`).className = 'worker-row';
+  }
+}
+
+function showBadge(workerIdx, text) {
+  const badge = document.getElementById(`badge-${workerIdx}`);
+  badge.textContent = text;
+  badge.classList.add('visible');
+  setTimeout(() => badge.classList.remove('visible'), 2500);
+}
+
+function flashWorkerExploit(idx) {
+  const row = document.getElementById(`worker-row-${idx}`);
+  row.classList.add('flash-exploit');
+  setTimeout(() => row.classList.remove('flash-exploit'), 700);
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('sim-status');
+  el.className = `sim-status ${cls}`;
+  el.textContent = msg;
+}
+
+function setInfoCard(html) {
+  document.getElementById('info-card').innerHTML = html;
+}
+
+function renderButtons() {
+  document.getElementById('btn-prev').disabled = simState.currentRound <= -1;
+  document.getElementById('btn-next').disabled = simState.currentRound >= 4;
+  const playBtn = document.getElementById('btn-play');
+  playBtn.textContent = simState.playing ? '⏸ Pause' : '▶ Play';
+  document.getElementById('sync-counter').textContent =
+    `Sync Round: ${simState.currentRound < 0 ? 0 : simState.currentRound + 1} / 5`;
+}
+
+// ===================================================
+// HP SCHEDULE CHART (Canvas)
+// ===================================================
+function drawHPChart() {
+  const canvas = document.getElementById('hp-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+
+  // Background
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.fillStyle = isDark ? '#2a2a2d' : '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  const padLeft = 44, padRight = 16, padTop = 14, padBottom = 28;
+  const chartW = W - padLeft - padRight;
+  const chartH = H - padTop - padBottom;
+
+  // All data points: initial + history snapshots
+  const allData = [INIT_LR, ...simState.hpHistory];
+  const numPoints = allData.length;  // 1 to 6
+
+  // Y axis: LR range
+  const allLRs = allData.flat();
+  const minLR = 0.0;
+  const maxLR = 0.14;
+  const yScale = (lr) => padTop + chartH - ((lr - minLR) / (maxLR - minLR)) * chartH;
+
+  // X positions
+  const xPos = (idx) => padLeft + (numPoints <= 1 ? chartW / 2 : (idx / (5)) * chartW);
+
+  // Draw grid lines
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+  ctx.lineWidth = 1;
+  const yTicks = [0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14];
+  yTicks.forEach(val => {
+    const y = yScale(val);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y);
+    ctx.lineTo(W - padRight, y);
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = isDark ? '#9c9a92' : '#9c9a92';
+    ctx.font = `${10 * dpr / dpr}px JetBrains Mono, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText(val.toFixed(2), padLeft - 4, y + 3.5);
+  });
+
+  // X axis labels (Sync 0 = init, Sync 1..5)
+  ctx.fillStyle = isDark ? '#9c9a92' : '#9c9a92';
+  ctx.font = `10px JetBrains Mono, monospace`;
+  ctx.textAlign = 'center';
+  for (let s = 0; s <= 5; s++) {
+    const x = padLeft + (s / 5) * chartW;
+    ctx.fillText(s === 0 ? 'Init' : `S${s}`, x, H - padBottom + 16);
+    // Vertical tick
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, padTop);
+    ctx.lineTo(x, H - padBottom);
+    ctx.stroke();
+  }
+
+  // Axis lines
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop);
+  ctx.lineTo(padLeft, H - padBottom);
+  ctx.lineTo(W - padRight, H - padBottom);
+  ctx.stroke();
+
+  if (numPoints < 2) {
+    // Just draw initial dots
+    for (let w = 0; w < 6; w++) {
+      const x = padLeft;
+      const y = yScale(INIT_LR[w]);
+      ctx.fillStyle = WORKER_COLORS[w].main;
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+
+  // Draw lines for each worker
+  for (let w = 0; w < 6; w++) {
+    ctx.beginPath();
+    ctx.strokeStyle = WORKER_COLORS[w].main;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    for (let t = 0; t < numPoints; t++) {
+      const x = padLeft + (t / 5) * chartW;
+      const lr = allData[t][w];
+      const y = yScale(lr);
+      if (t === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw dots
+    for (let t = 0; t < numPoints; t++) {
+      const x = padLeft + (t / 5) * chartW;
+      const lr = allData[t][w];
+      const y = yScale(lr);
+
+      // Star burst for exploit events (t >= 1 and LR changed)
+      const changed = t > 0 && allData[t][w] !== allData[t-1][w];
+
+      ctx.fillStyle = changed ? '#ffffff' : WORKER_COLORS[w].main;
+      ctx.strokeStyle = WORKER_COLORS[w].main;
+      ctx.lineWidth = changed ? 2.5 : 1;
+      ctx.beginPath();
+      ctx.arc(x, y, changed ? 6 : 4, 0, Math.PI * 2);
+      ctx.fill();
+      if (changed) ctx.stroke();
+    }
+  }
+}
+
+// ===================================================
+// SIMULATION LOGIC
+// ===================================================
+function simReset() {
+  clearTimeout(simState.playTimer);
+  clearTimeout(simState.trainingTimer);
+  simState.currentRound = -1;
+  simState.phase = 'idle';
+  simState.playing = false;
+  simState.workerScores = [0, 0, 0, 0, 0, 0];
+  simState.workerLR = [...INIT_LR];
+  simState.hpHistory = [];
+  simState.syncPhaseStep = 0;
+
+  clearWorkerHighlights();
+  for (let i = 0; i < 6; i++) {
+    const badge = document.getElementById(`badge-${i}`);
+    badge.className = 'exploit-badge';
+    badge.textContent = '';
+  }
+
+  renderWorkers();
+  renderTimeline();
+  renderProgressDots();
+  renderButtons();
+  drawHPChart();
+  setStatus('Press Play to start training...', 'training');
+  setInfoCard('<strong>Before training begins:</strong> Each worker starts with a randomly assigned learning rate. Press Play to watch PBT in action.');
+}
+
+function setScoresForRound(round) {
+  const rd = SYNC_ROUNDS[round];
+  simState.workerScores = [...rd.scores];
+}
+
+function applyExploitExplore(round) {
+  const rd = SYNC_ROUNDS[round];
+  // Update LRs for bottom workers
+  const newLRs = [...simState.workerLR];
+  for (let i = 0; i < 6; i++) {
+    if (rd.newLR[i] !== null) {
+      newLRs[i] = rd.newLR[i];
+    }
+  }
+  simState.workerLR = newLRs;
+}
+
+// Animate through a sync round in phases
+function runSyncRound(round) {
+  const rd = SYNC_ROUNDS[round];
+  simState.currentRound = round;
+  simState.syncPhaseStep = 0;
+
+  // Phase 1: Show scores after training
+  setStatus(`Sync Round ${round+1}: Evaluating all workers...`, 'syncing');
+  setScoresForRound(round);
+  renderWorkers();
+  renderTimeline();
+  renderProgressDots();
+  renderButtons();
+  clearWorkerHighlights();
+
+  simState.playTimer = setTimeout(() => {
+    // Phase 2: Highlight top/bottom
+    renderWorkerHighlights(rd.bottom, rd.top);
+    setStatus(`Sync Round ${round+1}: Bottom workers exploiting top performers!`, 'exploiting');
+
+    simState.playTimer = setTimeout(() => {
+      // Phase 3: Apply exploit/explore
+      applyExploitExplore(round);
+      renderWorkers();
+
+      // Flash and badge the exploiting workers
+      rd.bottom.forEach((wIdx, ei) => {
+        flashWorkerExploit(wIdx);
+        showBadge(wIdx, 'EXPLOIT ✓ EXPLORE ✓');
+      });
+
+      // Record HP snapshot after this round
+      simState.hpHistory.push([...simState.workerLR]);
+      drawHPChart();
+      setInfoCard(rd.desc);
+
+      simState.playTimer = setTimeout(() => {
+        clearWorkerHighlights();
+
+        if (round === 4) {
+          // Done
+          setStatus('Training complete! PBT discovered an adaptive HP schedule.', 'done');
+          simState.playing = false;
+          renderButtons();
+        } else if (simState.playing) {
+          // Continue playing
+          setStatus(`Round ${round+1} complete. Starting next training phase...`, 'training');
+          simState.playTimer = setTimeout(() => {
+            runSyncRound(round + 1);
+          }, 1500);
+        } else {
+          setStatus(`Sync Round ${round+1} complete. Press Play or Next to continue.`, 'training');
+        }
+      }, 1200);
+    }, 1000);
+  }, 1200);
+}
+
+function simNext() {
+  clearTimeout(simState.playTimer);
+  const nextRound = simState.currentRound + 1;
+  if (nextRound > 4) return;
+
+  // Simulate training phase (instant for manual nav)
+  const wasPlaying = simState.playing;
+  simState.playing = false;
+
+  if (simState.currentRound === -1) {
+    // Show initial training progress briefly
+    setStatus('Workers training in parallel...', 'training');
+    // Animate scores toward round 0 scores
+    const rd = SYNC_ROUNDS[0];
+    animateScores([0,0,0,0,0,0], rd.scores, 600, () => {
+      runSyncRound(0);
+    });
+  } else {
+    const prevScores = [...simState.workerScores];
+    const nextScores = SYNC_ROUNDS[nextRound].scores;
+    setStatus('Workers training in parallel...', 'training');
+    animateScores(prevScores, nextScores, 600, () => {
+      runSyncRound(nextRound);
+    });
+  }
+}
+
+function simPrev() {
+  clearTimeout(simState.playTimer);
+  simState.playing = false;
+
+  const prevRound = simState.currentRound - 1;
+  if (prevRound < -1) return;
+
+  if (prevRound === -1) {
+    simReset();
+    return;
+  }
+
+  // Rewind: rebuild state up to prevRound
+  simState.workerLR = [...INIT_LR];
+  simState.hpHistory = [];
+  simState.workerScores = [...SYNC_ROUNDS[prevRound].scores];
+
+  for (let r = 0; r <= prevRound; r++) {
+    applyExploitExploreAtRound(r);
+  }
+
+  simState.currentRound = prevRound;
+  simState.hpHistory = buildHistoryUpTo(prevRound);
+
+  clearWorkerHighlights();
+  renderWorkers();
+  renderTimeline();
+  renderProgressDots();
+  renderButtons();
+  drawHPChart();
+  setStatus(`Sync Round ${prevRound+1} complete.`, 'training');
+  setInfoCard(SYNC_ROUNDS[prevRound].desc);
+}
+
+function applyExploitExploreAtRound(round) {
+  const rd = SYNC_ROUNDS[round];
+  for (let i = 0; i < 6; i++) {
+    if (rd.newLR[i] !== null) {
+      simState.workerLR[i] = rd.newLR[i];
+    }
+  }
+}
+
+function buildHistoryUpTo(round) {
+  const history = [];
+  const lr = [...INIT_LR];
+  for (let r = 0; r <= round; r++) {
+    const rd = SYNC_ROUNDS[r];
+    for (let i = 0; i < 6; i++) {
+      if (rd.newLR[i] !== null) lr[i] = rd.newLR[i];
+    }
+    history.push([...lr]);
+  }
+  return history;
+}
+
+function jumpToRound(round) {
+  clearTimeout(simState.playTimer);
+  simState.playing = false;
+  simState.workerLR = [...INIT_LR];
+  simState.hpHistory = buildHistoryUpTo(round);
+  simState.workerScores = [...SYNC_ROUNDS[round].scores];
+  simState.currentRound = round;
+
+  // Apply all exploits up to this round
+  for (let r = 0; r <= round; r++) applyExploitExploreAtRound(r);
+
+  clearWorkerHighlights();
+  renderWorkers();
+  renderTimeline();
+  renderProgressDots();
+  renderButtons();
+  drawHPChart();
+  setInfoCard(SYNC_ROUNDS[round].desc);
+  if (round === 4) setStatus('Training complete! PBT discovered an adaptive HP schedule.', 'done');
+  else setStatus(`Sync Round ${round+1} complete.`, 'training');
+}
+
+function animateScores(from, to, duration, cb) {
+  const start = performance.now();
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+    simState.workerScores = from.map((f, i) => f + (to[i] - f) * ease);
+    renderWorkers();
+    if (t < 1) requestAnimationFrame(step);
+    else { simState.workerScores = [...to]; renderWorkers(); if (cb) cb(); }
+  }
+  requestAnimationFrame(step);
+}
+
+function simTogglePlay() {
+  simState.playing = !simState.playing;
+  renderButtons();
+
+  if (simState.playing) {
+    if (simState.currentRound >= 4) {
+      simReset();
+      setTimeout(() => {
+        simState.playing = true;
+        startPlayback();
+      }, 100);
+    } else {
+      startPlayback();
+    }
+  } else {
+    clearTimeout(simState.playTimer);
+    setStatus('Paused. Press Play to continue.', 'training');
+  }
+}
+
+function startPlayback() {
+  if (!simState.playing) return;
+  const nextRound = simState.currentRound + 1;
+  if (nextRound > 4) { simState.playing = false; renderButtons(); return; }
+
+  const prevScores = simState.currentRound >= 0 ? [...simState.workerScores] : [0,0,0,0,0,0];
+  const nextScores = SYNC_ROUNDS[nextRound].scores;
+  setStatus('Workers training in parallel...', 'training');
+
+  animateScores(prevScores, nextScores, 1200, () => {
+    if (!simState.playing) return;
+    runSyncRound(nextRound);
+  });
+}
+
+// ===================================================
+// KEYBOARD
+// ===================================================
+document.addEventListener('keydown', (e) => {
+  switch (e.key) {
+    case 'ArrowRight': if (!document.getElementById('btn-next').disabled) simNext(); break;
+    case 'ArrowLeft': if (!document.getElementById('btn-prev').disabled) simPrev(); break;
+    case ' ': e.preventDefault(); simTogglePlay(); break;
+    case 'r': case 'R': simReset(); break;
+  }
+});
+
+// ===================================================
+// INITIALISE
+// ===================================================
+function init() {
+  buildWorkerRows();
+  buildLegend();
+  buildTimeline();
+  buildProgressDots();
+  renderButtons();
+  renderWorkers();
+  drawHPChart();
+}
+
+// Redraw chart on resize
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawHPChart, 150);
+});
+
+// Wait for fonts + KaTeX then init
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robust Scaling (IQR-Based) — Interactive Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans); background: var(--bg); color: var(--text);
+  line-height: 1.6; min-height: 100vh;
+}
+.page { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* Header */
+.header { margin-bottom: 2rem; }
+.header-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 6px; }
+.header h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 800; color: var(--text); line-height: 1.2; }
+.header .subtitle { font-size: 15px; color: var(--text2); margin-top: 6px; max-width: 600px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-foundational { background: var(--green-bg); color: var(--green-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; cursor: pointer; user-select: none; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 17px; font-weight: 700; color: var(--text); flex: 1; }
+.toggle-arrow { color: var(--text3); font-size: 14px; transition: transform 0.2s; }
+.card.collapsed .toggle-arrow { transform: rotate(-90deg); }
+.card-body { }
+.card.collapsed .card-body { display: none; }
+
+/* Concept boxes */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+/* Equations */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* Prose */
+p { margin: 0.6rem 0; font-size: 15px; color: var(--text); }
+ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+li { margin: 0.3rem 0; font-size: 15px; color: var(--text); }
+strong { font-weight: 700; }
+
+/* Comparison table */
+.compare-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; border-radius: var(--radius); overflow: hidden; }
+.compare-table th { background: var(--bg2); padding: 10px 14px; text-align: left; font-weight: 700; border-bottom: 2px solid var(--border2); color: var(--text); }
+.compare-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.compare-table tr:last-child td { border-bottom: none; }
+.compare-table .robust-col { background: var(--green-bg); }
+.compare-table .zscore-col { background: var(--red-bg); }
+
+/* ── VISUALIZATION AREA ── */
+.viz-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.viz-title { font-size: 18px; font-weight: 700; margin-bottom: 0.25rem; }
+.viz-subtitle { font-size: 13px; color: var(--text2); margin-bottom: 1.25rem; }
+.viz-canvas-area { position: relative; background: var(--bg2); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+canvas#mainCanvas { display: block; width: 100%; }
+
+/* Info card */
+.info-card { background: var(--bg2); border-radius: var(--radius); padding: 1rem 1.25rem; margin-top: 1rem; min-height: 90px; }
+.info-phase { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.info-step-num { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-bottom: 4px; }
+.info-step-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.info-step-text { font-size: 13px; color: var(--text2); line-height: 1.5; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover:not(:disabled) { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover:not(:disabled) { background: var(--purple-border); color: white; }
+
+/* Progress dots */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; border: none; padding: 0; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 1rem; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+/* Code */
+.code-panel { background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; margin-top: 1rem; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* Spacing helpers */
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── HEADER ── -->
+  <div class="header">
+    <div class="header-label">Part III · Classical ML · Feature Scaling</div>
+    <h1>Robust Scaling <span style="font-weight:400;color:var(--text2)">(IQR-Based)</span></h1>
+    <p class="subtitle">Outlier-resistant feature normalization using median &amp; interquartile range</p>
+    <div class="tags">
+      <span class="tag tag-foundational">Foundational</span>
+      <span class="tag tag-category">Classical ML</span>
+      <span class="tag tag-category">Feature Engineering</span>
+      <span class="tag tag-complexity">O(n log n)</span>
+    </div>
+  </div>
+
+  <!-- ── CARD 1: UNDERSTANDING ── -->
+  <div class="card" id="card1">
+    <div class="section-header" onclick="toggleCard('card1')">
+      <div class="section-number">1</div>
+      <div class="section-title">Understanding the Concept</div>
+      <span class="toggle-arrow">▾</span>
+    </div>
+    <div class="card-body">
+      <p><strong>What is this?</strong> Many ML algorithms work best when features are on a similar numerical scale. Robust Scaling shifts each feature so its median becomes 0, then divides by the interquartile range (IQR = Q3 − Q1). Because median and IQR are computed from the <em>middle 50% of data</em>, extreme values (outliers) barely affect the result.</p>
+
+      <div class="concept-box insight">
+        <div class="concept-box-title">💡 Everyday Analogy</div>
+        <p>Imagine grading students on a curve. Standard scaling (z-score) uses the class <em>average</em>, so one student who scored 1000/100 would drag the mean up wildly. Robust scaling uses the <em>median grade</em> — if half the class scored 70–80, that range anchors everything, and the one 1000-scorer is just ignored as a curiosity.</p>
+      </div>
+
+      <p><strong>The formula:</strong></p>
+      <div class="eq">$$x_{\text{scaled}} = \frac{x - \text{median}(X)}{Q_3(X) - Q_1(X)}$$</div>
+
+      <div class="concept-box key-concept">
+        <div class="concept-box-title">🔑 Key Invariant</div>
+        <p>After robust scaling: the median of the transformed feature = <strong>0</strong>, and the IQR = <strong>1</strong>. The spread of outliers in the original data does <em>not</em> affect these anchor values.</p>
+      </div>
+
+      <div class="concept-box warning">
+        <div class="concept-box-title">⚠️ vs. Z-Score (Standard Scaling)</div>
+        <p>Z-score uses mean &amp; std-dev — both are pulled hard by outliers. If your feature is <code>[1, 2, 3, 4, 1000]</code>, the mean is 202 and std is 396. The scaled "normal" values all cluster near −0.5, while the outlier is at +2. Robust scaling keeps 1–4 spread across −1 to +1 where they belong.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CARD 2: HOW IT WORKS ── -->
+  <div class="card" id="card2">
+    <div class="section-header" onclick="toggleCard('card2')">
+      <div class="section-number">2</div>
+      <div class="section-title">How It Works Internally</div>
+      <span class="toggle-arrow">▾</span>
+    </div>
+    <div class="card-body">
+      <p>Robust scaling has two phases: <strong>fit</strong> (compute statistics from training data) and <strong>transform</strong> (apply to any dataset).</p>
+
+      <p><strong>Phase 1 — Fit (training data only):</strong></p>
+      <ol>
+        <li>Sort the feature vector \(X = [x_1, \ldots, x_n]\) in ascending order.</li>
+        <li>Compute \(\text{median} = \text{percentile}(X, 50)\)</li>
+        <li>Compute \(Q_1 = \text{percentile}(X, 25)\) and \(Q_3 = \text{percentile}(X, 75)\)</li>
+        <li>Store \(\text{center} = \text{median}\), \(\text{scale} = Q_3 - Q_1\)</li>
+      </ol>
+
+      <p><strong>Phase 2 — Transform:</strong></p>
+      <div class="eq">$$x_i' = \frac{x_i - \text{center}}{\text{scale}}$$</div>
+
+      <p><strong>Numerical trace with a contaminated dataset:</strong></p>
+      <p>Feature (income in $k): \(X = [30, 35, 40, 45, 50, 55, 60, 500]\)</p>
+
+      <div class="code-panel">
+        <div class="code-line"># Sorted: [30, 35, 40, 45, 50, 55, 60, 500]  n=8</div>
+        <div class="code-line"># Q1  = avg(2nd, 3rd) = (35+40)/2 = 37.5</div>
+        <div class="code-line"># Med = avg(4th, 5th) = (45+50)/2 = 47.5</div>
+        <div class="code-line"># Q3  = avg(6th, 7th) = (55+60)/2 = 57.5</div>
+        <div class="code-line"># IQR = 57.5 - 37.5  = 20.0</div>
+        <div class="code-line"></div>
+        <div class="code-line"># Robust scaled:  x' = (x - 47.5) / 20</div>
+        <div class="code-line"># 30  → (30-47.5)/20  = -0.875</div>
+        <div class="code-line"># 45  → (45-47.5)/20  = -0.125</div>
+        <div class="code-line"># 50  → (50-47.5)/20  =  0.125</div>
+        <div class="code-line"># 500 → (500-47.5)/20 =  22.6   ← far out, but median+IQR unchanged</div>
+        <div class="code-line"></div>
+        <div class="code-line"># Z-score comparison (mean=101.9, std≈159.3):</div>
+        <div class="code-line"># 30  → (30-101.9)/159.3  = -0.45</div>
+        <div class="code-line"># 45  → (45-101.9)/159.3  = -0.36</div>
+        <div class="code-line"># 500 → (500-101.9)/159.3 =  2.50</div>
+        <div class="code-line"># ↑ All "normal" values squished into [-0.45, 0.0] — terrible separation</div>
+      </div>
+
+      <div class="concept-box insight">
+        <div class="concept-box-title">💡 Design Decision</div>
+        <p>Why median instead of mean? Median has a <strong>breakdown point of 50%</strong> — up to half your data can be extreme values before the median is affected. Mean has a breakdown point of 0% (a single outlier can move it arbitrarily).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CARD 3: WHY IT WORKS ── -->
+  <div class="card" id="card3">
+    <div class="section-header" onclick="toggleCard('card3')">
+      <div class="section-number">3</div>
+      <div class="section-title">Why It Works — The Statistical Guarantee</div>
+      <span class="toggle-arrow">▾</span>
+    </div>
+    <div class="card-body">
+      <p><strong>Robustness is measured by <em>breakdown point</em></strong> — the fraction of contaminated observations an estimator can tolerate before giving an arbitrarily bad result.</p>
+
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Estimator</th>
+            <th>Center</th>
+            <th>Spread</th>
+            <th>Breakdown point</th>
+            <th>Outlier sensitivity</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Standard (Z-score)</strong></td>
+            <td>Mean \(\bar{x}\)</td>
+            <td>Std \(\sigma\)</td>
+            <td class="zscore-col" style="color:var(--red-mid)">0% — one outlier breaks it</td>
+            <td style="color:var(--red-mid)">High</td>
+          </tr>
+          <tr>
+            <td><strong>Robust (IQR)</strong></td>
+            <td>Median</td>
+            <td>IQR = Q3−Q1</td>
+            <td class="robust-col" style="color:var(--green-mid)">50% — up to half can be junk</td>
+            <td style="color:var(--green-mid)">Low</td>
+          </tr>
+          <tr>
+            <td>MinMax</td>
+            <td>Min</td>
+            <td>Max−Min</td>
+            <td style="color:var(--red-mid)">0% — one outlier collapses range</td>
+            <td style="color:var(--red-mid)">Extreme</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>Influence function:</strong> The <em>influence function</em> measures how much adding one extreme point \(x \to \infty\) changes the estimator. For the mean: influence grows without bound \(\to \infty\). For the median: influence is bounded at \(\frac{1}{2f(m)}\) where \(f\) is the density at median \(m\) — a finite constant.</p>
+
+      <p>Similarly, IQR's influence function is bounded (depends only on density at Q1 and Q3), while std-dev's influence grows linearly with the outlier's magnitude.</p>
+
+      <div class="concept-box math">
+        <div class="concept-box-title">📐 Influence Function</div>
+        <p>For the sample mean \(\bar{x}_n\), adding one outlier at \(t\):</p>
+        <div class="eq">$$IF(t; \bar{x}, F) = t - \mu \;\to\; \infty \text{ as } t \to \infty$$</div>
+        <p>For the median \(m\):</p>
+        <div class="eq">$$IF(t; m, F) = \frac{\text{sgn}(t - m)}{2f(m)} \;\text{ (bounded)}$$</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CARD 4: INTERACTIVE VISUALIZATION ── -->
+  <div class="viz-wrapper" id="vizCard">
+    <div class="viz-title">🎯 Interactive Visual Explainer</div>
+    <div class="viz-subtitle">Watch robust vs. z-score scaling react to an outlier — step by step.</div>
+
+    <div class="viz-canvas-area">
+      <canvas id="mainCanvas" height="340"></canvas>
+    </div>
+
+    <div class="info-card">
+      <div class="info-phase" id="infoPhase" style="color: var(--purple-mid)">SETUP</div>
+      <div class="info-step-num" id="infoNum">Step 1 of 8</div>
+      <div class="info-step-title" id="infoTitle">The raw data</div>
+      <div class="info-step-text" id="infoText">We have a feature with 7 "normal" salary values and 1 extreme outlier. Watch how each scaling method reacts.</div>
+    </div>
+
+    <div class="progress-wrap" id="progressWrap"></div>
+
+    <div class="controls">
+      <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+      <button class="btn" onclick="reset()">↺ Reset</button>
+    </div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate &nbsp;·&nbsp; R to reset</div>
+
+    <div class="legend" id="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#4A90D9"></div>Normal values</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E05252"></div>Outlier</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3B6D11; width:24px; height:3px; border-radius:2px;"></div>Robust anchor (median)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#A32D2D; width:24px; height:3px; border-radius:2px;"></div>Z-score anchor (mean)</div>
+    </div>
+  </div>
+
+  <!-- ── CARD 5: KEY TAKEAWAYS ── -->
+  <div class="card" id="card5">
+    <div class="section-header" onclick="toggleCard('card5')">
+      <div class="section-number">5</div>
+      <div class="section-title">Key Takeaways &amp; When to Use</div>
+      <span class="toggle-arrow">▾</span>
+    </div>
+    <div class="card-body">
+      <p><strong>Use Robust Scaling when:</strong></p>
+      <ul>
+        <li>Your feature distribution has heavy tails, known outliers, or you can't clip them</li>
+        <li>You're using distance-based algorithms (KNN, SVM, k-means) sensitive to scale</li>
+        <li>You prefer not to remove outliers from training data (e.g., fraud detection)</li>
+      </ul>
+
+      <p class="mt-2"><strong>Avoid Robust Scaling when:</strong></p>
+      <ul>
+        <li>Your data is truly Gaussian — z-score is slightly more efficient (uses all information)</li>
+        <li>You're feeding into tree-based models (Random Forest, XGBoost) — they don't need scaling at all</li>
+        <li>IQR = 0 (e.g., a feature is constant or nearly constant for 50%+ of samples) — division by zero</li>
+      </ul>
+
+      <div class="concept-box insight">
+        <div class="concept-box-title">🎯 Quick Decision Rule</div>
+        <p><strong>Outliers present &amp; can't remove?</strong> → Robust scaling. <strong>Clean Gaussian data?</strong> → Z-score. <strong>Hard known bounds?</strong> → MinMax. <strong>Tree model?</strong> → No scaling needed.</p>
+      </div>
+
+      <p class="mt-2"><strong>sklearn usage:</strong></p>
+      <div class="code-panel">
+        <div class="code-line">from sklearn.preprocessing import RobustScaler</div>
+        <div class="code-line">import numpy as np</div>
+        <div class="code-line"></div>
+        <div class="code-line">X = np.array([[30],[35],[40],[45],[50],[55],[60],[500]])</div>
+        <div class="code-line">scaler = RobustScaler(quantile_range=(25.0, 75.0))  # default IQR</div>
+        <div class="code-line">X_scaled = scaler.fit_transform(X)</div>
+        <div class="code-line"># center_  = [47.5]   scale_ = [20.0]</div>
+        <div class="code-line"></div>
+        <div class="code-line"># IMPORTANT: fit on train, transform train+test separately</div>
+        <div class="code-line">scaler.fit(X_train)</div>
+        <div class="code-line">X_train_s = scaler.transform(X_train)</div>
+        <div class="code-line">X_test_s  = scaler.transform(X_test)  # uses train stats!</div>
+      </div>
+
+      <p class="mt-2"><strong>This topic connects to:</strong> MinMax Scaling · StandardScaler (Z-score) · Winsorization · Quantile Transformer · Power Transforms (Box-Cox, Yeo-Johnson) · Feature Engineering pipelines</p>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ── DATA ──
+// Income feature: [30, 35, 40, 45, 50, 55, 60, 500]  (in $k)
+const rawVals = [30, 35, 40, 45, 50, 55, 60, 500];
+const COLORS = ['#4A90D9','#4A90D9','#4A90D9','#4A90D9','#4A90D9','#4A90D9','#4A90D9','#E05252'];
+
+// Robust stats
+const sorted = [...rawVals].sort((a,b)=>a-b); // [30,35,40,45,50,55,60,500]
+const MEDIAN = 47.5;
+const Q1 = 37.5;
+const Q3 = 57.5;
+const IQR = 20.0;
+const robustScaled = rawVals.map(x => (x - MEDIAN) / IQR);
+
+// Z-score stats
+const mean = rawVals.reduce((a,b)=>a+b,0)/rawVals.length; // 101.875
+const std = Math.sqrt(rawVals.reduce((s,x)=>s+(x-mean)**2,0)/rawVals.length); // ~155.6
+const zScaled = rawVals.map(x => (x - mean) / std);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'RAW DATA', title: 'The raw salary feature',
+    text: 'Eight salary values ($k): 30, 35, 40, 45, 50, 55, 60 — and one extreme outlier at 500. We\'ll compare how Robust Scaling vs Z-score handle this.',
+    draw: drawRaw, phaseColor: '#185FA5'
+  },
+  {
+    phase: 'ROBUST FIT', title: 'Step 1 — Find the median (center)',
+    text: 'Sort the values. Median = average of 4th & 5th = (45+50)/2 = 47.5. Notice: the 500 outlier has no influence on this — it\'s beyond the middle 50%.',
+    draw: drawMedian, phaseColor: '#3B6D11'
+  },
+  {
+    phase: 'ROBUST FIT', title: 'Step 2 — Find Q1 & Q3 (IQR)',
+    text: 'Q1 = (35+40)/2 = 37.5  |  Q3 = (55+60)/2 = 57.5  |  IQR = Q3 − Q1 = 20.0. These percentiles are inside the bulk of the data — the outlier at 500 plays no role.',
+    draw: drawIQR, phaseColor: '#3B6D11'
+  },
+  {
+    phase: 'ROBUST TRANSFORM', title: 'Step 3 — Apply: x\' = (x − 47.5) / 20',
+    text: 'Normal values map to [−0.875, +0.625]. The outlier becomes 22.6 — large, but the other values are nicely spread. Robust scaling preserves their relative distances.',
+    draw: drawRobustScaled, phaseColor: '#3B6D11'
+  },
+  {
+    phase: 'Z-SCORE FIT', title: 'The z-score anchor: mean = 101.9',
+    text: 'The mean is badly distorted by 500. mean = (30+35+40+45+50+55+60+500)/8 = 101.9. One outlier drags the center 54 units above the bulk of data.',
+    draw: drawMean, phaseColor: '#A32D2D'
+  },
+  {
+    phase: 'Z-SCORE FIT', title: 'Std-dev also blown up: σ = 155.6',
+    text: 'Std-dev = √(Σ(xᵢ−mean)²/n) = 155.6. The 500 outlier alone contributes ~96% of the total variance. This inflated spread will compress all normal values.',
+    draw: drawStd, phaseColor: '#A32D2D'
+  },
+  {
+    phase: 'Z-SCORE TRANSFORM', title: 'Step — Apply: z = (x − 101.9) / 155.6',
+    text: 'The 7 normal values (30–60) all map to −0.46 to −0.27 — squished into a tiny 0.19-wide band! The outlier lands at +2.55. This is the z-score distortion effect.',
+    draw: drawZScaled, phaseColor: '#A32D2D'
+  },
+  {
+    phase: 'COMPARISON', title: 'Side-by-side: Robust wins on normal values',
+    text: 'Robust: normal values spread across [−0.88, +0.63] — good separation. Z-score: normal values crammed into [−0.46, −0.27] — nearly indistinguishable. Robust scaling gives the algorithm meaningful signal to work with.',
+    draw: drawComparison, phaseColor: '#534AB7'
+  }
+];
+
+let currentStep = 0;
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const wrapper = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrapper.clientWidth;
+  const h = 340;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+  drawStep(currentStep);
+}
+
+// ── DRAWING HELPERS ──
+function getW() { return canvas.width / (window.devicePixelRatio||1); }
+function getH() { return canvas.height / (window.devicePixelRatio||1); }
+
+function clearCanvas() {
+  const w = getW(), h = getH();
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim() || '#f0efe9';
+  ctx.fillRect(0, 0, w, h);
+}
+
+// Map original value to pixel x on raw axis (30..500 range)
+function rawToX(v, margin=60, width=null) {
+  const W = width || (getW() - 2*margin);
+  return margin + (v - 30) / (500 - 30) * W;
+}
+
+// Map scaled value to pixel x on scaled axis
+function scaledToX(v, lo, hi, margin=60) {
+  const W = getW() - 2*margin;
+  return margin + (v - lo) / (hi - lo) * W;
+}
+
+function drawAxis(y, label, lo=null, hi=null, tickCount=5, margin=60) {
+  const W = getW();
+  ctx.save();
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border2').trim() || 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(margin, y); ctx.lineTo(W - margin, y);
+  ctx.stroke();
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim() || '#6b6b65';
+  ctx.font = '11px DM Sans, system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText(label, margin, y - 12);
+
+  if (lo !== null && hi !== null) {
+    for (let i=0; i<=tickCount; i++) {
+      const v = lo + i*(hi-lo)/tickCount;
+      const x = scaledToX(v, lo, hi, margin);
+      ctx.beginPath(); ctx.moveTo(x, y-3); ctx.lineTo(x, y+3); ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillText(v.toFixed(v % 1 ? 1 : 0), x, y+15);
+    }
+  }
+  ctx.restore();
+}
+
+function drawDot(x, y, color, r=7, label=null, labelAbove=false) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
+  ctx.stroke();
+  if (label) {
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#1a1a18';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x, labelAbove ? y - 14 : y + 22);
+  }
+  ctx.restore();
+}
+
+function drawVLine(x, y1, y2, color, dashed=false, label=null) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  if (dashed) ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
+  if (label) {
+    ctx.fillStyle = color; ctx.font = 'bold 11px DM Sans, system-ui';
+    ctx.textAlign = 'center'; ctx.setLineDash([]);
+    ctx.fillText(label, x, y1 - 5);
+  }
+  ctx.restore();
+}
+
+function drawBrace(x1, x2, y, color, label) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y); ctx.lineTo(x1, y+8);
+  ctx.moveTo(x1, y+8); ctx.lineTo((x1+x2)/2, y+8);
+  ctx.moveTo((x1+x2)/2, y+8); ctx.lineTo((x1+x2)/2, y+14);
+  ctx.moveTo((x1+x2)/2, y+8); ctx.lineTo(x2, y+8);
+  ctx.moveTo(x2, y+8); ctx.lineTo(x2, y);
+  ctx.stroke();
+  ctx.fillStyle = color; ctx.font = 'bold 10px DM Sans, system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, (x1+x2)/2, y+26);
+  ctx.restore();
+}
+
+// ── STEP DRAWS ──
+function drawRaw() {
+  clearCanvas();
+  const margin = 55; const W = getW(); const H = getH();
+  const ay = 200;
+
+  // Draw axis with raw scale 30..500
+  ctx.save();
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border2').trim() || 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(margin, ay); ctx.lineTo(W-margin, ay); ctx.stroke();
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim() || '#6b6b65';
+  ctx.font = '11px DM Sans, system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Raw salary ($k)  →  Strongly right-skewed due to outlier', margin, ay - 14);
+
+  // Ticks
+  [30, 100, 200, 300, 400, 500].forEach(v => {
+    const x = rawToX(v, margin);
+    ctx.beginPath(); ctx.moveTo(x, ay-3); ctx.lineTo(x, ay+3); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.fillText(v, x, ay+15);
+  });
+  ctx.restore();
+
+  // Dots
+  rawVals.forEach((v, i) => {
+    const x = rawToX(v, margin);
+    drawDot(x, ay, COLORS[i], 8, v.toString(), true);
+  });
+
+  // Annotation
+  ctx.save();
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim();
+  ctx.font = '13px DM Sans, system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('7 normal salaries ($30k–$60k) + 1 outlier ($500k)', W/2, H - 30);
+  ctx.restore();
+}
+
+function drawMedian() {
+  drawRaw();
+  const margin = 55; const ay = 200;
+  const medX = rawToX(MEDIAN, margin);
+  drawVLine(medX, ay - 100, ay, '#3B6D11', false, `median=${MEDIAN}`);
+
+  // shade middle region
+  ctx.save();
+  ctx.fillStyle = 'rgba(59,109,17,0.08)';
+  ctx.fillRect(rawToX(40, margin), ay - 80, rawToX(55, margin) - rawToX(40, margin), 80);
+  ctx.strokeStyle = '#3B6D11'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.strokeRect(rawToX(40, margin), ay - 80, rawToX(55, margin) - rawToX(40, margin), 80);
+  ctx.fillStyle = '#3B6D11'; ctx.font = '10px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Middle 50%', rawToX(47.5, margin), ay - 85);
+  ctx.restore();
+}
+
+function drawIQR() {
+  drawMedian();
+  const margin = 55; const ay = 200;
+  const q1x = rawToX(Q1, margin);
+  const q3x = rawToX(Q3, margin);
+  drawVLine(q1x, ay - 70, ay, '#3B6D11', true, `Q1=${Q1}`);
+  drawVLine(q3x, ay - 70, ay, '#3B6D11', true, `Q3=${Q3}`);
+  drawBrace(q1x, q3x, ay + 20, '#3B6D11', `IQR = ${IQR}`);
+}
+
+function drawRobustScaled() {
+  clearCanvas();
+  const margin = 55; const W = getW(); const H = getH();
+  const ay = 200;
+  const lo = -1.5, hi = 23.5;
+
+  drawAxis(ay, 'Robust scaled  →  normal values nicely spread', lo, hi, 7, margin);
+
+  // Zero line
+  const zeroX = scaledToX(0, lo, hi, margin);
+  drawVLine(zeroX, ay-90, ay, '#3B6D11', true, 'median → 0');
+
+  // IQR brackets
+  const q1x = scaledToX(-0.5, lo, hi, margin);
+  const q3x = scaledToX(0.5, lo, hi, margin);
+  drawBrace(q1x, q3x, ay+20, '#3B6D11', 'IQR → 1');
+
+  robustScaled.forEach((v, i) => {
+    const x = scaledToX(v, lo, hi, margin);
+    const label = v.toFixed(2) + (i===7 ? ' (outlier)' : '');
+    drawDot(x, ay, COLORS[i], i===7?7:7, label, true);
+  });
+
+  ctx.save();
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim();
+  ctx.font = '12px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Normal salaries: [−0.875, +0.625] — well spread!   Outlier: 22.6 (large but median & IQR unchanged)', W/2, H-25);
+  ctx.restore();
+}
+
+function drawMean() {
+  drawRaw();
+  const margin = 55; const ay = 200;
+  const meanX = rawToX(mean, margin);
+  drawVLine(meanX, ay - 110, ay, '#A32D2D', false, `mean=${mean.toFixed(1)}`);
+
+  // arrow showing shift from bulk center
+  const bulkX = rawToX(45, margin);
+  ctx.save();
+  ctx.strokeStyle = '#A32D2D'; ctx.lineWidth = 2;
+  ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(bulkX, ay - 40); ctx.lineTo(meanX - 10, ay - 40); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(meanX-10, ay-40); ctx.lineTo(meanX-14, ay-34); ctx.lineTo(meanX-14, ay-46); ctx.closePath();
+  ctx.fillStyle = '#A32D2D'; ctx.fill();
+  ctx.fillStyle = '#A32D2D'; ctx.font = '10px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('mean dragged 57 units right by outlier!', (bulkX+meanX)/2, ay-52);
+  ctx.restore();
+}
+
+function drawStd() {
+  drawMean();
+  const margin = 55; const ay = 200;
+  const loX = rawToX(Math.max(30, mean - std), margin);
+  const hiX = rawToX(Math.min(500, mean + std), margin);
+  ctx.save();
+  ctx.fillStyle = 'rgba(163,45,45,0.1)';
+  ctx.fillRect(loX, ay-70, hiX-loX, 70);
+  ctx.strokeStyle = '#A32D2D'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  ctx.strokeRect(loX, ay-70, hiX-loX, 70);
+  ctx.fillStyle='#A32D2D'; ctx.font='bold 10px DM Sans,system-ui'; ctx.textAlign='center';
+  ctx.fillText(`σ = ${std.toFixed(1)}`, (loX+hiX)/2, ay - 75);
+  ctx.restore();
+}
+
+function drawZScaled() {
+  clearCanvas();
+  const margin = 55; const W = getW(); const H = getH();
+  const ay = 200;
+  const lo = -0.7, hi = 2.8;
+
+  drawAxis(ay, 'Z-score scaled  →  normal values squished into tiny band', lo, hi, 7, margin);
+
+  const zeroX = scaledToX(0, lo, hi, margin);
+  drawVLine(zeroX, ay-90, ay, '#A32D2D', true, 'mean → 0');
+
+  zScaled.forEach((v, i) => {
+    const x = scaledToX(v, lo, hi, margin);
+    drawDot(x, ay, COLORS[i], 7, v.toFixed(2), true);
+  });
+
+  // Highlight squished region
+  const lo2 = scaledToX(-0.47, lo, hi, margin);
+  const hi2 = scaledToX(-0.26, lo, hi, margin);
+  ctx.save();
+  ctx.strokeStyle = '#A32D2D'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(lo2, ay+30); ctx.lineTo(hi2, ay+30); ctx.stroke();
+  ctx.fillStyle = '#A32D2D'; ctx.font = 'bold 10px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('7 normal values crammed into width 0.19 !', (lo2+hi2)/2, ay+45);
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim();
+  ctx.font = '12px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Normal range: [−0.46, −0.27] — nearly indistinguishable.   Z ≈ 2.55 for outlier.', W/2, H-25);
+  ctx.restore();
+}
+
+function drawComparison() {
+  clearCanvas();
+  const margin = 55; const W = getW(); const H = getH();
+  const ay1 = 130, ay2 = 270;
+
+  // Robust axis
+  const rLo = -1.5, rHi = 3.0;
+  drawAxis(ay1, '🟢 Robust Scaling  (x − median) / IQR', rLo, rHi, 7, margin);
+  const medX1 = scaledToX(0, rLo, rHi, margin);
+  drawVLine(medX1, ay1-60, ay1, '#3B6D11', true);
+
+  robustScaled.forEach((v,i) => {
+    const x = scaledToX(Math.min(v, rHi-0.1), rLo, rHi, margin);
+    drawDot(x, ay1, COLORS[i], 6, null, false);
+  });
+
+  const rLoX = scaledToX(-0.875, rLo, rHi, margin);
+  const rHiX = scaledToX(0.625, rLo, rHi, margin);
+  drawBrace(rLoX, rHiX, ay1+12, '#3B6D11', 'width 1.5 — good spread');
+
+  // Z-score axis
+  const zLo = -0.65, zHi = 2.7;
+  drawAxis(ay2, '🔴 Z-score Scaling  (x − mean) / std', zLo, zHi, 7, margin);
+  const meanX2 = scaledToX(0, zLo, zHi, margin);
+  drawVLine(meanX2, ay2-60, ay2, '#A32D2D', true);
+
+  zScaled.forEach((v,i) => {
+    const x = scaledToX(Math.min(v, zHi-0.05), zLo, zHi, margin);
+    drawDot(x, ay2, COLORS[i], 6, null, false);
+  });
+
+  const zLoX = scaledToX(-0.46, zLo, zHi, margin);
+  const zHiX = scaledToX(-0.27, zLo, zHi, margin);
+  drawBrace(zLoX, zHiX, ay2+12, '#A32D2D', 'width 0.19 — terrible!');
+}
+
+// ── STEP MACHINE ──
+function drawStep(i) {
+  steps[i].draw();
+  document.getElementById('infoPhase').textContent = steps[i].phase;
+  document.getElementById('infoPhase').style.color = steps[i].phaseColor;
+  document.getElementById('infoNum').textContent = `Step ${i+1} of ${steps.length}`;
+  document.getElementById('infoTitle').textContent = steps[i].title;
+  document.getElementById('infoText').textContent = steps[i].text;
+  // update dots
+  document.querySelectorAll('.dot').forEach((d, idx) => {
+    d.className = 'dot' + (idx < i ? ' done' : idx===i ? ' active' : '');
+  });
+  document.getElementById('btnPrev').disabled = i === 0;
+  document.getElementById('btnNext').disabled = i === steps.length - 1;
+}
+
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= steps.length) return;
+  currentStep = next;
+  drawStep(currentStep);
+}
+function reset() { currentStep = 0; drawStep(0); }
+
+// Build dots
+const pw = document.getElementById('progressWrap');
+steps.forEach((_, i) => {
+  const d = document.createElement('button');
+  d.className = 'dot' + (i===0 ? ' active' : '');
+  d.onclick = () => { currentStep = i; drawStep(i); };
+  pw.appendChild(d);
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Toggle cards
+function toggleCard(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// Init
+window.addEventListener('load', () => { resizeCanvas(); });
+window.addEventListener('resize', resizeCanvas);
+</script>
+</body>
+</html>

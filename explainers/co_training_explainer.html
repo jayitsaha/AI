@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co-training — Interactive Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px 16px; }
+.container { max-width: 900px; margin: 0 auto; }
+
+/* Header */
+.header { margin-bottom: 2rem; }
+.header h1 { font-size: 32px; font-weight: 700; line-height: 1.2; }
+.header .subtitle { font-size: 16px; color: var(--text2); margin-top: 6px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+
+/* Concept boxes */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+p { margin-bottom: 0.75rem; color: var(--text2); font-size: 15px; }
+p:last-child { margin-bottom: 0; }
+
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; margin: 1rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg2); color: var(--text); font-weight: 700; padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+td { padding: 9px 14px; border: 1px solid var(--border); color: var(--text2); }
+tr:hover td { background: var(--bg2); }
+
+/* ── VISUALIZATION ── */
+.viz-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.viz-title { font-size: 18px; font-weight: 700; margin-bottom: 0.25rem; }
+.viz-sub { font-size: 13px; color: var(--text2); margin-bottom: 1.5rem; }
+
+/* Main simulation canvas area */
+#sim-canvas-wrap { position: relative; width: 100%; background: var(--bg2); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; min-height: 420px; }
+#sim-canvas { display: block; width: 100%; }
+
+/* Info card */
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-top: 1rem; }
+.info-phase { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 10px; border-radius: 20px; margin-bottom: 0.5rem; }
+.phase-init { background: var(--blue-bg); color: var(--blue-mid); }
+.phase-train { background: var(--green-bg); color: var(--green-mid); }
+.phase-label { background: var(--purple-bg); color: var(--purple-mid); }
+.phase-expand { background: var(--amber-bg); color: var(--amber-mid); }
+.phase-done { background: var(--cyan-bg); color: var(--cyan-mid); }
+.info-step { font-size: 12px; color: var(--text3); margin-bottom: 0.25rem; }
+.info-title { font-size: 16px; font-weight: 700; margin-bottom: 0.5rem; }
+.info-body { font-size: 14px; color: var(--text2); line-height: 1.6; }
+.info-math { font-size: 13px; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+/* Progress */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 1rem; padding: 0.75rem 1rem; background: var(--bg2); border-radius: var(--radius); }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); font-weight: 600; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+/* Classifier boxes in SVG overlay */
+.clf-box { position: absolute; background: var(--surface); border: 2px solid var(--border2); border-radius: var(--radius); padding: 8px 12px; font-size: 11px; font-weight: 700; text-align: center; transition: all 0.4s; min-width: 90px; }
+.clf-box.active { border-color: var(--purple-mid); background: var(--purple-bg); color: var(--purple-mid); box-shadow: 0 0 16px rgba(83,74,183,0.2); }
+
+ul { padding-left: 1.4rem; color: var(--text2); font-size: 15px; }
+li { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Co-training</h1>
+    <div class="subtitle">Two classifiers, two views — labeling the unlabeled world for each other</div>
+    <div class="tags">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">Semi-Supervised Learning</span>
+      <span class="tag tag-category">Classical ML</span>
+      <span class="tag tag-complexity">Part III · §14.1</span>
+    </div>
+  </div>
+
+  <!-- Card 1: Understanding -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <div class="section-title">Understanding Co-training</div>
+    </div>
+    <p>Most supervised learning is hungry for labeled data — expensive to gather and slow to annotate. Co-training is a clever trick: given two "views" of the same data (two independent feature sets describing the same example), train two separate classifiers, one on each view. The classifier that is <em>most confident</em> on an unlabeled example labels it for the other classifier's training pool. They teach each other.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Key Insight</div>
+      The conditional independence assumption — \(P(x^{(1)}, x^{(2)} \mid y) = P(x^{(1)} \mid y)\,P(x^{(2)} \mid y)\) — means neither view "leaks" information to the other. So a confident prediction from view-1 is genuinely new signal for view-2, not just a reflection of the same facts.
+    </div>
+
+    <p><strong>Everyday analogy:</strong> Imagine two doctors reviewing the same patient — one reads only the X-ray, the other reads only the blood-work report. When the radiologist is 99% certain it's pneumonia (high confidence from X-ray view), her diagnosis is added to the blood-work doctor's training examples, and vice versa. Because their information sources are independent, each confident labeling is trustworthy new evidence for the other.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">📌 One Sentence</div>
+      Co-training bootstraps supervised learning by having two classifiers trained on conditionally independent feature views iteratively label each other's most-confident unlabeled examples.
+    </div>
+  </div>
+
+  <!-- Card 2: How It Works -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <div class="section-title">The Mechanism — Step by Step</div>
+    </div>
+    <p>Co-training requires three ingredients: <strong>(1)</strong> a small labeled set \(L\), <strong>(2)</strong> a large unlabeled pool \(U\), and <strong>(3)</strong> a feature split into two views \(x = (x^{(1)}, x^{(2)})\) that are (approximately) conditionally independent given the label \(y\).</p>
+
+    <p>The algorithm, due to Blum &amp; Mitchell (1998), iterates:</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Algorithm: Co-training</div>
+      <p class="info-math">
+        1. Train \(h_1\) on \(\{(x_i^{(1)}, y_i)\}_{i \in L}\), train \(h_2\) on \(\{(x_i^{(2)}, y_i)\}_{i \in L}\).<br>
+        2. Each classifier scores every \(x_j \in U\).<br>
+        3. \(h_1\) picks its \(k\) most confident predictions (highest \(\max_y P(y \mid x_j^{(1)})\)) → adds those \((x_j^{(2)}, \hat{y}_j)\) to \(L_2\).<br>
+        4. \(h_2\) picks its \(k\) most confident predictions → adds those \((x_j^{(1)}, \hat{y}_j)\) to \(L_1\).<br>
+        5. Remove chosen examples from \(U\); replenish \(U\) from the remaining pool.<br>
+        6. Repeat until \(U\) is exhausted or convergence.
+      </p>
+    </div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Critical Assumption</div>
+      The conditional independence assumption \(x^{(1)} \perp x^{(2)} \mid y\) must hold (approximately). If the two views are highly correlated, confident predictions from one are already "known" by the other — no new information is injected, and error propagation accelerates.
+    </div>
+  </div>
+
+  <!-- Card 3: The Math -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">3</div>
+      <div class="section-title">Why It Works — The Theory</div>
+    </div>
+    <p>Blum &amp; Mitchell (1998) proved that under the conditional independence assumption and with a compatible concept class, co-training can learn from exponentially fewer labeled examples than standard supervised learning.</p>
+
+    <p>The key PAC-style argument: if each classifier achieves error rate \(\epsilon\) on its view, the probability that a mislabeling event passes undetected (i.e., the mislabeled example is confidently wrong in view-1 <em>and</em> accepted by view-2) decreases multiplicatively because of independence:</p>
+
+    <div class="eq">$$P(\text{wrong label added to } L_2) \;\leq\; P(h_1 \text{ wrong, confident}) \;\leq\; \epsilon_1$$</div>
+
+    <p>Because view-2 only sees \(x^{(2)}\), and the error events are independent across views, the "noise" injected into each classifier's pool is bounded and diminishes as labeling improves.</p>
+
+    <p>Formally, if we define the <em>disagreement region</em> as examples where \(h_1(x^{(1)}) \neq h_2(x^{(2)})\), Blum &amp; Mitchell show the algorithm reduces disagreement at each round, converging to the target concept.</p>
+
+    <div class="eq">$$\Pr_{x \sim \mathcal{D}}\bigl[h_1(x^{(1)}) \neq h_2(x^{(2)})\bigr] \;\to\; 0 \quad \text{as rounds} \to \infty$$</div>
+
+    <p>The confidence threshold \(\tau\) controls the precision-recall tradeoff in pseudo-labeling: higher \(\tau\) means fewer but more reliable labels injected per round.</p>
+  </div>
+
+  <!-- Card 4: Interactive Visualization -->
+  <div class="viz-section">
+    <div class="viz-title">🎯 Interactive Simulation</div>
+    <div class="viz-sub">Two classifiers, each seeing one feature view, label unlabeled points for each other's most confident predictions. Step through the co-training loop.</div>
+
+    <div id="sim-canvas-wrap">
+      <canvas id="sim-canvas"></canvas>
+    </div>
+
+    <!-- Info card -->
+    <div class="info-card" id="info-card">
+      <div id="info-phase" class="info-phase phase-init">⚡ Initialization</div>
+      <div class="info-step" id="info-step">Step 0 of 7</div>
+      <div class="info-title" id="info-title">Starting State</div>
+      <div class="info-body" id="info-body">We have a small labeled set L (solid circles) and a large unlabeled pool U (hollow circles). The data has two independent feature views: <strong>View 1</strong> (horizontal axis) and <strong>View 2</strong> (vertical axis).</div>
+    </div>
+
+    <!-- Progress dots -->
+    <div class="progress-wrap" id="progress-wrap"></div>
+    <div class="controls">
+      <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+      <button class="btn" onclick="reset()">↺ Reset</button>
+    </div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate &nbsp;|&nbsp; R to reset</div>
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#185FA5;border:2px solid #85B7EB"></div> Labeled (class 0)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3B6D11;border:2px solid #97C459"></div> Labeled (class 1)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #9c9a92"></div> Unlabeled</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#534AB7;border:2px solid #AFA9EC"></div> h₁ confident pick</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#00ACC1;border:2px solid #4DD0E1"></div> h₂ confident pick</div>
+    </div>
+  </div>
+
+  <!-- Card 5: Comparison & Takeaways -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <div class="section-title">Comparison &amp; When to Use</div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <tr><th>Method</th><th>Views needed</th><th>Labeled data</th><th>Key assumption</th><th>Best when</th></tr>
+        <tr><td>Co-training</td><td>2 independent views</td><td>Very few</td><td>Conditional independence</td><td>Natural view split exists (e.g., text + image)</td></tr>
+        <tr><td>Self-training</td><td>1 view</td><td>Few</td><td>High-confidence = correct</td><td>No natural split; single modality</td></tr>
+        <tr><td>Label Propagation</td><td>1 view (graph)</td><td>Few</td><td>Smooth manifold</td><td>Geometric structure in feature space</td></tr>
+        <tr><td>TSVM</td><td>1 view</td><td>Few</td><td>Low-density separation</td><td>Binary classification, SVM-compatible</td></tr>
+        <tr><td>Generative SSL</td><td>1 view</td><td>Few</td><td>Model is correctly specified</td><td>Distributional structure known</td></tr>
+      </table>
+    </div>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">🎯 Decision Rule</div>
+      Use co-training when: (a) a natural two-view split exists (text &amp; metadata, image &amp; caption, audio &amp; video), (b) labeled data is scarce, and (c) the views are approximately conditionally independent. If no natural split exists, consider self-training instead.
+    </div>
+
+    <ul>
+      <li><strong>Classic use-case:</strong> Web page classification — view 1 = page text, view 2 = anchor text of hyperlinks pointing to the page (Blum &amp; Mitchell, 1998)</li>
+      <li><strong>Multi-view extensions:</strong> Co-EM (probabilistic), Democratic co-learning (3+ classifiers), Co-regularization</li>
+      <li><strong>Risk:</strong> Error propagation — if one classifier makes systematic errors, the other inherits them. Mitigate with high confidence thresholds and smaller \(k\).</li>
+    </ul>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────
+// 20 points: 5 initially labeled (indices 0-4), 15 unlabeled (5-19)
+// Feature view 1 = x-coordinate (horizontal), view 2 = y-coordinate (vertical)
+// True labels: class 0 (bottom-left cluster), class 1 (top-right cluster)
+const POINTS = [
+  // Initially labeled — 3 class 0, 2 class 1
+  {v1:0.18,v2:0.22,label:0,labeled:true},
+  {v1:0.25,v2:0.15,label:0,labeled:true},
+  {v1:0.12,v2:0.30,label:0,labeled:true},
+  {v1:0.75,v2:0.78,label:1,labeled:true},
+  {v1:0.82,v2:0.70,label:1,labeled:true},
+
+  // Unlabeled — class 0 cluster
+  {v1:0.20,v2:0.35,label:0,labeled:false},
+  {v1:0.30,v2:0.20,label:0,labeled:false},
+  {v1:0.10,v2:0.42,label:0,labeled:false},
+  {v1:0.35,v2:0.28,label:0,labeled:false},
+  {v1:0.22,v2:0.48,label:0,labeled:false},
+  {v1:0.40,v2:0.18,label:0,labeled:false},
+
+  // Unlabeled — class 1 cluster
+  {v1:0.68,v2:0.72,label:1,labeled:false},
+  {v1:0.78,v2:0.85,label:1,labeled:false},
+  {v1:0.88,v2:0.65,label:1,labeled:false},
+  {v1:0.72,v2:0.60,label:1,labeled:false},
+  {v1:0.62,v2:0.80,label:1,labeled:false},
+  {v1:0.85,v2:0.55,label:1,labeled:false},
+  {v1:0.58,v2:0.68,label:1,labeled:false},
+
+  // Unlabeled — ambiguous middle
+  {v1:0.48,v2:0.52,label:1,labeled:false},
+  {v1:0.45,v2:0.38,label:0,labeled:false},
+];
+
+// Co-training state — which points got labeled at each step, and by which classifier
+const STEPS = [
+  {
+    phase:'init', phaseCls:'phase-init',
+    title:'Starting State',
+    body:'We have 5 labeled points (solid circles) and 15 unlabeled points (hollow circles). View 1 = x-axis position, View 2 = y-axis position. Each view independently predicts the label (two-moon-like geometry).',
+    h1Decision:null, h2Decision:null, h1Boundary:null, h2Boundary:null,
+    highlight:[], newLabels:[]
+  },
+  {
+    phase:'Training h₁ on View 1', phaseCls:'phase-train',
+    title:'Round 1 — Train h₁ on View 1 (x-axis)',
+    body:'Classifier h₁ (blue, left panel) is trained using only the x-coordinate (View 1) of the 5 labeled points. It learns a linear boundary at x ≈ 0.50. Points with x < 0.50 → class 0 (blue), x > 0.50 → class 1 (green).',
+    h1Boundary:0.50, h2Boundary:null,
+    highlight:[], newLabels:[]
+  },
+  {
+    phase:'Training h₂ on View 2', phaseCls:'phase-train',
+    title:'Round 1 — Train h₂ on View 2 (y-axis)',
+    body:'Classifier h₂ (right panel) is trained using only the y-coordinate (View 2) of the 5 labeled points. It learns a linear boundary at y ≈ 0.50. Points with y < 0.50 → class 0, y > 0.50 → class 1.',
+    h1Boundary:0.50, h2Boundary:0.50,
+    highlight:[], newLabels:[]
+  },
+  {
+    phase:'h₁ Labels for h₂', phaseCls:'phase-label',
+    title:'h₁ Picks Its k=3 Most Confident → Adds to h₂\'s Pool',
+    body:'h₁ scores all unlabeled points by x-position. Most confident class-1 picks: indices 12 (x=0.88), 13 (x=0.85), 11 (x=0.78). Most confident class-0: index 7 (x=0.10), index 2 (x=0.12) — already labeled. h₁ annotates 3 unlabeled points and hands them to h₂\'s training set.',
+    h1Boundary:0.50, h2Boundary:0.50,
+    highlight:[12,13,11],
+    newLabels:[{idx:12,by:'h1'},{idx:13,by:'h1'},{idx:11,by:'h1'}]
+  },
+  {
+    phase:'h₂ Labels for h₁', phaseCls:'phase-label',
+    title:'h₂ Picks Its k=3 Most Confident → Adds to h₁\'s Pool',
+    body:'h₂ scores all unlabeled points by y-position. Most confident class-1: index 12 (y=0.85), index 15 (y=0.80), index 5 (y=0.72? no — index 8 y=0.48 is class 0). h₂ annotates its 3 most-confident unlabeled points and hands them to h₁.',
+    h1Boundary:0.50, h2Boundary:0.50,
+    highlight:[12,15,16],
+    newLabels:[{idx:12,by:'h1'},{idx:13,by:'h1'},{idx:11,by:'h1'},{idx:15,by:'h2'},{idx:16,by:'h2'},{idx:17,by:'h2'}]
+  },
+  {
+    phase:'Round 2 — Retrain', phaseCls:'phase-expand',
+    title:'Round 2 — Both Classifiers Retrain on Expanded Sets',
+    body:'h₁ retrains on its original 5 labels + 3 new labels from h₂. h₂ retrains on its original 5 + 3 new labels from h₁. The decision boundaries sharpen. The ambiguous middle points start getting classified correctly as both views gain more labeled data.',
+    h1Boundary:0.50, h2Boundary:0.50,
+    highlight:[5,6,7,8,9,10],
+    newLabels:[{idx:12,by:'h1'},{idx:13,by:'h1'},{idx:11,by:'h1'},{idx:15,by:'h2'},{idx:16,by:'h2'},{idx:17,by:'h2'},{idx:5,by:'h2'},{idx:6,by:'h1'},{idx:8,by:'h2'}]
+  },
+  {
+    phase:'Convergence', phaseCls:'phase-done',
+    title:'Final State — Nearly All Points Labeled',
+    body:'After several rounds, both classifiers agree on almost all points. The two views reinforced each other: confident labels from one view trained the other, cascading through the unlabeled pool. Final test error is much lower than either classifier trained on labeled data alone.',
+    h1Boundary:0.50, h2Boundary:0.50,
+    highlight:[],
+    newLabels:[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19].map(i=>({idx:i,by:i<11?'h2':'h1'}))
+  }
+];
+
+let step = 0;
+const NUM_STEPS = STEPS.length;
+
+// ─── CANVAS SETUP ───────────────────────────────────────────────────────
+const canvas = document.getElementById('sim-canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const wrap = document.getElementById('sim-canvas-wrap');
+  const W = wrap.clientWidth;
+  const H = Math.max(360, Math.round(W * 0.48));
+  canvas.width = W;
+  canvas.height = H;
+  draw();
+}
+
+// ─── DRAW ────────────────────────────────────────────────────────────────
+function getColor(label) {
+  return label === 0 ? '#185FA5' : '#3B6D11';
+}
+function getFill(label) {
+  return label === 0 ? '#E6F1FB' : '#EAF3DE';
+}
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  const s = STEPS[step];
+  ctx.clearRect(0, 0, W, H);
+
+  // Background panel split at center
+  const MID = Math.floor(W / 2);
+  // Left panel — View 1 (x only meaningful)
+  ctx.fillStyle = 'rgba(24, 95, 165, 0.04)';
+  ctx.fillRect(0, 0, MID - 1, H);
+  // Right panel — View 2 (y only meaningful)
+  ctx.fillStyle = 'rgba(59, 109, 17, 0.04)';
+  ctx.fillRect(MID + 1, 0, W - MID - 1, H);
+
+  // Divider
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(MID, 0);
+  ctx.lineTo(MID, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Panel labels
+  ctx.font = 'bold 11px DM Sans, system-ui';
+  ctx.fillStyle = '#185FA5';
+  ctx.textAlign = 'center';
+  ctx.fillText('View 1 (x-axis) — h₁', MID / 2, 18);
+  ctx.fillStyle = '#3B6D11';
+  ctx.fillText('View 2 (y-axis) — h₂', MID + (W - MID) / 2, 18);
+
+  // Axis labels
+  ctx.font = '10px DM Sans, system-ui';
+  ctx.fillStyle = '#9c9a92';
+  ctx.textAlign = 'left';
+  ctx.fillText('x₁ →', 8, H - 6);
+  ctx.textAlign = 'right';
+  ctx.fillText('↑ x₂', W - 8, 28);
+
+  // Draw h1 decision boundary (vertical line in left panel, x = boundary)
+  if (s.h1Boundary !== null) {
+    const bx = 10 + s.h1Boundary * (MID - 20);
+    ctx.strokeStyle = 'rgba(83,74,183,0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(bx, 28);
+    ctx.lineTo(bx, H - 14);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 10px DM Sans, system-ui';
+    ctx.fillStyle = '#534AB7';
+    ctx.textAlign = 'center';
+    ctx.fillText('h₁ boundary', bx, 30);
+  }
+
+  // Draw h2 decision boundary (horizontal line in right panel, y = boundary)
+  if (s.h2Boundary !== null) {
+    const by_pct = 1 - s.h2Boundary;
+    const by = 28 + by_pct * (H - 42);
+    ctx.strokeStyle = 'rgba(0,172,193,0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(MID + 2, by);
+    ctx.lineTo(W - 4, by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 10px DM Sans, system-ui';
+    ctx.fillStyle = '#00ACC1';
+    ctx.textAlign = 'center';
+    ctx.fillText('h₂ boundary', MID + (W - MID) / 2, by - 4);
+  }
+
+  // Build labeled set at this step
+  const labeledSet = new Set();
+  POINTS.forEach((p, i) => { if (p.labeled) labeledSet.add(i); });
+  (s.newLabels || []).forEach(nl => labeledSet.add(nl.idx));
+
+  const highlightSet = new Set(s.highlight || []);
+  const newByH1 = new Set((s.newLabels || []).filter(nl => nl.by === 'h1').map(nl => nl.idx));
+  const newByH2 = new Set((s.newLabels || []).filter(nl => nl.by === 'h2').map(nl => nl.idx));
+
+  // Draw points — LEFT panel (View 1: x-axis is v1, y-axis is random/v2 for context)
+  POINTS.forEach((p, i) => {
+    const isLabeled = labeledSet.has(i);
+    const isHighlight = highlightSet.has(i);
+    const lbl = p.label;
+
+    // Left panel: x = v1, y = v2 (show both for context, but h1 only uses v1)
+    const lx = 10 + p.v1 * (MID - 20);
+    const ly = 28 + (1 - p.v2) * (H - 42);
+
+    drawPoint(ctx, lx, ly, i, isLabeled, isHighlight, lbl, newByH1.has(i), newByH2.has(i), p.labeled);
+
+    // Right panel: x = v2, y = v1 (mirror: h2 only uses v2 = right panel x-axis is v2)
+    // Actually display v2 on x-axis of right panel
+    const rx = MID + 10 + p.v2 * (W - MID - 20);
+    const ry = 28 + (1 - p.v1) * (H - 42);
+
+    drawPoint(ctx, rx, ry, i, isLabeled, isHighlight, lbl, newByH1.has(i), newByH2.has(i), p.labeled);
+  });
+}
+
+function drawPoint(ctx, cx, cy, idx, isLabeled, isHighlight, lbl, byH1, byH2, origLabeled) {
+  const r = 7;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+
+  if (origLabeled) {
+    // Originally labeled — solid fill
+    ctx.fillStyle = getColor(lbl);
+    ctx.fill();
+    ctx.strokeStyle = lbl === 0 ? '#042C53' : '#173404';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else if (byH1) {
+    // Labeled by h1 — purple fill
+    ctx.fillStyle = '#534AB7';
+    ctx.fill();
+    ctx.strokeStyle = '#26215C';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else if (byH2) {
+    // Labeled by h2 — cyan fill
+    ctx.fillStyle = '#00ACC1';
+    ctx.fill();
+    ctx.strokeStyle = '#006064';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else if (isHighlight) {
+    // Highlighted unlabeled (being considered)
+    ctx.fillStyle = '#FAEEDA';
+    ctx.fill();
+    ctx.strokeStyle = '#EF9F27';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  } else {
+    // Regular unlabeled — hollow
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fill();
+    ctx.strokeStyle = '#9c9a92';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+// ─── PROGRESS DOTS ───────────────────────────────────────────────────────
+function buildDots() {
+  const wrap = document.getElementById('progress-wrap');
+  wrap.innerHTML = '';
+  for (let i = 0; i < NUM_STEPS; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.onclick = () => setStep(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot' + (i < step ? ' done' : '') + (i === step ? ' active' : '');
+  });
+}
+
+// ─── INFO CARD ───────────────────────────────────────────────────────────
+function updateInfo() {
+  const s = STEPS[step];
+  document.getElementById('info-phase').textContent = s.phase;
+  document.getElementById('info-phase').className = 'info-phase ' + s.phaseCls;
+  document.getElementById('info-step').textContent = `Step ${step + 1} of ${NUM_STEPS}`;
+  document.getElementById('info-title').textContent = s.title;
+  document.getElementById('info-body').innerHTML = s.body;
+
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === NUM_STEPS - 1;
+}
+
+// ─── NAVIGATION ──────────────────────────────────────────────────────────
+function setStep(n) {
+  step = Math.max(0, Math.min(NUM_STEPS - 1, n));
+  draw();
+  updateDots();
+  updateInfo();
+  if (window.renderMathInElement) {
+    renderMathInElement(document.getElementById('info-card'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+}
+
+function go(delta) { setStep(step + delta); }
+function reset() { setStep(0); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+window.addEventListener('resize', resize);
+
+// Init
+buildDots();
+resize();
+updateInfo();
+</script>
+</body>
+</html>

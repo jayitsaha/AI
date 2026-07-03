@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Series Cross-Validation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9; --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono','Fira Code',monospace;
+  --sans: 'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media(prefers-color-scheme:dark){
+  :root {
+    --bg:#1a1a17; --bg2:#222220; --surface:#27272a;
+    --border:rgba(255,255,255,0.10); --border2:rgba(255,255,255,0.18);
+    --text:#e8e8e4; --text2:#a0a09a; --text3:#6b6b65;
+    --blue-bg:#0c1f35; --blue-border:#2a5a96; --blue-text:#93c5fd; --blue-mid:#60a5fa;
+    --green-bg:#0f2007; --green-border:#3a6018; --green-text:#86efac; --green-mid:#4ade80;
+    --amber-bg:#2a1500; --amber-border:#92580e; --amber-text:#fcd34d; --amber-mid:#fbbf24;
+    --red-bg:#2a0d0d; --red-border:#7f2020; --red-text:#fca5a5; --red-mid:#f87171;
+    --purple-bg:#160f3a; --purple-border:#4e46a0; --purple-text:#c4b5fd; --purple-mid:#a78bfa;
+    --cyan-bg:#002b2e; --cyan-border:#0e6e7a; --cyan-text:#67e8f9; --cyan-mid:#22d3ee;
+  }
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.6;
+  min-height:100vh;
+}
+
+/* ─── HEADER ─────────────────────────────────────────────────────────── */
+.page-header{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:2.5rem 2rem 2rem;
+  text-align:center;
+}
+.page-header h1{
+  font-size:clamp(1.6rem,4vw,2.4rem);
+  font-weight:700;
+  letter-spacing:-0.02em;
+  margin-bottom:0.4rem;
+}
+.page-header .subtitle{
+  color:var(--text2);
+  font-size:1rem;
+  margin-bottom:1rem;
+}
+.tags{display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap}
+.tag{
+  display:inline-flex;align-items:center;
+  padding:0.2rem 0.7rem;
+  border-radius:999px;
+  font-size:0.78rem;font-weight:600;
+  border:1px solid;
+  letter-spacing:0.01em;
+}
+.tag-amber{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber-text)}
+.tag-blue {background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
+.tag-cyan {background:var(--cyan-bg);border-color:var(--cyan-border);color:var(--cyan-text)}
+
+/* ─── LAYOUT ─────────────────────────────────────────────────────────── */
+.main{max-width:900px;margin:0 auto;padding:2rem 1.25rem 4rem}
+
+/* ─── COLLAPSIBLE CARDS ──────────────────────────────────────────────── */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  margin-bottom:1.1rem;
+  overflow:hidden;
+}
+.card-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1.1rem 1.4rem;
+  cursor:pointer;
+  user-select:none;
+  gap:0.75rem;
+}
+.card-header:hover{background:var(--bg2)}
+.card-title{font-size:1.02rem;font-weight:600}
+.card-chevron{
+  width:20px;height:20px;flex-shrink:0;
+  color:var(--text3);
+  transition:transform 0.25s ease;
+}
+.card[open] .card-chevron{transform:rotate(180deg)}
+.card-body{
+  padding:0 1.4rem 1.4rem;
+  border-top:1px solid var(--border);
+}
+.card-body p{color:var(--text2);margin-bottom:0.75rem}
+.card-body p:last-child{margin-bottom:0}
+
+/* ─── CALLOUT BOXES ──────────────────────────────────────────────────── */
+.callout{
+  border-radius:var(--radius);
+  border:1px solid;
+  padding:0.85rem 1rem;
+  margin:0.9rem 0;
+  font-size:0.92rem;
+}
+.callout-blue {background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
+.callout-amber{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber-text)}
+.callout-green{background:var(--green-bg);border-color:var(--green-border);color:var(--green-text)}
+.callout-red  {background:var(--red-bg);border-color:var(--red-border);color:var(--red-text)}
+.callout-purple{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-text)}
+.callout strong{font-weight:700}
+
+/* ─── PROS / CONS LIST ──────────────────────────────────────────────── */
+.pros-cons{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:0.9rem 0}
+@media(max-width:540px){.pros-cons{grid-template-columns:1fr}}
+.pros,.cons{border-radius:var(--radius);padding:0.8rem 1rem}
+.pros{background:var(--green-bg);border:1px solid var(--green-border)}
+.cons{background:var(--red-bg);border:1px solid var(--red-border)}
+.pros h4{color:var(--green-mid);margin-bottom:0.4rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em}
+.cons h4{color:var(--red-mid);margin-bottom:0.4rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em}
+.pros ul,.cons ul{list-style:none;padding:0}
+.pros li,.cons li{font-size:0.9rem;padding:0.18rem 0;color:var(--text)}
+.pros li::before{content:"✓ ";color:var(--green-mid);font-weight:700}
+.cons li::before{content:"✗ ";color:var(--red-mid);font-weight:700}
+
+/* ─── VISUALIZATION CARD ─────────────────────────────────────────────── */
+.viz-wrap{padding:1.4rem 1.4rem 1.4rem}
+
+/* Progress dots */
+.progress-dots{
+  display:flex;gap:0.45rem;justify-content:center;
+  margin-bottom:1.4rem;
+}
+.dot{
+  width:10px;height:10px;border-radius:50%;
+  background:var(--border2);
+  transition:background 0.3s ease,transform 0.2s ease;
+  cursor:pointer;
+}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+
+/* Timeline grid */
+.timeline-label{
+  font-size:0.78rem;font-weight:600;
+  color:var(--text2);
+  text-align:center;
+  margin-bottom:0.6rem;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+}
+.timeline-grid{
+  display:flex;gap:6px;justify-content:center;flex-wrap:nowrap;
+  margin-bottom:0.35rem;
+  overflow-x:auto;
+  padding:4px 2px;
+}
+.tbox{
+  display:flex;flex-direction:column;align-items:center;
+  gap:4px;flex-shrink:0;
+}
+.tsq{
+  width:44px;height:44px;
+  border-radius:8px;
+  border:2px solid transparent;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);
+  font-size:0.72rem;font-weight:600;
+  transition:background-color 0.35s ease, border-color 0.35s ease, color 0.35s ease;
+  cursor:default;
+}
+.tlabel{
+  font-size:0.65rem;
+  color:var(--text3);
+  font-family:var(--mono);
+}
+
+/* tsq states */
+.tsq.state-unused{background:var(--bg2);border-color:var(--border);color:var(--text3)}
+.tsq.state-intro-even{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
+.tsq.state-intro-odd{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-text)}
+.tsq.state-train{background:var(--blue-bg);border-color:var(--blue-mid);color:var(--blue-mid)}
+.tsq.state-val{background:var(--amber-bg);border-color:var(--amber-mid);color:var(--amber-mid)}
+
+/* Legend */
+.legend{
+  display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;
+  margin:0.8rem 0 1.2rem;
+}
+.legend-item{display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;color:var(--text2)}
+.legend-sq{
+  width:14px;height:14px;border-radius:4px;
+  border:2px solid;flex-shrink:0;
+}
+.leg-train{background:var(--blue-bg);border-color:var(--blue-mid)}
+.leg-val  {background:var(--amber-bg);border-color:var(--amber-mid)}
+.leg-unused{background:var(--bg2);border-color:var(--border2)}
+
+/* Formula panel */
+.formula-panel{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:0.9rem 1.2rem;
+  margin:1rem 0;
+  min-height:80px;
+  font-size:0.9rem;
+}
+.formula-panel .katex-display{margin:0.4rem 0}
+.formula-sub{
+  font-family:var(--mono);
+  font-size:0.8rem;
+  color:var(--text2);
+  margin-top:0.5rem;
+}
+
+/* Step info card */
+.step-info{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:1rem 1.2rem;
+  margin:1rem 0;
+}
+.step-info-top{display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem}
+.phase-badge{
+  display:inline-flex;align-items:center;
+  padding:0.2rem 0.65rem;
+  border-radius:999px;
+  font-size:0.72rem;font-weight:700;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  border:1px solid;
+}
+.badge-expanding{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-mid)}
+.badge-sliding{background:var(--green-bg);border-color:var(--green-border);color:var(--green-mid)}
+.badge-intro{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.step-counter{font-size:0.78rem;color:var(--text3);margin-left:auto}
+.step-info h3{font-size:1rem;font-weight:600;margin-bottom:0.35rem}
+.step-info p{font-size:0.9rem;color:var(--text2);margin:0}
+
+/* Controls */
+.controls{
+  display:flex;gap:0.6rem;justify-content:center;
+  margin:1rem 0 0.5rem;
+}
+.btn{
+  display:inline-flex;align-items:center;gap:0.35rem;
+  padding:0.5rem 1.1rem;
+  border-radius:var(--radius);
+  border:1px solid var(--border2);
+  background:var(--surface);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:0.88rem;font-weight:500;
+  cursor:pointer;
+  transition:background 0.15s,border-color 0.15s,color 0.15s;
+}
+.btn:hover{background:var(--bg2);border-color:var(--border2)}
+.btn:disabled{opacity:0.35;cursor:not-allowed}
+.btn-primary{background:var(--blue-mid);border-color:var(--blue-mid);color:#fff}
+.btn-primary:hover{background:#1050a0;border-color:#1050a0;color:#fff}
+.btn-reset{background:var(--bg2)}
+
+.kbd-hint{
+  text-align:center;
+  font-size:0.78rem;color:var(--text3);
+  margin-top:0.35rem;
+}
+kbd{
+  display:inline-block;
+  padding:0.1rem 0.35rem;
+  border:1px solid var(--border2);
+  border-radius:4px;
+  font-family:var(--mono);
+  font-size:0.75rem;
+  background:var(--bg2);
+}
+
+/* ─── COMPARISON TABLE ──────────────────────────────────────────────── */
+.table-wrap{overflow-x:auto}
+table{
+  width:100%;border-collapse:collapse;
+  font-size:0.9rem;
+}
+thead th{
+  background:var(--bg2);
+  padding:0.65rem 0.9rem;
+  text-align:left;font-weight:600;
+  border-bottom:2px solid var(--border2);
+  white-space:nowrap;
+}
+tbody td{
+  padding:0.6rem 0.9rem;
+  border-bottom:1px solid var(--border);
+  vertical-align:top;
+}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:nth-child(even){background:var(--bg2)}
+.tc-dim{font-weight:600;color:var(--text)}
+.tc-expand{color:var(--blue-mid)}
+.tc-slide{color:var(--green-mid)}
+
+/* ─── CODE CARD ─────────────────────────────────────────────────────── */
+.code-block{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:1rem 1.2rem;
+  overflow-x:auto;
+  font-family:var(--mono);
+  font-size:0.82rem;
+  line-height:1.65;
+  color:var(--text);
+  white-space:pre;
+  margin:0.6rem 0 0;
+}
+.code-kw{color:var(--blue-mid);font-weight:600}
+.code-fn{color:var(--purple-mid)}
+.code-str{color:var(--green-mid)}
+.code-cm{color:var(--text3)}
+.code-num{color:var(--amber-mid)}
+
+/* ─── MATH OVERRIDE ──────────────────────────────────────────────────── */
+.katex{font-size:0.95em}
+.katex-display>.katex{font-size:1em}
+
+/* ─── SECTION HEADING ─────────────────────────────────────────────────── */
+.section-heading{
+  font-size:0.75rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:0.09em;
+  color:var(--text3);
+  margin:2rem 0 0.9rem;
+}
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>Time Series Cross-Validation</h1>
+  <p class="subtitle">Expanding window &amp; sliding window forward-chaining strategies</p>
+  <div class="tags">
+    <span class="tag tag-amber">Intermediate</span>
+    <span class="tag tag-blue">Classical ML</span>
+    <span class="tag tag-cyan">O(T&sup2;)</span>
+  </div>
+</header>
+
+<main class="main">
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CARD 1 — Understanding the Concept
+════════════════════════════════════════════════════════════════════ -->
+<details class="card" open>
+  <summary class="card-header">
+    <span class="card-title">1 &nbsp; Understanding the Concept</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="card-body" style="padding-top:1rem">
+    <p>Standard k-fold cross-validation shuffles the dataset and assigns observations randomly to folds. This works fine for i.i.d. data — but time series data is <em>not</em> i.i.d. Observations are ordered in time, and tomorrow's value may depend on today's. Shuffling destroys this structure and creates <strong>data leakage</strong>: the model "sees" future data during training, producing optimistically biased performance estimates.</p>
+
+    <div class="callout callout-red">
+      <strong>Why shuffling fails:</strong> If your training set includes t = 100 and your validation set includes t = 50, the model was trained on data that occurs <em>after</em> the point it's predicting. This is impossible in deployment and inflates reported accuracy.
+    </div>
+
+    <p>The solution is <strong>forward-chaining</strong> (a.k.a. walk-forward validation). The invariant is simple: <em>always train on the past, validate on the future.</em> Every fold respects the temporal ordering — the validation window comes entirely after the training window, just as it would in production.</p>
+
+    <div class="callout callout-blue">
+      <strong>Deployment mirror principle:</strong> A well-designed time-series CV split mimics exactly how the model will be used. If you retrain weekly and forecast 2 weeks ahead, each CV fold should have a 2-week validation horizon, stepping forward by 1 week at a time.
+    </div>
+
+    <p>There are two primary strategies for choosing the training window: <strong>expanding window</strong> (accumulates all history) and <strong>sliding window</strong> (uses a fixed-size recent window). The right choice depends on whether your data is stationary and how far back history remains predictive.</p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CARD 2 — Expanding Window
+════════════════════════════════════════════════════════════════════ -->
+<details class="card">
+  <summary class="card-header">
+    <span class="card-title">2 &nbsp; Expanding Window (Growing Train Set)</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="card-body" style="padding-top:1rem">
+    <p>In the expanding window strategy, the training set <em>always starts at t₁</em> and grows by a step size \(s\) each fold. The validation horizon \(h\) stays fixed. Given step \(s\) and horizon \(h\), fold \(k\) is defined as:</p>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.2rem;margin:0.9rem 0;overflow-x:auto">
+      $$\text{Train}_k = [t_1, \; t_{k \cdot s}] \qquad \text{Val}_k = [t_{k \cdot s + 1}, \; t_{k \cdot s + h}]$$
+    </div>
+
+    <p>For our walkthrough (T=12, s=2, h=2), the four folds are:</p>
+    <ul style="margin:0.5rem 0 0.8rem 1.2rem;color:var(--text2);font-size:0.92rem">
+      <li>Fold 1: Train [t₁,t₂] → Val [t₃,t₄]</li>
+      <li>Fold 2: Train [t₁,t₄] → Val [t₅,t₆]</li>
+      <li>Fold 3: Train [t₁,t₆] → Val [t₇,t₈]</li>
+      <li>Fold 4: Train [t₁,t₈] → Val [t₉,t₁₀]</li>
+    </ul>
+    <p>Total folds: \(\lfloor (T - h) / s \rfloor - \lfloor \text{min\_train}/s \rfloor + 1\). The number of folds available grows with T.</p>
+
+    <div class="pros-cons">
+      <div class="pros">
+        <h4>Advantages</h4>
+        <ul>
+          <li>Uses all available history</li>
+          <li>Stable if process is stationary</li>
+          <li>More training data in later folds</li>
+          <li>Closest to full-data final model</li>
+        </ul>
+      </div>
+      <div class="cons">
+        <h4>Disadvantages</h4>
+        <ul>
+          <li>Old data may be stale / irrelevant</li>
+          <li>Slower: O(T&sup2;) total training work</li>
+          <li>Structural breaks hurt all folds</li>
+          <li>Unequal fold sizes skew averaging</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CARD 3 — Sliding Window
+════════════════════════════════════════════════════════════════════ -->
+<details class="card">
+  <summary class="card-header">
+    <span class="card-title">3 &nbsp; Sliding Window (Fixed Train Set)</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="card-body" style="padding-top:1rem">
+    <p>In the sliding window strategy, the training set has a <strong>fixed size</strong> \(W\) and slides forward by step \(s\) each fold. Older data outside the window is discarded. Fold \(k\) is:</p>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.2rem;margin:0.9rem 0;overflow-x:auto">
+      $$\text{Train}_k = [t_{(k-1)\cdot s + 1},\; t_{(k-1)\cdot s + W}] \qquad \text{Val}_k = [t_{(k-1)\cdot s + W + 1},\; t_{(k-1)\cdot s + W + h}]$$
+    </div>
+
+    <p>For our walkthrough (W=4, s=2, h=2), the three folds are:</p>
+    <ul style="margin:0.5rem 0 0.8rem 1.2rem;color:var(--text2);font-size:0.92rem">
+      <li>Fold 1: Train [t₁,t₄] → Val [t₅,t₆] &nbsp;(starts at (1-1)·2+1=1)</li>
+      <li>Fold 2: Train [t₃,t₆] → Val [t₇,t₈] &nbsp;(starts at (2-1)·2+1=3)</li>
+      <li>Fold 3: Train [t₅,t₈] → Val [t₉,t₁₀] &nbsp;(starts at (3-1)·2+1=5)</li>
+    </ul>
+
+    <div class="callout callout-amber">
+      <strong>Choosing W:</strong> Too small = model underfit; too large = old irrelevant data included. Common heuristic: W ≈ 3–5× the forecast horizon, but domain knowledge (seasonality, regime length) should guide the choice.
+    </div>
+
+    <div class="pros-cons">
+      <div class="pros">
+        <h4>Advantages</h4>
+        <ul>
+          <li>Adapts to concept drift naturally</li>
+          <li>Equal-sized folds — fair averaging</li>
+          <li>O(W·T) total training — faster</li>
+          <li>Isolates recent regime behaviour</li>
+        </ul>
+      </div>
+      <div class="cons">
+        <h4>Disadvantages</h4>
+        <ul>
+          <li>Discards potentially useful history</li>
+          <li>Sensitive to W selection</li>
+          <li>Fewer folds if W is large</li>
+          <li>Wastes early data entirely</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CARD 4 — Interactive Walkthrough
+════════════════════════════════════════════════════════════════════ -->
+<details class="card" open id="viz-card">
+  <summary class="card-header">
+    <span class="card-title">4 &nbsp; Interactive Walkthrough</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="viz-wrap">
+
+    <!-- Progress dots -->
+    <div class="progress-dots" id="dots"></div>
+
+    <!-- Timeline label -->
+    <div class="timeline-label" id="timeline-label">Full Time Series: T = 12 observations</div>
+
+    <!-- Timeline grid -->
+    <div class="timeline-grid" id="timeline"></div>
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item"><div class="legend-sq leg-train"></div>Training</div>
+      <div class="legend-item"><div class="legend-sq leg-val"></div>Validation</div>
+      <div class="legend-item"><div class="legend-sq leg-unused"></div>Unused / Future</div>
+    </div>
+
+    <!-- Formula panel -->
+    <div class="formula-panel" id="formula-panel"></div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn" id="btn-prev" onclick="navigate(-1)">&#8592; Prev</button>
+      <button class="btn btn-reset" onclick="resetViz()">&#8635; Reset</button>
+      <button class="btn btn-primary" id="btn-next" onclick="navigate(1)">Next &#8594;</button>
+    </div>
+    <div class="kbd-hint"><kbd>&#8592;</kbd> <kbd>&#8594;</kbd> arrow keys to navigate &nbsp;·&nbsp; <kbd>R</kbd> to reset</div>
+
+    <!-- Step info card -->
+    <div class="step-info" id="step-info">
+      <div class="step-info-top">
+        <span class="phase-badge badge-intro" id="phase-badge">INTRO</span>
+        <span class="step-counter" id="step-counter">Step 1 of 8</span>
+      </div>
+      <h3 id="step-title"></h3>
+      <p id="step-caption"></p>
+    </div>
+
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CARD 5 — Key Takeaways
+════════════════════════════════════════════════════════════════════ -->
+<details class="card">
+  <summary class="card-header">
+    <span class="card-title">5 &nbsp; Key Takeaways &amp; When to Use</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="card-body" style="padding-top:1rem">
+    <div class="callout callout-purple">
+      <strong>Universal rule:</strong> In time series CV, validation data must always come <em>after</em> training data. Any fold where this is violated introduces look-ahead bias and should be rejected.
+    </div>
+    <p><strong>Use Expanding Window when:</strong></p>
+    <ul style="margin:0.4rem 0 0.9rem 1.2rem;color:var(--text2);font-size:0.92rem">
+      <li>The underlying process is stationary (no structural breaks).</li>
+      <li>You have limited data and need every observation in training.</li>
+      <li>The model benefits from long historical context (e.g., seasonal ARIMA, LSTM with long lookbacks).</li>
+      <li>The data-generating process is stable over time.</li>
+    </ul>
+    <p><strong>Use Sliding Window when:</strong></p>
+    <ul style="margin:0.4rem 0 0.9rem 1.2rem;color:var(--text2);font-size:0.92rem">
+      <li>The process exhibits concept drift (distribution shifts over time).</li>
+      <li>Older data may actively hurt model performance (stale patterns).</li>
+      <li>Computational budget is limited and equal-fold comparison matters.</li>
+      <li>You are evaluating online/streaming models that retrain on recent data only.</li>
+    </ul>
+    <div class="callout callout-green">
+      <strong>Practical tip:</strong> Report the average metric across folds <em>and</em> plot it fold-by-fold. A rising error trend across folds signals concept drift. Fold-by-fold variance tells you how stable your model is across different time regimes.
+    </div>
+    <p>Finally, always use a minimum training size \(\text{min\_train} \geq p + q + 1\) for ARIMA models (where p, q are orders), or at least a few seasonal periods for seasonal models — otherwise early folds are statistically meaningless.</p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     COMPARISON TABLE
+════════════════════════════════════════════════════════════════════ -->
+<p class="section-heading">Strategy Comparison</p>
+<div class="card">
+  <div class="card-body" style="padding-top:1.2rem">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th class="tc-expand">Expanding Window</th>
+            <th class="tc-slide">Sliding Window</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="tc-dim">Train size per fold</td>
+            <td>Grows: \(k \cdot s\) at fold \(k\)</td>
+            <td>Fixed: always \(W\)</td>
+          </tr>
+          <tr>
+            <td class="tc-dim">Memory of old data</td>
+            <td>All history retained forever</td>
+            <td>Only most recent \(W\) points</td>
+          </tr>
+          <tr>
+            <td class="tc-dim">Drift adaptation</td>
+            <td>Poor — old patterns dilute recent signal</td>
+            <td>Good — naturally forgets stale patterns</td>
+          </tr>
+          <tr>
+            <td class="tc-dim">Computation (T folds)</td>
+            <td>O(T&sup2;) total training work</td>
+            <td>O(W &middot; T) — cheaper when W &lt; T</td>
+          </tr>
+          <tr>
+            <td class="tc-dim">Best for</td>
+            <td>Stationary, data-scarce scenarios</td>
+            <td>Non-stationary, drifting regimes</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CODE SECTION
+════════════════════════════════════════════════════════════════════ -->
+<p class="section-heading">From-Scratch Python Implementation</p>
+<details class="card">
+  <summary class="card-header">
+    <span class="card-title">Python Code</span>
+    <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+  </summary>
+  <div class="card-body" style="padding-top:1rem">
+<pre class="code-block"><span class="code-kw">import</span> numpy <span class="code-kw">as</span> np
+
+<span class="code-kw">def</span> <span class="code-fn">expanding_window_cv</span>(y, h=<span class="code-num">1</span>, min_train=<span class="code-num">2</span>):
+    <span class="code-str">"""Forward-chaining CV with expanding training window.
+
+    Parameters
+    ----------
+    y         : array-like, the time series (length T)
+    h         : forecast horizon (validation window size)
+    min_train : minimum number of training observations for the first fold
+    """</span>
+    T = <span class="code-fn">len</span>(y)
+    splits = []
+    <span class="code-kw">for</span> train_end <span class="code-kw">in</span> <span class="code-fn">range</span>(min_train, T - h + <span class="code-num">1</span>):
+        train_idx = <span class="code-fn">list</span>(<span class="code-fn">range</span>(train_end))
+        val_idx   = <span class="code-fn">list</span>(<span class="code-fn">range</span>(train_end, train_end + h))
+        splits.<span class="code-fn">append</span>((train_idx, val_idx))
+    <span class="code-kw">return</span> splits
+
+
+<span class="code-kw">def</span> <span class="code-fn">sliding_window_cv</span>(y, W, h=<span class="code-num">1</span>, step=<span class="code-num">1</span>):
+    <span class="code-str">"""Forward-chaining CV with fixed sliding training window.
+
+    Parameters
+    ----------
+    y    : array-like, the time series (length T)
+    W    : fixed training window size
+    h    : forecast horizon (validation window size)
+    step : how many steps to slide the window each fold
+    """</span>
+    T = <span class="code-fn">len</span>(y)
+    splits = []
+    <span class="code-kw">for</span> start <span class="code-kw">in</span> <span class="code-fn">range</span>(<span class="code-num">0</span>, T - W - h + <span class="code-num">1</span>, step):
+        train_idx = <span class="code-fn">list</span>(<span class="code-fn">range</span>(start, start + W))
+        val_idx   = <span class="code-fn">list</span>(<span class="code-fn">range</span>(start + W, start + W + h))
+        splits.<span class="code-fn">append</span>((train_idx, val_idx))
+    <span class="code-kw">return</span> splits
+
+
+<span class="code-cm"># ── Example ──────────────────────────────────────────────────────────</span>
+y = np.<span class="code-fn">array</span>([<span class="code-num">1.2</span>, <span class="code-num">2.1</span>, <span class="code-num">1.8</span>, <span class="code-num">3.0</span>, <span class="code-num">2.5</span>, <span class="code-num">3.8</span>,
+              <span class="code-num">3.2</span>, <span class="code-num">4.1</span>, <span class="code-num">3.9</span>, <span class="code-num">5.0</span>, <span class="code-num">4.5</span>, <span class="code-num">6.0</span>])
+
+<span class="code-fn">print</span>(<span class="code-str">"=== Expanding Window (h=2, min_train=2, step=1) ==="</span>)
+<span class="code-kw">for</span> train_idx, val_idx <span class="code-kw">in</span> <span class="code-fn">expanding_window_cv</span>(y, h=<span class="code-num">2</span>, min_train=<span class="code-num">2</span>):
+    <span class="code-fn">print</span>(<span class="code-fn">f</span><span class="code-str">"  Train: t{train_idx[0]+1}–t{train_idx[-1]+1} ({len(train_idx)} pts) | "</span>
+          <span class="code-fn">f</span><span class="code-str">"Val: t{val_idx[0]+1}–t{val_idx[-1]+1}"</span>)
+
+<span class="code-fn">print</span>(<span class="code-str">"\n=== Sliding Window (W=4, h=2, step=2) ==="</span>)
+<span class="code-kw">for</span> train_idx, val_idx <span class="code-kw">in</span> <span class="code-fn">sliding_window_cv</span>(y, W=<span class="code-num">4</span>, h=<span class="code-num">2</span>, step=<span class="code-num">2</span>):
+    <span class="code-fn">print</span>(<span class="code-fn">f</span><span class="code-str">"  Train: t{train_idx[0]+1}–t{train_idx[-1]+1} ({len(train_idx)} pts) | "</span>
+          <span class="code-fn">f</span><span class="code-str">"Val: t{val_idx[0]+1}–t{val_idx[-1]+1}"</span>)
+
+<span class="code-cm"># ── Using with scikit-learn compatible interface ──────────────────────</span>
+<span class="code-kw">from</span> sklearn.linear_model <span class="code-kw">import</span> LinearRegression
+
+<span class="code-kw">def</span> <span class="code-fn">walk_forward_mae</span>(y, W=<span class="code-num">4</span>, h=<span class="code-num">1</span>, step=<span class="code-num">1</span>, lag=<span class="code-num">1</span>):
+    <span class="code-str">"""Evaluate a simple AR(lag) model via sliding-window CV."""</span>
+    X = np.<span class="code-fn">column_stack</span>([y[i:-(lag - i) <span class="code-kw">or</span> <span class="code-num">None</span>] <span class="code-kw">for</span> i <span class="code-kw">in</span> <span class="code-fn">range</span>(lag)])
+    Y = y[lag:]
+    errors = []
+    <span class="code-kw">for</span> tr, va <span class="code-kw">in</span> <span class="code-fn">sliding_window_cv</span>(Y, W=W, h=h, step=step):
+        model = <span class="code-fn">LinearRegression</span>().<span class="code-fn">fit</span>(X[tr], Y[tr])
+        preds = model.<span class="code-fn">predict</span>(X[va])
+        errors.<span class="code-fn">append</span>(np.<span class="code-fn">mean</span>(np.<span class="code-fn">abs</span>(preds - Y[va])))
+    <span class="code-kw">return</span> np.<span class="code-fn">mean</span>(errors), errors</pre>
+  </div>
+</details>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// Step definitions
+// T=12, h=2, s=2 (expanding), W=4, s=2 (sliding)
+// ══════════════════════════════════════════════════════════════════
+const STEPS = [
+  {
+    mode: 'intro',
+    fold: 0,
+    trainStart: -1, trainEnd: -1,
+    valStart: -1, valEnd: -1,
+    title: 'The Data: Full Time Series',
+    caption: 'We have T = 12 observations, ordered in time from t₁ to t₁₂. Our goal is to evaluate a model\'s forecasting ability. We set horizon h = 2 (predict 2 steps ahead) and step size s = 2 (advance by 2 each fold). The cardinal rule: NEVER shuffle — always train on the past and validate on the future.',
+    formulaHtml: `<strong>Dataset parameters</strong><br>
+      $$T = 12, \\quad h = 2 \\text{ (horizon)}, \\quad s = 2 \\text{ (step)}$$
+      <div class="formula-sub">Each fold: train on observations up to time k·s, validate on the next h points.</div>`,
+    ruleBox: true
+  },
+  {
+    mode: 'expanding',
+    fold: 1,
+    trainStart: 1, trainEnd: 2,
+    valStart: 3, valEnd: 4,
+    title: 'Expanding Window — Fold 1',
+    caption: 'The first fold trains on just [t₁, t₂] (2 observations) and validates on [t₃, t₄]. The training set will grow in every subsequent fold — this is the defining feature of expanding window CV.',
+    formulaHtml: `$$\\text{Fold }k: \\quad \\text{Train} = [t_1,\\, t_{k \\cdot s}], \\quad \\text{Val} = [t_{k \\cdot s+1},\\, t_{k \\cdot s+h}]$$
+      <div class="formula-sub">k=1, s=2, h=2 → Train = [t₁, t₂], Val = [t₃, t₄] | Train size = 2</div>`
+  },
+  {
+    mode: 'expanding',
+    fold: 2,
+    trainStart: 1, trainEnd: 4,
+    valStart: 5, valEnd: 6,
+    title: 'Expanding Window — Fold 2',
+    caption: 'The training set expands to include [t₁, t₄] — all 4 past observations. The validation window advances to [t₅, t₆]. Every additional fold adds more historical data to train on.',
+    formulaHtml: `$$\\text{Fold }k: \\quad \\text{Train} = [t_1,\\, t_{k \\cdot s}], \\quad \\text{Val} = [t_{k \\cdot s+1},\\, t_{k \\cdot s+h}]$$
+      <div class="formula-sub">k=2, s=2, h=2 → Train = [t₁, t₄], Val = [t₅, t₆] | Train size = 4</div>`
+  },
+  {
+    mode: 'expanding',
+    fold: 3,
+    trainStart: 1, trainEnd: 6,
+    valStart: 7, valEnd: 8,
+    title: 'Expanding Window — Fold 3',
+    caption: 'Now training on [t₁, t₆] — half the dataset. The model benefits from 6 observations. Validation is on [t₇, t₈]. Notice how older folds with less data may underfit, while later folds better reflect final model performance.',
+    formulaHtml: `$$\\text{Fold }k: \\quad \\text{Train} = [t_1,\\, t_{k \\cdot s}], \\quad \\text{Val} = [t_{k \\cdot s+1},\\, t_{k \\cdot s+h}]$$
+      <div class="formula-sub">k=3, s=2, h=2 → Train = [t₁, t₆], Val = [t₇, t₈] | Train size = 6</div>`
+  },
+  {
+    mode: 'expanding',
+    fold: 4,
+    trainStart: 1, trainEnd: 8,
+    valStart: 9, valEnd: 10,
+    title: 'Expanding Window — Fold 4',
+    caption: 'Final expanding fold: training on [t₁, t₈] (8 observations), validating on [t₉, t₁₀]. Points t₁₁ and t₁₂ are held out and never used — they would serve as a final test set or the next forecast target.',
+    formulaHtml: `$$\\text{Fold }k: \\quad \\text{Train} = [t_1,\\, t_{k \\cdot s}], \\quad \\text{Val} = [t_{k \\cdot s+1},\\, t_{k \\cdot s+h}]$$
+      <div class="formula-sub">k=4, s=2, h=2 → Train = [t₁, t₈], Val = [t₉, t₁₀] | Train size = 8</div>`
+  },
+  {
+    mode: 'sliding',
+    fold: 1,
+    trainStart: 1, trainEnd: 4,
+    valStart: 5, valEnd: 6,
+    title: 'Sliding Window — Fold 1',
+    caption: 'We switch to sliding window with fixed window size W = 4. Fold 1 trains on [t₁, t₄] and validates on [t₅, t₆]. Unlike expanding window, the training set size will remain exactly W = 4 in every fold.',
+    formulaHtml: `$$\\text{Fold }k: \\text{Train} = [t_{(k-1)\\cdot s+1},\\, t_{(k-1)\\cdot s+W}], \\quad \\text{Val} = [t_{(k-1)\\cdot s+W+1},\\, t_{(k-1)\\cdot s+W+h}]$$
+      <div class="formula-sub">k=1, s=2, W=4, h=2 → start=(1-1)·2+1=1 → Train=[t₁,t₄], Val=[t₅,t₆] | Train size=4 (fixed)</div>`
+  },
+  {
+    mode: 'sliding',
+    fold: 2,
+    trainStart: 3, trainEnd: 6,
+    valStart: 7, valEnd: 8,
+    title: 'Sliding Window — Fold 2',
+    caption: 'The window slides forward by s = 2: training now on [t₃, t₆], validating on [t₇, t₈]. Point t₁ and t₂ are dropped — they are outside the window. This is how the model adapts to recent patterns and ignores potentially stale history.',
+    formulaHtml: `$$\\text{Fold }k: \\text{Train} = [t_{(k-1)\\cdot s+1},\\, t_{(k-1)\\cdot s+W}], \\quad \\text{Val} = [t_{(k-1)\\cdot s+W+1},\\, t_{(k-1)\\cdot s+W+h}]$$
+      <div class="formula-sub">k=2, s=2, W=4, h=2 → start=(2-1)·2+1=3 → Train=[t₃,t₆], Val=[t₇,t₈] | Train size=4 (fixed)</div>`
+  },
+  {
+    mode: 'sliding',
+    fold: 3,
+    trainStart: 5, trainEnd: 8,
+    valStart: 9, valEnd: 10,
+    title: 'Sliding Window — Fold 3',
+    caption: 'The window slides again: training on [t₅, t₈], validating on [t₉, t₁₀]. The model only sees the most recent 4 observations — excellent for capturing current trends while ignoring old regimes. t₁₁ and t₁₂ remain held out.',
+    formulaHtml: `$$\\text{Fold }k: \\text{Train} = [t_{(k-1)\\cdot s+1},\\, t_{(k-1)\\cdot s+W}], \\quad \\text{Val} = [t_{(k-1)\\cdot s+W+1},\\, t_{(k-1)\\cdot s+W+h}]$$
+      <div class="formula-sub">k=3, s=2, W=4, h=2 → start=(3-1)·2+1=5 → Train=[t₅,t₈], Val=[t₉,t₁₀] | Train size=4 (fixed)</div>`
+  }
+];
+
+let currentStep = 0;
+
+// Build timeline
+function buildTimeline() {
+  const grid = document.getElementById('timeline');
+  grid.innerHTML = '';
+  for (let i = 1; i <= 12; i++) {
+    const box = document.createElement('div');
+    box.className = 'tbox';
+    const sq = document.createElement('div');
+    sq.className = 'tsq state-unused';
+    sq.id = `sq-${i}`;
+    sq.textContent = `t${i}`;
+    const lbl = document.createElement('div');
+    lbl.className = 'tlabel';
+    lbl.textContent = `t${i}`;
+    box.appendChild(sq);
+    box.appendChild(lbl);
+    grid.appendChild(box);
+  }
+}
+
+// Build dots
+function buildDots() {
+  const container = document.getElementById('dots');
+  container.innerHTML = '';
+  for (let i = 0; i < STEPS.length; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'dot';
+    dot.setAttribute('title', `Step ${i+1}: ${STEPS[i].title}`);
+    dot.addEventListener('click', () => goTo(i));
+    container.appendChild(dot);
+  }
+}
+
+function updateDots(step) {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    else if (i === step) d.classList.add('active');
+  });
+}
+
+function getSquareState(i, step) {
+  const s = STEPS[step];
+  if (s.mode === 'intro') {
+    return (i % 2 === 0) ? 'state-intro-even' : 'state-intro-odd';
+  }
+  if (i >= s.trainStart && i <= s.trainEnd) return 'state-train';
+  if (i >= s.valStart && i <= s.valEnd) return 'state-val';
+  return 'state-unused';
+}
+
+function render(step) {
+  const s = STEPS[step];
+  // Update squares
+  for (let i = 1; i <= 12; i++) {
+    const sq = document.getElementById(`sq-${i}`);
+    sq.className = `tsq ${getSquareState(i, step)}`;
+  }
+  // Update formula panel
+  const fp = document.getElementById('formula-panel');
+  fp.innerHTML = s.formulaHtml || '';
+  if (s.ruleBox) {
+    fp.innerHTML += `<div class="callout callout-red" style="margin-top:0.7rem;font-size:0.88rem"><strong>Cardinal rule:</strong> NEVER shuffle time series data. Always train on past, validate on future.</div>`;
+  }
+
+  // Update step info
+  const badge = document.getElementById('phase-badge');
+  badge.textContent = s.mode === 'intro' ? 'INTRO' : s.mode === 'expanding' ? 'EXPANDING' : 'SLIDING';
+  badge.className = 'phase-badge';
+  if (s.mode === 'expanding') badge.classList.add('badge-expanding');
+  else if (s.mode === 'sliding') badge.classList.add('badge-sliding');
+  else badge.classList.add('badge-intro');
+
+  document.getElementById('step-counter').textContent = `Step ${step + 1} of ${STEPS.length}`;
+  document.getElementById('step-title').textContent = s.title;
+  document.getElementById('step-caption').textContent = s.caption;
+
+  // Timeline label
+  const tl = document.getElementById('timeline-label');
+  if (s.mode === 'intro') {
+    tl.textContent = 'Full Time Series: T = 12 observations';
+  } else if (s.mode === 'expanding') {
+    tl.textContent = `Expanding Window — Fold ${s.fold} | Train: t${s.trainStart}–t${s.trainEnd} (${s.trainEnd - s.trainStart + 1} pts) | Val: t${s.valStart}–t${s.valEnd}`;
+  } else {
+    tl.textContent = `Sliding Window — Fold ${s.fold} (W=4) | Train: t${s.trainStart}–t${s.trainEnd} | Val: t${s.valStart}–t${s.valEnd}`;
+  }
+
+  // Buttons
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+
+  updateDots(step);
+
+  // Re-render KaTeX
+  if (window.renderMathInElement) {
+    renderMathInElement(fp, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ],
+      throwOnError: false
+    });
+  }
+}
+
+function navigate(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= STEPS.length) return;
+  currentStep = next;
+  render(currentStep);
+}
+
+function goTo(idx) {
+  currentStep = idx;
+  render(currentStep);
+}
+
+function resetViz() {
+  currentStep = 0;
+  render(currentStep);
+}
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') navigate(1);
+  else if (e.key === 'ArrowLeft') navigate(-1);
+  else if (e.key === 'r' || e.key === 'R') resetViz();
+});
+
+// Collapsible card toggle (using <details>)
+// Already handled natively by <details> / <summary>
+
+// Init
+buildTimeline();
+buildDots();
+render(0);
+
+// If KaTeX auto-render already ran, re-trigger on dynamic content
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.renderMathInElement) {
+    renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ],
+      throwOnError: false
+    });
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NDCG — Normalized Discounted Cumulative Gain</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });"></script>
+
+  <style>
+    /* ── Design Tokens ──────────────────────────────────── */
+    :root {
+      --bg: #f9f8f5; --bg2: #f0efe9; --surface: #ffffff;
+      --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+      --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --sans: 'DM Sans', system-ui, sans-serif;
+      --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+      --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+      --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+      --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+      --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+      --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+      --radius: 10px; --radius-lg: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+        --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+        --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+        --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+        --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+        --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+        --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+        --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+        --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+      }
+    }
+
+    /* ── Base ────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    .header {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 36px;
+      margin-bottom: 24px;
+    }
+    .header-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .tag {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid;
+    }
+    .tag-intermediate { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-text); }
+    .tag-category     { background: var(--blue-bg);  border-color: var(--blue-border);  color: var(--blue-text);  }
+    .tag-complexity   { background: var(--purple-bg);border-color: var(--purple-border);color: var(--purple-text);}
+    .header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .header .subtitle {
+      color: var(--text2);
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* ── Collapsible Cards ───────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 22px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .card-header:hover { background: var(--bg2); }
+    .card-number {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .card-1 .card-number { background: var(--blue-bg); color: var(--blue-mid); border: 1px solid var(--blue-border); }
+    .card-2 .card-number { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+    .card-3 .card-number { background: var(--purple-bg); color: var(--purple-mid); border: 1px solid var(--purple-border); }
+    .card-4 .card-number { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+    .card-5 .card-number { background: var(--cyan-bg); color: var(--cyan-mid); border: 1px solid var(--cyan-border); }
+    .card-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .chevron {
+      font-size: 12px;
+      color: var(--text3);
+      transition: transform 0.2s;
+    }
+    .card.open .chevron { transform: rotate(180deg); }
+    .card-body {
+      display: none;
+      padding: 0 22px 22px;
+      border-top: 1px solid var(--border);
+    }
+    .card.open .card-body { display: block; }
+    .card-body p { margin-top: 12px; color: var(--text2); }
+    .card-body p strong { color: var(--text); }
+    .card-body ul, .card-body ol {
+      margin: 12px 0 0 18px;
+      color: var(--text2);
+    }
+    .card-body li { margin-bottom: 6px; }
+    .card-body li strong { color: var(--text); }
+
+    /* ── Equation Block ──────────────────────────────────── */
+    .eq {
+      background: var(--cyan-bg);
+      border: 1px solid var(--cyan-border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      text-align: center;
+      margin: 0.75rem 0;
+      overflow-x: auto;
+      color: var(--cyan-text);
+    }
+
+    /* ── Step callout in cards ───────────────────────────── */
+    .step-list { margin: 14px 0 0 0; list-style: none; padding: 0; }
+    .step-list li {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+    }
+    .step-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--green-mid);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-text { font-size: 14px; color: var(--text2); }
+    .step-text strong { color: var(--text); }
+
+    /* ── Comparison table ────────────────────────────────── */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 13.5px;
+    }
+    .compare-table th {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .compare-table td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      color: var(--text2);
+    }
+    .compare-table tr:nth-child(even) td { background: var(--bg); }
+
+    /* ── Worked Example table ────────────────────────────── */
+    .example-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 13.5px;
+      font-family: var(--mono);
+    }
+    .example-table th {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: center;
+      font-weight: 600;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 12px;
+    }
+    .example-table td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: center;
+      color: var(--text);
+    }
+    .example-table .rel-0  { background: var(--bg2); color: var(--text3); }
+    .example-table .rel-1  { background: var(--blue-bg); color: var(--blue-text); }
+    .example-table .rel-2  { background: var(--green-bg); color: var(--green-text); }
+    .example-table .rel-3  { background: var(--purple-bg); color: var(--purple-text); }
+    .example-table tfoot td {
+      font-weight: 700;
+      background: var(--amber-bg);
+      color: var(--amber-text);
+    }
+    .result-box {
+      margin-top: 14px;
+      padding: 14px 18px;
+      border-radius: var(--radius);
+      background: var(--green-bg);
+      border: 1px solid var(--green-border);
+      color: var(--green-text);
+      font-size: 14px;
+    }
+    .result-box .big-num {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    /* ── Inline callout ──────────────────────────────────── */
+    .callout {
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin: 12px 0;
+      font-size: 14px;
+      border: 1px solid;
+    }
+    .callout-blue   { background: var(--blue-bg);   border-color: var(--blue-border);   color: var(--blue-text); }
+    .callout-amber  { background: var(--amber-bg);  border-color: var(--amber-border);  color: var(--amber-text); }
+    .callout-purple { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-text); }
+    .callout-red    { background: var(--red-bg);    border-color: var(--red-border);    color: var(--red-text); }
+
+    /* ── Visualization Section ───────────────────────────── */
+    .viz-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin: 20px 0;
+      overflow: hidden;
+    }
+    .viz-section-header {
+      padding: 18px 24px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .viz-section-header h2 {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .viz-badge {
+      background: var(--purple-bg);
+      border: 1px solid var(--purple-border);
+      color: var(--purple-mid);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+
+    /* ── Ranking Tables inside viz ───────────────────────── */
+    .viz-body { padding: 20px 24px; }
+    .viz-tables-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 600px) {
+      .viz-tables-row { grid-template-columns: 1fr; }
+    }
+    .viz-table-wrap { }
+    .viz-table-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 8px;
+    }
+    .rank-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .rank-table th {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text3);
+      font-family: var(--sans);
+    }
+    .rank-table td {
+      border: 1px solid var(--border);
+      padding: 7px 8px;
+      text-align: center;
+      font-family: var(--mono);
+      transition: background 0.3s, color 0.3s, border-color 0.3s;
+    }
+    .rank-table tr.row-rel-0 td { background: var(--bg2); color: var(--text3); }
+    .rank-table tr.row-rel-1 td { background: var(--blue-bg); color: var(--blue-text); }
+    .rank-table tr.row-rel-2 td { background: var(--green-bg); color: var(--green-text); }
+    .rank-table tr.row-rel-3 td { background: var(--purple-bg); color: var(--purple-text); }
+    .rank-table tr.row-active td {
+      background: var(--amber-bg) !important;
+      color: var(--amber-text) !important;
+      border-color: var(--amber-border) !important;
+      font-weight: 700;
+    }
+    .rank-table td.dimmed { opacity: 0.35; }
+    .rank-table td.bright {
+      background: var(--amber-bg) !important;
+      color: var(--amber-text) !important;
+    }
+
+    /* ── Running total bar ───────────────────────────────── */
+    .running-total {
+      margin: 10px 0;
+      padding: 10px 14px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+    .rt-label { color: var(--text3); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .rt-value { color: var(--amber-mid); font-weight: 700; font-size: 15px; }
+    .rt-bar-track { flex: 1; min-width: 100px; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .rt-bar-fill { height: 100%; border-radius: 4px; background: var(--amber-mid); transition: width 0.5s ease; }
+
+    /* ── Big Score display ───────────────────────────────── */
+    .score-display {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 20px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .score-display .score-block {
+      text-align: center;
+      min-width: 100px;
+    }
+    .score-display .score-num {
+      font-size: 26px;
+      font-weight: 700;
+      font-family: var(--mono);
+      line-height: 1.1;
+    }
+    .score-display .score-lbl {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text3);
+      font-weight: 600;
+      margin-top: 3px;
+    }
+    .score-display .score-divider {
+      font-size: 28px;
+      color: var(--text3);
+      font-weight: 300;
+    }
+    .score-display .score-eq {
+      font-size: 28px;
+      color: var(--text3);
+    }
+    .score-final { color: var(--green-mid); }
+
+    /* ── SVG Discount Chart ──────────────────────────────── */
+    .chart-wrap {
+      margin: 12px 0;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .chart-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text3);
+      margin-bottom: 10px;
+    }
+
+    /* ── Info Card ───────────────────────────────────────── */
+    .info-card {
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .info-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+    .info-phase-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      border: 1px solid;
+    }
+    .info-step {
+      font-size: 12px;
+      color: var(--text3);
+      font-weight: 500;
+    }
+    .info-card-body {
+      padding: 14px 16px;
+    }
+    .info-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .info-card-desc {
+      font-size: 13.5px;
+      color: var(--text2);
+      line-height: 1.6;
+    }
+    .info-card-desc strong { color: var(--text); }
+
+    /* ── Controls ───────────────────────────────────────── */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 0 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: var(--bg2); border-color: var(--text3); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--purple-bg);
+      border-color: var(--purple-border);
+      color: var(--purple-text);
+    }
+    .btn-primary:hover { background: var(--purple-border); color: var(--purple-text); }
+    .step-counter {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+      padding: 8px 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      min-width: 90px;
+      text-align: center;
+    }
+    .dots {
+      display: flex;
+      gap: 6px;
+      padding: 6px 0;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border2);
+      transition: background 0.2s, transform 0.2s;
+      cursor: pointer;
+    }
+    .dot.active { background: var(--purple-mid); transform: scale(1.3); }
+    .dot.done   { background: var(--green-mid); }
+    .key-hint {
+      font-size: 11px;
+      color: var(--text3);
+      padding: 6px 0;
+    }
+
+    /* ── Legend ──────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+      padding: 14px 18px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .legend-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text3);
+      width: 100%;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: var(--text2);
+    }
+    .legend-swatch {
+      width: 14px; height: 14px;
+      border-radius: 4px;
+      border: 1px solid;
+      flex-shrink: 0;
+    }
+
+    /* ── Worst-case viz ──────────────────────────────────── */
+    .worst-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    @media (max-width: 600px) { .worst-wrap { grid-template-columns: 1fr; } }
+    .worst-block {
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      background: var(--bg2);
+      font-size: 13px;
+    }
+    .worst-block h4 { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+    .worst-block .wbest { color: var(--green-mid); }
+    .worst-block .wworst { color: var(--red-mid); }
+
+    code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── HEADER ──────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-meta">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">Information Retrieval</span>
+      <span class="tag tag-complexity">O(n log n)</span>
+    </div>
+    <h1>NDCG — Normalized Discounted Cumulative Gain</h1>
+    <div class="subtitle">Ranking Evaluation &nbsp;·&nbsp; Part III Classical ML</div>
+  </header>
+
+  <!-- ── CARD 1: Understanding NDCG ─────────────────────── -->
+  <div class="card card-1 open">
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="card-number">1</span>
+      <h2>Understanding NDCG</h2>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="card-body">
+      <p>
+        <strong>What it is:</strong> NDCG is a metric that measures how good a ranked list is, where positions near
+        the top matter much more than positions near the bottom. It answers the question: "How close is our system's
+        ranking to the theoretically perfect ranking?"
+      </p>
+      <div class="callout callout-blue">
+        <strong>The Google Analogy.</strong> Imagine search engine results — a highly relevant result at position 1 is
+        far more valuable to the user than an equally relevant result buried at position 10. Users rarely scroll past
+        the first few results. NDCG quantifies exactly this intuition: it rewards systems that surface the most
+        relevant items first, and penalizes systems that bury them.
+      </div>
+      <p>
+        <strong>One-sentence definition:</strong> NDCG normalizes DCG (Discounted Cumulative Gain) by the best possible
+        ranking's DCG (IDCG — Ideal DCG), yielding a score in \([0, 1]\) where 1.0 is a perfect ranking.
+      </p>
+      <p>
+        <strong>Key insight about the logarithm:</strong> The discount \(\frac{1}{\log_2(i+1)}\) is not arbitrary.
+        At position 1, the discount is exactly 1.0 (no penalty). At positions 2 and 3, the discounts are
+        ≈ 0.631 and 0.5 respectively. This means that position 1 is worth more than positions 2 and 3
+        <em>combined</em>. By position 6, the discount has already halved from position 1. This steep decay
+        mirrors how user attention behaves in real ranking scenarios.
+      </p>
+      <p>
+        <strong>Why not just use Precision@k?</strong> Precision@k treats all relevant documents identically —
+        a somewhat relevant document counts the same as a highly relevant one. NDCG uses <em>graded relevance</em>:
+        a document scored 3 (highly relevant) contributes exponentially more than one scored 1 (somewhat relevant).
+        This makes NDCG far more sensitive and realistic for systems where relevance comes in degrees.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── CARD 2: How It Works ───────────────────────────── -->
+  <div class="card card-2">
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="card-number">2</span>
+      <h2>How It Works — Step by Step</h2>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="card-body">
+      <p>Computing NDCG for a ranked list involves four clear phases:</p>
+      <ol class="step-list">
+        <li>
+          <span class="step-num">1</span>
+          <span class="step-text">
+            <strong>Assign relevance scores</strong> to each document in your ranked list.
+            Typical grading scale: 0 = completely irrelevant, 1 = marginally relevant,
+            2 = moderately relevant, 3 = highly relevant. The scale can be any non-negative integers, though
+            scales of 0–3 or 0–4 are most common in information retrieval benchmarks like TREC.
+          </span>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <span class="step-text">
+            <strong>Compute DCG@k</strong> (Discounted Cumulative Gain at rank k).
+            For each position \(i\) from 1 to k, compute the gain \(2^{rel_i} - 1\), then divide by the
+            positional discount \(\log_2(i+1)\). Sum all these values. The exponential gain formula amplifies
+            the difference between high and low relevance scores.
+          </span>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <span class="step-text">
+            <strong>Compute IDCG@k</strong> (Ideal DCG). Sort all documents in your pool by relevance in
+            descending order, then apply the exact same DCG formula to this re-sorted list. This is the
+            maximum achievable DCG — the score your system would get if it were perfect.
+          </span>
+        </li>
+        <li>
+          <span class="step-num">4</span>
+          <span class="step-text">
+            <strong>Divide: NDCG = DCG / IDCG</strong>. Since DCG is always ≤ IDCG by construction,
+            NDCG always lies in \([0, 1]\). A score of 1.0 means your ranking is perfect. A score
+            near 0 means relevant documents are ranked at the very bottom. If IDCG = 0 (no relevant
+            documents exist), NDCG is undefined.
+          </span>
+        </li>
+      </ol>
+      <div class="callout callout-amber">
+        <strong>The @k notation:</strong> NDCG@k only considers the top k positions. This is important —
+        NDCG@10 asks "how good are my top 10 results?" while NDCG@100 evaluates deeper into the list.
+        For web search, NDCG@10 is usually the gold standard since most users never go past the first page.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CARD 3: The Math ───────────────────────────────── -->
+  <div class="card card-3">
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="card-number">3</span>
+      <h2>The Math</h2>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="card-body">
+      <p><strong>DCG (Exponential gain variant — standard in ML competitions and search):</strong></p>
+      <div class="eq">$$\text{DCG@}k = \sum_{i=1}^{k} \frac{2^{rel_i} - 1}{\log_2(i+1)}$$</div>
+
+      <p><strong>DCG (Original formulation — Järvelin & Kekäläinen 2002):</strong></p>
+      <div class="eq">$$\text{DCG@}k = \sum_{i=1}^{k} \frac{rel_i}{\log_2(i+1)}$$</div>
+
+      <p>
+        The exponential gain variant (\(2^{rel_i} - 1\)) is more commonly used today because it
+        creates a stronger penalty for placing highly relevant documents lower in the list,
+        amplifying the differences between relevance grades. When \(rel_i \in \{0,1\}\) (binary relevance),
+        both formulas become equivalent.
+      </p>
+
+      <p><strong>NDCG:</strong></p>
+      <div class="eq">$$\text{NDCG@}k = \frac{\text{DCG@}k}{\text{IDCG@}k}$$</div>
+
+      <p><strong>Position discount:</strong></p>
+      <div class="eq">$$\text{discount}(i) = \frac{1}{\log_2(i+1)}$$</div>
+
+      <p>
+        The discount at position \(i\) decays as \(\frac{1}{\log_2(i+1)}\): position 1 gets discount 1.0,
+        position 2 gets ≈ 0.631, position 3 gets 0.5, position 4 gets ≈ 0.431, and so on.
+        The denominator grows without bound — theoretically documents at very deep ranks contribute almost
+        nothing to DCG, which is exactly the desired behavior.
+      </p>
+
+      <p><strong>Where IDCG comes from:</strong></p>
+      <p>
+        If \(\pi^*\) is the permutation that sorts documents by relevance in descending order, then:
+      </p>
+      <div class="eq">$$\text{IDCG@}k = \sum_{i=1}^{k} \frac{2^{rel_{\pi^*(i)}} - 1}{\log_2(i+1)}$$</div>
+      <p>
+        This is simply DCG applied to the best possible ranking. Because \(\pi^*\) places the highest-relevance
+        documents at the lowest position indices (where the discount is largest), no other permutation can achieve
+        a higher DCG.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── CARD 4: Numerical Example ─────────────────────── -->
+  <div class="card card-4">
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="card-number">4</span>
+      <h2>Numerical Example — Full Worked Computation</h2>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="card-body">
+      <p>
+        Consider a search query with 6 retrieved documents. The system returns them with the
+        following relevance scores: <code>[3, 2, 3, 0, 1, 2]</code>.
+      </p>
+
+      <p><strong>Step 1 — DCG@6 (Actual Ranking):</strong></p>
+      <table class="example-table">
+        <thead>
+          <tr>
+            <th>Pos i</th>
+            <th>Relevance</th>
+            <th>Gain (2^rel−1)</th>
+            <th>Discount 1/log₂(i+1)</th>
+            <th>Discounted Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="rel-3"><td>1</td><td>3</td><td>7</td><td>1.000</td><td>7.000</td></tr>
+          <tr class="rel-2"><td>2</td><td>2</td><td>3</td><td>0.631</td><td>1.893</td></tr>
+          <tr class="rel-3"><td>3</td><td>3</td><td>7</td><td>0.500</td><td>3.500</td></tr>
+          <tr class="rel-0"><td>4</td><td>0</td><td>0</td><td>0.431</td><td>0.000</td></tr>
+          <tr class="rel-1"><td>5</td><td>1</td><td>1</td><td>0.387</td><td>0.387</td></tr>
+          <tr class="rel-2"><td>6</td><td>2</td><td>3</td><td>0.356</td><td>1.068</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">DCG@6 =</td><td>13.848</td></tr>
+        </tfoot>
+      </table>
+
+      <p style="margin-top:16px;"><strong>Step 2 — IDCG@6 (Ideal Ranking: [3, 3, 2, 2, 1, 0]):</strong></p>
+      <table class="example-table">
+        <thead>
+          <tr>
+            <th>Pos i</th>
+            <th>Ideal Rel</th>
+            <th>Gain (2^rel−1)</th>
+            <th>Discount 1/log₂(i+1)</th>
+            <th>Discounted Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="rel-3"><td>1</td><td>3</td><td>7</td><td>1.000</td><td>7.000</td></tr>
+          <tr class="rel-3"><td>2</td><td>3</td><td>7</td><td>0.631</td><td>4.417</td></tr>
+          <tr class="rel-2"><td>3</td><td>2</td><td>3</td><td>0.500</td><td>1.500</td></tr>
+          <tr class="rel-2"><td>4</td><td>2</td><td>3</td><td>0.431</td><td>1.293</td></tr>
+          <tr class="rel-1"><td>5</td><td>1</td><td>1</td><td>0.387</td><td>0.387</td></tr>
+          <tr class="rel-0"><td>6</td><td>0</td><td>0</td><td>0.356</td><td>0.000</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">IDCG@6 =</td><td>14.597</td></tr>
+        </tfoot>
+      </table>
+
+      <div class="result-box" style="margin-top:16px;">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;opacity:0.7;margin-bottom:4px;">Final Score</div>
+            <div class="big-num">NDCG@6 = 13.848 / 14.597 ≈ 0.949</div>
+          </div>
+          <div style="font-size:13px;opacity:0.85;">
+            The system achieved 94.9% of the theoretical maximum — a very strong result, primarily because
+            both highly-relevant documents (rel=3) appear in the top 3 positions.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── INTERACTIVE VISUALIZATION ─────────────────────── -->
+  <div class="viz-section">
+    <div class="viz-section-header">
+      <h2>Interactive NDCG Visualization</h2>
+      <span class="viz-badge">Step-by-Step</span>
+    </div>
+    <div class="viz-body">
+
+      <!-- Tables row -->
+      <div class="viz-tables-row">
+        <div class="viz-table-wrap">
+          <div class="viz-table-label" id="actual-label">Actual Ranking</div>
+          <table class="rank-table" id="actual-table">
+            <thead>
+              <tr>
+                <th>Pos</th>
+                <th>Rel</th>
+                <th id="th-gain">Gain</th>
+                <th id="th-disc">Discount</th>
+                <th id="th-dg">Disc. Gain</th>
+              </tr>
+            </thead>
+            <tbody id="actual-body">
+              <!-- filled by JS -->
+            </tbody>
+          </table>
+        </div>
+        <div class="viz-table-wrap" id="ideal-wrap" style="opacity:0;transition:opacity 0.4s;">
+          <div class="viz-table-label">Ideal Ranking (IDCG)</div>
+          <table class="rank-table" id="ideal-table">
+            <thead>
+              <tr>
+                <th>Pos</th>
+                <th>Rel</th>
+                <th>Gain</th>
+                <th>Discount</th>
+                <th>Disc. Gain</th>
+              </tr>
+            </thead>
+            <tbody id="ideal-body">
+              <!-- filled by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Running total -->
+      <div class="running-total" id="running-total" style="display:none;">
+        <span class="rt-label" id="rt-label">DCG</span>
+        <div class="rt-bar-track">
+          <div class="rt-bar-fill" id="rt-fill" style="width:0%"></div>
+        </div>
+        <span class="rt-value" id="rt-value">0.000</span>
+      </div>
+
+      <!-- Score display (step 6+) -->
+      <div class="score-display" id="score-display" style="display:none;">
+        <div class="score-block">
+          <div class="score-num" id="sd-dcg" style="color: var(--amber-mid)">13.848</div>
+          <div class="score-lbl">DCG@6</div>
+        </div>
+        <div class="score-divider">÷</div>
+        <div class="score-block">
+          <div class="score-num" id="sd-idcg" style="color: var(--purple-mid)">14.597</div>
+          <div class="score-lbl">IDCG@6</div>
+        </div>
+        <div class="score-eq">=</div>
+        <div class="score-block">
+          <div class="score-num score-final" id="sd-ndcg">0.949</div>
+          <div class="score-lbl">NDCG@6</div>
+        </div>
+      </div>
+
+      <!-- Discount chart (step 7) -->
+      <div class="chart-wrap" id="chart-wrap" style="display:none;">
+        <div class="chart-title">Position Discount Curve — 1 / log₂(i+1)</div>
+        <svg id="disc-chart" width="100%" height="140" viewBox="0 0 500 140" preserveAspectRatio="xMidYMid meet">
+          <!-- bars drawn by JS -->
+        </svg>
+      </div>
+
+      <!-- Worst-case (step 8) -->
+      <div id="worst-wrap" style="display:none;">
+        <div class="worst-wrap">
+          <div class="worst-block">
+            <h4 class="wbest">Best Case — NDCG = 1.0</h4>
+            <p style="font-size:13px;color:var(--text2);">
+              Ranking: <code>[3, 3, 2, 2, 1, 0]</code><br>
+              DCG = IDCG = 14.597<br>
+              NDCG = 14.597 / 14.597 = <strong>1.000</strong>
+            </p>
+          </div>
+          <div class="worst-block">
+            <h4 class="wworst">Worst Case — NDCG near 0</h4>
+            <p style="font-size:13px;color:var(--text2);">
+              Ranking: <code>[0, 1, 2, 2, 3, 3]</code><br>
+              DCG = 0 + 0.631 + 1.5 + 1.293 + 3.871 + 4.268 = 11.563... wait, let's recalculate.
+              Actually with <code>[0, 0, 0, 1, 2, 3]</code>:<br>
+              DCG ≈ 0 + 0 + 0 + 0.431 + 1.549 + 4.268 = 6.248<br>
+              NDCG = 6.248 / 14.597 ≈ <strong>0.428</strong><br>
+              <em>Highly relevant docs buried at bottom.</em>
+            </p>
+          </div>
+        </div>
+        <div class="callout callout-red" style="margin-top:12px;font-size:13px;">
+          <strong>Key insight:</strong> Because of the log discount, misplacing a rel=3 document from position 1
+          to position 6 costs 7×(1.0 − 0.356) = 4.508 DCG points — about 31% of the total IDCG. The top position
+          is by far the most critical to get right.
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="info-card">
+        <div class="info-card-header">
+          <span class="info-phase-badge" id="phase-badge"
+            style="background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)">
+            RELEVANCE
+          </span>
+          <span class="info-step" id="step-counter-text">Step 1 of 8</span>
+        </div>
+        <div class="info-card-body">
+          <div class="info-card-title" id="info-title">The Ranked List</div>
+          <div class="info-card-desc" id="info-desc">
+            We have 6 documents retrieved for a query. Each is assigned a <strong>relevance score</strong>:
+            0 (irrelevant), 1 (marginally relevant), 2 (relevant), 3 (highly relevant).
+            The actual ranking returned by the system is <code>[3, 2, 3, 0, 1, 2]</code>.
+            Notice that two highly relevant documents appear — one at position 1 (great!) and one at position 3 (acceptable).
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+        <span class="step-counter" id="step-counter-btn">Step 1 / 8</span>
+        <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+        <button class="btn" id="btn-reset" onclick="resetViz()">↺ Reset</button>
+      </div>
+      <div class="dots" id="dots-container"></div>
+      <div class="key-hint">Use ← → arrow keys to navigate &nbsp;|&nbsp; Press R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-title">Relevance Color Legend</div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--bg2);border-color:var(--border2);"></div>
+          rel = 0 — Irrelevant
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--blue-bg);border-color:var(--blue-border);"></div>
+          rel = 1 — Somewhat Relevant
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--green-bg);border-color:var(--green-border);"></div>
+          rel = 2 — Relevant
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--purple-bg);border-color:var(--purple-border);"></div>
+          rel = 3 — Highly Relevant
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--amber-bg);border-color:var(--amber-border);"></div>
+          Active / Highlighted Row
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── CARD 5: Takeaways & Comparisons ───────────────── -->
+  <div class="card card-5">
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="card-number">5</span>
+      <h2>Key Takeaways &amp; Comparisons</h2>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="card-body">
+      <p><strong>When to use NDCG:</strong></p>
+      <ul>
+        <li>Search engines evaluating result page quality</li>
+        <li>Recommender systems (movie/product/content recommendations)</li>
+        <li>Any system that outputs a <em>ranked list</em> where relevance comes in degrees</li>
+        <li>Learning-to-Rank model evaluation (e.g., LambdaRank, LambdaMART directly optimize NDCG)</li>
+      </ul>
+
+      <p style="margin-top:16px;"><strong>NDCG vs other ranking metrics:</strong></p>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Relevance Type</th>
+            <th>Position Aware?</th>
+            <th>Key Limitation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>NDCG</strong></td>
+            <td>Graded (0, 1, 2, 3, ...)</td>
+            <td>Yes — log discount</td>
+            <td>Requires relevance judgments</td>
+          </tr>
+          <tr>
+            <td>Precision@k</td>
+            <td>Binary</td>
+            <td>No</td>
+            <td>Treats all relevant docs equally; ignores relevance grade</td>
+          </tr>
+          <tr>
+            <td>MAP (Mean Average Precision)</td>
+            <td>Binary</td>
+            <td>Yes — reward early recall</td>
+            <td>Cannot handle graded relevance; binary only</td>
+          </tr>
+          <tr>
+            <td>MRR (Mean Reciprocal Rank)</td>
+            <td>Binary</td>
+            <td>Yes — only first hit</td>
+            <td>Only cares about the single first relevant item; ignores the rest of the list</td>
+          </tr>
+          <tr>
+            <td>ERR (Expected Reciprocal Rank)</td>
+            <td>Graded</td>
+            <td>Yes — cascade model</td>
+            <td>More complex; models user stopping probability; less widely adopted</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-purple" style="margin-top:16px;">
+        <strong>Critical Gotcha — NDCG@k undefined when IDCG@k = 0:</strong> If there are no relevant documents
+        in the top k of the ideal ranking (i.e., the entire document pool has zero relevant items), then
+        IDCG@k = 0 and NDCG@k is undefined (division by zero). In practice, queries with no relevant
+        documents are either filtered out before evaluation or assigned NDCG = 0 by convention.
+      </div>
+
+      <div class="callout callout-amber" style="margin-top:10px;">
+        <strong>Practical tip — averaging across queries:</strong> NDCG is almost always reported as the
+        mean over many queries (Mean NDCG). A single-query NDCG of 0.95 is great, but the important
+        number is the average across thousands of queries, which smooths out easy/hard query variation.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+  /* ── Data ─────────────────────────────────────────────── */
+  const actualRels  = [3, 2, 3, 0, 1, 2];
+  const idealRels   = [3, 3, 2, 2, 1, 0];
+
+  function discount(i)  { return 1 / (Math.log2(i + 2)); }  // i is 0-indexed, so i+2 = i+1+1
+  function gain(rel)    { return Math.pow(2, rel) - 1; }
+
+  const discounts   = [0,1,2,3,4,5].map(i => discount(i));
+  const actualGains = actualRels.map(gain);
+  const idealGains  = idealRels.map(gain);
+  const actualDG    = actualGains.map((g,i) => g * discounts[i]);
+  const idealDG     = idealGains.map((g,i)  => g * discounts[i]);
+
+  const DCG  = actualDG.reduce((a,b) => a+b, 0); // 13.848
+  const IDCG = idealDG.reduce((a,b)  => a+b, 0); // 14.597
+  const NDCG = DCG / IDCG;                        // 0.949
+
+  const REL_CLASSES = ['row-rel-0','row-rel-1','row-rel-2','row-rel-3'];
+
+  /* ── Build Tables ─────────────────────────────────────── */
+  function buildTable(tbodyId, rels, gains, dgs, showGain, showDisc, showDg) {
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    rels.forEach((rel, i) => {
+      const tr = document.createElement('tr');
+      tr.className = REL_CLASSES[rel];
+      tr.id = `${tbodyId}-row-${i}`;
+
+      const posCell  = `<td>${i+1}</td>`;
+      const relCell  = `<td>${rel}</td>`;
+      const gainCell = `<td class="${showGain ? '' : 'dimmed'}">${showGain ? gains[i].toFixed(0) : '—'}</td>`;
+      const discCell = `<td class="${showDisc ? '' : 'dimmed'}">${showDisc ? discounts[i].toFixed(3) : '—'}</td>`;
+      const dgCell   = `<td class="${showDg ? '' : 'dimmed'}">${showDg ? dgs[i].toFixed(3) : '—'}</td>`;
+
+      tr.innerHTML = posCell + relCell + gainCell + discCell + dgCell;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function buildTableWithProgress(tbodyId, rels, gains, dgs, showGain, showDisc, showDg, activeRow) {
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    rels.forEach((rel, i) => {
+      const tr = document.createElement('tr');
+      const isActive = (i === activeRow);
+      const isPast   = (activeRow >= 0 && i < activeRow);
+      tr.className = isActive ? 'row-active' : REL_CLASSES[rel];
+      tr.id = `${tbodyId}-row-${i}`;
+
+      const posCell  = `<td>${i+1}</td>`;
+      const relCell  = `<td>${rel}</td>`;
+      const gVal     = isActive || isPast ? gains[i].toFixed(0) : '—';
+      const dVal     = isActive || isPast ? discounts[i].toFixed(3) : '—';
+      const dgVal    = isActive || isPast ? dgs[i].toFixed(3) : '—';
+
+      const gainClass = (!isActive && !isPast && showGain) ? 'dimmed' : '';
+      const discClass = (!isActive && !isPast && showDisc) ? 'dimmed' : '';
+      const dgClass   = (!isActive && !isPast && showDg)   ? 'dimmed' : '';
+
+      tr.innerHTML = `<td>${i+1}</td><td>${rel}</td>`
+        + `<td class="${gainClass}">${showGain ? (isActive||isPast?gains[i].toFixed(0):'—') : '—'}</td>`
+        + `<td class="${discClass}">${showDisc ? (isActive||isPast?discounts[i].toFixed(3):'—') : '—'}</td>`
+        + `<td class="${dgClass}">${showDg ? (isActive||isPast?dgs[i].toFixed(3):'—') : '—'}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* ── SVG Discount Chart ───────────────────────────────── */
+  function drawDiscountChart() {
+    const svg = document.getElementById('disc-chart');
+    svg.innerHTML = '';
+    const W = 500, H = 140;
+    const PAD = {l:36, r:10, t:10, b:30};
+    const innerW = W - PAD.l - PAD.r;
+    const innerH = H - PAD.t - PAD.b;
+    const n = 6;
+
+    const barW = innerW / n - 8;
+    const colorMap = [
+      'var(--purple-mid)','var(--blue-mid)','var(--green-mid)',
+      'var(--amber-mid)','var(--red-mid)','var(--text3)'
+    ];
+    const discValues = [0,1,2,3,4,5].map(i => discount(i));
+    const maxD = 1.0;
+
+    // Y-axis labels
+    [0, 0.25, 0.5, 0.75, 1.0].forEach(v => {
+      const y = PAD.t + innerH - (v / maxD) * innerH;
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', PAD.l); line.setAttribute('y1', y);
+      line.setAttribute('x2', W - PAD.r); line.setAttribute('y2', y);
+      line.setAttribute('stroke', 'var(--border)'); line.setAttribute('stroke-dasharray', '2,3');
+      svg.appendChild(line);
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.setAttribute('x', PAD.l - 4); txt.setAttribute('y', y + 4);
+      txt.setAttribute('text-anchor','end'); txt.setAttribute('font-size','9');
+      txt.setAttribute('fill','var(--text3)'); txt.setAttribute('font-family','var(--mono)');
+      txt.textContent = v.toFixed(2);
+      svg.appendChild(txt);
+    });
+
+    discValues.forEach((d, i) => {
+      const xCenter = PAD.l + i * (innerW / n) + (innerW / n) / 2;
+      const barH = (d / maxD) * innerH;
+      const y = PAD.t + innerH - barH;
+
+      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      rect.setAttribute('x', xCenter - barW/2);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', barW);
+      rect.setAttribute('height', barH);
+      rect.setAttribute('rx', 4);
+      rect.setAttribute('fill', colorMap[i]);
+      rect.setAttribute('opacity', '0.85');
+      svg.appendChild(rect);
+
+      // Value label
+      const valTxt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      valTxt.setAttribute('x', xCenter); valTxt.setAttribute('y', y - 4);
+      valTxt.setAttribute('text-anchor','middle'); valTxt.setAttribute('font-size','9');
+      valTxt.setAttribute('fill','var(--text2)'); valTxt.setAttribute('font-family','var(--mono)');
+      valTxt.textContent = d.toFixed(3);
+      svg.appendChild(valTxt);
+
+      // X label
+      const xTxt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      xTxt.setAttribute('x', xCenter); xTxt.setAttribute('y', PAD.t + innerH + 18);
+      xTxt.setAttribute('text-anchor','middle'); xTxt.setAttribute('font-size','10');
+      xTxt.setAttribute('fill','var(--text2)'); xTxt.setAttribute('font-family','var(--sans)');
+      xTxt.textContent = `Pos ${i+1}`;
+      svg.appendChild(xTxt);
+    });
+  }
+
+  /* ── Step Definitions ─────────────────────────────────── */
+  const STEPS = [
+    {
+      phase: 'RELEVANCE', phaseColor: 'blue',
+      title: 'The Ranked List',
+      desc: `We have 6 documents retrieved for a query. Each is assigned a <strong>relevance score</strong>:
+        0 (irrelevant), 1 (marginally relevant), 2 (relevant), 3 (highly relevant).
+        The actual ranking returned by the system is <code>[3, 2, 3, 0, 1, 2]</code>.
+        Notice that two highly relevant documents (rel=3) appear — one at position 1 (ideal!) and one at position 3 (good).`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, false, false, false);
+        document.getElementById('ideal-wrap').style.opacity = '0';
+        document.getElementById('running-total').style.display = 'none';
+        document.getElementById('score-display').style.display = 'none';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+        document.getElementById('th-gain').textContent = 'Gain';
+        document.getElementById('th-disc').textContent = 'Discount';
+        document.getElementById('th-dg').textContent = 'Disc. Gain';
+        document.getElementById('actual-label').textContent = 'Actual Ranking';
+      }
+    },
+    {
+      phase: 'DISCOUNT', phaseColor: 'purple',
+      title: 'Position Discounts',
+      desc: `The <strong>log-discount</strong> is the heart of NDCG. Each position <em>i</em> gets weight
+        <code>1/log₂(i+1)</code>: position 1 → 1.000, position 2 → 0.631, position 3 → 0.500, position 4 → 0.431,
+        position 5 → 0.387, position 6 → 0.356. The rapid initial decay means that
+        position 1 is worth almost as much as positions 2 through 4 combined. Getting the first result right is crucial.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, false, true, false);
+        document.getElementById('ideal-wrap').style.opacity = '0';
+        document.getElementById('running-total').style.display = 'none';
+        document.getElementById('score-display').style.display = 'none';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+        document.getElementById('th-disc').textContent = 'Discount ✓';
+      }
+    },
+    {
+      phase: 'GAIN', phaseColor: 'green',
+      title: 'Computing Gains: 2^rel − 1',
+      desc: `The <strong>exponential gain formula</strong> <code>2^rel − 1</code> amplifies differences between
+        relevance levels. rel=0 → gain 0, rel=1 → gain 1, rel=2 → gain 3, rel=3 → gain 7.
+        The exponential scaling means a highly relevant document contributes 7× more gain than a somewhat-relevant one,
+        not just 3×. This steep scaling is intentional — it strongly rewards finding the most relevant documents.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, false);
+        document.getElementById('ideal-wrap').style.opacity = '0';
+        document.getElementById('running-total').style.display = 'none';
+        document.getElementById('score-display').style.display = 'none';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+        document.getElementById('th-gain').textContent = 'Gain ✓';
+      }
+    },
+    {
+      phase: 'DCG', phaseColor: 'amber',
+      title: 'Computing DCG — Gain × Discount, Row by Row',
+      desc: `Now we multiply each row's <strong>gain × discount</strong> to get the discounted gain,
+        then accumulate. Running total: pos 1 → 7.000 | pos 2 → +1.893 = 8.893 | pos 3 → +3.500 = 12.393 |
+        pos 4 → +0.000 = 12.393 | pos 5 → +0.387 = 12.780 | pos 6 → +1.068 = 13.848.
+        <strong>Final DCG@6 = 13.848.</strong> The irrelevant document at position 4 contributes nothing.`,
+      activeRow: 5,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, true);
+        document.getElementById('ideal-wrap').style.opacity = '0';
+        document.getElementById('score-display').style.display = 'none';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+        document.getElementById('th-dg').textContent = 'Disc. Gain ✓';
+
+        const rt = document.getElementById('running-total');
+        rt.style.display = 'flex';
+        document.getElementById('rt-label').textContent = 'DCG@6';
+        document.getElementById('rt-value').textContent = DCG.toFixed(3);
+        document.getElementById('rt-fill').style.width = '95%'; // DCG/IDCG × 100
+        document.getElementById('rt-fill').style.background = 'var(--amber-mid)';
+      }
+    },
+    {
+      phase: 'IDEAL', phaseColor: 'purple',
+      title: 'The Ideal Ranking',
+      desc: `To compute NDCG, we need the <strong>best possible ranking</strong> — sort all documents by relevance
+        descending. Our 6 documents have relevance scores {3, 2, 3, 0, 1, 2}; sorted → <code>[3, 3, 2, 2, 1, 0]</code>.
+        This ideal ranking places both rel=3 documents first, maximizing the high-gain items at the lowest-discounted positions.
+        Notice how both tables are now visible — left is actual, right is ideal.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, true);
+        buildTable('ideal-body', idealRels, idealGains, idealDG, true, true, true);
+        document.getElementById('ideal-wrap').style.opacity = '1';
+        document.getElementById('score-display').style.display = 'none';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+
+        const rt = document.getElementById('running-total');
+        rt.style.display = 'flex';
+        document.getElementById('rt-label').textContent = 'DCG@6';
+        document.getElementById('rt-value').textContent = DCG.toFixed(3);
+        document.getElementById('rt-fill').style.width = '95%';
+      }
+    },
+    {
+      phase: 'IDCG', phaseColor: 'purple',
+      title: 'IDCG = 14.597',
+      desc: `Applying the same DCG formula to the ideal ranking gives <strong>IDCG@6 = 14.597</strong>.
+        Breakdown: 7×1.000 + 7×0.631 + 3×0.500 + 3×0.431 + 1×0.387 + 0×0.356 =
+        7.000 + 4.417 + 1.500 + 1.293 + 0.387 + 0.000 = 14.597.
+        The IDCG is always ≥ DCG. The gap between them (14.597 − 13.848 = 0.749) tells us
+        how far our actual ranking falls short of perfection.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, true);
+        buildTable('ideal-body', idealRels, idealGains, idealDG, true, true, true);
+        document.getElementById('ideal-wrap').style.opacity = '1';
+        document.getElementById('chart-wrap').style.display = 'none';
+        document.getElementById('worst-wrap').style.display = 'none';
+
+        const rt = document.getElementById('running-total');
+        rt.style.display = 'flex';
+        document.getElementById('rt-label').textContent = 'IDCG@6';
+        document.getElementById('rt-value').textContent = IDCG.toFixed(3);
+        document.getElementById('rt-fill').style.width = '100%';
+        document.getElementById('rt-fill').style.background = 'var(--purple-mid)';
+
+        document.getElementById('score-display').style.display = 'flex';
+        document.getElementById('sd-ndcg').textContent = NDCG.toFixed(3);
+      }
+    },
+    {
+      phase: 'CURVE', phaseColor: 'cyan',
+      title: 'The Log Discount Curve',
+      desc: `The bar chart shows how steeply the discount drops from position 1 (1.000) to position 6 (0.356).
+        This is the logarithmic decay \(\frac{1}{\log_2(i+1)}\). The decay is fastest between positions 1 and 3,
+        then gradually flattens. This mirrors real-world user behavior — users pay exponentially less attention
+        to results as they scroll down. The log is a natural, theoretically motivated choice that satisfies
+        the "top-heaviness" axiom: the metric should change more when we swap documents near the top.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, true);
+        buildTable('ideal-body', idealRels, idealGains, idealDG, true, true, true);
+        document.getElementById('ideal-wrap').style.opacity = '1';
+        document.getElementById('worst-wrap').style.display = 'none';
+
+        const rt = document.getElementById('running-total');
+        rt.style.display = 'flex';
+        document.getElementById('rt-label').textContent = 'IDCG@6';
+        document.getElementById('rt-value').textContent = IDCG.toFixed(3);
+        document.getElementById('rt-fill').style.width = '100%';
+        document.getElementById('rt-fill').style.background = 'var(--purple-mid)';
+
+        document.getElementById('score-display').style.display = 'flex';
+        document.getElementById('sd-ndcg').textContent = NDCG.toFixed(3);
+
+        const cw = document.getElementById('chart-wrap');
+        cw.style.display = 'block';
+        drawDiscountChart();
+      }
+    },
+    {
+      phase: 'COMPARE', phaseColor: 'red',
+      title: 'Best vs Worst Case',
+      desc: `What does NDCG look like at the extremes? <span style="color:var(--green-mid)"><strong>Best case</strong></span>:
+        ranking <code>[3,3,2,2,1,0]</code> (identical to ideal) gives NDCG = 1.000.
+        <span style="color:var(--red-mid)"><strong>Worst case</strong></span>:
+        ranking <code>[0,0,0,1,2,3]</code> buries the most relevant documents at the bottom, giving NDCG ≈ 0.428.
+        Our actual ranking scored 0.949 — very close to ideal, mainly because the two rel=3 documents
+        are within the top 3 positions.`,
+      render() {
+        buildTable('actual-body', actualRels, actualGains, actualDG, true, true, true);
+        buildTable('ideal-body', idealRels, idealGains, idealDG, true, true, true);
+        document.getElementById('ideal-wrap').style.opacity = '1';
+        document.getElementById('score-display').style.display = 'flex';
+        document.getElementById('sd-ndcg').textContent = NDCG.toFixed(3);
+
+        const rt = document.getElementById('running-total');
+        rt.style.display = 'flex';
+        document.getElementById('rt-label').textContent = 'IDCG@6';
+        document.getElementById('rt-value').textContent = IDCG.toFixed(3);
+        document.getElementById('rt-fill').style.width = '100%';
+        document.getElementById('rt-fill').style.background = 'var(--purple-mid)';
+
+        const cw = document.getElementById('chart-wrap');
+        cw.style.display = 'block';
+        drawDiscountChart();
+
+        document.getElementById('worst-wrap').style.display = 'block';
+      }
+    }
+  ];
+
+  const PHASE_COLORS = {
+    blue:   {bg:'var(--blue-bg)',   border:'var(--blue-border)',   text:'var(--blue-text)'},
+    purple: {bg:'var(--purple-bg)', border:'var(--purple-border)', text:'var(--purple-text)'},
+    green:  {bg:'var(--green-bg)',  border:'var(--green-border)',  text:'var(--green-text)'},
+    amber:  {bg:'var(--amber-bg)',  border:'var(--amber-border)',  text:'var(--amber-text)'},
+    cyan:   {bg:'var(--cyan-bg)',   border:'var(--cyan-border)',   text:'var(--cyan-text)'},
+    red:    {bg:'var(--red-bg)',    border:'var(--red-border)',    text:'var(--red-text)'},
+  };
+
+  let currentStep = 0;
+
+  function renderStep(step) {
+    const s = STEPS[step];
+    s.render();
+
+    // Phase badge
+    const c = PHASE_COLORS[s.phaseColor];
+    const badge = document.getElementById('phase-badge');
+    badge.textContent = s.phase;
+    badge.style.background = c.bg;
+    badge.style.borderColor = c.border;
+    badge.style.color = c.text;
+
+    // Info
+    document.getElementById('step-counter-text').textContent = `Step ${step+1} of ${STEPS.length}`;
+    document.getElementById('info-title').textContent = s.title;
+    document.getElementById('info-desc').innerHTML = s.desc;
+
+    // Buttons
+    document.getElementById('btn-prev').disabled = (step === 0);
+    document.getElementById('btn-next').disabled = (step === STEPS.length - 1);
+    document.getElementById('step-counter-btn').textContent = `Step ${step+1} / ${STEPS.length}`;
+
+    // Dots
+    const dots = document.querySelectorAll('.dot');
+    dots.forEach((d, i) => {
+      d.className = 'dot' + (i === step ? ' active' : i < step ? ' done' : '');
+    });
+
+    // Re-render math
+    if (window.renderMathInElement) {
+      renderMathInElement(document.getElementById('info-desc'), {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '\\(', right: '\\)', display: false}
+        ]
+      });
+    }
+  }
+
+  function go(dir) {
+    const next = currentStep + dir;
+    if (next < 0 || next >= STEPS.length) return;
+    currentStep = next;
+    renderStep(currentStep);
+  }
+
+  function resetViz() {
+    currentStep = 0;
+    renderStep(0);
+  }
+
+  /* ── Dots ─────────────────────────────────────────────── */
+  function buildDots() {
+    const container = document.getElementById('dots-container');
+    STEPS.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === 0 ? ' active' : '');
+      d.title = `Step ${i+1}`;
+      d.addEventListener('click', () => { currentStep = i; renderStep(i); });
+      container.appendChild(d);
+    });
+  }
+
+  /* ── Card toggle ──────────────────────────────────────── */
+  function toggleCard(header) {
+    const card = header.closest('.card');
+    card.classList.toggle('open');
+  }
+
+  /* ── Keyboard nav ─────────────────────────────────────── */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowLeft')  go(-1);
+    if (e.key === 'r' || e.key === 'R') resetViz();
+  });
+
+  /* ── Init ─────────────────────────────────────────────── */
+  buildDots();
+  renderStep(0);
+</script>
+</body>
+</html>

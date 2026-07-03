@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distant Supervision — Knowledge-Base-Guided Labeling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; padding: 1rem; }
+.container { max-width: 900px; margin: 0 auto; }
+
+/* Header */
+.header { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem 2rem; margin-bottom: 1.25rem; }
+.header h1 { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.3; }
+.header .subtitle { font-size: 14px; color: var(--text2); margin-top: 4px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+
+p { color: var(--text2); font-size: 14px; line-height: 1.7; margin-bottom: 0.75rem; }
+p:last-child { margin-bottom: 0; }
+h4 { font-size: 13px; font-weight: 700; color: var(--text); margin: 1rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.3px; }
+
+/* Concept boxes */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.4rem; }
+.concept-box p { margin: 0; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.danger { background: var(--red-bg); border: 1px solid var(--red-border); }
+.concept-box.danger .concept-box-title { color: var(--red-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+/* Equations */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* Code */
+.code-panel { margin-top: 1rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* Table */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; }
+.tbl th { background: var(--bg2); color: var(--text); font-weight: 700; text-align: left; padding: 8px 12px; border: 1px solid var(--border2); }
+.tbl td { padding: 7px 12px; border: 1px solid var(--border); color: var(--text2); }
+.tbl tr:hover td { background: var(--bg2); }
+
+/* ── VISUALIZATION ── */
+.viz-container { background: var(--bg2); border-radius: var(--radius-lg); padding: 1.25rem; min-height: 340px; }
+.viz-title { font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1rem; }
+
+/* KB panel */
+.kb-relation-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+.kb-triple { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: var(--surface); border: 2px solid var(--border2); font-family: var(--mono); font-size: 12px; transition: all 0.4s; }
+.kb-triple.firing { border-color: var(--purple-mid); background: var(--purple-bg); }
+.kb-triple .entity1 { color: var(--blue-mid); font-weight: 600; }
+.kb-triple .relation { color: var(--amber-mid); font-weight: 600; padding: 0 4px; }
+.kb-triple .entity2 { color: var(--green-mid); font-weight: 600; }
+.kb-triple .hit-badge { margin-left: auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 8px; border-radius: 10px; background: var(--purple-bg); color: var(--purple-mid); opacity: 0; transition: opacity 0.4s; }
+.kb-triple.firing .hit-badge { opacity: 1; }
+
+/* Sentence row */
+.sentence-box { background: var(--surface); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; line-height: 2; margin-bottom: 10px; border: 2px solid var(--border2); transition: all 0.4s; position: relative; }
+.sentence-box.active { border-color: var(--blue-mid); }
+.tok { display: inline; border-radius: 3px; padding: 1px 2px; transition: all 0.3s; }
+.tok.e1 { background: var(--blue-bg); color: var(--blue-mid); font-weight: 700; }
+.tok.e2 { background: var(--green-bg); color: var(--green-mid); font-weight: 700; }
+.tok.matched { outline: 2px solid var(--purple-mid); }
+
+/* Label badge */
+.label-area { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.label-badge { font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px; font-family: var(--mono); transition: all 0.4s; }
+.label-badge.pos { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+.label-badge.neg { background: var(--red-bg); color: var(--red-mid); border: 1px solid var(--red-border); }
+.label-badge.noise { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+.label-badge.hidden { opacity: 0; }
+.noise-flag { font-size: 11px; color: var(--amber-mid); font-style: italic; }
+
+/* Info card */
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-top: 1rem; }
+.info-card .phase-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 10px; border-radius: 20px; background: var(--purple-bg); color: var(--purple-mid); display: inline-block; margin-bottom: 8px; }
+.info-card .step-counter { font-size: 11px; color: var(--text3); float: right; font-family: var(--mono); }
+.info-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.info-card .prose { font-size: 13px; color: var(--text2); line-height: 1.65; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+/* Progress */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Noise panel */
+.noise-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 0.75rem; }
+.noise-cell { background: var(--surface); border-radius: var(--radius); padding: 8px 10px; border: 1px solid var(--border); }
+.noise-cell .nc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text3); margin-bottom: 4px; }
+.noise-cell .nc-value { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.noise-cell .nc-value.good { color: var(--green-mid); }
+.noise-cell .nc-value.bad { color: var(--red-mid); }
+.noise-cell .nc-value.ok { color: var(--amber-mid); }
+
+ul { color: var(--text2); font-size: 14px; padding-left: 1.25rem; }
+ul li { margin-bottom: 0.3rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>Distant Supervision — Knowledge-Base-Guided Labeling</h1>
+  <div class="subtitle">Auto-generate training labels by aligning entity pairs from a KB to text — at scale, with noise</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Weak Supervision</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-complexity">Part III · 14.2</span>
+  </div>
+</div>
+
+<!-- Card 1: Understanding -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+
+  <h4>What is it?</h4>
+  <p>Distant supervision is a technique for creating large labeled training datasets <em>automatically</em> — without paying a single human annotator. You have a knowledge base (KB) full of known facts like <em>"Apple was founded-by Steve Jobs"</em>, and a big pile of raw text. The algorithm scans every sentence, finds sentences that mention both "Apple" and "Steve Jobs", and <strong>automatically stamps them with the label "founded-by"</strong>. No human reads any sentence.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Real-World Analogy</div>
+    <p style="color:var(--green-text)">Imagine you want to train a dog to recognize cats, but you're lazy. Instead of showing the dog pictures and saying "cat / not cat", you take a folder of 10 million photos with filenames like <code>cat_001.jpg</code> and <code>dog_002.jpg</code> and just use the filename as the label — without checking whether the photo actually shows what the filename says. Sometimes the cat photo is mislabeled (someone named their file wrong). The dog learns anyway, because most filenames are right. That's distant supervision.</p>
+  </div>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">The Distant Supervision Assumption</div>
+    <p style="color:var(--blue-text)"><strong>If a KB triple \((e_1, r, e_2)\) is true, then ANY sentence containing both \(e_1\) and \(e_2\) is assumed to express relation \(r\).</strong> This assumption is almost never perfectly true — it's the source of all noise in the method.</p>
+  </div>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">If You Remember One Thing</div>
+    <p style="color:var(--amber-text)">Distant supervision trades <strong>annotation cost</strong> for <strong>label noise</strong>. You get millions of free labels, but some fraction will be wrong. Managing that noise — not generating the labels — is the hard part.</p>
+  </div>
+</div>
+
+<!-- Card 2: How It Works -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+  </div>
+
+  <h4>The Three-Step Pipeline</h4>
+  <p><strong>Step 1 — Build or import a Knowledge Base.</strong> A KB is a collection of triples \((e_1, r, e_2)\) where \(e_1\) and \(e_2\) are named entities and \(r\) is a semantic relation. Examples: Freebase, Wikidata, DBpedia.</p>
+
+  <p><strong>Step 2 — Entity Linking.</strong> Run a Named Entity Recognition (NER) tagger over raw text to find mentions of entities. Map surface forms ("Apple Inc.", "Apple") to canonical KB identifiers. This step is imperfect — entity linking itself introduces noise.</p>
+
+  <p><strong>Step 3 — Heuristic Label Assignment.</strong> For each sentence, find all entity pairs \((e_1, e_2)\) co-occurring in it. Look up whether any KB triple \((e_1, r, e_2)\) exists. If yes, label that sentence with relation \(r\). If no matching triple exists, label as <em>NA</em> (no relation). Sentences mentioning two entities with multiple KB relations get multi-label treatment.</p>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">Two Noise Sources</div>
+    <p style="color:var(--blue-text)"><strong>False positives:</strong> The sentence mentions both entities but expresses a different relation than the KB triple predicts. E.g., "Jobs left Apple in 1985" is labeled <em>founded-by</em>.<br><br>
+    <strong>False negatives:</strong> A sentence genuinely expresses a relation, but that relation isn't in the KB (KB incompleteness), so the sentence gets labeled NA.</p>
+  </div>
+
+  <h4>Noise Rate Formula</h4>
+  <p>Let \(N\) = total sentences labeled positive for relation \(r\). Let \(N_{FP}\) = sentences labeled \(r\) that don't actually express \(r\). The empirical noise rate is:</p>
+  <div class="eq">$$\text{noise\_rate}(r) = \frac{N_{FP}}{N}$$</div>
+  <p>In practice, noise rates range from 30% to 70% depending on the KB, corpus, and relation type. The Mintz et al. (2009) original paper reported ~5–15% precision on some relations — meaning noise was very high but models still learned.</p>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Design Decision: Sentence-Level vs Bag-Level</div>
+    <p style="color:var(--amber-text)"><strong>Sentence-level:</strong> Treat each sentence as an independent training example. Simple, but amplifies noise.<br>
+    <strong>Bag-level (multi-instance learning):</strong> Group all sentences that mention the same entity pair into a "bag". Predict the relation at the bag level. If at least one sentence in the bag expresses the relation, the bag is positive. This reduces noise significantly and is the standard approach.</p>
+  </div>
+
+  <h4>Numerical Example: Label Assignment</h4>
+  <p>KB triple: <code>(Steve Jobs, founded-by, Apple)</code></p>
+  <table class="tbl">
+    <tr><th>Sentence</th><th>Both entities?</th><th>Assigned label</th><th>Correct?</th></tr>
+    <tr><td>"Jobs co-founded Apple in a garage."</td><td>Yes</td><td>founded-by</td><td>✅ Yes</td></tr>
+    <tr><td>"Jobs was ousted from Apple in 1985."</td><td>Yes</td><td>founded-by</td><td>❌ No — noise!</td></tr>
+    <tr><td>"Apple released the iPhone in 2007."</td><td>Partial (Apple only)</td><td>NA</td><td>✅ Correct NA</td></tr>
+    <tr><td>"Wozniak and Jobs built the Apple I."</td><td>Yes (Jobs + Apple)</td><td>founded-by</td><td>✅ Mostly correct</td></tr>
+  </table>
+</div>
+
+<!-- Card 3: Why It Works -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — Math & Theory</div>
+  </div>
+
+  <h4>The Mintz et al. (2009) Formulation</h4>
+  <p>Let the training set be \(\mathcal{D} = \{(s_i, \tilde{y}_i)\}_{i=1}^N\) where \(\tilde{y}_i\) is the noisy KB-derived label for sentence \(s_i\). The true label \(y_i\) satisfies:</p>
+  <div class="eq">$$P(\tilde{y}_i \neq y_i) = \epsilon_r \quad \text{(relation-specific noise rate)}$$</div>
+  <p>A linear model scores each sentence using a feature vector \(\phi(s)\):</p>
+  <div class="eq">$$\hat{y} = \underset{r}{\operatorname{argmax}} \; w_r^\top \phi(s)$$</div>
+  <p>Training minimizes the empirical risk on noisy labels:</p>
+  <div class="eq">$$\hat{w} = \underset{w}{\operatorname{argmin}} \sum_{i=1}^N \ell(w^\top \phi(s_i), \tilde{y}_i) + \lambda \|w\|_2^2$$</div>
+  <p>Even with noise, the model learns because the signal (true relation patterns) appears consistently across many sentences while the noise is more random. The crucial insight is that <strong>noise decorrelates across examples</strong> — the mislabeled examples don't all share the same spurious features.</p>
+
+  <h4>Multi-Instance Learning (PCNN-ATT, Riedel 2010)</h4>
+  <p>Let \(\mathcal{B}_{e_1,e_2} = \{s_1, \ldots, s_k\}\) be the bag of all sentences mentioning entity pair \((e_1, e_2)\). The at-least-one assumption says the bag is positive for relation \(r\) if any one sentence truly expresses it. The bag-level objective:</p>
+  <div class="eq">$$P(r \mid \mathcal{B}) = \max_{s \in \mathcal{B}} P(r \mid s)$$</div>
+  <p>Or with attention weighting \(\alpha_i\) (Attention-based RE, Lin et al. 2016):</p>
+  <div class="eq">$$P(r \mid \mathcal{B}) = \sigma\!\left(\sum_{i} \alpha_i \cdot w_r^\top h_i\right), \quad \alpha_i = \operatorname{softmax}(e_i)$$</div>
+  <p>where \(h_i\) is the CNN/LSTM encoding of sentence \(s_i\) and \(e_i = h_i^\top A r\) is the attention score (how well sentence \(i\) aligns with relation \(r\)'s query vector \(r\)).</p>
+
+  <div class="concept-box math">
+    <div class="concept-box-title">Key Property</div>
+    <p style="color:var(--cyan-text)">Under the assumption that noise is <em>random conditional on entities</em> (not adversarial), and the signal-to-noise ratio \((1 - \epsilon_r)/\epsilon_r > 1\), the model trained on noisy labels converges to the same decision boundary as a model trained on clean labels, up to a label-noise-dependent scaling of the margin.</p>
+  </div>
+
+  <div class="concept-box danger">
+    <div class="concept-box-title">When Theory Breaks Down</div>
+    <p style="color:var(--red-text)">The theory fails when noise is <strong>systematic</strong>: if the mislabeled sentences share the same lexical pattern (e.g., all "X left Y" sentences are labeled <em>founded-by</em> because Jobs+Apple co-occur), the model learns the spurious pattern. This is precisely what happens with high-frequency entity pairs.</p>
+  </div>
+</div>
+
+<!-- Card 4: Interactive Viz -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough — KB Alignment</div>
+  </div>
+
+  <p>Step through how a knowledge base is aligned to text sentences to produce noisy training labels. Each step shows which KB triple "fires" and whether the resulting label is correct.</p>
+
+  <div class="viz-container">
+    <div class="viz-title">Knowledge Base Triples</div>
+    <div class="kb-relation-panel" id="kb-panel">
+      <div class="kb-triple" id="kb0">
+        <span class="entity1">Steve Jobs</span>
+        <span class="relation">→ founded-by →</span>
+        <span class="entity2">Apple</span>
+        <span class="hit-badge">FIRING</span>
+      </div>
+      <div class="kb-triple" id="kb1">
+        <span class="entity1">Tim Cook</span>
+        <span class="relation">→ ceo-of →</span>
+        <span class="entity2">Apple</span>
+        <span class="hit-badge">FIRING</span>
+      </div>
+      <div class="kb-triple" id="kb2">
+        <span class="entity1">Elon Musk</span>
+        <span class="relation">→ ceo-of →</span>
+        <span class="entity2">Tesla</span>
+        <span class="hit-badge">FIRING</span>
+      </div>
+    </div>
+
+    <div class="viz-title">Sentence Being Labeled</div>
+    <div id="sentence-display" class="sentence-box">
+      Select a step to see label assignment.
+    </div>
+    <div id="label-area" class="label-area" style="margin-top:8px;">
+      <span class="label-badge hidden" id="label-badge">—</span>
+      <span class="noise-flag" id="noise-flag"></span>
+    </div>
+
+    <div class="info-card">
+      <span class="phase-badge" id="phase-badge">Overview</span>
+      <span class="step-counter" id="step-counter">0 / 8</span>
+      <h3 id="info-title">Distant Supervision Pipeline</h3>
+      <div class="prose" id="info-prose">Click Next to walk through the KB alignment process step by step.</div>
+    </div>
+
+    <div class="progress-wrap" id="dots"></div>
+    <div class="controls">
+      <button class="btn" id="prevBtn" onclick="go(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="nextBtn" onclick="go(1)">Next →</button>
+      <button class="btn" onclick="reset()">↺ Reset</button>
+    </div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+  </div>
+</div>
+
+<!-- Card 5: Noise Analysis -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Noise Anatomy & Mitigation</div>
+  </div>
+
+  <h4>Measured Noise Rates (from literature)</h4>
+  <div class="noise-grid">
+    <div class="noise-cell"><div class="nc-label">Mintz 2009 corpus</div><div class="nc-value bad">~40–65% FP</div></div>
+    <div class="noise-cell"><div class="nc-label">NYT10 (RE benchmark)</div><div class="nc-value ok">~30–50% FP</div></div>
+    <div class="noise-cell"><div class="nc-label">Bag ATT (Lin 2016)</div><div class="nc-value good">~15–25% FP</div></div>
+    <div class="noise-cell"><div class="nc-label">DS + BERT (Han 2020)</div><div class="nc-value good">~10–18% FP</div></div>
+  </div>
+
+  <h4>Mitigation Strategies</h4>
+  <table class="tbl">
+    <tr><th>Strategy</th><th>Mechanism</th><th>Noise Reduction</th></tr>
+    <tr><td>Multi-Instance Learning</td><td>At-least-one assumption over entity-pair bags</td><td>Moderate</td></tr>
+    <tr><td>Attention over bag</td><td>Downweight noisy sentences via learned attention</td><td>Moderate–Good</td></tr>
+    <tr><td>Denoising with human labels</td><td>Add small clean set to regularize noisy signal</td><td>Strong</td></tr>
+    <tr><td>Noise-aware loss (e.g., symmetric CE)</td><td>Modify loss to be robust to label flips</td><td>Moderate</td></tr>
+    <tr><td>Curriculum learning</td><td>Start training on high-confidence examples first</td><td>Moderate</td></tr>
+    <tr><td>Snorkel integration</td><td>Model noise rates per labeling function statistically</td><td>Strong</td></tr>
+  </table>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Key Takeaway</div>
+    <p style="color:var(--green-text)">Distant supervision works best when: (1) the KB has high precision (few wrong triples), (2) entities have unambiguous surface forms, (3) the relation of interest is clearly lexically expressed in text, and (4) you have enough sentences per entity pair to use bag-level inference.</p>
+  </div>
+</div>
+
+<!-- Card 6: Takeaways -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways & Related Topics</div>
+  </div>
+
+  <ul>
+    <li><strong>Scale without annotation:</strong> Millions of noisy labels from KB alignment, zero annotator cost.</li>
+    <li><strong>The DS assumption is the core bias:</strong> entity co-occurrence ≠ relation expression.</li>
+    <li><strong>Multi-instance learning (MIL)</strong> is the dominant noise-reduction framework.</li>
+    <li><strong>BERT-based encoders</strong> (2019+) dramatically reduce the impact of noise because contextual representations are richer — the model can distinguish "Jobs left Apple" from "Jobs founded Apple" without needing perfect labels for every example.</li>
+    <li><strong>False negatives are underappreciated:</strong> KB incompleteness means many valid relation sentences are silently mislabeled as NA.</li>
+    <li>Closest relatives: <strong>Snorkel/data programming</strong> (labeling functions instead of KB), <strong>crowdsourcing</strong>, <strong>semi-supervised learning</strong>.</li>
+  </ul>
+
+  <h4>Key Papers</h4>
+  <ul>
+    <li>Mintz et al. (2009) — "Distant supervision for relation extraction without labeled data" — the founding paper (ACL 2009)</li>
+    <li>Riedel et al. (2010) — "Modeling relations and their mentions without labeled text" — MIL formulation (ECML-PKDD)</li>
+    <li>Hoffmann et al. (2011) — "Knowledge-based weak supervision with incomplete KB" — multi-label MIL</li>
+    <li>Lin et al. (2016) — "Neural Relation Extraction with Selective Attention over Instances" — attention-based MIL (ACL)</li>
+    <li>Han et al. (2020) — "OpenNRE: An Open and Extensible Toolkit for Neural Relation Extraction" — BERT+DS toolkit</li>
+  </ul>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ── STEPS DATA ──
+const steps = [
+  {
+    phase: "Setup",
+    title: "The Knowledge Base",
+    prose: "We start with a Knowledge Base (KB) containing known entity-relation triples. Here we have three triples across two relations: 'founded-by' and 'ceo-of'. These facts are known to be true (with high KB precision). Our goal: find sentences in raw text that express these relations — for free.",
+    kbFiring: -1,
+    sentence: null,
+    label: null,
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Alignment",
+    title: "Step 1 — Scan & Find Entity Mentions",
+    prose: "We scan a sentence: \"Steve Jobs co-founded Apple in a Cupertino garage in 1976.\" Named Entity Recognition identifies 'Steve Jobs' and 'Apple'. We look up (Steve Jobs, *, Apple) in the KB and find the triple (Steve Jobs, founded-by, Apple). Triple FIRES.",
+    kbFiring: 0,
+    sentence: ['<span class="tok e1">Steve Jobs</span>', ' co-founded ', '<span class="tok e2">Apple</span>', ' in a Cupertino garage in 1976.'],
+    label: "founded-by",
+    labelType: "pos",
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Labeling",
+    title: "Step 1 Result — Clean Label",
+    prose: "Label assigned: 'founded-by'. This is a TRUE POSITIVE — the sentence genuinely expresses the founded-by relation. The distant supervision assumption holds here. This becomes a positive training example.",
+    kbFiring: 0,
+    sentence: ['<span class="tok e1 matched">Steve Jobs</span>', ' co-founded ', '<span class="tok e2 matched">Apple</span>', ' in a Cupertino garage in 1976.'],
+    label: "✅ founded-by",
+    labelType: "pos",
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Alignment",
+    title: "Step 2 — Another Sentence, Same Entities",
+    prose: "New sentence: \"After his return, Jobs led Apple to record profits.\" Both entities present. Same KB triple (Steve Jobs, founded-by, Apple) fires again. We assign the label 'founded-by' — but does this sentence actually express 'founded-by'?",
+    kbFiring: 0,
+    sentence: ['After his return, ', '<span class="tok e1">Jobs</span>', ' led ', '<span class="tok e2">Apple</span>', ' to record profits.'],
+    label: "founded-by",
+    labelType: "pos",
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Noise!",
+    title: "Step 2 Result — FALSE POSITIVE (Noise)",
+    prose: "⚠️ NOISE DETECTED. The sentence talks about Jobs' leadership role, not the founding event. The label 'founded-by' is WRONG. This is the distant supervision assumption failing: co-occurrence of entities ≠ expression of the KB relation. This mislabeled example will corrupt training.",
+    kbFiring: 0,
+    sentence: ['After his return, ', '<span class="tok e1 matched">Jobs</span>', ' led ', '<span class="tok e2 matched">Apple</span>', ' to record profits.'],
+    label: "⚠️ founded-by",
+    labelType: "noise",
+    isNoise: true,
+    noiseMsg: "FALSE POSITIVE — sentence is about leadership, not founding"
+  },
+  {
+    phase: "Alignment",
+    title: "Step 3 — Different Entity Pair, Clean Relation",
+    prose: "Sentence: \"Tim Cook became Apple's CEO in 2011 after Jobs' resignation.\" NER finds 'Tim Cook' and 'Apple'. KB triple (Tim Cook, ceo-of, Apple) fires. This is a genuine ceo-of sentence. Clean positive label.",
+    kbFiring: 1,
+    sentence: ['<span class="tok e1">Tim Cook</span>', ' became ', '<span class="tok e2">Apple</span>', '\'s CEO in 2011 after Jobs\' resignation.'],
+    label: "✅ ceo-of",
+    labelType: "pos",
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Alignment",
+    title: "Step 4 — No KB Match → NA Label",
+    prose: "Sentence: \"Elon Musk praised Apple's chip design at a conference.\" NER finds 'Elon Musk' and 'Apple'. No KB triple exists for (Elon Musk, *, Apple). Label assigned: NA (no relation). This is a TRUE NEGATIVE — Musk has no KB relation with Apple.",
+    kbFiring: -1,
+    sentence: ['<span class="tok e1">Elon Musk</span>', ' praised ', '<span class="tok e2">Apple</span>', '\'s chip design at a conference.'],
+    label: "NA",
+    labelType: "neg",
+    isNoise: false,
+    noiseMsg: ""
+  },
+  {
+    phase: "Bag-Level MIL",
+    title: "Step 5 — Bag-Level Noise Reduction",
+    prose: "Multi-Instance Learning (MIL): group ALL sentences mentioning (Jobs, Apple) into one bag. The bag contains 4 sentences: 2 genuine 'founded-by' (signal) and 2 noisy ones (noise). The at-least-one assumption: the bag is POSITIVE for 'founded-by' because at least one sentence genuinely expresses it. The model learns to ATTEND to the clean sentences and DOWN-WEIGHT the noisy ones. This is why bag-level >> sentence-level for distant supervision.",
+    kbFiring: 0,
+    sentence: ['BAG [(', '<span class="tok e1">Jobs</span>', ', ', '<span class="tok e2">Apple</span>', ')]: 4 sentences → 2 clean + 2 noisy → BAG LABEL: founded-by ✅'],
+    label: "Bag: founded-by",
+    labelType: "pos",
+    isNoise: false,
+    noiseMsg: "Attention mechanism down-weights the 2 noisy sentences"
+  },
+  {
+    phase: "Summary",
+    title: "Putting It All Together",
+    prose: "Distant supervision pipeline: (1) KB provides free relation labels; (2) Entity linking maps surface mentions to KB entities; (3) Heuristic alignment stamps sentences with labels; (4) ~30–65% of labels are noisy (false positives or false negatives); (5) MIL + attention reduces noise to ~15–25%; (6) BERT-based models further reduce sensitivity to label noise. Result: millions of training examples at near-zero annotation cost.",
+    kbFiring: -1,
+    sentence: null,
+    label: null,
+    isNoise: false,
+    noiseMsg: ""
+  }
+];
+
+let cur = 0;
+const N = steps.length;
+
+// Build dots
+const dotsEl = document.getElementById('dots');
+for (let i = 0; i < N; i++) {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i === 0 ? ' active' : '');
+  d.onclick = () => { cur = i; render(); };
+  dotsEl.appendChild(d);
+}
+
+function render() {
+  const s = steps[cur];
+
+  // KB firing
+  for (let i = 0; i < 3; i++) {
+    document.getElementById('kb' + i).classList.toggle('firing', s.kbFiring === i);
+  }
+
+  // Sentence
+  const sEl = document.getElementById('sentence-display');
+  if (s.sentence) {
+    sEl.innerHTML = s.sentence.join('');
+    sEl.classList.add('active');
+  } else {
+    sEl.innerHTML = '<span style="color:var(--text3);font-style:italic">No sentence selected — overview step.</span>';
+    sEl.classList.remove('active');
+  }
+
+  // Label
+  const lb = document.getElementById('label-badge');
+  const nf = document.getElementById('noise-flag');
+  if (s.label) {
+    lb.textContent = s.label;
+    lb.className = 'label-badge ' + (s.labelType || 'pos');
+  } else {
+    lb.className = 'label-badge hidden';
+  }
+  nf.textContent = s.noiseMsg;
+
+  // Info card
+  document.getElementById('phase-badge').textContent = s.phase;
+  document.getElementById('step-counter').textContent = cur + ' / ' + (N - 1);
+  document.getElementById('info-title').textContent = s.title;
+  document.getElementById('info-prose').textContent = s.prose;
+
+  // Dots
+  const dots = dotsEl.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot' + (i === cur ? ' active' : (i < cur ? ' done' : ''));
+  });
+
+  // Buttons
+  document.getElementById('prevBtn').disabled = cur === 0;
+  document.getElementById('nextBtn').disabled = cur === N - 1;
+}
+
+function go(dir) {
+  cur = Math.max(0, Math.min(N - 1, cur + dir));
+  render();
+}
+
+function reset() {
+  cur = 0;
+  render();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+render();
+</script>
+</body>
+</html>

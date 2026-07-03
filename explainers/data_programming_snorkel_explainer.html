@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Programming & Snorkel — Labeling Functions & Noise-Aware Models</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ],
+    throwOnError: false
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; padding: 24px 16px 60px; }
+.container { max-width: 900px; margin: 0 auto; }
+
+/* ── Header ── */
+.header { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px 32px; margin-bottom: 20px; }
+.header h1 { font-size: clamp(20px,3vw,28px); font-weight: 800; line-height: 1.25; }
+.header .subtitle { font-size: 14px; color: var(--text2); margin-top: 6px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-advanced { background: var(--red-bg); color: var(--red-mid); border: 1px solid var(--red-border); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); border: 1px solid var(--blue-border); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); border: 1px solid var(--cyan-border); }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.prose { font-size: 14px; color: var(--text2); line-height: 1.75; }
+.prose p { margin-bottom: 0.85rem; }
+.prose p:last-child { margin-bottom: 0; }
+
+/* ── Concept Boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+.concept-box .prose { font-size: 13px; }
+
+/* ── Equations ── */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* ── Code ── */
+.code-panel { margin-top: 1.25rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* ── Table ── */
+.table-wrap { overflow-x: auto; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { background: var(--bg2); font-weight: 700; padding: 8px 12px; text-align: left; border: 1px solid var(--border2); }
+td { padding: 8px 12px; border: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+tr:hover td { background: var(--bg2); }
+
+/* ════════════════════════════════════════
+   MAIN VISUALIZATION
+   ════════════════════════════════════════ */
+.viz-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.viz-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.viz-subtitle { font-size: 13px; color: var(--text3); margin-bottom: 1.25rem; }
+
+/* Pipeline canvas area */
+.pipeline { display: flex; flex-direction: column; gap: 20px; }
+
+/* LF Grid */
+.lf-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.lf-box {
+  border-radius: var(--radius);
+  padding: 10px 8px;
+  text-align: center;
+  border: 2px solid var(--border2);
+  background: var(--surface);
+  transition: all 0.35s ease;
+  cursor: default;
+}
+.lf-box .lf-name { font-size: 11px; font-weight: 700; font-family: var(--mono); margin-bottom: 4px; }
+.lf-box .lf-vote { font-size: 18px; margin-bottom: 2px; }
+.lf-box .lf-acc { font-size: 10px; color: var(--text3); }
+.lf-box.pos  { border-color: var(--green-border); background: var(--green-bg); }
+.lf-box.neg  { border-color: var(--red-border);   background: var(--red-bg); }
+.lf-box.abs  { border-color: var(--border2);       background: var(--bg2); opacity: 0.55; }
+.lf-box.active { box-shadow: 0 0 0 3px var(--purple-border); transform: translateY(-2px); }
+.lf-box.corr-highlight { box-shadow: 0 0 0 3px var(--amber-border); }
+
+/* Arrow connector */
+.arrow-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.arrow-label { font-size: 11px; color: var(--text3); text-align: center; }
+.arrow-line { flex: 1; height: 2px; background: var(--border2); max-width: 120px; position: relative; }
+.arrow-line::after { content:'▶'; position:absolute; right:-8px; top:-9px; font-size:14px; color:var(--border2); }
+.arrow-line.active::after { color: var(--purple-mid); }
+.arrow-line.active { background: var(--purple-mid); }
+
+/* Label model box */
+.label-model-box {
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  background: var(--purple-bg);
+  border: 2px solid var(--purple-border);
+  transition: all 0.4s;
+}
+.label-model-box.active { box-shadow: 0 0 30px rgba(83,74,183,0.25); }
+.lm-title { font-weight: 700; font-size: 15px; color: var(--purple-text); margin-bottom: 6px; }
+.lm-params { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.param-chip {
+  font-family: var(--mono); font-size: 11px;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--purple-border);
+  color: var(--purple-mid);
+  transition: all 0.35s;
+}
+.param-chip.learned { background: var(--purple-mid); color: white; font-weight: 700; }
+
+/* Probabilistic label output */
+.prob-labels { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.prob-chip {
+  display: flex; flex-direction: column; align-items: center;
+  border-radius: var(--radius); padding: 8px 14px;
+  background: var(--bg2); border: 1px solid var(--border2);
+  transition: all 0.4s; min-width: 70px;
+}
+.prob-chip .doc-id { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.prob-chip .prob-bar-wrap { width: 100%; height: 6px; background: var(--border2); border-radius: 3px; margin: 4px 0; overflow: hidden; }
+.prob-bar { height: 100%; border-radius: 3px; transition: width 0.6s ease; background: var(--green-mid); }
+.prob-bar.neg { background: var(--red-mid); }
+.prob-chip .prob-val { font-size: 12px; font-weight: 700; font-family: var(--mono); }
+.prob-chip.highlight { border-color: var(--blue-border); box-shadow: 0 0 0 2px var(--blue-border); }
+
+/* Stage label */
+.stage-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 4px 12px; border-radius: 20px;
+}
+.stage-label.stage-lf { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+.stage-label.stage-lm { background: var(--purple-bg); color: var(--purple-mid); border: 1px solid var(--purple-border); }
+.stage-label.stage-out { background: var(--blue-bg); color: var(--blue-mid); border: 1px solid var(--blue-border); }
+.stage-label.stage-model { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+
+/* Correlation matrix mini */
+.corr-matrix-wrap { margin: 10px 0; }
+.corr-grid { display: inline-grid; gap: 2px; }
+.corr-cell {
+  width: 32px; height: 32px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-family: var(--mono); font-weight: 600;
+  transition: all 0.3s;
+}
+
+/* Info card */
+.info-card { background: var(--bg2); border-radius: var(--radius-lg); padding: 1.25rem; margin-top: 1rem; border: 1px solid var(--border); }
+.info-phase { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.info-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.info-body { font-size: 13px; color: var(--text2); line-height: 1.7; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-top: 1rem; }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+/* Noise model display */
+.noise-display { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.noise-row { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: var(--mono); }
+.noise-bar-bg { flex:1; height: 8px; background: var(--bg2); border-radius: 4px; overflow: hidden; }
+.noise-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ── Header ── -->
+<div class="header">
+  <h1>Data Programming &amp; Snorkel</h1>
+  <div class="subtitle">Labeling Functions · Noise-Aware Label Models · Probabilistic Weak Supervision</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-category">Weak Supervision</span>
+    <span class="tag tag-complexity">Label Model · Generative</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     CARD 1 — Understanding the Concept
+     ══════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+  <div class="prose">
+    <p><strong>The core problem:</strong> Training a machine learning model requires labelled data — a dataset where each example has a correct answer tag. Labelling is done by human experts. It is slow, expensive, and doesn't scale. A spam-detection system might need millions of labelled emails; hiring annotators to read every one is impractical.</p>
+    <p><strong>The Snorkel insight:</strong> Instead of labelling examples one by one, write short programs — called <em>labeling functions</em> (LFs) — that each express a weak, heuristic rule. A single LF might say "if the email contains the word 'Viagra', label it spam." No single LF is perfect, but when you combine dozens of imperfect LFs, a <em>label model</em> can estimate their accuracies and correlations and produce probabilistic training labels that are often nearly as good as hand-labelled data.</p>
+  </div>
+  <div class="concept-box insight">
+    <div class="concept-box-title">💡 If you remember one thing</div>
+    <div class="prose">Snorkel replaces hand-labelled examples with hand-written <em>programs</em>. The label model resolves disagreements between those programs using their estimated accuracies and correlations — no ground truth required.</div>
+  </div>
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">🔑 Real-World Analogy</div>
+    <div class="prose">Imagine a doctor who wants to diagnose thousands of X-rays but can only afford to consult a few specialist radiologists personally. Instead, she designs a set of quick checklists — "is there a shadow here?", "is the rib spacing abnormal?" — and asks five junior residents to each complete one checklist per scan. Each resident's checklist is noisy and incomplete. But a statistician can model which residents are trustworthy, which make correlated mistakes, and produce a combined diagnosis score — without ever needing a definitive specialist opinion for every single scan. That statistician is the label model.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     CARD 2 — How It Works
+     ══════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works — Architecture &amp; Internal Mechanism</div>
+  </div>
+  <div class="prose">
+    <p><strong>Step 1 — Write Labeling Functions.</strong> A labeling function \(\lambda_j: \mathcal{X} \to \{-1, 0, +1\}\) maps an input \(x\) to a label vote (+1 positive, -1 negative, 0 abstain). Multiple LFs form a label matrix \(\Lambda \in \{-1, 0, +1\}^{n \times m}\) for \(n\) data points and \(m\) labeling functions.</p>
+    <p><strong>Step 2 — Fit the Label Model.</strong> The label model is a <em>generative model</em> over the joint distribution of \((Y, \Lambda)\). It has no access to true labels \(Y\). It estimates per-LF accuracies \(\alpha_j = P(\lambda_j = Y \mid \lambda_j \neq 0)\) and LF correlations by minimizing the difference between observed and expected pairwise agreements on \(\Lambda\).</p>
+    <p><strong>Step 3 — Generate Probabilistic Labels.</strong> Using estimated parameters, the label model computes \(\tilde{P}(Y=+1 \mid \mathbf{\lambda}) \in [0,1]\) for each data point. This becomes the soft training label for the downstream discriminative model.</p>
+    <p><strong>Step 4 — Train Discriminative Model.</strong> A standard model (BERT, logistic regression, etc.) trains on \((X, \tilde{Y})\) using the soft probabilistic labels, typically with cross-entropy loss. At inference time, only the discriminative model is used — the label model is discarded.</p>
+  </div>
+  <div class="concept-box warning">
+    <div class="concept-box-title">⚠️ Critical Design Decision</div>
+    <div class="prose">The label model learns from LF <em>agreement and disagreement patterns</em>, not from observed ground truth. This is possible because under conditional independence (given \(Y\)), LF errors are uncorrelated — so correlation in the label matrix signals accuracy. Snorkel extends this to the correlated-LF case using dependency structure learning.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     CARD 3 — The Math
+     ══════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math Behind the Label Model</div>
+  </div>
+  <div class="prose">
+    <p>The Snorkel label model (Ratner et al., 2019) factorizes as a graphical model. For binary classification \(Y \in \{-1, +1\}\) and \(m\) labeling functions:</p>
+  </div>
+  <div class="eq">$$P_\theta(Y, \Lambda) = \frac{1}{Z_\theta} \exp\!\left(\sum_{j=1}^{m} \theta_j Y \lambda_j + \sum_{(j,k) \in E} \theta_{jk} \lambda_j \lambda_k \right)$$</div>
+  <div class="prose">
+    <p>where \(Z_\theta\) is the partition function and \(E\) is a dependency graph over LFs. The key parameters are:</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.25rem; color: var(--text2); font-size:14px;">
+      <li>\(\alpha_j = \text{accuracy of LF}_j = P(\lambda_j = Y \mid \lambda_j \neq 0)\)</li>
+      <li>\(\beta_j = \text{coverage of LF}_j = P(\lambda_j \neq 0)\)</li>
+      <li>\(\rho_{jk} = \text{correlation between LF}_j \text{ and LF}_k\)</li>
+    </ul>
+    <p><strong>Parameter estimation (key insight):</strong> The model is fit by matching observed moments of \(\Lambda\) to model-implied moments. Specifically, for the pairwise expected agreements:</p>
+  </div>
+  <div class="eq">$$\mathbb{E}[\lambda_j \lambda_k] = \mathbb{E}_\theta[\lambda_j \lambda_k]$$</div>
+  <div class="prose"><p>This is a method-of-moments estimator. The system of equations is solved via SGD on the <em>negative log-likelihood</em> of the observed \(\Lambda\), treating \(Y\) as a latent variable and marginalizing over it:</p></div>
+  <div class="eq">$$\hat{\theta} = \underset{\theta}{\operatorname{argmin}} \; -\sum_{i=1}^{n} \log \sum_{y \in \{-1,+1\}} P_\theta(y, \lambda^{(i)})$$</div>
+  <div class="prose"><p>After fitting \(\hat{\theta}\), the probabilistic label for data point \(i\) is:</p></div>
+  <div class="eq">$$\tilde{P}(Y=+1 \mid \lambda^{(i)}) = \frac{P_{\hat{\theta}}(Y=+1, \lambda^{(i)})}{P_{\hat{\theta}}(\lambda^{(i)})}$$</div>
+  <div class="concept-box math">
+    <div class="concept-box-title">📐 Simplified Majority Vote (Baseline)</div>
+    <div class="prose">Without a label model, one could use unweighted majority vote: \(\tilde{y} = \text{sign}\!\left(\sum_j \lambda_j\right)\). This treats all LFs equally accurate and independent — the label model strictly generalises this by weighting by estimated \(\alpha_j\) and de-correlating overlapping LFs.</div>
+  </div>
+  <div class="concept-box warning">
+    <div class="concept-box-title">⚠️ Common Misconception</div>
+    <div class="prose">The label model output is <em>not</em> calibrated probability in the frequentist sense — it is a posterior belief under the generative model. Calibration depends on how well the graphical model captures the true LF dependency structure.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     CARD 4 — INTERACTIVE VISUALIZATION
+     ══════════════════════════════════════ -->
+<div class="viz-card">
+  <div class="viz-title">🎯 Interactive: LFs → Label Model → Probabilistic Labels</div>
+  <div class="viz-subtitle">Step through the pipeline: 5 noisy labeling functions vote on 6 documents; the label model resolves conflicts into soft labels.</div>
+
+  <div class="pipeline">
+
+    <!-- Stage 1: LFs -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span class="stage-label stage-lf">① Labeling Functions</span>
+        <span id="lf-stage-note" style="font-size:12px;color:var(--text3)">5 heuristic rules, each votes on every document</span>
+      </div>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:start;">
+        <!-- LF descriptors -->
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="height:24px;"></div><!-- spacer for doc-id row -->
+          <div id="lf-labels" style="display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+        <!-- Lambda matrix grid -->
+        <div>
+          <div id="doc-ids" style="display:flex;gap:4px;margin-bottom:4px;padding-left:2px;"></div>
+          <div id="lambda-grid" style="display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow 1 -->
+    <div class="arrow-row">
+      <div class="arrow-line" id="arrow1"></div>
+      <div class="arrow-label" id="arrow1-label">raw votes<br>(noisy, conflicting)</div>
+      <div class="arrow-line" id="arrow1b" style="transform:scaleX(-1)"></div>
+    </div>
+
+    <!-- Stage 2: Label Model -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span class="stage-label stage-lm">② Label Model</span>
+        <span id="lm-stage-note" style="font-size:12px;color:var(--text3)">Fits accuracies &amp; correlations with no ground truth</span>
+      </div>
+      <div class="label-model-box" id="lm-box">
+        <div class="lm-title">Generative Model \(P_\theta(Y, \Lambda)\)</div>
+        <div style="font-size:12px;color:var(--purple-text);margin-bottom:8px;">Optimises: \(\hat{\theta} = \operatorname{argmin} -\sum_i \log \sum_y P_\theta(y,\lambda^{(i)})\)</div>
+        <div style="font-size:12px;font-weight:600;color:var(--purple-text);margin-bottom:4px;">Estimated Parameters:</div>
+        <div class="lm-params" id="lm-params">
+          <!-- filled by JS -->
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-size:12px;font-weight:600;color:var(--purple-text);margin-bottom:6px;">LF Correlation Matrix (observed \(\mathbb{E}[\lambda_j\lambda_k]\)):</div>
+          <div class="corr-matrix-wrap"><div id="corr-matrix" class="corr-grid" style="grid-template-columns:repeat(5,32px)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow 2 -->
+    <div class="arrow-row">
+      <div class="arrow-line" id="arrow2"></div>
+      <div class="arrow-label" id="arrow2-label">probabilistic<br>training labels</div>
+      <div class="arrow-line" id="arrow2b" style="transform:scaleX(-1)"></div>
+    </div>
+
+    <!-- Stage 3: Probabilistic Labels -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span class="stage-label stage-out">③ Probabilistic Labels \(\tilde{P}(Y=+1|\lambda)\)</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;" id="prob-labels-row"></div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Bar = estimated probability of positive class. No single LF is trusted unconditionally.</div>
+    </div>
+
+    <!-- Arrow 3 -->
+    <div class="arrow-row">
+      <div class="arrow-line" id="arrow3"></div>
+      <div class="arrow-label">train discriminative<br>model (BERT, LR…)</div>
+      <div class="arrow-line" id="arrow3b" style="transform:scaleX(-1)"></div>
+    </div>
+
+    <!-- Stage 4: Model -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <span class="stage-label stage-model">④ Downstream Model</span>
+      </div>
+      <div style="background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);padding:14px 18px;font-size:13px;color:var(--amber-text);">
+        Train any differentiable model on \((x_i, \tilde{P}(Y=+1|\lambda^{(i)}))\) using <em>soft cross-entropy</em>:
+        <div class="eq" style="margin:8px 0;">$$\mathcal{L} = -\sum_{i=1}^n \left[\tilde{p}_i \log \hat{p}_i + (1-\tilde{p}_i)\log(1-\hat{p}_i)\right]$$</div>
+        Label model is then discarded. Only the discriminative model is deployed.
+      </div>
+    </div>
+  </div>
+
+  <!-- Info Card -->
+  <div class="info-card">
+    <div class="info-phase" id="info-phase">
+      <span class="stage-label stage-lf">Step 1 / 5</span>
+    </div>
+    <div class="info-title" id="info-title">Raw Label Matrix Λ</div>
+    <div class="info-body" id="info-body">Each row is a labeling function. Each column is a document. A cell is +1 (positive vote), -1 (negative vote), or 0 (abstain). Notice LF₂ and LF₃ mostly agree — they're correlated. LF₅ often abstains — low coverage. The label model must disentangle these patterns.</div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div>+1 Positive vote</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div>−1 Negative vote</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--border2)"></div>0 Abstain</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div>Label model active</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div>Correlation highlight</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="progress-wrap" id="dots"></div>
+  <div class="controls">
+    <button class="btn" id="btn-prev" onclick="go(-1)">← Prev</button>
+    <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+    <button class="btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     CARD 5 — Key Takeaways
+     ══════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways &amp; When to Use</div>
+  </div>
+  <div class="prose">
+    <p><strong>Use Snorkel / data programming when:</strong></p>
+    <ul style="margin:0.5rem 0 0.75rem 1.25rem; color:var(--text2); font-size:14px;">
+      <li>You have abundant <em>unlabelled</em> data but labelling is expensive or slow</li>
+      <li>Domain experts can articulate rules (even if imperfect or conflicting)</li>
+      <li>You want to programmatically curate training sets without re-labelling from scratch</li>
+      <li>You need to iterate quickly on labelling strategies</li>
+    </ul>
+    <p><strong>Do NOT use when:</strong></p>
+    <ul style="margin:0.5rem 0 0.75rem 1.25rem; color:var(--text2); font-size:14px;">
+      <li>You already have sufficient high-quality labelled data</li>
+      <li>The task has no exploitable structure (e.g., no heuristics can be written)</li>
+      <li>LF coverage is very low (most data points always abstain)</li>
+    </ul>
+  </div>
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">🔑 Related Topics</div>
+    <div class="prose">Semi-supervised learning · Active learning · Crowdsourcing (Dawid-Skene) · Knowledge distillation · Programmatic data augmentation · Confident learning</div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ── Data ────────────────────────────────────────────────────────────────────
+const LFS = [
+  { name: "LF₁", desc: "keyword: 'Viagra'", acc: 0.92, cov: 0.45 },
+  { name: "LF₂", desc: "URL pattern regex", acc: 0.78, cov: 0.62 },
+  { name: "LF₃", desc: "sender domain check", acc: 0.75, cov: 0.58 },
+  { name: "LF₄", desc: "subject line caps", acc: 0.65, cov: 0.80 },
+  { name: "LF₅", desc: "text length heuristic", acc: 0.60, cov: 0.30 },
+];
+
+// Lambda matrix: rows=LFs, cols=docs; values: 1,0,-1
+// Designed to show conflicts, correlations, abstains
+const LAMBDA = [
+//  d0   d1   d2   d3   d4   d5
+  [ 1,   1,  -1,   0,   1,  -1],  // LF1: high acc, keyword
+  [ 1,   0,  -1,   1,   1,   0],  // LF2: correlated with LF3
+  [ 1,   0,  -1,   1,   0,   0],  // LF3: correlated with LF2
+  [ 1,  -1,  -1,   1,   1,  -1],  // LF4: noisy, high coverage
+  [ 0,   1,   0,   0,   0,  -1],  // LF5: low coverage
+];
+
+// True probabilistic labels (computed as if by a fitted label model)
+// weighted by acc, deweighted by correlation, abstain doesn't vote
+const PROB = [0.94, 0.61, 0.07, 0.82, 0.88, 0.12];
+
+// Pairwise correlations (approximate E[λj λk] computed from LAMBDA)
+// Only upper triangle filled; diagonal = coverage
+function computeCorr() {
+  const n_docs = 6, m = 5;
+  const mat = Array.from({length:m}, () => new Array(m).fill(0));
+  for (let j=0; j<m; j++) {
+    for (let k=0; k<m; k++) {
+      let s=0, c=0;
+      for (let i=0; i<n_docs; i++) {
+        if (LAMBDA[j][i] !== 0 && LAMBDA[k][i] !== 0) { s += LAMBDA[j][i]*LAMBDA[k][i]; c++; }
+      }
+      mat[j][k] = c>0 ? (s/c) : 0;
+    }
+  }
+  return mat;
+}
+const CORR = computeCorr();
+
+// ── DOM Render ───────────────────────────────────────────────────────────────
+function voteEmoji(v) { return v===1?'✓': v===-1?'✗':'—'; }
+function voteClass(v) { return v===1?'pos': v===-1?'neg':'abs'; }
+function voteColor(v) { return v===1?'var(--green-mid)': v===-1?'var(--red-mid)':'var(--text3)'; }
+
+function buildGrid() {
+  // Doc IDs
+  const docRow = document.getElementById('doc-ids');
+  for (let d=0; d<6; d++) {
+    const el = document.createElement('div');
+    el.style.cssText = 'width:48px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--text3);font-weight:600;';
+    el.textContent = 'doc'+d;
+    docRow.appendChild(el);
+  }
+
+  // LF label column
+  const lfLabels = document.getElementById('lf-labels');
+  LFS.forEach((lf, j) => {
+    const el = document.createElement('div');
+    el.style.cssText = 'font-size:11px;font-family:var(--mono);font-weight:700;height:28px;display:flex;align-items:center;color:var(--text);';
+    el.id = 'lf-label-'+j;
+    el.title = lf.desc;
+    el.textContent = lf.name;
+    lfLabels.appendChild(el);
+  });
+
+  // Lambda grid
+  const grid = document.getElementById('lambda-grid');
+  for (let j=0; j<5; j++) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:4px;';
+    row.id = 'lf-row-'+j;
+    for (let d=0; d<6; d++) {
+      const v = LAMBDA[j][d];
+      const cell = document.createElement('div');
+      cell.id = `cell-${j}-${d}`;
+      cell.className = 'lf-box ' + voteClass(v);
+      cell.style.width = '48px';
+      cell.innerHTML = `<div class="lf-vote" style="color:${voteColor(v)};font-weight:700;font-size:16px;">${voteEmoji(v)}</div>`;
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+}
+
+function buildLMParams() {
+  const container = document.getElementById('lm-params');
+  container.innerHTML = '';
+  LFS.forEach((lf, j) => {
+    const chip = document.createElement('div');
+    chip.className = 'param-chip';
+    chip.id = 'param-'+j;
+    chip.innerHTML = `α<sub>${j+1}</sub>=<span id="acc-val-${j}">?</span> β<sub>${j+1}</sub>=<span id="cov-val-${j}">?</span>`;
+    container.appendChild(chip);
+  });
+}
+
+function buildCorrMatrix() {
+  const grid = document.getElementById('corr-matrix');
+  grid.innerHTML = '';
+  for (let j=0; j<5; j++) {
+    for (let k=0; k<5; k++) {
+      const c = CORR[j][k];
+      const cell = document.createElement('div');
+      cell.className = 'corr-cell';
+      cell.id = `corr-${j}-${k}`;
+      // colour: blue pos, red neg, grey abs
+      const intensity = Math.abs(c);
+      let bg, fg;
+      if (j===k) { bg='var(--purple-bg)'; fg='var(--purple-mid)'; }
+      else if (c>0.3) { bg=`rgba(59,109,17,${intensity*0.6})`; fg='var(--green-text)'; }
+      else if (c<-0.3) { bg=`rgba(163,45,45,${intensity*0.6})`; fg='var(--red-text)'; }
+      else { bg='var(--bg2)'; fg='var(--text3)'; }
+      cell.style.background = bg; cell.style.color = fg;
+      cell.textContent = c.toFixed(1);
+      cell.title = `LF${j+1}·LF${k+1} = ${c.toFixed(3)}`;
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function buildProbLabels() {
+  const row = document.getElementById('prob-labels-row');
+  row.innerHTML = '';
+  PROB.forEach((p, d) => {
+    const chip = document.createElement('div');
+    chip.className = 'prob-chip';
+    chip.id = 'prob-chip-'+d;
+    const barClass = p >= 0.5 ? '' : 'neg';
+    chip.innerHTML = `
+      <div class="doc-id">doc${d}</div>
+      <div class="prob-bar-wrap"><div class="prob-bar ${barClass}" id="prob-bar-${d}" style="width:0%"></div></div>
+      <div class="prob-val" id="prob-val-${d}">—</div>
+    `;
+    row.appendChild(chip);
+  });
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    phase: '① Labeling Functions',
+    phaseClass: 'stage-lf',
+    title: 'Raw Label Matrix Λ  (5 LFs × 6 docs)',
+    body: 'Each row is a labeling function; each column is a document. +1 = positive vote, −1 = negative vote, 0 = abstain. Notice LF₂ and LF₃ tend to agree (correlated). LF₁ has very high accuracy but abstains often. LF₅ rarely fires. These raw votes are noisy and conflict (e.g., doc1 has +1 from LF₁ but −1 from LF₄).',
+    action: (entering) => {
+      // Reset all
+      highlightLFs([]);
+      showAccuracies(false);
+      showProbs(false);
+      setArrowActive('arrow1', false); setArrowActive('arrow2', false); setArrowActive('arrow3', false);
+      document.getElementById('lm-box').classList.remove('active');
+    }
+  },
+  {
+    phase: '① → ② Passing Λ to Label Model',
+    phaseClass: 'stage-lm',
+    title: 'Computing Observed Moments of Λ',
+    body: 'The label model never sees true labels Y. Instead it observes the empirical covariance matrix of Λ. Pairs of LFs with high E[λⱼλₖ] share information. The correlation matrix (shown in the label model box) reveals that LF₂–LF₃ are strongly correlated (ρ≈0.8). Without modelling this, their shared signal would be double-counted.',
+    action: () => {
+      setArrowActive('arrow1', true);
+      document.getElementById('lm-box').classList.add('active');
+      highlightCorrPair(1,2);
+    }
+  },
+  {
+    phase: '② Label Model: Fitting Accuracies',
+    phaseClass: 'stage-lm',
+    title: 'Estimating Per-LF Accuracies α and Coverages β',
+    body: 'The label model fits θ by minimising −Σᵢ log Σᵧ Pθ(y,λ⁽ⁱ⁾) via SGD, marginalising Y out. Equivalently (for independent LFs) this reduces to: α̂ⱼ = P(λⱼ=Y | λⱼ≠0) — estimated by comparing agreements between LF pairs. LF₁ (keyword rule) is estimated as most accurate (α≈0.92). LF₅ (length heuristic) is least accurate (α≈0.60).',
+    action: () => {
+      showAccuracies(true);
+      highlightLFs([0,1,2,3,4]);
+    }
+  },
+  {
+    phase: '② → ③ Generating Probabilistic Labels',
+    phaseClass: 'stage-out',
+    title: 'Computing P̃(Y=+1 | λ⁽ⁱ⁾) for Each Document',
+    body: 'Using fitted parameters, the label model computes a posterior soft label for every document. High-accuracy LFs dominate. Correlated LFs (LF₂+LF₃) are down-weighted together so their overlapping signal isn\'t counted twice. doc0: all 4 voting LFs say +1 → P̃≈0.94. doc2: all 3 voters say −1 → P̃≈0.07. doc1 is ambiguous (conflict between LF₁ and LF₄) → P̃≈0.61.',
+    action: () => {
+      setArrowActive('arrow2', true);
+      showProbs(true);
+      highlightCorrPair(-1,-1);
+    }
+  },
+  {
+    phase: '③ → ④ Discriminative Model Training',
+    phaseClass: 'stage-model',
+    title: 'Soft Labels as Training Signal',
+    body: 'The probabilistic labels P̃ are used as soft targets in a cross-entropy loss: ℒ = −Σᵢ [p̃ᵢ log p̂ᵢ + (1−p̃ᵢ)log(1−p̂ᵢ)]. The discriminative model learns to generalise beyond the LF features to any input feature. After training, the label model is discarded. The discriminative model alone is deployed and can classify inputs that no LF covers.',
+    action: () => {
+      setArrowActive('arrow3', true);
+    }
+  },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let step = 0;
+
+function highlightLFs(indices) {
+  for (let j=0; j<5; j++) {
+    for (let d=0; d<6; d++) {
+      const cell = document.getElementById(`cell-${j}-${d}`);
+      if (cell) {
+        if (indices.includes(j)) cell.classList.add('active');
+        else cell.classList.remove('active');
+      }
+    }
+    const label = document.getElementById('lf-label-'+j);
+    if (label) label.style.color = indices.includes(j) ? 'var(--purple-mid)' : 'var(--text)';
+  }
+}
+
+function highlightCorrPair(j, k) {
+  for (let a=0; a<5; a++) for (let b=0; b<5; b++) {
+    const el = document.getElementById(`corr-${a}-${b}`);
+    if (!el) continue;
+    el.style.outline = (a===j && b===k) || (a===k && b===j) ? '2px solid var(--amber-border)' : 'none';
+  }
+}
+
+function showAccuracies(show) {
+  LFS.forEach((lf, j) => {
+    const chip = document.getElementById('param-'+j);
+    const accEl = document.getElementById('acc-val-'+j);
+    const covEl = document.getElementById('cov-val-'+j);
+    if (show) {
+      chip.classList.add('learned');
+      if (accEl) accEl.textContent = lf.acc.toFixed(2);
+      if (covEl) covEl.textContent = lf.cov.toFixed(2);
+    } else {
+      chip.classList.remove('learned');
+      if (accEl) accEl.textContent = '?';
+      if (covEl) covEl.textContent = '?';
+    }
+  });
+}
+
+function showProbs(show) {
+  PROB.forEach((p, d) => {
+    const bar = document.getElementById('prob-bar-'+d);
+    const val = document.getElementById('prob-val-'+d);
+    const chip = document.getElementById('prob-chip-'+d);
+    if (bar) bar.style.width = show ? (p*100)+'%' : '0%';
+    if (val) val.textContent = show ? p.toFixed(2) : '—';
+    if (chip) {
+      if (show && (p > 0.75 || p < 0.25)) chip.classList.add('highlight');
+      else chip.classList.remove('highlight');
+    }
+  });
+}
+
+function setArrowActive(id, active) {
+  const el = document.getElementById(id);
+  const elb = document.getElementById(id+'b');
+  if (el) el.classList.toggle('active', active);
+  if (elb) elb.classList.toggle('active', active);
+}
+
+function renderStep(s) {
+  const data = STEPS[s];
+  // Info card
+  document.getElementById('info-phase').innerHTML = `<span class="stage-label ${data.phaseClass}">Step ${s+1} / ${STEPS.length}</span>`;
+  document.getElementById('info-title').textContent = data.title;
+  document.getElementById('info-body').textContent = data.body;
+  // Dots
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.classList.toggle('active', i===s);
+    d.classList.toggle('done', i<s);
+  });
+  // Buttons
+  document.getElementById('btn-prev').disabled = s===0;
+  document.getElementById('btn-next').disabled = s===STEPS.length-1;
+  // Run action
+  if (data.action) data.action(true);
+}
+
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= STEPS.length) return;
+  step = next;
+  renderStep(step);
+}
+
+function reset() {
+  step = 0;
+  renderStep(0);
+}
+
+// Build dots
+function buildDots() {
+  const wrap = document.getElementById('dots');
+  STEPS.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.onclick = () => { step = i; renderStep(i); };
+    wrap.appendChild(d);
+  });
+}
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Init
+buildGrid();
+buildLMParams();
+buildCorrMatrix();
+buildProbLabels();
+buildDots();
+renderStep(0);
+</script>
+</body>
+</html>

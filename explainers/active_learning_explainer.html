@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Active Learning — Querying the Most Informative Unlabeled Points</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9; --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body { font-family: var(--sans); background: var(--bg); color: var(--text); margin: 0; line-height: 1.6; }
+.container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+/* Tags */
+.tag { display:inline-block; padding:3px 10px; border-radius:999px; font-size:0.72rem; font-weight:600; margin-right:6px; margin-bottom:6px; }
+.tag-advanced { background:var(--red-bg); color:var(--red-text); border:1px solid var(--red-border); }
+.tag-category { background:var(--blue-bg); color:var(--blue-text); border:1px solid var(--blue-border); }
+.tag-complexity { background:var(--purple-bg); color:var(--purple-text); border:1px solid var(--purple-border); font-family:var(--mono); }
+
+h1 { font-size:2.1rem; font-weight:700; margin:0.5rem 0 0.25rem; letter-spacing:-0.02em; }
+.subtitle { color:var(--text2); font-size:1.05rem; margin:0 0 2rem; }
+
+/* Collapsible cards */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); margin-bottom:1rem; overflow:hidden; }
+.card-header { padding:1rem 1.25rem; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; }
+.card-header:hover { background:var(--bg2); }
+.card-title { font-size:1rem; font-weight:600; margin:0; }
+.card-body { padding:0 1.25rem 1.25rem; }
+.chevron { transition:transform 0.25s; color: var(--text2); flex-shrink: 0; }
+.card.open .chevron { transform:rotate(180deg); }
+.card-body { display: none; }
+.card.open .card-body { display: block; }
+
+/* Equations */
+.eq { text-align:center; padding:14px 20px; margin:0.75rem 0; background:var(--cyan-bg); border:1px solid var(--cyan-border); border-radius:var(--radius); overflow-x:auto; }
+
+/* Callout boxes */
+.callout { border-radius: var(--radius); padding: 0.9rem 1.1rem; margin: 1rem 0; border-left: 4px solid; }
+.callout-amber { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-text); }
+.callout-blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue-text); }
+.callout-green { background: var(--green-bg); border-color: var(--green-border); color: var(--green-text); }
+.callout-purple { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-text); }
+.callout-title { font-weight: 700; font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.35rem; }
+
+/* Strategy grid */
+.strategy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1rem 0; }
+@media (max-width: 600px) { .strategy-grid { grid-template-columns: 1fr; } }
+.strategy-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem 1rem; }
+.strategy-number { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); margin-bottom: 0.25rem; }
+.strategy-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.35rem; }
+.strategy-desc { font-size: 0.85rem; color: var(--text2); }
+
+/* Buttons */
+.btn { padding:8px 20px; border-radius:var(--radius); border:1px solid var(--border2); background:var(--surface); color:var(--text); font-family:var(--sans); font-size:0.9rem; cursor:pointer; transition:all 0.15s; }
+.btn:hover { background:var(--bg2); }
+.btn-primary { background:var(--blue-mid); color:#fff; border-color:var(--blue-mid); }
+.btn-primary:hover { opacity:0.88; }
+
+/* Canvas area */
+.viz-wrapper { display: flex; flex-direction: column; align-items: center; gap: 0; }
+canvas#al-canvas { display:block; width:100%; max-width:500px; height:380px; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg2); cursor: default; }
+
+/* Info card */
+.info-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.25rem; margin-top:0.75rem; min-height:90px; width:100%; max-width:500px; }
+.phase-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:0.7rem; font-weight:700; letter-spacing:0.05em; margin-bottom:0.5rem; }
+.info-title { font-weight: 700; font-size: 0.97rem; margin: 0 0 0.3rem; }
+.info-text { font-size: 0.87rem; color: var(--text2); margin: 0; }
+
+/* Progress dots */
+.dots { display:flex; gap:8px; justify-content:center; margin:0.6rem 0; }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--border2); cursor:pointer; transition:all 0.2s; }
+.dot.active { background:var(--blue-mid); transform:scale(1.3); }
+
+/* Controls */
+.controls { display:flex; gap:8px; align-items:center; justify-content:center; margin-top:0.5rem; flex-wrap:wrap; }
+.step-counter { font-size:0.85rem; color:var(--text2); font-family:var(--mono); padding: 0 8px; }
+.kbd-hint { font-size:0.74rem; color:var(--text3); font-family:var(--mono); text-align:center; margin-top:0.4rem; }
+
+/* Legend */
+.legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:0.75rem; font-size:0.82rem; color:var(--text2); }
+.legend-item { display:flex; align-items:center; gap:5px; }
+.legend-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.legend-ring { width:10px; height:10px; border-radius:50%; border:2px solid orange; display:inline-block; }
+.legend-line { width:20px; height:0; border-top:2px dashed var(--text3); display:inline-block; }
+
+/* Takeaways list */
+.takeaway-list { list-style: none; padding: 0; margin: 0.5rem 0; }
+.takeaway-list li { padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; display: flex; gap: 0.6rem; align-items: flex-start; }
+.takeaway-list li:last-child { border-bottom: none; }
+.takeaway-icon { font-size: 0.8rem; margin-top: 2px; flex-shrink: 0; }
+
+code { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+
+.worked-example { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; font-family: var(--mono); font-size: 0.88rem; }
+.worked-example .we-title { font-family: var(--sans); font-weight: 700; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text); }
+.we-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid var(--border); color: var(--text2); }
+.we-row:last-child { border-bottom: none; font-weight: 700; color: var(--cyan-text); }
+.we-highlight { color: var(--green-mid); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div style="margin-bottom:0.5rem">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-complexity">O(n·m) per cycle</span>
+  </div>
+  <h1>Active Learning</h1>
+  <p class="subtitle">Querying the Most Informative Unlabeled Points</p>
+
+  <!-- Card 1: Understanding Active Learning -->
+  <div class="card open" id="card1">
+    <div class="card-header" onclick="toggleCard('card1')">
+      <span class="card-title">1 — Understanding Active Learning</span>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4.5 7L9 11.5L13.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="card-body">
+      <p>Standard supervised learning requires <strong>all labels upfront</strong> — you collect a dataset, label every point, then train. This is expensive when labeling requires expert time (medical imaging, legal documents, rare-event annotation).</p>
+      <p><strong>Active learning</strong> flips the process: start with a small labeled pool and a large unlabeled pool, then <em>choose which points to ask the oracle to label next</em>. The learner is active rather than passive — it drives its own data collection.</p>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin:1rem 0;">
+        <div style="background:var(--red-bg); border:1px solid var(--red-border); border-radius:var(--radius); padding:0.8rem 1rem;">
+          <div style="font-weight:700; font-size:0.85rem; color:var(--red-text); margin-bottom:0.4rem">PASSIVE LEARNING</div>
+          <div style="font-size:0.85rem; color:var(--red-text)">Label everything → train once → deploy. Wastes budget on obvious examples.</div>
+        </div>
+        <div style="background:var(--green-bg); border:1px solid var(--green-border); border-radius:var(--radius); padding:0.8rem 1rem;">
+          <div style="font-weight:700; font-size:0.85rem; color:var(--green-text); margin-bottom:0.4rem">ACTIVE LEARNING</div>
+          <div style="font-size:0.85rem; color:var(--green-text)">Label a few → train → query most informative → repeat. Focus budget on hard cases.</div>
+        </div>
+      </div>
+
+      <p><strong>Real-world analogy:</strong> A student who asks the teacher only the questions they are most confused about learns faster than one who re-reads what they already know. The oracle (human annotator) is the teacher; the model is the student.</p>
+
+      <p>The <strong>active learning loop</strong> repeats until a labeling budget \(B\) is exhausted:</p>
+      <ol style="margin:0.5rem 0; font-size:0.9rem; color:var(--text2)">
+        <li>Train model \(M\) on current labeled set \(\mathcal{L}\)</li>
+        <li>Use query strategy to score all unlabeled points in \(\mathcal{U}\)</li>
+        <li>Select the highest-scoring point(s) \(x^*\)</li>
+        <li>Ask oracle for label \(y^*\), move \((x^*, y^*)\) from \(\mathcal{U}\) to \(\mathcal{L}\)</li>
+        <li>Repeat from step 1</li>
+      </ol>
+
+      <div class="callout callout-amber">
+        <div class="callout-title">Key Insight</div>
+        With the right query strategy, 100 labeled examples can outperform 1000 random labels. The selection of <em>which</em> points to label matters more than the total count.
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: Four Query Strategies -->
+  <div class="card open" id="card2">
+    <div class="card-header" onclick="toggleCard('card2')">
+      <span class="card-title">2 — Four Query Strategies</span>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4.5 7L9 11.5L13.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="card-body">
+      <div class="strategy-grid">
+        <div class="strategy-card">
+          <div class="strategy-number">Strategy 1</div>
+          <div class="strategy-name" style="color:var(--amber-mid)">Uncertainty Sampling</div>
+          <div class="strategy-desc">Query the point the model is <strong>least confident</strong> about. Three variants:</div>
+          <ul style="font-size:0.84rem; color:var(--text2); margin:0.5rem 0 0; padding-left:1.1rem;">
+            <li><strong>Least Confidence:</strong> \(x^* = \arg\max (1 - P(\hat{y}\mid x))\)</li>
+            <li><strong>Margin:</strong> \(x^* = \arg\min (P(\hat{y}_1\mid x) - P(\hat{y}_2\mid x))\)</li>
+            <li><strong>Entropy:</strong> \(x^* = \arg\max H(x)\)</li>
+          </ul>
+        </div>
+        <div class="strategy-card">
+          <div class="strategy-number">Strategy 2</div>
+          <div class="strategy-name" style="color:var(--purple-mid)">Query-by-Committee (QbC)</div>
+          <div class="strategy-desc">Train a <strong>committee</strong> of \(C\) diverse models; query where they disagree most. Vote entropy:</div>
+          <ul style="font-size:0.84rem; color:var(--text2); margin:0.5rem 0 0; padding-left:1.1rem;">
+            <li>\(x^* = \arg\max \left(-\sum_k \tfrac{V(y_k)}{C}\log\tfrac{V(y_k)}{C}\right)\)</li>
+            <li>More robust than single-model uncertainty</li>
+          </ul>
+        </div>
+        <div class="strategy-card">
+          <div class="strategy-number">Strategy 3</div>
+          <div class="strategy-name" style="color:var(--cyan-mid)">Expected Model Change</div>
+          <div class="strategy-desc">Query the point that would cause the <strong>largest model update</strong> (largest expected gradient length) if labeled:</div>
+          <ul style="font-size:0.84rem; color:var(--text2); margin:0.5rem 0 0; padding-left:1.1rem;">
+            <li>\(x^* = \arg\max \mathbb{E}_{y}\left[\|\nabla_\theta \mathcal{L}\|\right]\)</li>
+            <li>Principled but requires \(O(n)\) gradient computations</li>
+          </ul>
+        </div>
+        <div class="strategy-card">
+          <div class="strategy-number">Strategy 4</div>
+          <div class="strategy-name" style="color:var(--green-mid)">Batch-Mode Active Learning</div>
+          <div class="strategy-desc">Select <strong>\(B\) points simultaneously</strong> that are both informative AND diverse to avoid redundant queries:</div>
+          <ul style="font-size:0.84rem; color:var(--text2); margin:0.5rem 0 0; padding-left:1.1rem;">
+            <li>Greedy submodular maximization</li>
+            <li>Avoids clustered, redundant queries near boundary</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout callout-blue">
+        <div class="callout-title">When to Use Each Strategy</div>
+        Use <strong>Uncertainty Sampling</strong> for speed. Use <strong>QbC</strong> for robustness. Use <strong>EMC</strong> when you want principled gradient-based selection. Use <strong>Batch Mode</strong> when you must label multiple points per round (parallelism, human teams).
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 3: The Math -->
+  <div class="card open" id="card3">
+    <div class="card-header" onclick="toggleCard('card3')">
+      <span class="card-title">3 — The Math</span>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4.5 7L9 11.5L13.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="card-body">
+      <h3 style="font-size:1rem; font-weight:700; margin:0.5rem 0 0.25rem">Entropy (Uncertainty Sampling)</h3>
+      <p style="font-size:0.9rem; color:var(--text2)">Shannon entropy measures the uncertainty in a probability distribution over \(K\) classes. Higher entropy = more confused = better query candidate.</p>
+      <div class="eq">$$H(x) = -\sum_{k=1}^{K} P(y_k \mid x)\, \log_2 P(y_k \mid x)$$</div>
+
+      <div class="worked-example">
+        <div class="we-title">Worked Example — 3-class Classification</div>
+        <div class="we-row"><span>Distribution</span><span>Entropy</span></div>
+        <div class="we-row"><span>[0.90, 0.08, 0.02] — confident</span><span>0.60 bits</span></div>
+        <div class="we-row"><span>[0.60, 0.30, 0.10] — some uncertainty</span><span>1.29 bits</span></div>
+        <div class="we-row we-highlight"><span>[0.34, 0.33, 0.33] — maximally uncertain ← QUERY THIS</span><span>1.585 bits</span></div>
+      </div>
+
+      <h3 style="font-size:1rem; font-weight:700; margin:1.25rem 0 0.25rem">Margin Sampling</h3>
+      <p style="font-size:0.9rem; color:var(--text2)">The margin between the top-2 class probabilities. A small margin means the model is torn between two classes — a more targeted signal than entropy.</p>
+      <div class="eq">$$x^* = \arg\min_x \left[ P(\hat{y}_1 \mid x) - P(\hat{y}_2 \mid x) \right]$$</div>
+
+      <h3 style="font-size:1rem; font-weight:700; margin:1.25rem 0 0.25rem">QbC Vote Entropy</h3>
+      <p style="font-size:0.9rem; color:var(--text2)">With \(C\) committee members, let \(V(y_k)\) = number of members predicting class \(k\). High vote entropy means committee members disagree.</p>
+      <div class="eq">$$x^* = \arg\max_x \left( -\sum_k \frac{V(y_k)}{C} \log \frac{V(y_k)}{C} \right)$$</div>
+
+      <h3 style="font-size:1rem; font-weight:700; margin:1.25rem 0 0.25rem">Expected Model Change (Binary Case)</h3>
+      <p style="font-size:0.9rem; color:var(--text2)">For logistic regression, the expected gradient length is proportional to the model's uncertainty \(p(1-p)\), which is maximized at the decision boundary.</p>
+      <div class="eq">$$\text{EMC}(x) \propto \mathbb{E}_{y}\left[\|\nabla_\theta \ell(x, y)\|\right] \approx \sigma(x)\,(1 - \sigma(x))\,\|x\|$$</div>
+
+      <div class="callout callout-green">
+        <div class="callout-title">Geometric Intuition</div>
+        All uncertainty-based strategies tend to select points near the decision boundary, where the model is most confused. The key difference is how they measure "confusion" — single model vs. committee, probability vs. gradient.
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 4: Interactive Visualization -->
+  <div class="card open" id="card4">
+    <div class="card-header" onclick="toggleCard('card4')">
+      <span class="card-title">4 — Interactive Visualization</span>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4.5 7L9 11.5L13.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="card-body">
+      <div class="viz-wrapper">
+        <canvas id="al-canvas" width="500" height="380" tabindex="0"></canvas>
+        <div class="dots" id="dots-container"></div>
+        <div class="controls">
+          <button class="btn" id="btn-prev" onclick="prevStep()">← Prev</button>
+          <span class="step-counter" id="step-counter">Step 1 / 8</span>
+          <button class="btn btn-primary" id="btn-next" onclick="nextStep()">Next →</button>
+          <button class="btn" id="btn-reset" onclick="resetViz()" style="margin-left:6px">↺ Reset</button>
+        </div>
+        <div class="kbd-hint">← → to navigate · R to reset</div>
+
+        <div class="info-card" id="info-card">
+          <div id="info-badge"></div>
+          <div id="info-title" class="info-title"></div>
+          <p id="info-text" class="info-text"></p>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#9c9a92"></span>Unlabeled</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#4A90D9"></span>Class 0 (labeled)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#E05252"></span>Class 1 (labeled)</div>
+          <div class="legend-item"><span class="legend-ring"></span>High uncertainty / query</div>
+          <div class="legend-item"><span class="legend-line"></span>Decision boundary</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 5: Key Takeaways -->
+  <div class="card open" id="card5">
+    <div class="card-header" onclick="toggleCard('card5')">
+      <span class="card-title">5 — Key Takeaways</span>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4.5 7L9 11.5L13.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="card-body">
+      <ul class="takeaway-list">
+        <li><span class="takeaway-icon" style="color:var(--amber-mid)">★</span><span><strong>Active learning shines when labeling is expensive.</strong> Medical imaging, legal annotation, expensive experiments — when each label costs money or time.</span></li>
+        <li><span class="takeaway-icon" style="color:var(--blue-mid)">1</span><span><strong>Uncertainty Sampling:</strong> Fast, simple, easy to implement. Ignores data density — may over-query outliers.</span></li>
+        <li><span class="takeaway-icon" style="color:var(--purple-mid)">2</span><span><strong>Query-by-Committee:</strong> More robust, ensemble-based. Requires training and maintaining multiple models.</span></li>
+        <li><span class="takeaway-icon" style="color:var(--cyan-mid)">3</span><span><strong>Expected Model Change:</strong> Principled, gradient-based. Expensive — requires \(O(n)\) forward/backward passes per cycle.</span></li>
+        <li><span class="takeaway-icon" style="color:var(--green-mid)">4</span><span><strong>Batch Mode:</strong> Avoids redundancy by selecting diverse subsets. Essential for parallel annotation pipelines.</span></li>
+        <li><span class="takeaway-icon" style="color:var(--text3)">→</span><span><strong>Related paradigms:</strong> Semi-supervised learning, self-training, label propagation, and data programming (Snorkel) all reduce labeling cost via different mechanisms.</span></li>
+      </ul>
+
+      <div class="callout callout-purple">
+        <div class="callout-title">The Exploration–Exploitation Tradeoff</div>
+        Pure uncertainty sampling is <em>exploitation</em>: always query near the current boundary. Adding a density term or diversity constraint introduces <em>exploration</em>, querying informative regions even if not near the current boundary. The best strategies balance both.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ─── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(42);
+
+// ─── Canvas & context ───────────────────────────────────────────────────────
+const canvas = document.getElementById('al-canvas');
+const ctx = canvas.getContext('2d');
+const CW = 500, CH = 380;
+
+// ─── Generate dataset ───────────────────────────────────────────────────────
+const N_UNLABELED_INIT = 60;
+const XMIN = 50, XMAX = 450, YMIN = 30, YMAX = 350;
+
+function genPoints() {
+  const pts = [];
+  for (let i = 0; i < N_UNLABELED_INIT; i++) {
+    const x = XMIN + rng() * (XMAX - XMIN);
+    const y = YMIN + rng() * (YMAX - YMIN);
+    // True decision boundary: x > 250 + noise
+    const noise = (rng() - 0.5) * 60;
+    const trueLabel = x > (CW / 2 + noise) ? 1 : 0;
+    pts.push({ x, y, trueLabel, labeled: false, label: -1, id: i });
+  }
+  return pts;
+}
+
+let allPoints = genPoints();
+
+// Pick initial labeled set: 5 from each class near edges
+function pickInitialLabeled(points) {
+  const class0 = points.filter(p => p.trueLabel === 0).sort((a, b) => a.x - b.x);
+  const class1 = points.filter(p => p.trueLabel === 1).sort((a, b) => b.x - a.x);
+  const chosen = [];
+  for (let i = 0; i < Math.min(5, class0.length); i++) chosen.push(class0[i].id);
+  for (let i = 0; i < Math.min(5, class1.length); i++) chosen.push(class1[i].id);
+  return chosen;
+}
+
+let initialLabeledIds = pickInitialLabeled(allPoints);
+
+function resetDataset() {
+  allPoints = genPoints();
+  initialLabeledIds = pickInitialLabeled(allPoints);
+  allPoints.forEach(p => {
+    if (initialLabeledIds.includes(p.id)) {
+      p.labeled = true;
+      p.label = p.trueLabel;
+    }
+  });
+}
+resetDataset();
+
+// ─── Logistic Regression ────────────────────────────────────────────────────
+function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
+
+function fitLogisticRegression(labeledPoints, iterations=60, lr=0.15) {
+  if (labeledPoints.length < 2) return { w: [0, 0], b: 0 };
+  // Normalize features to [0,1]
+  const xs = labeledPoints.map(p => (p.x - XMIN) / (XMAX - XMIN));
+  const ys = labeledPoints.map(p => (p.y - YMIN) / (YMAX - YMIN));
+  let w = [0, 0], b = 0;
+  for (let iter = 0; iter < iterations; iter++) {
+    let dw = [0, 0], db = 0;
+    for (let i = 0; i < labeledPoints.length; i++) {
+      const z = w[0] * xs[i] + w[1] * ys[i] + b;
+      const pred = sigmoid(z);
+      const err = pred - labeledPoints[i].label;
+      dw[0] += err * xs[i];
+      dw[1] += err * ys[i];
+      db += err;
+    }
+    const n = labeledPoints.length;
+    w[0] -= lr * dw[0] / n;
+    w[1] -= lr * dw[1] / n;
+    b -= lr * db / n;
+  }
+  return { w, b };
+}
+
+function predictProb(pt, model) {
+  const xn = (pt.x - XMIN) / (XMAX - XMIN);
+  const yn = (pt.y - YMIN) / (YMAX - YMIN);
+  return sigmoid(model.w[0] * xn + model.w[1] * yn + model.b);
+}
+
+function entropy(prob) {
+  const p0 = 1 - prob, p1 = prob;
+  if (p0 < 1e-10 || p1 < 1e-10) return 0;
+  return -(p1 * Math.log2(p1) + p0 * Math.log2(p0));
+}
+
+// ─── Drawing utilities ──────────────────────────────────────────────────────
+function drawDecisionBoundary(model, color='rgba(80,80,80,0.8)', dashes=[8,4]) {
+  const { w, b } = model;
+  // w[0]*xn + w[1]*yn + b = 0
+  // yn = -(w[0]*xn + b) / w[1]  if w[1] != 0
+  if (Math.abs(w[1]) < 1e-8) return;
+  const x1c = XMIN, x2c = XMAX;
+  const x1n = (x1c - XMIN) / (XMAX - XMIN);
+  const x2n = (x2c - XMIN) / (XMAX - XMIN);
+  const y1n = -(w[0] * x1n + b) / w[1];
+  const y2n = -(w[0] * x2n + b) / w[1];
+  const y1c = y1n * (YMAX - YMIN) + YMIN;
+  const y2c = y2n * (YMAX - YMIN) + YMIN;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(dashes);
+  ctx.beginPath();
+  ctx.moveTo(x1c, y1c);
+  ctx.lineTo(x2c, y2c);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawArrowhead(x, y, angle, size=7) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-size, -size * 0.45);
+  ctx.lineTo(-size, size * 0.45);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Step data ──────────────────────────────────────────────────────────────
+const stepInfo = [
+  {
+    badge: 'INITIALIZATION', badgeColor: '--blue-mid', badgeBg: '--blue-bg', badgeText: '--blue-text',
+    title: 'Initial State: Few Labels',
+    text: 'We start with 10 labeled examples (5 per class) and 50 unlabeled. The decision boundary is fitted by logistic regression on these initial 10 points — it is unstable with so few labels.'
+  },
+  {
+    badge: 'UNCERTAINTY SAMPLING', badgeColor: '--amber-mid', badgeBg: '--amber-bg', badgeText: '--amber-text',
+    title: 'Computing Entropy H(x)',
+    text: 'Entropy is highest near the decision boundary — these are the most ambiguous points. Darker orange = higher uncertainty. The top-5 highest-entropy unlabeled points pulse with an animated ring.'
+  },
+  {
+    badge: 'ORACLE QUERY', badgeColor: '--green-mid', badgeBg: '--green-bg', badgeText: '--green-text',
+    title: 'Query: Label the Most Uncertain Point',
+    text: 'The oracle labels x* — the single most uncertain point. Its true label is revealed (blue or red) and the logistic regression boundary is refitted, visibly shifting to incorporate this new information.'
+  },
+  {
+    badge: 'QUERY-BY-COMMITTEE', badgeColor: '--purple-mid', badgeBg: '--purple-bg', badgeText: '--purple-text',
+    title: 'Committee Disagreement',
+    text: 'Three committee models (with small weight perturbations) draw slightly different boundaries. Points colored by disagreement. High vote entropy near the boundary = most valuable query.'
+  },
+  {
+    badge: 'BATCH-MODE', badgeColor: '--cyan-mid', badgeBg: '--cyan-bg', badgeText: '--cyan-text',
+    title: 'Diverse Batch Selection',
+    text: 'Batch active learning selects B=5 points that are uncertain AND spatially spread out. Orange = top-10 uncertain. Purple circles = 5 selected with k-means style diversity — avoiding redundant, clustered queries.'
+  },
+  {
+    badge: 'PROGRESS', badgeColor: '--green-mid', badgeBg: '--green-bg', badgeText: '--green-text',
+    title: 'After 5 Labeling Rounds',
+    text: 'After 5 active learning rounds (25 queries), 35 points are labeled and 25 remain unlabeled. The decision boundary has sharpened considerably compared to the initial 10-point fit.'
+  },
+  {
+    badge: 'COMPARISON', badgeColor: '--red-mid', badgeBg: '--red-bg', badgeText: '--red-text',
+    title: 'Random vs Active Learning',
+    text: 'Active learning reaches 90% accuracy with ~40 labels. Random sampling needs ~120 labels for the same performance — a 3× reduction in annotation cost.'
+  },
+  {
+    badge: 'EXPECTED MODEL CHANGE', badgeColor: '--cyan-mid', badgeBg: '--cyan-bg', badgeText: '--cyan-text',
+    title: 'Gradient-Based Query (EMC)',
+    text: 'EMC selects the point that would cause the largest gradient update. Arrow length ∝ p(1−p) — large near the boundary, tiny for confident predictions. Cyan rings mark the top-3 EMC candidates.'
+  }
+];
+
+// ─── Animation state ────────────────────────────────────────────────────────
+let currentStep = 0;
+let animFrame = null;
+let startTime = null;
+
+// ─── Compute model for current labeled set ──────────────────────────────────
+function getLabeledPoints() {
+  return allPoints.filter(p => p.labeled);
+}
+function getUnlabeledPoints() {
+  return allPoints.filter(p => !p.labeled);
+}
+
+// Pre-computed for step 3: which point was queried
+let queriedPointId = -1;
+let step3Model = null;
+
+function computeStep3() {
+  const labeled = getLabeledPoints();
+  const unlabeled = getUnlabeledPoints();
+  const model = fitLogisticRegression(labeled);
+  let maxH = -1, bestPt = null;
+  for (const pt of unlabeled) {
+    const prob = predictProb(pt, model);
+    const h = entropy(prob);
+    if (h > maxH) { maxH = h; bestPt = pt; }
+  }
+  if (bestPt) {
+    queriedPointId = bestPt.id;
+  }
+  step3Model = model;
+}
+
+// For step 6: add more labeled points to simulate 5 rounds
+function getStep6Points() {
+  // Return 35 labeled, 25 unlabeled
+  // Pick top uncertainty points iteratively
+  const pts = allPoints.map(p => ({ ...p }));
+  const labeled = pts.filter(p => p.labeled).map(p => ({ ...p }));
+  const unlabeled = pts.filter(p => !p.labeled);
+  let toLabel = unlabeled.slice().sort(() => rng() - 0.5); // shuffle deterministically-ish
+  // Add 25 more labeled from the deterministic seed
+  const toAdd = toLabel.slice(0, 25);
+  toAdd.forEach(p => { p.labeled = true; p.label = p.trueLabel; });
+  return pts.map(p => {
+    const found = toAdd.find(a => a.id === p.id);
+    if (found) return { ...p, labeled: true, label: p.trueLabel };
+    return p;
+  });
+}
+
+let step6Points = null;
+
+// ─── Main render function ────────────────────────────────────────────────────
+function render(ts) {
+  if (!startTime) startTime = ts;
+  const t = (ts - startTime) / 1000;
+  ctx.clearRect(0, 0, CW, CH);
+
+  // Dark mode detection
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const bgColor = isDark ? '#222224' : '#f0efe9';
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, CW, CH);
+
+  switch (currentStep) {
+    case 0: drawStep1(t); break;
+    case 1: drawStep2(t); break;
+    case 2: drawStep3(t); break;
+    case 3: drawStep4(t); break;
+    case 4: drawStep5(t); break;
+    case 5: drawStep6(t); break;
+    case 6: drawStep7(t); break;
+    case 7: drawStep8(t); break;
+  }
+
+  animFrame = requestAnimationFrame(render);
+}
+
+// ─── Step 1: Initial State ───────────────────────────────────────────────────
+function drawStep1(t) {
+  const labeled = getLabeledPoints();
+  const model = fitLogisticRegression(labeled);
+  drawDecisionBoundary(model);
+  for (const pt of allPoints) {
+    drawPoint(pt, t, false, false, false);
+  }
+}
+
+// ─── Step 2: Entropy Heatmap ─────────────────────────────────────────────────
+function drawStep2(t) {
+  const labeled = getLabeledPoints();
+  const unlabeled = getUnlabeledPoints();
+  const model = fitLogisticRegression(labeled);
+  drawDecisionBoundary(model);
+
+  // Compute entropy for each unlabeled point
+  const entropies = unlabeled.map(pt => ({ pt, h: entropy(predictProb(pt, model)) }));
+  const maxH = Math.max(...entropies.map(e => e.h), 0.01);
+  // Sort for top-5
+  const sorted = [...entropies].sort((a, b) => b.h - a.h);
+  const top5Ids = new Set(sorted.slice(0, 5).map(e => e.pt.id));
+
+  for (const pt of allPoints) {
+    if (pt.labeled) {
+      drawPoint(pt, t, false, false, false);
+    } else {
+      const h = entropy(predictProb(pt, model));
+      const norm = h / maxH;
+      const col = interpColor([156, 154, 146], [230, 130, 30], norm);
+      const isTop5 = top5Ids.has(pt.id);
+      drawUnlabeledColored(pt, col, isTop5 ? t : -1);
+    }
+  }
+}
+
+// ─── Step 3: Query ───────────────────────────────────────────────────────────
+function drawStep3(t) {
+  computeStep3(); // idempotent
+  const labeled = getLabeledPoints();
+  const unlabeled = getUnlabeledPoints();
+
+  // Temporarily label the queried point for the new boundary
+  const tempLabeled = [...labeled];
+  const queriedPt = allPoints.find(p => p.id === queriedPointId);
+  if (queriedPt && !queriedPt.labeled) {
+    tempLabeled.push({ ...queriedPt, label: queriedPt.trueLabel });
+  }
+  const newModel = fitLogisticRegression(tempLabeled);
+
+  // Draw old boundary (faded) and new boundary
+  drawDecisionBoundary(step3Model || fitLogisticRegression(labeled), 'rgba(200,200,200,0.4)', [4,4]);
+  drawDecisionBoundary(newModel, undefined, [8,4]);
+
+  for (const pt of allPoints) {
+    if (pt.id === queriedPointId && !pt.labeled) {
+      // Draw as labeled (queried)
+      const fake = { ...pt, labeled: true, label: pt.trueLabel };
+      drawPoint(fake, t, true, false, false);
+    } else {
+      drawPoint(pt, t, false, false, false);
+    }
+  }
+}
+
+// ─── Step 4: QbC ─────────────────────────────────────────────────────────────
+function drawStep4(t) {
+  const labeled = getLabeledPoints();
+  const baseModel = fitLogisticRegression(labeled);
+
+  // 3 committee members with perturbed weights
+  const committees = [
+    { w: [baseModel.w[0] + 0.25, baseModel.w[1] - 0.18], b: baseModel.b + 0.12 },
+    { w: [baseModel.w[0] - 0.22, baseModel.w[1] + 0.30], b: baseModel.b - 0.15 },
+    { w: [baseModel.w[0] + 0.10, baseModel.w[1] + 0.12], b: baseModel.b - 0.20 },
+  ];
+
+  const colors = ['rgba(140,60,200,0.55)', 'rgba(200,80,80,0.55)', 'rgba(60,140,200,0.55)'];
+  committees.forEach((m, i) => drawDecisionBoundary(m, colors[i], [5, 5]));
+  drawDecisionBoundary(baseModel, 'rgba(80,80,80,0.9)', [8,4]);
+
+  const unlabeled = getUnlabeledPoints();
+  for (const pt of allPoints) {
+    if (pt.labeled) {
+      drawPoint(pt, t, false, false, false);
+    } else {
+      // Compute disagreement: how many committees disagree with majority
+      const votes = committees.map(m => predictProb(pt, m) > 0.5 ? 1 : 0);
+      const sum = votes.reduce((a, b) => a + b, 0);
+      const disagree = Math.min(sum, 3 - sum); // 0, 1
+      const norm = disagree / 1.5;
+      const col = interpColor([156, 154, 146], [160, 60, 180], norm);
+      drawUnlabeledColored(pt, col, -1);
+    }
+  }
+}
+
+// ─── Step 5: Batch Mode ───────────────────────────────────────────────────────
+function drawStep5(t) {
+  const labeled = getLabeledPoints();
+  const unlabeled = getUnlabeledPoints();
+  const model = fitLogisticRegression(labeled);
+  drawDecisionBoundary(model);
+
+  const entropies = unlabeled.map(pt => ({ pt, h: entropy(predictProb(pt, model)) }));
+  const sorted = [...entropies].sort((a, b) => b.h - a.h);
+  const top10Ids = new Set(sorted.slice(0, 10).map(e => e.pt.id));
+
+  // Diverse selection: k-means style - pick 5 spread out from top-10
+  const top10Pts = sorted.slice(0, 10).map(e => e.pt);
+  const diverseIds = selectDiverse(top10Pts, 5);
+
+  for (const pt of allPoints) {
+    if (pt.labeled) {
+      drawPoint(pt, t, false, false, false);
+    } else if (diverseIds.has(pt.id)) {
+      drawUnlabeledColored(pt, [80, 80, 200], -1);
+      // Purple ring
+      ctx.save();
+      ctx.strokeStyle = 'rgba(120, 80, 220, 0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (top10Ids.has(pt.id)) {
+      drawUnlabeledColored(pt, [230, 120, 20], -1);
+    } else {
+      drawPoint(pt, t, false, false, false);
+    }
+  }
+}
+
+function selectDiverse(pts, k) {
+  if (pts.length <= k) return new Set(pts.map(p => p.id));
+  // Greedy farthest-point sampling
+  const selected = [pts[0]];
+  while (selected.length < k) {
+    let maxMinDist = -1, best = null;
+    for (const pt of pts) {
+      if (selected.find(s => s.id === pt.id)) continue;
+      const minDist = Math.min(...selected.map(s => Math.hypot(pt.x - s.x, pt.y - s.y)));
+      if (minDist > maxMinDist) { maxMinDist = minDist; best = pt; }
+    }
+    if (best) selected.push(best);
+  }
+  return new Set(selected.map(p => p.id));
+}
+
+// ─── Step 6: After 5 Rounds ───────────────────────────────────────────────────
+function drawStep6(t) {
+  if (!step6Points) step6Points = getStep6Points();
+  const labeled = step6Points.filter(p => p.labeled);
+  const model = fitLogisticRegression(labeled, 80, 0.12);
+  drawDecisionBoundary(model, undefined, [8,4]);
+  for (const pt of step6Points) {
+    drawPointRaw(pt, t);
+  }
+}
+
+// ─── Step 7: Comparison Learning Curves ──────────────────────────────────────
+function drawStep7(t) {
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textColor = isDark ? '#e8e6de' : '#1a1a18';
+  const dimColor = isDark ? '#666460' : '#9c9a92';
+  const surfColor = isDark ? '#2a2a2d' : '#ffffff';
+
+  // Chart areas
+  const charts = [
+    { cx: 125, label: 'Active Learning', color: '#185FA5', lineColor: '#4A90D9' },
+    { cx: 375, label: 'Random Sampling', color: '#A32D2D', lineColor: '#E05252' },
+  ];
+
+  const cw = 180, ch = 250;
+  const margin = { left: 40, right: 10, top: 20, bottom: 40 };
+
+  charts.forEach(ch_info => {
+    const x0 = ch_info.cx - cw / 2 + margin.left;
+    const y0 = 30 + margin.top;
+    const w = cw - margin.left - margin.right;
+    const h = 250 - margin.top - margin.bottom;
+
+    // Background
+    ctx.fillStyle = surfColor;
+    ctx.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x0 - 2, y0 - 2, w + 4, h + 4);
+
+    // Axes
+    ctx.strokeStyle = dimColor;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + h);
+    ctx.lineTo(x0 + w, y0 + h);
+    ctx.stroke();
+
+    // Y axis labels (accuracy)
+    ctx.fillStyle = dimColor;
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.textAlign = 'right';
+    [0, 25, 50, 75, 100].forEach(v => {
+      const yp = y0 + h - (v / 100) * h;
+      ctx.fillText(v + '%', x0 - 4, yp + 3);
+      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2,2]);
+      ctx.beginPath(); ctx.moveTo(x0, yp); ctx.lineTo(x0 + w, yp); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // X axis label
+    ctx.fillStyle = dimColor;
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Labels', x0 + w / 2, y0 + h + 25);
+    [0, 50, 100, 150].forEach(v => {
+      const xp = x0 + (v / 160) * w;
+      ctx.fillText(v, xp, y0 + h + 14);
+    });
+
+    // Title
+    ctx.fillStyle = ch_info.color;
+    ctx.font = '700 10px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(ch_info.label, x0 + w / 2, y0 - 5);
+
+    // Learning curve
+    ctx.strokeStyle = ch_info.lineColor;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+
+    const isActive = ch_info.label === 'Active Learning';
+    // Active: reaches 90% at ~40 labels; Random: ~120 labels
+    function accAt(labels) {
+      const base = 0.52;
+      if (isActive) {
+        return base + (0.96 - base) * (1 - Math.exp(-labels / 22));
+      } else {
+        return base + (0.96 - base) * (1 - Math.exp(-labels / 70));
+      }
+    }
+
+    const pts = [];
+    for (let labels = 0; labels <= 160; labels += 4) {
+      const acc = accAt(labels);
+      const px = x0 + (labels / 160) * w;
+      const py = y0 + h - acc * h;
+      pts.push([px, py]);
+    }
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cpx = (pts[i][0] + pts[i + 1][0]) / 2;
+      const cpy = (pts[i][1] + pts[i + 1][1]) / 2;
+      ctx.quadraticCurveTo(pts[i][0], pts[i][1], cpx, cpy);
+    }
+    ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+    ctx.stroke();
+
+    // 90% line
+    const threshold = 0.90;
+    const thresholdY = y0 + h - threshold * h;
+    ctx.strokeStyle = isDark ? 'rgba(255,200,0,0.5)' : 'rgba(180,130,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x0, thresholdY);
+    ctx.lineTo(x0 + w, thresholdY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = isDark ? '#FAC775' : '#854F0B';
+    ctx.font = '8px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('90%', x0 + w + 2, thresholdY + 3);
+
+    // Marker at crossover
+    const crossLabels = isActive ? 40 : 120;
+    const crossX = x0 + (crossLabels / 160) * w;
+    const crossY = y0 + h - threshold * h;
+    ctx.fillStyle = ch_info.lineColor;
+    ctx.beginPath();
+    ctx.arc(crossX, crossY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = ch_info.color;
+    ctx.font = '700 9px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(crossLabels + ' labels', crossX, crossY - 8);
+  });
+
+  // Central label
+  ctx.fillStyle = textColor;
+  ctx.font = '700 11px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('3× fewer labels', 250, CH - 15);
+  ctx.font = '10px DM Sans, sans-serif';
+  ctx.fillStyle = dimColor;
+  ctx.fillText('for same 90% accuracy', 250, CH - 3);
+}
+
+// ─── Step 8: EMC Arrows ────────────────────────────────────────────────────
+function drawStep8(t) {
+  const labeled = getLabeledPoints();
+  const unlabeled = getUnlabeledPoints();
+  const model = fitLogisticRegression(labeled);
+  drawDecisionBoundary(model);
+
+  const emcScores = unlabeled.map(pt => {
+    const prob = predictProb(pt, model);
+    const uncertainty = prob * (1 - prob); // max at boundary
+    const xn = (pt.x - XMIN) / (XMAX - XMIN);
+    const yn = (pt.y - YMIN) / (YMAX - YMIN);
+    const magnitude = uncertainty * Math.sqrt(xn * xn + yn * yn + 1);
+    return { pt, emc: magnitude };
+  });
+  const maxEmc = Math.max(...emcScores.map(e => e.emc), 0.01);
+  const top3Ids = new Set(
+    [...emcScores].sort((a, b) => b.emc - a.emc).slice(0, 3).map(e => e.pt.id)
+  );
+
+  for (const pt of allPoints) {
+    if (pt.labeled) {
+      drawPoint(pt, t, false, false, false);
+    } else {
+      const entry = emcScores.find(e => e.pt.id === pt.id);
+      const prob = predictProb(pt, model);
+      // Arrow direction: toward decision boundary (toward center of canvas in x)
+      const dirX = (CW / 2 - pt.x);
+      const dirY = 0;
+      const dirLen = Math.hypot(dirX, dirY) || 1;
+      const maxArrow = 22;
+      const arrowLen = (entry.emc / maxEmc) * maxArrow;
+      const ax = (dirX / dirLen) * arrowLen;
+      const ay = (dirY / dirLen) * arrowLen;
+
+      const isTop3 = top3Ids.has(pt.id);
+      const col = interpColor([156, 154, 146], [0, 172, 193], entry.emc / maxEmc);
+
+      // Draw arrow
+      if (arrowLen > 2) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.75)`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x + ax, pt.y + ay);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.75)`;
+        drawArrowhead(pt.x + ax, pt.y + ay, Math.atan2(ay, ax), 5);
+        ctx.restore();
+      }
+
+      drawUnlabeledColored(pt, col, -1);
+
+      if (isTop3) {
+        const pulse = 1 + 0.18 * Math.sin(t * 3);
+        ctx.save();
+        ctx.strokeStyle = `rgba(0, 188, 212, 0.9)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 10 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+}
+
+// ─── Drawing helpers ─────────────────────────────────────────────────────────
+function drawPoint(pt, t, forceLabeled=false, pulsing=false, top5=false) {
+  const isLabeled = pt.labeled || forceLabeled;
+  const label = forceLabeled ? pt.trueLabel : pt.label;
+  if (isLabeled) {
+    const col = label === 1 ? [224, 82, 82] : [74, 144, 217];
+    ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = 'rgba(156,154,146,0.7)';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawPointRaw(pt, t) {
+  drawPoint(pt, t, false, false, false);
+}
+
+function drawUnlabeledColored(pt, rgbArr, t) {
+  ctx.fillStyle = `rgba(${rgbArr[0]},${rgbArr[1]},${rgbArr[2]},0.82)`;
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (t >= 0) {
+    // Pulsing ring
+    const pulse = 1 + 0.18 * Math.sin(t * 3);
+    ctx.save();
+    ctx.strokeStyle = `rgba(230, 120, 20, 0.85)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 10 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function interpColor(c1, c2, t) {
+  t = Math.max(0, Math.min(1, t));
+  return [
+    Math.round(c1[0] + (c2[0] - c1[0]) * t),
+    Math.round(c1[1] + (c2[1] - c1[1]) * t),
+    Math.round(c1[2] + (c2[2] - c1[2]) * t),
+  ];
+}
+
+// ─── UI Updates ──────────────────────────────────────────────────────────────
+function updateInfoCard() {
+  const info = stepInfo[currentStep];
+  const badge = document.getElementById('info-badge');
+  const title = document.getElementById('info-title');
+  const text = document.getElementById('info-text');
+
+  badge.innerHTML = `<span class="phase-badge" style="background:var(${info.badgeBg}); color:var(${info.badgeText}); border:1px solid var(${info.badgeColor})">${info.badge}</span>`;
+  title.textContent = info.title;
+  text.textContent = info.text;
+}
+
+function updateDots() {
+  const container = document.getElementById('dots-container');
+  container.innerHTML = '';
+  for (let i = 0; i < 8; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'dot' + (i === currentStep ? ' active' : '');
+    dot.onclick = () => goToStep(i);
+    container.appendChild(dot);
+  }
+}
+
+function updateCounter() {
+  document.getElementById('step-counter').textContent = `Step ${currentStep + 1} / 8`;
+}
+
+function updateButtons() {
+  document.getElementById('btn-prev').disabled = currentStep === 0;
+  document.getElementById('btn-next').disabled = currentStep === 7;
+}
+
+function goToStep(n) {
+  currentStep = Math.max(0, Math.min(7, n));
+  updateInfoCard();
+  updateDots();
+  updateCounter();
+  updateButtons();
+}
+
+function nextStep() { goToStep(currentStep + 1); }
+function prevStep() { goToStep(currentStep - 1); }
+
+function resetViz() {
+  resetDataset();
+  queriedPointId = -1;
+  step3Model = null;
+  step6Points = null;
+  goToStep(0);
+}
+
+// ─── Keyboard navigation ─────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') { e.preventDefault(); nextStep(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); prevStep(); }
+  if (e.key === 'r' || e.key === 'R') resetViz();
+});
+
+// ─── Collapsible cards ────────────────────────────────────────────────────────
+function toggleCard(id) {
+  const card = document.getElementById(id);
+  card.classList.toggle('open');
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+goToStep(0);
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

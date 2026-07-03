@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bayesian Optimization: GP Surrogate & TPE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:0 1rem 4rem}
+.page{max-width:900px;margin:0 auto}
+/* Header */
+.page-header{padding:2.5rem 0 2rem;border-bottom:1px solid var(--border);margin-bottom:2rem}
+.page-header h1{font-size:clamp(22px,4vw,32px);font-weight:800;line-height:1.2;color:var(--text)}
+.page-header .subtitle{font-size:15px;color:var(--text2);margin-top:6px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 10px;border-radius:20px}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1.25rem}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1.1rem}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+.section-title{font-size:17px;font-weight:700;color:var(--text)}
+p{color:var(--text2);font-size:14px;margin-bottom:.75rem}
+p:last-child{margin-bottom:0}
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.insight p{color:var(--green-text)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.warning p{color:var(--amber-text)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.key-concept p{color:var(--blue-text)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+.concept-box.math p{color:var(--cyan-text)}
+/* Equations */
+.eq{text-align:center;padding:12px 20px;margin:.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+/* Visualization */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1.25rem}
+.viz-title{font-size:18px;font-weight:800;margin-bottom:.4rem;color:var(--text)}
+.viz-subtitle{font-size:13px;color:var(--text2);margin-bottom:1rem}
+canvas{display:block;border-radius:var(--radius);background:var(--bg2);border:1px solid var(--border)}
+/* Tabs */
+.tab-bar{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:7px 16px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .2s}
+.tab-btn.active{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+/* Info card */
+.info-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem;margin-top:1rem}
+.info-header{display:flex;align-items:center;gap:10px;margin-bottom:.75rem}
+.phase-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 10px;border-radius:20px}
+.phase-gp{background:var(--purple-bg);color:var(--purple-mid);border:1px solid var(--purple-border)}
+.phase-tpe{background:var(--amber-bg);color:var(--amber-mid);border:1px solid var(--amber-border)}
+.step-counter{font-family:var(--mono);font-size:11px;color:var(--text3)}
+.info-title{font-size:15px;font-weight:700;color:var(--text)}
+.info-body{font-size:13px;color:var(--text2);line-height:1.6}
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:9px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:#fff}
+/* Progress dots */
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:.75rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all .25s;cursor:pointer;border:none;padding:0}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+/* Keyboard hint */
+.kbd-hint{text-align:center;margin-top:.6rem;font-size:11px;color:var(--text3)}
+/* Legend */
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:1rem;padding:.75rem 1rem;background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border)}
+.legend-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2)}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.legend-line{width:20px;height:3px;border-radius:2px;flex-shrink:0}
+/* Comparison table */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0}
+.cmp-table th{background:var(--bg2);font-weight:700;padding:8px 12px;text-align:left;color:var(--text);border-bottom:2px solid var(--border2)}
+.cmp-table td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+.cmp-table tr:hover td{background:var(--bg2)}
+/* Code panel */
+.code-panel{margin-top:1rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto}
+.code-line{padding:1px 6px;border-radius:4px;transition:background .25s;white-space:pre;color:var(--text2)}
+.code-line.hl{background:var(--green-bg);color:var(--green-text);font-weight:500}
+/* Dual-canvas side by side */
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:600px){.dual{grid-template-columns:1fr}}
+.canvas-label{font-size:12px;font-weight:700;text-align:center;margin-bottom:6px;color:var(--text2)}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ── Header ── -->
+<header class="page-header">
+  <h1>Bayesian Optimization: GP Surrogate &amp; TPE</h1>
+  <div class="subtitle">Sample-efficient black-box hyperparameter optimization via probabilistic models</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML · HPO</span>
+    <span class="tag tag-complexity">O(n³) GP fitting</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════
+     CARD 1 — Understanding
+════════════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+
+  <p><strong>What is this?</strong> Most hyperparameter tuning runs the model thousands of times with random guesses — extremely wasteful. Bayesian Optimization (BO) instead <em>builds a cheap probabilistic model</em> of the objective (e.g. validation loss), uses it to guess which hyperparameter setting is most promising, evaluates there, updates the model, and repeats. It needs far fewer evaluations to find a good configuration.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Real-World Analogy</div>
+    <p>You're blindfolded, searching for the coldest spot on an uneven floor. Random search: keep stepping randomly. BO: build a mental map of temperatures you've already measured, reason about where the cold spot probably is, then step there. Each step makes your map better. TPE does the same but asks a different question: "where are my best measurements clustered?" and samples from that cluster.</p>
+  </div>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">If You Remember One Thing</div>
+    <p>BO maintains a <strong>surrogate model</strong> \(p(y \mid x)\) over the objective, then picks the next point by maximizing an <strong>acquisition function</strong> (e.g. Expected Improvement) that balances exploitation of known good regions with exploration of uncertain ones. TPE is a specific BO variant that models \(p(x \mid y &lt; y^*)\) and \(p(x \mid y \ge y^*)\) separately and picks \(x\) maximizing \(\ell(x)/g(x)\).</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CARD 2 — How It Works (GP)
+════════════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How GP-BO Works Internally</div>
+  </div>
+
+  <p>A <strong>Gaussian Process</strong> defines a distribution over functions. Given \(n\) observations \(\mathcal{D} = \{(x_i, y_i)\}\), the GP posterior at any new point \(x_*\) is Gaussian:</p>
+  <div class="eq">$$\mu_*(x_*) = k_{*n}(K_{nn} + \sigma_n^2 I)^{-1}\mathbf{y}$$</div>
+  <div class="eq">$$\sigma^2_*(x_*) = k_{**} - k_{*n}(K_{nn} + \sigma_n^2 I)^{-1}k_{n*}$$</div>
+
+  <p>Here \(K_{nn}\) is the \(n \times n\) kernel (covariance) matrix, \(k_{*n}\) is the \(1 \times n\) vector of covariances between \(x_*\) and all observed points, and \(\sigma_n^2\) is observation noise. Fitting costs \(\mathcal{O}(n^3)\) — fine for small budgets but prohibitive beyond ~10 000 evaluations.</p>
+
+  <p>The <strong>Expected Improvement (EI)</strong> acquisition function at a candidate \(x\) is:</p>
+  <div class="eq">$$\text{EI}(x) = (\mu(x) - f^+ - \xi)\,\Phi(Z) + \sigma(x)\,\phi(Z), \quad Z = \frac{\mu(x) - f^+ - \xi}{\sigma(x)}$$</div>
+  <p>where \(f^+\) is the best observed value, \(\xi\) is an exploration bonus, and \(\Phi, \phi\) are the standard normal CDF and PDF. EI is maximized (analytically in closed form) to select the next \(x\) to evaluate.</p>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Design Decision: Why EI and not UCB?</div>
+    <p>Upper Confidence Bound (UCB) \(= \mu(x) + \kappa\sigma(x)\) is simpler but requires tuning \(\kappa\). EI has an implicit exploration-exploitation trade-off through \(\sigma(x)\): when uncertainty is high, the second term dominates; when \(\mu(x)\) is high, the first term does. PI (Probability of Improvement) is even simpler but myopic — it ignores magnitude of improvement.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CARD 3 — How TPE Works
+════════════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">How TPE Works — The Density Ratio Trick</div>
+  </div>
+
+  <p>TPE (Tree-structured Parzen Estimator, Bergstra et al. 2011) reframes the problem. Instead of modelling \(p(y \mid x)\) directly like a GP does, TPE models two class-conditional densities using Parzen estimators (kernel density estimation):</p>
+
+  <div class="eq">$$\ell(x) = p(x \mid y < y^*) \qquad g(x) = p(x \mid y \ge y^*)$$</div>
+
+  <p>The threshold \(y^*\) is chosen so that the <strong>top \(\gamma\)</strong> fraction of observed results fall below it (e.g. \(\gamma = 0.25\), so the best 25 % form the "good" set). Then Expected Improvement is proportional to:</p>
+
+  <div class="eq">$$\text{EI}(x) \propto \frac{\ell(x)}{g(x)}$$</div>
+
+  <p>So TPE samples many candidates from \(\ell(x)\) and picks the one with the highest ratio \(\ell/g\). Intuitively: draw from the good-outcome distribution, then reject those that also appear frequently in the bad-outcome distribution.</p>
+
+  <div class="concept-box math">
+    <div class="concept-box-title">Why "Tree-Structured"?</div>
+    <p>Real search spaces often have <em>conditional</em> hyperparameters — e.g. "number of layers in LSTM" only makes sense if "model type = LSTM". TPE models these via a tree-structured graphical model that respects the conditional dependencies, treating each node's density independently given its parent's value. This is exactly how Optuna's internal sampler works.</p>
+  </div>
+
+  <p><strong>Kernel choice:</strong> For continuous HPs, Gaussian kernels centered at each observed point; for integer/categorical HPs, discrete categorical distributions. Bandwidth is set by Silverman's rule or cross-validation. The result is a mixture of Parzen estimators — cheap to evaluate and sample from.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">GP vs TPE — when each wins</div>
+    <p>GP works best for low-dimensional, continuous search spaces with smooth objectives and budget of 20–200 evaluations. TPE scales better to high-dimensional mixed (continuous + categorical) spaces and handles conditional structure natively — which is why Optuna defaults to TPE and Hyperopt pioneered it.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     INTERACTIVE VISUALIZATION
+════════════════════════════════════════════ -->
+<div class="viz-container">
+  <div class="viz-title">🎯 Interactive Visual Explainer</div>
+  <div class="viz-subtitle">Step through both algorithms. Use Next / Prev or ← → keys.</div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('gp')">GP + EI (Gaussian Process)</button>
+    <button class="tab-btn" onclick="switchTab('tpe')">TPE (Density Ratio)</button>
+  </div>
+
+  <!-- GP TAB -->
+  <div id="tab-gp" class="tab-pane active">
+    <canvas id="cvs-gp" width="840" height="340" style="width:100%;max-width:840px"></canvas>
+    <div class="info-card" id="info-gp">
+      <div class="info-header">
+        <span class="phase-badge phase-gp" id="badge-gp">GP Phase</span>
+        <span class="step-counter" id="ctr-gp">Step 1 / 7</span>
+      </div>
+      <div class="info-title" id="title-gp">Initial Design (Latin Hypercube)</div>
+      <div class="info-body" id="body-gp">We begin with a few random observations of the black-box objective f(x) — the validation loss of a model evaluated at different learning rates. These seed points let the GP infer a rough shape of the function.</div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="prev-gp" onclick="goGP(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="next-gp" onclick="goGP(1)">Next →</button>
+      <button class="btn" onclick="resetGP()">↺ Reset</button>
+    </div>
+    <div class="progress-wrap" id="dots-gp"></div>
+    <div class="kbd-hint">Use ← → arrow keys (while GP tab active)</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-line" style="background:#534AB7"></div> True f(x) (hidden)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#97C459"></div> Observed points</div>
+      <div class="legend-line" style="background:#185FA5;border-top:2px dashed #185FA5;height:2px;width:20px;margin:0"></div>
+      <div class="legend-item" style="margin-left:-8px">GP mean ±2σ (blue band)</div>
+      <div class="legend-item"><div class="legend-line" style="background:#EF9F27"></div> EI acquisition</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E24B4A"></div> Next proposed point</div>
+    </div>
+  </div>
+
+  <!-- TPE TAB -->
+  <div id="tab-tpe" class="tab-pane">
+    <canvas id="cvs-tpe" width="840" height="340" style="width:100%;max-width:840px"></canvas>
+    <div class="info-card" id="info-tpe">
+      <div class="info-header">
+        <span class="phase-badge phase-tpe" id="badge-tpe">TPE Phase</span>
+        <span class="step-counter" id="ctr-tpe">Step 1 / 6</span>
+      </div>
+      <div class="info-title" id="title-tpe">Collected Observations</div>
+      <div class="info-body" id="body-tpe">TPE begins with the same set of observations. Each point (x, y) is a hyperparameter configuration and the resulting validation loss. We will split them into "good" and "bad" sets.</div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="prev-tpe" onclick="goTPE(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="next-tpe" onclick="goTPE(1)">Next →</button>
+      <button class="btn" onclick="resetTPE()">↺ Reset</button>
+    </div>
+    <div class="progress-wrap" id="dots-tpe"></div>
+    <div class="kbd-hint">Use ← → arrow keys (while TPE tab active)</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div> Good (y &lt; y*)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#A32D2D"></div> Bad (y ≥ y*)</div>
+      <div class="legend-line" style="background:#3B6D11"></div>
+      <div class="legend-item" style="margin-left:-4px">ℓ(x) density (good)</div>
+      <div class="legend-line" style="background:#A32D2D"></div>
+      <div class="legend-item" style="margin-left:-4px">g(x) density (bad)</div>
+      <div class="legend-line" style="background:#EF9F27"></div>
+      <div class="legend-item" style="margin-left:-4px">ℓ/g ratio (select max)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CARD 4 — Key Takeaways + Comparison
+════════════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">4</div>
+    <div class="section-title">Comparison &amp; Key Takeaways</div>
+  </div>
+
+  <table class="cmp-table">
+    <thead><tr><th>Dimension</th><th>Random Search</th><th>GP-BO (e.g. BoTorch)</th><th>TPE (Optuna)</th></tr></thead>
+    <tbody>
+      <tr><td>Surrogate model</td><td>None</td><td>Gaussian Process</td><td>Two KDE densities ℓ, g</td></tr>
+      <tr><td>Acquisition</td><td>Uniform sampling</td><td>EI / UCB / PI</td><td>ℓ(x)/g(x) ratio</td></tr>
+      <tr><td>Fitting cost</td><td>O(1)</td><td>O(n³) per step</td><td>O(n) per step</td></tr>
+      <tr><td>Handles categoricals</td><td>Yes</td><td>Poor (needs encoding)</td><td>Native</td></tr>
+      <tr><td>Handles conditionals</td><td>Yes</td><td>No</td><td>Yes (tree structure)</td></tr>
+      <tr><td>Sample efficiency</td><td>Low</td><td>Very high (&lt;100D)</td><td>High (100s of dims)</td></tr>
+      <tr><td>Parallelism</td><td>Trivial</td><td>Hard (q-EI needed)</td><td>Easy (async)</td></tr>
+      <tr><td>Best framework</td><td>sklearn GridSearchCV</td><td>BoTorch, GPyOpt</td><td>Optuna, Hyperopt</td></tr>
+    </tbody>
+  </table>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">Decision Guide</div>
+    <p>Use <strong>GP-BO</strong> when: the search space is low-dimensional (&lt;20 dims), all continuous, each evaluation is expensive (&gt;10 min), and you need maximum sample efficiency.</p>
+    <p>Use <strong>TPE / Optuna</strong> when: the space has categorical or conditional HPs, you want parallelism across many workers, or the budget is medium (50–1000 trials).</p>
+    <p>Use <strong>random search</strong> when: the budget is tiny (&lt;20 trials) and you want a reliable baseline — Bergstra &amp; Bengio (2012) showed it beats grid search almost always.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CARD 5 — Code Trace
+════════════════════════════════════════════ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Minimal Code Trace</div>
+  </div>
+  <p><strong>GP-BO from scratch (NumPy):</strong></p>
+  <div class="code-panel"><div class="code-line"># GP posterior mean and variance</div>
+<div class="code-line">def gp_posterior(X_train, y_train, X_test, kernel, noise=1e-6):</div>
+<div class="code-line">    K  = kernel(X_train, X_train) + noise*np.eye(len(X_train))   # n×n</div>
+<div class="code-line">    Ks = kernel(X_train, X_test)                                   # n×m</div>
+<div class="code-line">    L  = np.linalg.cholesky(K)                                    # Cholesky: O(n³)</div>
+<div class="code-line">    alpha = np.linalg.solve(L.T, np.linalg.solve(L, y_train))    # K⁻¹y</div>
+<div class="code-line">    mu   = Ks.T @ alpha                                            # posterior mean</div>
+<div class="code-line">    v    = np.linalg.solve(L, Ks)</div>
+<div class="code-line">    var  = kernel(X_test, X_test) - v.T @ v                       # posterior variance</div>
+<div class="code-line">    return mu, np.sqrt(np.diag(var))</div>
+<div class="code-line"></div>
+<div class="code-line"># Expected Improvement</div>
+<div class="code-line">def EI(mu, sigma, f_best, xi=0.01):</div>
+<div class="code-line">    Z = (mu - f_best - xi) / (sigma + 1e-9)</div>
+<div class="code-line">    return (mu - f_best - xi)*norm.cdf(Z) + sigma*norm.pdf(Z)</div>
+<div class="code-line"></div>
+<div class="code-line"># TPE (simplified)</div>
+<div class="code-line">def tpe_sample(obs_x, obs_y, gamma=0.25, n_candidates=24, bw=0.2):</div>
+<div class="code-line">    thresh = np.quantile(obs_y, gamma)   # y* = 25th percentile</div>
+<div class="code-line">    good = obs_x[obs_y &lt; thresh];  bad = obs_x[obs_y &gt;= thresh]</div>
+<div class="code-line">    # Sample candidates from good-set KDE (Parzen estimator)</div>
+<div class="code-line">    centers = good[np.random.randint(0, len(good), n_candidates)]</div>
+<div class="code-line">    cands = centers + np.random.randn(n_candidates) * bw</div>
+<div class="code-line">    # Evaluate ℓ/g at each candidate</div>
+<div class="code-line">    def kde(x, pts): return np.mean(norm.pdf((x-pts)/bw)/bw, axis=-1)</div>
+<div class="code-line">    ratio = kde(cands, good) / (kde(cands, bad) + 1e-9)</div>
+<div class="code-line">    return cands[np.argmax(ratio)]      # return argmax ℓ/g</div></div>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Production Gotcha</div>
+    <p>In Optuna: always set <code>sampler = optuna.samplers.TPESampler(seed=42)</code> for reproducibility. By default Optuna uses random search for the first \(n_{\text{startup\_trials}}\) trials (default 10) before switching to TPE — this warm-up is crucial because TPE's KDE needs enough points to be non-degenerate.</p>
+  </div>
+</div>
+
+</div><!-- end .page -->
+
+<script>
+// ── Shared true objective (negative of a mix of Gaussians, so minimum = "best") ──
+function trueF(x) {
+  // x in [0,1]; returns a validation loss (lower = better)
+  return 0.6 - 0.5*Math.exp(-((x-0.2)**2)/0.01)
+       - 0.35*Math.exp(-((x-0.75)**2)/0.005)
+       + 0.1*Math.sin(20*x)*0.12;
+}
+
+// ── Observed data (shared between GP and TPE panels) ──
+const obsX = [0.05, 0.15, 0.35, 0.5, 0.65, 0.82, 0.92];
+const obsY = obsX.map(trueF);
+
+// ── Colour helpers ──
+function hex(h){return h}
+const C = {
+  trueFn:'#534AB7', obs:'#3B6D11', gpmean:'#185FA5',
+  gpband:'rgba(24,95,165,0.12)', ei:'#EF9F27', next:'#E24B4A',
+  good:'#3B6D11', bad:'#A32D2D', lkde:'rgba(59,109,17,0.7)',
+  gkde:'rgba(163,45,45,0.7)', ratio:'#EF9F27'
+};
+
+// ── GP Canvas ──
+const gpCanvas = document.getElementById('cvs-gp');
+const gpCtx = gpCanvas.getContext('2d');
+const W = gpCanvas.width, H = gpCanvas.height;
+const PAD = {l:44,r:24,t:20,b:40};
+const PW = W - PAD.l - PAD.r;
+const PH = H - PAD.t - PAD.b;
+
+function xPx(x){ return PAD.l + x*PW; }
+function yPx(y, yMin=0.0, yMax=0.85){ return PAD.t + (1-(y-yMin)/(yMax-yMin))*PH; }
+
+// Simple squared-exponential kernel
+function se(x1,x2,l=0.12,sf=0.5){ return sf*sf*Math.exp(-0.5*((x1-x2)/l)**2); }
+
+function gpPosterior(trainX, trainY, testX, noise=1e-4){
+  const n = trainX.length, m = testX.length;
+  // Build K
+  const K = [];
+  for(let i=0;i<n;i++){
+    K.push([]);
+    for(let j=0;j<n;j++) K[i].push(se(trainX[i],trainX[j])+(i===j?noise:0));
+  }
+  // Cholesky (simple JS version)
+  const L = cholDecomp(K,n);
+  if(!L) return {mu:testX.map(()=>0), sig:testX.map(()=>0.3)};
+
+  // alpha = L^{-T} L^{-1} y
+  const alpha = cholSolve(L,trainY,n);
+
+  const mu=[], sig=[];
+  for(let j=0;j<m;j++){
+    const ks = trainX.map(xi=>se(xi,testX[j]));
+    let m_j=0; for(let i=0;i<n;i++) m_j+=ks[i]*alpha[i];
+    mu.push(m_j);
+    // v = L^{-1} ks
+    const v = fwdSolve(L,ks,n);
+    let var_j = se(testX[j],testX[j]);
+    for(let i=0;i<n;i++) var_j -= v[i]*v[i];
+    sig.push(Math.sqrt(Math.max(var_j,1e-8)));
+  }
+  return {mu,sig};
+}
+
+function cholDecomp(A,n){
+  const L=Array.from({length:n},()=>new Array(n).fill(0));
+  for(let i=0;i<n;i++){
+    for(let j=0;j<=i;j++){
+      let s=A[i][j];
+      for(let k=0;k<j;k++) s-=L[i][k]*L[j][k];
+      if(i===j){ if(s<=0) s=1e-9; L[i][j]=Math.sqrt(s); }
+      else L[i][j]=s/L[j][j];
+    }
+  }
+  return L;
+}
+function fwdSolve(L,b,n){ // Lx=b
+  const x=new Array(n).fill(0);
+  for(let i=0;i<n;i++){ let s=b[i]; for(let j=0;j<i;j++) s-=L[i][j]*x[j]; x[i]=s/L[i][i]; }
+  return x;
+}
+function bkwSolve(L,b,n){ // L^T x=b
+  const x=new Array(n).fill(0);
+  for(let i=n-1;i>=0;i--){ let s=b[i]; for(let j=i+1;j<n;j++) s-=L[j][i]*x[j]; x[i]=s/L[i][i]; }
+  return x;
+}
+function cholSolve(L,b,n){ return bkwSolve(L,fwdSolve(L,b,n),n); }
+
+// Normal PDF/CDF
+function normPDF(z){ return Math.exp(-0.5*z*z)/Math.sqrt(2*Math.PI); }
+function normCDF(z){
+  const t=1/(1+0.2316419*Math.abs(z));
+  const poly=((((1.330274429*t-1.821255978)*t+1.781477937)*t-0.356563782)*t+0.319381530)*t;
+  const p=1-normPDF(z)*poly;
+  return z>=0?p:1-p;
+}
+function EI(mu,sig,fBest,xi=0.01){
+  const Z=(mu-fBest-xi)/(sig+1e-9);
+  const val=(mu-fBest-xi)*normCDF(Z)+sig*normPDF(Z);
+  return Math.max(val,0);
+}
+
+const NX=300;
+const xs=Array.from({length:NX},(_,i)=>i/(NX-1));
+
+// GP steps
+const GP_STEPS=[
+  {nObs:3,phase:'Initial Design',badge:'GP Phase',text:'We begin with 3 random observations (e.g. from a Latin Hypercube). The GP posterior mean (dashed blue) is uncertain — the blue band is ±2σ, very wide. No acquisition is shown yet.'},
+  {nObs:3,phase:'GP Posterior',badge:'GP Phase',text:'The GP posterior is conditioned on the 3 observations. Notice high uncertainty (wide bands) far from observed points. The true function is shown in purple for reference — the GP only sees the 3 dots.'},
+  {nObs:3,phase:'EI Acquisition',badge:'Acquisition',text:'Expected Improvement (EI) is computed across the search space (orange). EI peaks where the GP mean is high (promising) AND/OR uncertainty is high (unexplored). The red dashed line marks the next proposed hyperparameter.'},
+  {nObs:4,phase:'Evaluate & Update',badge:'GP Phase',text:'We evaluate the objective at the proposed point (x≈0.43) and add it to the dataset. The GP is refitted — posterior becomes narrower around the new observation, reducing uncertainty there.'},
+  {nObs:4,phase:'EI Acquisition (iter 2)',badge:'Acquisition',text:'A new EI is computed. The previous peak region is now better-known, so EI shifts to explore elsewhere — near x≈0.72 where uncertainty remains high and the function could be better.'},
+  {nObs:5,phase:'Evaluate & Update (iter 2)',badge:'GP Phase',text:'Evaluation at x≈0.72 reveals a very good (low) value. GP updates: mean dips near x=0.72, uncertainty narrows. We are converging toward the true minimum near x≈0.75.'},
+  {nObs:7,phase:'Convergence',badge:'Converged',text:'After 7 evaluations the GP has accurately characterized the objective near its minimum. EI becomes concentrated near x≈0.75 — the optimal learning rate. BO found the minimum using only 7 queries instead of hundreds.'},
+];
+
+let gpStep=0;
+function buildDots(containerId, n, activeIdx, doneIdx){
+  const c=document.getElementById(containerId);
+  c.innerHTML='';
+  for(let i=0;i<n;i++){
+    const b=document.createElement('button');
+    b.className='dot'+(i===activeIdx?' active':i<activeIdx?' done':'');
+    b.onclick=(()=>{const s=i;return ()=>setGPStep(s);})();
+    c.appendChild(b);
+  }
+}
+
+function drawGP(step){
+  const s=GP_STEPS[step];
+  const tx=obsX.slice(0,s.nObs), ty=obsY.slice(0,s.nObs);
+  const {mu,sig}=gpPosterior(tx,ty,xs);
+  const fBest=Math.max(...ty.map(y=>-y))*(-1); // we're minimizing, so fBest = min observed
+  const ei=xs.map((_,i)=>EI(-mu[i],sig[i],-fBest,0.01)); // EI on negated (minimization)
+  const eiMax=Math.max(...ei);
+  const nextX=step>=2?xs[ei.indexOf(eiMax)]:null;
+
+  const ctx=gpCtx;
+  ctx.clearRect(0,0,W,H);
+
+  // axes
+  ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+PH); ctx.lineTo(PAD.l+PW,PAD.t+PH); ctx.stroke();
+  // x label
+  ctx.fillStyle='#9c9a92'; ctx.font='11px DM Sans';
+  ctx.fillText('Hyperparameter x (e.g. log learning rate)',PAD.l,H-6);
+  ctx.fillText('f(x)',4,PAD.t+10);
+
+  // GP band ±2σ
+  if(step>=1){
+    ctx.beginPath();
+    for(let i=0;i<NX;i++){
+      const px=xPx(xs[i]),py=yPx(mu[i]-2*sig[i]);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    for(let i=NX-1;i>=0;i--){
+      ctx.lineTo(xPx(xs[i]),yPx(mu[i]+2*sig[i]));
+    }
+    ctx.closePath();
+    ctx.fillStyle=C.gpband; ctx.fill();
+  }
+
+  // True function (purple)
+  ctx.beginPath(); ctx.strokeStyle=C.trueFn; ctx.lineWidth=2;
+  xs.forEach((x,i)=>{
+    const px=xPx(x),py=yPx(trueF(x));
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  });
+  ctx.stroke();
+
+  // GP mean (dashed blue)
+  if(step>=1){
+    ctx.beginPath(); ctx.strokeStyle=C.gpmean; ctx.lineWidth=2;
+    ctx.setLineDash([6,3]);
+    xs.forEach((x,i)=>{
+      const px=xPx(x),py=yPx(mu[i]);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // EI (orange, scaled to plot)
+  if(step>=2 && eiMax>1e-6){
+    const eiScale=0.3/eiMax;
+    ctx.beginPath(); ctx.strokeStyle=C.ei; ctx.lineWidth=2;
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(0.0)+(-ei[i]*eiScale)*PH;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.stroke();
+    // Fill under EI
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(0.0)+(-ei[i]*eiScale)*PH;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.lineTo(xPx(xs[NX-1]),yPx(0.0));
+    ctx.lineTo(xPx(xs[0]),yPx(0.0));
+    ctx.closePath();
+    ctx.fillStyle='rgba(239,159,39,0.12)'; ctx.fill();
+  }
+
+  // Observed points
+  tx.forEach((x,i)=>{
+    ctx.beginPath();
+    ctx.arc(xPx(x),yPx(ty[i]),5,0,2*Math.PI);
+    ctx.fillStyle=C.obs; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+  });
+
+  // Next proposed point
+  if(step>=2 && nextX!==null){
+    ctx.beginPath(); ctx.strokeStyle=C.next; ctx.lineWidth=2;
+    ctx.setLineDash([4,3]);
+    ctx.moveTo(xPx(nextX),PAD.t);
+    ctx.lineTo(xPx(nextX),PAD.t+PH);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(xPx(nextX),yPx(trueF(nextX)),6,0,2*Math.PI);
+    ctx.fillStyle=C.next; ctx.fill();
+    // label
+    ctx.fillStyle=C.next; ctx.font='bold 11px DM Sans';
+    ctx.fillText('Next →',xPx(nextX)+8,yPx(trueF(nextX))-6);
+  }
+
+  // y-axis ticks
+  ctx.fillStyle='#9c9a92'; ctx.font='10px JetBrains Mono';
+  [0.1,0.3,0.5,0.7].forEach(v=>{
+    ctx.fillText(v.toFixed(1),2,yPx(v)+4);
+    ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.l,yPx(v)); ctx.lineTo(PAD.l+PW,yPx(v)); ctx.stroke();
+  });
+}
+
+function setGPStep(s){
+  gpStep=s;
+  drawGP(s);
+  const info=GP_STEPS[s];
+  document.getElementById('badge-gp').textContent=info.badge;
+  document.getElementById('ctr-gp').textContent=`Step ${s+1} / ${GP_STEPS.length}`;
+  document.getElementById('title-gp').textContent=info.phase;
+  document.getElementById('body-gp').textContent=info.text;
+  document.getElementById('prev-gp').disabled=s===0;
+  document.getElementById('next-gp').disabled=s===GP_STEPS.length-1;
+  buildDots('dots-gp',GP_STEPS.length,s,s);
+}
+function goGP(d){ setGPStep(Math.max(0,Math.min(GP_STEPS.length-1,gpStep+d))); }
+function resetGP(){ setGPStep(0); }
+
+// ── TPE Canvas ──
+const tpeCanvas=document.getElementById('cvs-tpe');
+const tpeCtx=tpeCanvas.getContext('2d');
+
+function kde(x, pts, bw){
+  let s=0;
+  for(const p of pts) s+=normPDF((x-p)/bw)/bw;
+  return s/pts.length;
+}
+
+const GAMMA=0.25;
+const thresh_y=obsY.slice().sort((a,b)=>a-b)[Math.floor(GAMMA*obsY.length)];
+const goodX=obsX.filter((_,i)=>obsY[i]<thresh_y);
+const badX=obsX.filter((_,i)=>obsY[i]>=thresh_y);
+const BW=0.08;
+
+const lkde=xs.map(x=>kde(x,goodX,BW));
+const gkde=xs.map(x=>kde(x,badX,BW));
+const ratio=xs.map((_,i)=>lkde[i]/(gkde[i]+0.05));
+const ratioMax=Math.max(...ratio);
+const lMax=Math.max(...lkde);
+const gMax=Math.max(...gkde);
+
+const nextTPEX=xs[ratio.indexOf(ratioMax)];
+
+const TPE_STEPS=[
+  {phase:'Observations',badge:'TPE Phase',text:'We have 7 observations. Each dot is a hyperparameter configuration x and its objective value y (validation loss). Before TPE can propose the next point, we need to classify them.'},
+  {phase:'Split Good / Bad',badge:'TPE Phase',text:'We sort observations by y and label the best γ=25% as "good" (green) and the rest as "bad" (red). Here the threshold y* is the 25th percentile of observed losses. Good set: x values near the true minimum; bad set: the rest.'},
+  {phase:'ℓ(x) — Good Density',badge:'KDE',text:'We fit a Kernel Density Estimate (KDE) using Gaussian kernels centered at each good-set observation (bandwidth h=0.08). This is ℓ(x) = p(x | y < y*). It is tall where good configurations cluster.'},
+  {phase:'g(x) — Bad Density',badge:'KDE',text:'Similarly we fit g(x) = p(x | y ≥ y*) from the bad-set configurations. It is tall where bad configurations cluster. The bad set is larger (75%) so its density is spread wider.'},
+  {phase:'ℓ(x)/g(x) Ratio',badge:'Acquisition',text:'TPE proposes the next x as argmax ℓ(x)/g(x) — the orange curve. This selects configurations that are common among good outcomes and rare among bad ones. The peak is near x≈0.75 — exactly the true minimum.'},
+  {phase:'Propose Next Point',badge:'Proposed',text:'The red dashed line marks the next evaluation point: argmax ℓ/g. TPE then evaluates f(x) there, adds the result to the dataset, recomputes the split, and repeats. Each iteration the KDE model sharpens around the optimum.'},
+];
+
+let tpeStep=0;
+function drawTPE(step){
+  const ctx=tpeCtx;
+  ctx.clearRect(0,0,W,H);
+  // axes
+  ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+PH); ctx.lineTo(PAD.l+PW,PAD.t+PH); ctx.stroke();
+  ctx.fillStyle='#9c9a92'; ctx.font='11px DM Sans';
+  ctx.fillText('Hyperparameter x',PAD.l,H-6);
+
+  const yMin=0, yMax=3.5; // density axis
+
+  // y-axis ticks
+  ctx.fillStyle='#9c9a92'; ctx.font='10px JetBrains Mono';
+  [1,2,3].forEach(v=>{
+    ctx.fillText(v.toFixed(0),2,yPx(v,yMin,yMax)+4);
+    ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.l,yPx(v,yMin,yMax)); ctx.lineTo(PAD.l+PW,yPx(v,yMin,yMax)); ctx.stroke();
+  });
+
+  // ℓ(x)
+  if(step>=2){
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(lkde[i],yMin,yMax);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.lineTo(xPx(1),yPx(0,yMin,yMax));
+    ctx.lineTo(xPx(0),yPx(0,yMin,yMax));
+    ctx.closePath();
+    ctx.fillStyle='rgba(59,109,17,0.18)'; ctx.fill();
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(lkde[i],yMin,yMax);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.strokeStyle=C.good; ctx.lineWidth=2; ctx.stroke();
+  }
+
+  // g(x)
+  if(step>=3){
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(gkde[i],yMin,yMax);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.lineTo(xPx(1),yPx(0,yMin,yMax));
+    ctx.lineTo(xPx(0),yPx(0,yMin,yMax));
+    ctx.closePath();
+    ctx.fillStyle='rgba(163,45,45,0.12)'; ctx.fill();
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(gkde[i],yMin,yMax);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.strokeStyle=C.bad; ctx.lineWidth=2; ctx.stroke();
+  }
+
+  // ratio ℓ/g
+  if(step>=4){
+    const rScale=2.5/ratioMax;
+    ctx.beginPath();
+    xs.forEach((x,i)=>{
+      const px=xPx(x), py=yPx(ratio[i]*rScale,yMin,yMax);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.strokeStyle=C.ratio; ctx.lineWidth=2.5; ctx.stroke();
+    // label
+    ctx.fillStyle=C.ratio; ctx.font='bold 11px DM Sans';
+    ctx.fillText('ℓ/g',xPx(0.05),yPx(ratio[Math.floor(0.05*NX)]*rScale,yMin,yMax)-6);
+  }
+
+  // Observation dots
+  obsX.forEach((x,i)=>{
+    const isGood=step>=1&&obsY[i]<thresh_y;
+    const isBad=step>=1&&obsY[i]>=thresh_y;
+    const col=isGood?C.good:isBad?C.bad:'#534AB7';
+    ctx.beginPath();
+    // plot observations at y=0 baseline with jitter for visibility
+    const pyBase=yPx(0.1,yMin,yMax);
+    ctx.arc(xPx(x),pyBase,5,0,2*Math.PI);
+    ctx.fillStyle=col; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+  });
+
+  // Next proposed point
+  if(step>=5){
+    ctx.beginPath(); ctx.strokeStyle=C.next; ctx.lineWidth=2;
+    ctx.setLineDash([4,3]);
+    ctx.moveTo(xPx(nextTPEX),PAD.t); ctx.lineTo(xPx(nextTPEX),PAD.t+PH);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=C.next; ctx.font='bold 11px DM Sans';
+    ctx.fillText('Next →',xPx(nextTPEX)+8,PAD.t+22);
+  }
+
+  // Threshold line annotation (step 1)
+  if(step>=1){
+    ctx.fillStyle='#534AB7'; ctx.font='10px DM Sans';
+    ctx.fillText(`γ = 25% threshold → ${obsX.filter((_,i)=>obsY[i]<thresh_y).length} good / ${obsX.filter((_,i)=>obsY[i]>=thresh_y).length} bad`,PAD.l+10,PAD.t+14);
+  }
+}
+
+function setTPEStep(s){
+  tpeStep=s;
+  drawTPE(s);
+  const info=TPE_STEPS[s];
+  document.getElementById('badge-tpe').textContent=info.badge;
+  document.getElementById('ctr-tpe').textContent=`Step ${s+1} / ${TPE_STEPS.length}`;
+  document.getElementById('title-tpe').textContent=info.phase;
+  document.getElementById('body-tpe').textContent=info.text;
+  document.getElementById('prev-tpe').disabled=s===0;
+  document.getElementById('next-tpe').disabled=s===TPE_STEPS.length-1;
+  buildDots('dots-tpe',TPE_STEPS.length,s,s);
+}
+function goTPE(d){ setTPEStep(Math.max(0,Math.min(TPE_STEPS.length-1,tpeStep+d))); }
+function resetTPE(){ setTPEStep(0); }
+
+// ── Tab switching ──
+let activeTab='gp';
+function switchTab(t){
+  activeTab=t;
+  document.getElementById('tab-gp').className='tab-pane'+(t==='gp'?' active':'');
+  document.getElementById('tab-tpe').className='tab-pane'+(t==='tpe'?' active':'');
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>{
+    b.className='tab-btn'+(i===(t==='gp'?0:1)?' active':'');
+  });
+}
+
+// ── Keyboard navigation ──
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight'){ activeTab==='gp'?goGP(1):goTPE(1); }
+  if(e.key==='ArrowLeft'){  activeTab==='gp'?goGP(-1):goTPE(-1); }
+  if(e.key==='r'||e.key==='R'){ activeTab==='gp'?resetGP():resetTPE(); }
+});
+
+// ── Init ──
+setGPStep(0);
+setTPEStep(0);
+</script>
+</body>
+</html>
