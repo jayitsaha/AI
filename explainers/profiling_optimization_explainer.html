@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Python Profiling & Optimization — cProfile, line_profiler, memory_profiler</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul,.section-body ol{padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{font-size:14px;margin-bottom:0.4rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation display */
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+
+/* Code panel */
+.code-panel{margin-top:1rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:2px 6px;border-radius:4px;transition:background 0.3s;white-space:pre;color:var(--text2);}
+.code-line.hotspot{background:var(--red-bg);color:var(--red-text);font-weight:600;}
+.code-line.good{background:var(--green-bg);color:var(--green-text);font-weight:600;}
+.code-line.active{background:var(--amber-bg);color:var(--amber-text);font-weight:600;}
+
+/* Visualization container */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+
+/* Profiler table */
+.prof-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin:0.75rem 0;}
+.prof-table th{background:var(--bg2);padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--text2);border-bottom:2px solid var(--border2);}
+.prof-table td{padding:7px 10px;border-bottom:1px solid var(--border);transition:all 0.4s;}
+.prof-table tr.row-hotspot td{background:var(--red-bg);color:var(--red-text);font-weight:600;}
+.prof-table tr.row-hotspot td{animation:none;}
+.prof-table tr.row-highlight td{background:var(--amber-bg);color:var(--amber-text);}
+.prof-table tr.row-ok td{background:var(--green-bg);color:var(--green-text);}
+.prof-table tr.row-normal td{background:transparent;color:var(--text);}
+
+/* Line profiler table */
+.lp-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin:0.75rem 0;}
+.lp-table th{background:var(--bg2);padding:6px 8px;text-align:left;font-size:11px;font-weight:700;color:var(--text2);border-bottom:2px solid var(--border2);}
+.lp-table td{padding:5px 8px;border-bottom:1px solid var(--border);transition:all 0.4s;}
+.lp-bar-cell{width:120px;}
+.lp-bar-wrap{background:var(--bg2);border-radius:4px;height:12px;overflow:hidden;display:inline-block;width:100px;vertical-align:middle;margin-right:6px;}
+.lp-bar{height:100%;border-radius:4px;transition:width 0.6s ease;}
+.lp-bar.critical{background:var(--red-mid);}
+.lp-bar.medium{background:var(--amber-mid);}
+.lp-bar.low{background:var(--green-mid);}
+.lp-pct{font-family:var(--mono);font-size:11px;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;padding:3px 8px;border-radius:12px;display:inline-block;margin-bottom:8px;}
+.info-phase.phase-profile{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-pinpoint{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-memory{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-fix{background:var(--green-bg);color:var(--green-mid);}
+.info-title{font-size:15px;font-weight:700;margin-bottom:6px;}
+.info-text{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+
+/* Progress dots */
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin:1rem 0;font-size:12px;}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:14px;height:14px;border-radius:3px;}
+
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Speedup badge */
+.speedup-badge{display:inline-block;padding:4px 12px;border-radius:20px;font-family:var(--mono);font-weight:700;font-size:13px;margin-left:8px;}
+.speedup-badge.slow{background:var(--red-bg);color:var(--red-mid);}
+.speedup-badge.fast{background:var(--green-bg);color:var(--green-mid);}
+
+/* Before/After comparison */
+.ba-wrap{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0;}
+.ba-panel{border-radius:var(--radius);padding:1rem;font-family:var(--mono);font-size:12px;}
+.ba-panel.before{background:var(--red-bg);border:1px solid var(--red-border);}
+.ba-panel.after{background:var(--green-bg);border:1px solid var(--green-border);}
+.ba-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+.ba-panel.before .ba-label{color:var(--red-mid);}
+.ba-panel.after .ba-label{color:var(--green-mid);}
+.ba-metric{font-size:22px;font-weight:700;margin:4px 0;}
+.ba-panel.before .ba-metric{color:var(--red-mid);}
+.ba-panel.after .ba-metric{color:var(--green-mid);}
+
+@media(max-width:600px){.ba-wrap{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Python Profiling &amp; Optimization</h1>
+  <div class="subtitle">cProfile · line_profiler · memory_profiler — measure before you optimize</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Python Mastery</span>
+    <span class="tag tag-complexity">Performance Engineering</span>
+    <span class="tag tag-category">Part II · Section 1.4</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="section-toggle open" id="toggle1">▾</div>
+  </div>
+  <div class="section-body" id="body1">
+    <p>Python is expressive and readable, but it pays a performance price. A list-comprehension loop that runs 10 million times can be 100× slower than an equivalent NumPy operation. But which loop? Your program has thousands. <strong>Profiling tools answer this question empirically</strong> — they instrument the running program and produce an evidence-based report of where time and memory actually go.</p>
+    <p>The golden rule: <em>never optimise code you haven't profiled</em>. Programmers are notoriously bad at guessing bottlenecks. Studies consistently show that hotspots are located in unexpected places — often in a utility function called a million times rather than the "obviously slow" business logic.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Core Insight</div>
+      <p style="font-size:14px;margin:0;">Python performance follows Pareto's rule: ~5% of functions consume ~80% of runtime. Profilers expose that 5%. You then optimise only those functions, leaving the other 95% untouched. This is both faster to implement and safer — fewer code changes mean fewer bugs.</p>
+    </div>
+    <h4>The Three-Tool Stack</h4>
+    <ul>
+      <li><strong>cProfile</strong> — function-level timing: call counts, total self-time (<em>tottime</em>), cumulative subtree time (<em>cumtime</em>). First pass, always.</li>
+      <li><strong>line_profiler</strong> — per-line timing within a function. Use once cProfile has identified the guilty function.</li>
+      <li><strong>memory_profiler</strong> — per-line RSS memory delta. Use when memory grows unexpectedly or peak usage is too high.</li>
+    </ul>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Anti-Pattern</div>
+      <p style="font-size:14px;margin:0;">Inserting <code>time.time()</code> or <code>print</code> statements around "suspicious" code — this misses callees, requires source changes, and gives no statistical context. Use the proper tools instead.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Tools Work</div>
+    <div class="section-toggle open" id="toggle2">▾</div>
+  </div>
+  <div class="section-body" id="body2">
+    <h4>cProfile — Function-Level Deterministic Profiling</h4>
+    <p>cProfile installs a C-level trace function via <code>PyEval_SetProfile()</code>. CPython calls this hook on four events: <code>call</code>, <code>return</code>, <code>c_call</code>, <code>c_return</code>. The profiler records a <em>(file, line, function)</em> key and accumulates time using <code>CLOCK_MONOTONIC</code>. Overhead: ~200–500 ns per call/return pair on modern hardware, giving a ~1.5–3× slowdown on typical code.</p>
+    <div class="code-panel">
+      <div class="code-line"># Typical cProfile output (sorted by tottime)</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line">   ncalls  tottime  percall  cumtime  percall  function</div>
+      <div class="code-line">     1000    1.024    0.001    1.024    0.001  script.py:3(slow_inner)   &lt;-- HOTSPOT</div>
+      <div class="code-line">     1000    0.003    0.000    1.027    0.001  script.py:7(fast_wrapper)</div>
+      <div class="code-line">        1    0.001    0.001    1.028    1.028  script.py:11(main)</div>
+    </div>
+    <p>Reading the output: <strong>sort by tottime</strong> to find where time is actually spent. <code>fast_wrapper</code> has near-zero <em>tottime</em> (its body is just a call) but high <em>cumtime</em> — it's a wrapper, not the problem. <code>slow_inner</code> has tottime≈cumtime — the bottleneck lives in its body.</p>
+    <h4>line_profiler — Per-Line Timing</h4>
+    <p>line_profiler uses a Cython-compiled C extension with <code>sys.settrace</code> at the bytecode level. The <code>@profile</code> decorator wraps the function with a <code>LineProfiler</code> context that records entry/exit time for each line. Run via <code>kernprof -l -v script.py</code>.</p>
+    <div class="code-panel">
+      <div class="code-line">Line #   Hits     Time     Per Hit   % Time  Line Contents</div>
+      <div class="code-line">===================================================================</div>
+      <div class="code-line">     3  100001  1 823 456   18.2 µs    2.1    for item in data:</div>
+      <div class="code-line hotspot">     4  100000  81 234 567  812.3 µs   93.7    x = heavy_transform(item)  &lt;-- HOTSPOT</div>
+      <div class="code-line">     5  100000   3 245 678   32.5 µs    3.7    result.append(x)</div>
+    </div>
+    <h4>memory_profiler — Per-Line RSS Memory</h4>
+    <p>memory_profiler uses <code>sys.settrace</code> at line level and calls <code>psutil.Process().memory_info().rss</code> before and after each line. The delta (in MiB) is reported. High overhead (~10-50×) — use only in isolation, never production.</p>
+    <div class="code-panel">
+      <div class="code-line">Line #  Mem usage   Increment   Line Contents</div>
+      <div class="code-line">=====================================================</div>
+      <div class="code-line">     7   52.3 MiB    52.3 MiB   @profile</div>
+      <div class="code-line hotspot">     9  128.5 MiB   +76.2 MiB   A = [[0.0]*n for _ in range(n)]  &lt;-- ALLOC</div>
+      <div class="code-line hotspot">    11  204.7 MiB   +76.2 MiB   B = np.array(A)                  &lt;-- COPY</div>
+      <div class="code-line good">    12  128.5 MiB   -76.2 MiB   del A                            &lt;-- FREED</div>
+    </div>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Concept</div>
+      <p style="font-size:14px;margin:0;"><strong>tottime ≥ 0, cumtime ≥ tottime, always.</strong> A function with tottime≈0 and high cumtime is an innocent wrapper. The real bottleneck is the callee with high tottime. Sort by tottime first, always.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math: Amdahl's Law &amp; Timing Error</div>
+    <div class="section-toggle open" id="toggle3">▾</div>
+  </div>
+  <div class="section-body" id="body3">
+    <p><strong>Amdahl's Law</strong> gives the theoretical upper bound on speedup when optimising a fraction \(f\) of the program's runtime:</p>
+    <div class="eq">$$S(f,s) = \frac{1}{(1 - f) + \dfrac{f}{s}}$$</div>
+    <p>where \(f\) is the fraction of runtime in the hotspot and \(s\) is the speedup factor of that hotspot. As the hotspot becomes infinitely fast (\(s \to \infty\)):</p>
+    <div class="eq">$$S_{\max}(f) = \frac{1}{1 - f}$$</div>
+    <p><strong>Example:</strong> cProfile shows 80% of runtime in one function (\(f = 0.80\)). If we vectorise it with NumPy (say \(s = 50\times\)), the actual speedup is:</p>
+    <div class="eq">$$S(0.80, 50) = \frac{1}{0.20 + \frac{0.80}{50}} = \frac{1}{0.216} \approx 4.6\times$$</div>
+    <p>The theoretical max with \(f=0.80\) is \(S_{\max} = 5\times\). You can't do better — the other 20% is irreducible.</p>
+    <h4>Profiler Timing Error</h4>
+    <p>Each timing measurement has noise \(\varepsilon \sim \mathcal{N}(0, \sigma^2)\) where \(\sigma \approx 100\,\text{ns}\) (clock resolution). For \(n\) calls, the total accumulated error is:</p>
+    <div class="eq">$$\text{err}_{\text{total}} = \sqrt{n} \cdot \sigma$$</div>
+    <p>For \(n = 10^6\) calls: error \(\approx \sqrt{10^6} \times 100\,\text{ns} = 100\,\text{ms}\). This means cumtime figures for very-hot cheap functions have \(\pm\)10% relative error — always run profiling for at least 5–10 s total.</p>
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 Key Formula</div>
+      <p style="font-size:14px;margin:0;">Amdahl speedup bound: \(S_{\max} = \dfrac{1}{1 - f}\). With 80% hotspot: max 5×. With 95% hotspot: max 20×. Profile first to find \(f\) — without it, you're optimising blind.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Profiler Walkthrough</div>
+    <div class="section-toggle open" id="toggle4">▾</div>
+  </div>
+  <div class="section-body" id="body4">
+    <p style="font-size:14px;color:var(--text2);margin-bottom:1rem;">A realistic profiling story: slow distance computation → cProfile reveals the hotspot → line_profiler confirms the hot line → NumPy fix → 136× speedup. Step through each phase.</p>
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div><span>Hotspot (fix me!)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div><span>Notable (watch)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div><span>Fast / Good</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div><span>Neutral</span></div>
+    </div>
+
+    <div class="viz-container" id="viz-main">
+      <!-- Phase label -->
+      <div id="phase-header" style="margin-bottom:0.75rem;"></div>
+
+      <!-- cProfile table (steps 0-1) -->
+      <div id="section-cprofile">
+        <div style="font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:6px;">cProfile output — sorted by tottime</div>
+        <table class="prof-table" id="cprof-table">
+          <thead>
+            <tr><th>ncalls</th><th>tottime</th><th>percall</th><th>cumtime</th><th>percall</th><th>function</th></tr>
+          </thead>
+          <tbody id="cprof-body"></tbody>
+        </table>
+      </div>
+
+      <!-- line_profiler table (steps 2-3) -->
+      <div id="section-lineprofiler" style="display:none;">
+        <div style="font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:6px;">line_profiler — compute_distances_slow (kernprof -l -v script.py)</div>
+        <table class="lp-table" id="lp-table">
+          <thead>
+            <tr><th>Line</th><th>Hits</th><th>Time (µs)</th><th>Per Hit</th><th style="width:140px;">% Time</th><th>Contents</th></tr>
+          </thead>
+          <tbody id="lp-body"></tbody>
+        </table>
+      </div>
+
+      <!-- memory_profiler table (step 4) -->
+      <div id="section-memoryprofiler" style="display:none;">
+        <div style="font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:6px;">memory_profiler — build_matrix(n=3000)</div>
+        <table class="lp-table" id="mp-table">
+          <thead>
+            <tr><th>Line</th><th>Mem usage</th><th>Increment</th><th>Contents</th></tr>
+          </thead>
+          <tbody id="mp-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Before/After (steps 5-6) -->
+      <div id="section-beforeafter" style="display:none;">
+        <div style="font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:8px;">cProfile — before vs after vectorisation (n=1000 points)</div>
+        <div class="ba-wrap">
+          <div class="ba-panel before">
+            <div class="ba-label">Before: Python loops</div>
+            <div class="ba-metric" id="ba-time-before">4.23 s</div>
+            <div style="font-size:11px;color:var(--red-mid);margin-top:4px;">tottime = 4.230 s · ncalls = 1</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:8px;font-family:var(--mono);">for i in range(n):<br>&nbsp;&nbsp;for j in range(n):<br>&nbsp;&nbsp;&nbsp;&nbsp;D[i][j] = dist(i,j)</div>
+          </div>
+          <div class="ba-panel after">
+            <div class="ba-label">After: NumPy broadcasting</div>
+            <div class="ba-metric" id="ba-time-after">0.031 s</div>
+            <div style="font-size:11px;color:var(--green-mid);margin-top:4px;">tottime = 0.031 s · 136× faster</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:8px;font-family:var(--mono);">diff = pts[:,None,:]-pts[None,:,:]<br>D = np.sqrt((diff**2).sum(-1))</div>
+          </div>
+        </div>
+        <div id="speedup-display" style="text-align:center;margin-top:0.5rem;font-size:14px;color:var(--text2);">
+          Speedup: <span id="speedup-val" class="speedup-badge fast">136×</span>
+          &nbsp;·&nbsp; Amdahl serial bound (f=0.989): <span class="speedup-badge fast">S<sub>max</sub>=88×</span> — exceeded via BLAS multi-core
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="info-card">
+        <div id="info-phase-badge" class="info-phase phase-profile">Phase 1 — cProfile</div>
+        <div class="info-title" id="info-title">Step 1: Run cProfile, read the hotspot</div>
+        <div class="info-text" id="info-text">cProfile output shown above. Sort by tottime. The function <code>_inner_loop</code> has tottime=4.183 s — it's the self-expensive bottleneck. <code>compute_distances_slow</code> has cumtime=4.230 s but tottime≈0.047 s — just the wrapper loop overhead.</div>
+      </div>
+    </div>
+
+    <!-- Progress dots -->
+    <div class="progress-wrap" id="dots"></div>
+    <div class="controls">
+      <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+      <button class="btn" onclick="resetViz()">↺ Reset</button>
+    </div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+  </div>
+</div>
+
+<!-- CARD 5: Takeaways -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways &amp; Decision Guide</div>
+    <div class="section-toggle open" id="toggle5">▾</div>
+  </div>
+  <div class="section-body" id="body5">
+    <h4>The Profiling Loop</h4>
+    <ol>
+      <li><strong>Profile with cProfile</strong> — run the full program, sort by <em>tottime</em>, identify the top function(s)</li>
+      <li><strong>Drill with line_profiler</strong> — add <code>@profile</code>, run <code>kernprof -l -v</code>, find the hot line</li>
+      <li><strong>Fix the hotspot</strong> — vectorise (NumPy), cache (functools.lru_cache), use a better algorithm</li>
+      <li><strong>Verify with cProfile again</strong> — confirm speedup, check for shifted bottlenecks</li>
+    </ol>
+    <h4>Tool Selection Guide</h4>
+    <ul>
+      <li><strong>Unknown bottleneck</strong> → cProfile first (free, always available)</li>
+      <li><strong>Found hot function</strong> → line_profiler for per-line breakdown</li>
+      <li><strong>Memory leak / OOM</strong> → memory_profiler (per-line RSS) or tracemalloc (Python allocations)</li>
+      <li><strong>Production / async / threads</strong> → py-spy or Scalene (sampling, near-zero overhead)</li>
+      <li><strong>GPU / ML workloads</strong> → torch.profiler + TensorBoard trace viewer</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">✅ The One Rule</div>
+      <p style="font-size:14px;margin:0;">Measure → Find → Fix → Verify. Never skip the final verification profile — optimisations sometimes shift bottlenecks to previously-hidden callees, creating the illusion of speedup while overall runtime barely changes.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// PROFILER WALKTHROUGH DATA & LOGIC
+// ══════════════════════════════════════════════════════════════════════════
+
+// cProfile rows (plausible numbers for n=1000 distance computation)
+const cprofRows = [
+  { ncalls:'1',    tottime:'0.047', percall1:'0.047', cumtime:'4.230', percall2:'4.230', fn:'script.py:14(compute_distances_slow)', cls:'row-highlight' },
+  { ncalls:'1000000', tottime:'4.183', percall1:'0.000', cumtime:'4.183', percall2:'0.000', fn:'script.py:7(_inner_loop)',  cls:'row-hotspot' },
+  { ncalls:'1',    tottime:'0.001', percall1:'0.001', cumtime:'4.231', percall2:'4.231', fn:'script.py:20(main)',         cls:'row-normal' },
+  { ncalls:'1000000', tottime:'0.000', percall1:'0.000', cumtime:'0.000', percall2:'0.000', fn:'{built-in} math.sqrt',     cls:'row-ok' },
+];
+
+// line_profiler rows
+const lpRows = [
+  { line:'7',  hits:'1',       time:'47 312',      perHit:'47 312.0', pct:0.01, pctStr:'0.01', cls:'low',      code:'def compute_distances_slow(points):' },
+  { line:'8',  hits:'1',       time:'23',          perHit:'23.0',     pct:0.00, pctStr:'0.00', cls:'low',      code:'    n = len(points)' },
+  { line:'9',  hits:'1',       time:'12 340',      perHit:'12 340.0', pct:0.00, pctStr:'0.00', cls:'low',      code:'    D = [[0.0]*n for _ in range(n)]' },
+  { line:'10', hits:'1001',    time:'389 210',      perHit:'388.8',    pct:0.01, pctStr:'0.01', cls:'low',      code:'    for i in range(n):' },
+  { line:'11', hits:'1000000', time:'423 112 456',  perHit:'423.1',    pct:7.20, pctStr:'7.20', cls:'medium',   code:'        for j in range(n):' },
+  { line:'12', hits:'1000000', time:'5 432 897 213',perHit:'5 432.9',  pct:92.5, pctStr:'92.5', cls:'critical', code:'            D[i][j] = (dx**2+dy**2)**0.5  # ← HOTSPOT' },
+  { line:'13', hits:'1000000', time:'12 440',       perHit:'0.01',     pct:0.00, pctStr:'0.00', cls:'low',      code:'    return D' },
+];
+
+// memory_profiler rows
+const mpRows = [
+  { line:'3',  mem:'52.3',  inc:'52.3',  cls:'low',      code:'@profile' },
+  { line:'5',  mem:'52.3',  inc:'+0.0',  cls:'low',      code:'def build_matrix(n=3000):' },
+  { line:'7',  mem:'52.4',  inc:'+0.1',  cls:'low',      code:'    import numpy as np' },
+  { line:'9',  mem:'196.3', inc:'+143.9',cls:'critical',  code:'    A = [[0.0]*n for _ in range(n)]  # Python list 72MB' },
+  { line:'11', mem:'268.4', inc:'+72.1', cls:'critical',  code:'    B = np.array(A)                  # numpy copy 72MB' },
+  { line:'12', mem:'196.3', inc:'-72.1', cls:'good',      code:'    del A                            # freed 72MB' },
+  { line:'13', mem:'196.4', inc:'+0.1',  cls:'low',       code:'    return B' },
+];
+
+// Step definitions
+const STEPS = [
+  {
+    phase:'phase-profile', phaseLabel:'Phase 1 — cProfile',
+    title:'Step 1: Run cProfile — sort by tottime',
+    text:'The full program runs under cProfile. Output sorted by tottime. <code>_inner_loop</code> shows tottime=4.183 s — the self-expensive body. <code>compute_distances_slow</code> has cumtime=4.230 s but tottime≈0.047 s — it\'s just a wrapper loop. The red row is our target.',
+    section:'cprofile', highlightRows:[1], highlightLines:[], highlightMp:[]
+  },
+  {
+    phase:'phase-profile', phaseLabel:'Phase 1 — cProfile',
+    title:'Step 2: Identify the hotspot function',
+    text:'<code>_inner_loop</code> is called 1,000,000 times (n=1000, n² iterations). Per-call time is only 4.2 µs, but with 10⁶ calls it accumulates to 4.183 s. This is the classic Python inner-loop problem: cheap per-call but enormous call volume. <strong>Next: drill in with line_profiler.</strong>',
+    section:'cprofile', highlightRows:[1], highlightLines:[], highlightMp:[]
+  },
+  {
+    phase:'phase-pinpoint', phaseLabel:'Phase 2 — line_profiler',
+    title:'Step 3: line_profiler — per-line breakdown',
+    text:'We decorate <code>compute_distances_slow</code> with <code>@profile</code> and run <code>kernprof -l -v</code>. Line 12 consumes 92.5% of total time — the <code>(dx²+dy²)**0.5</code> call with Python\'s <code>**</code> operator and <code>math.sqrt</code> on 1M iterations. Lines 10-11 (loop overhead) add 7.2%.',
+    section:'lineprofiler', highlightRows:[], highlightLines:[6], highlightMp:[]
+  },
+  {
+    phase:'phase-pinpoint', phaseLabel:'Phase 2 — line_profiler',
+    title:'Step 4: The inner loop is the culprit',
+    text:'Line 12 calls Python\'s exponentiation operator twice (<code>dx**2</code>, <code>dy**2</code>) and <code>**0.5</code> — all interpreted bytecode with Python object overhead. With 1,000,000 iterations, even 5 µs overhead per line costs 5 s. <strong>Fix: replace the entire nested loop with NumPy broadcasting.</strong>',
+    section:'lineprofiler', highlightRows:[], highlightLines:[4,5,6], highlightMp:[]
+  },
+  {
+    phase:'phase-memory', phaseLabel:'Phase 3 — memory_profiler',
+    title:'Step 5: Memory profile — spotting duplicate allocation',
+    text:'memory_profiler shows line 9 allocates +143.9 MiB for the Python list, then line 11 allocates another +72.1 MiB for the NumPy array copy. Peak = 268 MiB. After <code>del A</code> on line 12, 72 MiB is freed — but the peak already occurred. The fix: construct the NumPy array directly without an intermediate Python list.',
+    section:'memoryprofiler', highlightRows:[], highlightLines:[], highlightMp:[3,4]
+  },
+  {
+    phase:'phase-fix', phaseLabel:'Phase 4 — Fix & Verify',
+    title:'Step 6: NumPy vectorisation — before vs after',
+    text:'Replacing the nested Python loop with NumPy broadcasting: <code>diff = pts[:,None,:] - pts[None,:,:]</code> creates a (1000,1000,2) array; <code>np.sqrt((diff**2).sum(-1))</code> computes all distances in one BLAS call. Runtime drops from 4.23 s to 0.031 s — <strong>136× speedup</strong>. Amdahl\'s serial bound (f=0.989, 1.1% irreducible): S<sub>max</sub>=88×; we exceed it because NumPy leverages BLAS multi-core, effectively reducing the residual serial fraction too.',
+    section:'beforeafter', highlightRows:[], highlightLines:[], highlightMp:[]
+  },
+  {
+    phase:'phase-fix', phaseLabel:'Phase 4 — Fix & Verify',
+    title:'Step 7: Run cProfile again to verify (no shifted bottlenecks)',
+    text:'Always profile again after fixing. The new cProfile output shows <code>compute_distances_fast tottime=0.028 s, cumtime=0.031 s</code> — the bottleneck is gone. If a new hotspot appears in a previously-invisible function, repeat the cycle. Optimisation is iterative.',
+    section:'beforeafter', highlightRows:[], highlightLines:[], highlightMp:[]
+  },
+];
+
+let step = 0;
+
+function renderDots() {
+  const wrap = document.getElementById('dots');
+  wrap.innerHTML = '';
+  STEPS.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < step ? ' done' : '') + (i === step ? ' active' : '');
+    d.onclick = () => { step = i; render(); };
+    wrap.appendChild(d);
+  });
+}
+
+function renderCProfile(highlightRows) {
+  const tbody = document.getElementById('cprof-body');
+  tbody.innerHTML = '';
+  cprofRows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    if (highlightRows.includes(i)) {
+      tr.className = r.cls;
+    } else if (step <= 1 && i === 1 && !highlightRows.includes(i)) {
+      // still highlight the hotspot row even if not in highlight list unless we want to clear
+    }
+    // Always render hotspot row in red for steps 0-1
+    if ((step === 0 || step === 1) && i === 1) tr.className = 'row-hotspot';
+    if ((step === 0 || step === 1) && i === 0) tr.className = 'row-highlight';
+    if ((step === 0 || step === 1) && i === 2) tr.className = 'row-normal';
+    if ((step === 0 || step === 1) && i === 3) tr.className = 'row-ok';
+    tr.innerHTML = `<td>${r.ncalls}</td><td>${r.tottime}</td><td>${r.percall1}</td><td>${r.cumtime}</td><td>${r.percall2}</td><td>${r.fn}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderLineProfiler(highlightLines) {
+  const tbody = document.getElementById('lp-body');
+  tbody.innerHTML = '';
+  lpRows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    const isHighlight = highlightLines.includes(i);
+    const barCls = r.cls;
+    const barWidth = Math.min(r.pct, 100);
+    tr.innerHTML = `
+      <td style="color:var(--text3)">${r.line}</td>
+      <td>${r.hits}</td>
+      <td>${r.time}</td>
+      <td>${r.perHit}</td>
+      <td class="lp-bar-cell">
+        <div class="lp-bar-wrap"><div class="lp-bar ${barCls}" style="width:${barWidth}%"></div></div>
+        <span class="lp-pct" style="color:${barCls==='critical'?'var(--red-mid)':barCls==='medium'?'var(--amber-mid)':'var(--text3)'}">${r.pctStr}%</span>
+      </td>
+      <td style="font-family:var(--mono);font-size:11px;${isHighlight?'font-weight:700;color:var(--red-text);background:var(--red-bg);':''}">${r.code}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMemoryProfiler(highlightMp) {
+  const tbody = document.getElementById('mp-body');
+  tbody.innerHTML = '';
+  mpRows.forEach((r, i) => {
+    const isHot = highlightMp.includes(i);
+    const incColor = r.inc.startsWith('+') && !r.inc.startsWith('+0') ? 'var(--red-mid)' : r.inc.startsWith('-') ? 'var(--green-mid)' : 'var(--text3)';
+    const rowBg = isHot ? (r.inc.startsWith('+1')||r.inc.startsWith('+7') ? 'background:var(--red-bg);' : 'background:var(--green-bg);') : '';
+    const tbody2 = document.getElementById('mp-body');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:var(--text3);${rowBg}">${r.line}</td>
+      <td style="${rowBg}">${r.mem} MiB</td>
+      <td style="color:${incColor};font-weight:${isHot?700:400};${rowBg}">${r.inc} MiB</td>
+      <td style="font-family:var(--mono);font-size:11px;${rowBg}">${r.code}</td>`;
+    tbody2.appendChild(tr);
+  });
+}
+
+function showSection(which) {
+  ['section-cprofile','section-lineprofiler','section-memoryprofiler','section-beforeafter'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  document.getElementById('section-' + which).style.display = 'block';
+}
+
+function render() {
+  const s = STEPS[step];
+  // Phase badge
+  document.getElementById('phase-header').innerHTML =
+    `<span class="info-phase ${s.phase}" style="margin:0">${s.phaseLabel}</span>`;
+  // Info card
+  document.getElementById('info-phase-badge').className = `info-phase ${s.phase}`;
+  document.getElementById('info-phase-badge').textContent = s.phaseLabel;
+  document.getElementById('info-title').textContent = s.title;
+  document.getElementById('info-text').innerHTML = s.text;
+  // Show correct section
+  showSection(s.section);
+  // Render data
+  if (s.section === 'cprofile') renderCProfile(s.highlightRows);
+  if (s.section === 'lineprofiler') renderLineProfiler(s.highlightLines);
+  if (s.section === 'memoryprofiler') renderMemoryProfiler(s.highlightMp);
+  // Buttons
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+  renderDots();
+}
+
+function go(delta) {
+  const newStep = step + delta;
+  if (newStep < 0 || newStep >= STEPS.length) return;
+  step = newStep;
+  render();
+}
+
+function resetViz() {
+  step = 0;
+  render();
+}
+
+// Init
+window.addEventListener('DOMContentLoaded', () => {
+  renderMemoryProfiler([]);  // pre-render mp so tbody exists
+  render();
+});
+
+// ── Card toggle ────────────────────────────────────────────────────────────
+function toggleCard(id) {
+  const body = document.getElementById('body' + id.replace('card',''));
+  const toggle = document.getElementById('toggle' + id.replace('card',''));
+  const isCollapsed = body.classList.contains('collapsed');
+  if (isCollapsed) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.classList.remove('collapsed');
+    toggle.classList.add('open');
+  } else {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(() => { body.style.maxHeight = '0'; });
+    body.classList.add('collapsed');
+    toggle.classList.remove('open');
+  }
+}
+// Init all cards open
+document.querySelectorAll('.section-body').forEach(b => { b.style.maxHeight = b.scrollHeight + 'px'; });
+
+// ── Keyboard navigation ────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft')  go(-1);
+  if (e.key === 'r' || e.key === 'R') resetViz();
+});
+</script>
+</body>
+</html>

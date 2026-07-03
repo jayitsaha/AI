@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LightGBM — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:980px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:90px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-growth{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-goss{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-efb{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-hist{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Inline table for comparisons */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+.cmp-table th{background:var(--bg2);font-weight:700;padding:8px 12px;text-align:left;border-bottom:2px solid var(--border2);}
+.cmp-table td{padding:7px 12px;border-bottom:1px solid var(--border);}
+.cmp-table tr:last-child td{border-bottom:none;}
+.cmp-table td.highlight{font-weight:600;color:var(--green-mid);}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LightGBM</h1>
+  <div class="subtitle">Leaf-wise growth, GOSS, EFB, histogram splits, and categorical feature handling</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-category">Ensemble Methods</span>
+    <span class="tag tag-complexity">O(n·B) histogram splits</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding LightGBM</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> LightGBM is a gradient boosting framework developed by Microsoft that trains decision trees dramatically faster than XGBoost by combining four clever tricks: it grows trees <em>leaf-wise</em> (picking the single best split globally, not row by row), uses <em>GOSS</em> to skip training on easy samples, bundles sparse features together via <em>EFB</em>, and replaces exact split-finding with cheap <em>histogram approximations</em>.</p>
+    <p><strong>Analogy:</strong> Imagine you're a teacher grading 1000 student papers. XGBoost grades every paper carefully at every step. LightGBM says: (1) Focus first on the papers where students are struggling the most — easy papers don't tell you much (GOSS). (2) Notice that questions 7, 12, and 19 are never answered at the same time — treat them as one super-question (EFB). (3) Instead of checking every possible grade boundary, bucket grades into A/B/C/D ranges (histograms). (4) When choosing which class to improve next, always pick the class with the biggest opportunity — not just the next one in line (leaf-wise growth).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LightGBM achieves 10–20× speedups over XGBoost on large datasets by combining four ideas: <strong>leaf-wise best-first tree growth</strong>, <strong>GOSS</strong> (subsample by gradient magnitude), <strong>EFB</strong> (merge mutually exclusive sparse features), and <strong>histogram-based split finding</strong>. Each reduces work without sacrificing accuracy much.</p>
+    </div>
+  </div>
+</div>
+<!-- END CARD 1 PLACEHOLDER -->
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How LightGBM Works — Four Speed Tricks</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>LightGBM wraps standard gradient boosting — at each round it fits a new tree to the negative gradient (residuals) and adds it with shrinkage. The magic is entirely in <em>how</em> trees are built.</p>
+
+    <h4>Trick 1: Leaf-wise (Best-First) Tree Growth</h4>
+    <p>XGBoost and most GBDT libraries grow trees <em>level-wise</em>: at depth \(d\), every leaf is split simultaneously, doubling the leaf count. LightGBM instead picks the <em>single leaf</em> with the highest information gain and splits only that one. This means with the same number of leaves you get a much deeper, more accurate tree on the "hard" branches — but you must cap <code>num_leaves</code> to avoid overfitting.</p>
+    <div class="eq">$$\text{Gain}(f, t) = \frac{1}{2}\left[\frac{G_L^2}{H_L + \lambda} + \frac{G_R^2}{H_R + \lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$</div>
+    <p>where \(G_L, G_R\) are the sum of first-order gradients in left/right child, \(H_L, H_R\) are the sum of second-order (Hessians), \(\lambda\) is L2 leaf regularization, and \(\gamma\) is the minimum gain threshold.</p>
+
+    <h4>Trick 2: GOSS — Gradient-based One-Side Sampling</h4>
+    <p>Large-gradient samples carry the most information (the model got them wrong). GOSS keeps <em>all</em> large-gradient samples (top \(a\) fraction by \(|g_i|\)) plus a random subset (fraction \(b\)) of the remaining small-gradient samples. The small-gradient samples are upweighted by \(\frac{1-a}{b}\) to maintain an unbiased estimate of the information gain.</p>
+    <div class="eq">$$\tilde{\text{Gain}}(f, t) = \frac{1}{n}\left(\frac{\left(\sum_{x_i \in A_l} g_i + \frac{1-a}{b}\sum_{x_i \in B_l} g_i\right)^2}{n_l^j} + \frac{\left(\sum_{x_i \in A_r} g_i + \frac{1-a}{b}\sum_{x_i \in B_r} g_i\right)^2}{n_r^j}\right)$$</div>
+    <p>where \(A\) = large-gradient set (fully kept), \(B\) = sampled small-gradient set, subscripts \(l, r\) = left/right child counts.</p>
+
+    <h4>Trick 3: EFB — Exclusive Feature Bundling</h4>
+    <p>High-dimensional sparse datasets often have features that are <em>mutually exclusive</em> — they never take a nonzero value at the same data point simultaneously (e.g., one-hot encoded categories). EFB merges such features into a single "bundle" by adding an integer offset to each feature's value to distinguish it. This reduces the effective feature count from thousands to hundreds, making histogram construction far cheaper.</p>
+    <p>Formally: if features \(f_i\) and \(f_j\) have zero conflict (never both nonzero), bundle them: \(v_{\text{bundle}} = v_{f_i} + \text{offset}_{f_j} \cdot v_{f_j}\). Splitting on the bundle recovers original splits by checking which offset range the threshold falls in.</p>
+
+    <h4>Trick 4: Histogram-based Split Finding</h4>
+    <p>Instead of sorting all \(n\) feature values (XGBoost's exact strategy, \(O(n \log n)\) per feature), LightGBM bins each feature into \(B\) buckets (typically 255) once, accumulates gradient/Hessian sums per bin, and sweeps the \(B\) bin boundaries to find the best split — \(O(n + B)\) per feature. The histograms for a parent node can also be subtracted from the sibling to get the other child for free.</p>
+    <div class="eq">$$G_k = \sum_{i \in \text{bin}_k} g_i, \quad H_k = \sum_{i \in \text{bin}_k} h_i$$</div>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Each of the four tricks is orthogonal and multiplicative in effect: GOSS reduces the sample count, EFB reduces the feature count, histograms reduce the split-finding cost per (sample, feature) pair, and leaf-wise growth squeezes more accuracy from each leaf budget. Together they enable LightGBM to handle datasets with millions of rows and 10K+ features in minutes.</p>
+    </div>
+
+    <h4>Categorical Feature Handling</h4>
+    <p>LightGBM natively supports categorical features by finding the optimal many-to-one partition at each split: it sorts categories by their gradient ratio \(G_k / (H_k + \lambda)\) and tries binary splits on this sorted order. This is \(O(B)\) per split rather than \(O(2^B)\) for brute force, and it often outperforms manual one-hot encoding on high-cardinality columns.</p>
+  </div>
+</div>
+<!-- END CARD 2 -->
+
+<!-- CARD 3 placeholder -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Mathematical Analysis</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Gain Formula — Full Derivation</h4>
+    <p>Gradient boosting minimizes a loss \(\mathcal{L}\) by iteratively fitting trees. At round \(t\), for a leaf assignment \(T\) (mapping sample \(i\) to leaf \(\ell(i)\)), the second-order Taylor expansion of the loss around the current ensemble \(\hat{y}\) gives an approximate objective that is separable per leaf:</p>
+    <div class="eq">$$\tilde{\mathcal{L}}^{(t)} = \sum_{j=1}^{J}\left[G_j w_j + \frac{1}{2}(H_j + \lambda)w_j^2\right] + \gamma J$$</div>
+    <p>where \(G_j = \sum_{i \in \text{leaf}_j} g_i\), \(H_j = \sum_{i \in \text{leaf}_j} h_i\), \(g_i = \partial_{\hat{y}_i}\ell(y_i,\hat{y}_i)\), \(h_i = \partial^2_{\hat{y}_i}\ell\), \(w_j\) = leaf output weight, \(\lambda\) = L2 regularizer, \(\gamma\) = minimum-gain penalty.</p>
+    <p>Setting \(\partial \tilde{\mathcal{L}} / \partial w_j = 0\) gives the optimal leaf weight:</p>
+    <div class="eq">$$w_j^* = -\frac{G_j}{H_j + \lambda}$$</div>
+    <p>Substituting back, the optimal tree score for structure \(T\) is:</p>
+    <div class="eq">$$\tilde{\mathcal{L}}^{(t)}(T) = -\frac{1}{2}\sum_{j=1}^{J}\frac{G_j^2}{H_j+\lambda} + \gamma J$$</div>
+    <p>The gain from splitting leaf \(j\) on feature \(f\) at threshold \(t\) is the score decrease:</p>
+    <div class="eq">$$\text{Gain}(f,t) = \frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$</div>
+
+    <h4>GOSS Variance Bound</h4>
+    <p>Let \(A\) = top-\(a\) large-gradient set (size \(n_A = \lfloor an \rfloor\)), \(B\) = random sample of size \(n_B = \lfloor b(n - n_A)\rfloor\) from the rest. The GOSS gain estimator \(\tilde{\text{Gain}}\) reweights \(B\) by \(\alpha = (1-a)/b\):</p>
+    <div class="eq">$$\tilde{V}_{j|A,B}(d) = \frac{1}{n}\left[\frac{\left(\sum_{x_i \in A_l}g_i + \alpha\!\sum_{x_i \in B_l}g_i\right)^2}{n_l^j} + \frac{\left(\sum_{x_i \in A_r}g_i + \alpha\!\sum_{x_i \in B_r}g_i\right)^2}{n_r^j}\right]$$</div>
+    <p>The LightGBM paper (Ke et al. 2017) shows that the approximation error is bounded by \(O(1/\sqrt{n})\) in probability, meaning GOSS introduces negligible bias relative to the noise from finite data.</p>
+
+    <h4>EFB Conflict Graph</h4>
+    <p>Features \(f_i\) and \(f_j\) conflict if they are simultaneously nonzero for some sample. Define the conflict count \(c(f_i, f_j)\) as the number of such samples. EFB solves a graph coloring problem on the conflict graph \(G = (V, E)\) where an edge \((f_i, f_j)\) has weight \(c(f_i, f_j)\). Allowing up to \(K\) conflicts per bundle:</p>
+    <div class="eq">$$B^* = \operatorname{argmin}_{B} \; \text{num\_bundles}(B) \quad \text{s.t. } c(f_i, f_j) \leq K \;\forall\, f_i, f_j \in \text{same bundle}$$</div>
+    <p>This is NP-hard (graph coloring), so LightGBM uses a greedy sort-by-degree heuristic, typically achieving near-optimal bundling in \(O(F^2)\) preprocessing time.</p>
+
+    <h4>Histogram Split Complexity</h4>
+    <p>Let \(n\) = samples, \(F\) = features, \(B\) = histogram bins, \(T\) = boosting rounds, \(J\) = leaves per tree.</p>
+    <table class="cmp-table">
+      <tr><th>Method</th><th>Per-tree cost</th><th>Note</th></tr>
+      <tr><td>XGBoost exact</td><td>\(O(FnJ \log n)\)</td><td>Sort per feature × leaf × round</td></tr>
+      <tr><td>LightGBM hist</td><td class="highlight">\(O(FnB)\)</td><td>Build histograms once; scan \(B\) bins</td></tr>
+      <tr><td>LightGBM hist + EFB</td><td class="highlight">\(O(\tilde{F}nB)\)</td><td>\(\tilde{F} \ll F\) after bundling</td></tr>
+      <tr><td>LightGBM hist + GOSS + EFB</td><td class="highlight">\(O(\tilde{F}\tilde{n}B)\)</td><td>\(\tilde{n} \approx (a+b)n\), e.g. 50% of \(n\)</td></tr>
+    </table>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">Leaf-wise growth is NOT always better. If you don't cap <code>num_leaves</code>, the model will grow extremely unbalanced trees and overfit. The rule: <strong>num_leaves &lt; 2^max_depth</strong> and tuning <code>min_data_in_leaf</code> is critical for regularization — more important than in level-wise trees.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive: LightGBM Speed Tricks Visualized</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <div class="viz-container">
+      <canvas id="lgbmCanvas" height="420"></canvas>
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-growth" id="infoPhase">Growth Strategy</span>
+        <div class="info-step" id="infoStep">Step 1 / 8</div>
+        <div class="info-title" id="infoTitle">Level-wise vs Leaf-wise</div>
+        <div class="info-desc" id="infoDesc">Watch how XGBoost (level-wise) and LightGBM (leaf-wise) grow trees differently with the same leaf budget.</div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <p class="kbd-hint">Use ← → arrow keys to navigate · R to reset</p>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#A32D2D;"></div><span>XGBoost / level-wise</span></div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div><span>LightGBM / leaf-wise</span></div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#854F0B;"></div><span>Large gradient (GOSS keep)</span></div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11;"></div><span>Sampled small gradient</span></div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#9c9a92;"></div><span>Dropped (small gradient)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Comparison -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">LightGBM vs XGBoost vs CatBoost</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp-table">
+      <tr><th>Dimension</th><th>XGBoost</th><th>LightGBM</th><th>CatBoost</th></tr>
+      <tr><td>Tree growth</td><td>Level-wise</td><td class="highlight">Leaf-wise (best-first)</td><td>Symmetric (oblivious)</td></tr>
+      <tr><td>Split finding</td><td>Exact + approx histogram</td><td class="highlight">Histogram (255 bins)</td><td>Ordered target stats</td></tr>
+      <tr><td>Sampling trick</td><td>Column/row subsampling</td><td class="highlight">GOSS (gradient-guided)</td><td>Random permutation</td></tr>
+      <tr><td>Sparse features</td><td>Sparsity-aware</td><td class="highlight">EFB merging</td><td>None native</td></tr>
+      <tr><td>Categoricals</td><td>Needs encoding</td><td class="highlight">Native: gradient sort</td><td class="highlight">Native: ordered TS</td></tr>
+      <tr><td>Speed (large n)</td><td>Moderate</td><td class="highlight">Fastest</td><td>Moderate</td></tr>
+      <tr><td>Memory use</td><td>Higher (exact splits)</td><td class="highlight">Lower (histograms)</td><td>Moderate</td></tr>
+      <tr><td>Overfitting risk</td><td>Lower (level-wise)</td><td>Higher if num_leaves too large</td><td>Lower (symmetric)</td></tr>
+      <tr><td>Parallel training</td><td>Feature parallel</td><td class="highlight">Feature + data + voting parallel</td><td>Feature parallel</td></tr>
+      <tr><td>Best use case</td><td>Accuracy-first, smaller data</td><td class="highlight">Large data, speed critical</td><td>High-cardinality cats</td></tr>
+    </table>
+    <div class="concept-box insight">
+      <div class="concept-box-title">🎯 Decision Guide</div>
+      <p style="font-size:14px;margin:0;"><strong>Use LightGBM</strong> when: dataset has &gt;100K rows, you have many sparse or one-hot features, you need fast iteration (Kaggle, production pipelines). <strong>Use XGBoost</strong> when: dataset is smaller, you want more conservative overfitting behavior, or you need the exact split guarantee. <strong>Use CatBoost</strong> when: you have many high-cardinality categorical columns with no preprocessing budget, or target leakage is a concern (ordered TS prevents it natively).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Key Takeaways -->
+<div class="card" id="card6">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways & When to Use</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>LightGBM's Four Speed Pillars</h4>
+    <p><strong>1. Leaf-wise growth</strong> — grow the single most impactful leaf first. Achieves lower training loss per leaf budget than level-wise. Must cap <code>num_leaves</code> (typical: 31–127).</p>
+    <p><strong>2. GOSS</strong> — keep all large-gradient samples (which model gets wrong); randomly sample small-gradient ones (easy, less informative). Reweight the small set by \((1-a)/b\) to avoid bias. Reduces sample work by ~50% with minimal accuracy loss.</p>
+    <p><strong>3. EFB</strong> — detect mutually exclusive sparse features and merge them into bundles. Reduces effective feature dimensionality, often by 10–100× for one-hot encoded data.</p>
+    <p><strong>4. Histograms</strong> — bin features into 255 buckets once; then all split-finding operates on the \(B\) bin statistics, not the raw \(n\) values. Also supports histogram subtraction: child = parent − sibling.</p>
+    <h4>Critical Hyperparameters</h4>
+    <p><code>num_leaves</code> (primary overfitting control), <code>learning_rate</code>, <code>min_data_in_leaf</code>, <code>feature_fraction</code>, <code>bagging_fraction</code>, <code>lambda_l1/l2</code>. For GOSS: <code>top_rate</code> (\(a\)) and <code>other_rate</code> (\(b\)).</p>
+    <div class="concept-box danger">
+      <div class="concept-box-title">🚫 Common Mistakes</div>
+      <p style="font-size:14px;margin:0;">Never set <code>max_depth</code> alone — it does NOT control complexity in leaf-wise trees; <code>num_leaves</code> does. Never pass categorical columns as integers without setting <code>categorical_feature</code> — LightGBM will treat them as continuous and miss the native categorical split logic.</p>
+    </div>
+    <h4>Related Topics</h4>
+    <p>Prerequisites: Gradient Boosting Machines (GBM), Decision Trees, Second-order optimization. Successors: XGBoost (level-wise alternative), CatBoost (ordered TS), HistGradientBoosting (scikit-learn), FLAML/AutoML tuning. Connect to: Histogram-based Gradient Boosting, ensemble methods, tabular deep learning (TabNet, FT-Transformer as comparisons).</p>
+  </div>
+</div>
+
+<script>
+// ─── Card toggle ───────────────────────────────────────────────────────────
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const tog = header.querySelector('.section-toggle');
+  const isOpen = !body.classList.contains('collapsed');
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = body.scrollHeight + 'px';
+      requestAnimationFrame(() => { body.classList.add('collapsed'); tog.classList.remove('open'); });
+    });
+  } else {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    setTimeout(() => body.style.maxHeight = '9999px', 420);
+    tog.classList.add('open');
+  }
+}
+// Init all bodies open
+document.querySelectorAll('.section-body').forEach(b => b.style.maxHeight = '9999px');
+</script>
+<script>
+// ─── Visualization: LightGBM Speed Tricks ─────────────────────────────────
+const canvas = document.getElementById('lgbmCanvas');
+const ctx = canvas.getContext('2d');
+
+// Responsive canvas
+function resizeCanvas() {
+  const w = canvas.parentElement.clientWidth;
+  canvas.width = w;
+  canvas.height = 420;
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// ─── State ───────────────────────────────────────────────────────────────
+let step = 0;
+const TOTAL_STEPS = 8;
+
+// Build progress dots
+const pw = document.getElementById('progressWrap');
+for (let i = 0; i < TOTAL_STEPS; i++) {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i===0?' active':'');
+  d.onclick = () => { step = i; draw(); updateUI(); };
+  pw.appendChild(d);
+}
+
+// ─── Step metadata ───────────────────────────────────────────────────────
+const steps = [
+  { phase:'growth', title:'Level-wise vs Leaf-wise Setup', desc:'Both XGBoost (left, red) and LightGBM (right, purple) start with the same root node. The root represents all training samples — the first split will be chosen on the feature+threshold with the highest gain.' },
+  { phase:'growth', title:'Round 1: First Split', desc:'XGBoost splits the root creating depth-1 (2 leaves). LightGBM does the same — at depth 1, level-wise and leaf-wise are identical. Gain: left child 0.80, right child 0.30.' },
+  { phase:'growth', title:'Round 2 — Level-wise (XGBoost): split ALL leaves', desc:'XGBoost splits EVERY leaf at depth 1 simultaneously. Both the left leaf (gain 0.80) and right leaf (gain 0.30) get split. Total gain added: 0.80 + 0.30 = 1.10. Result: 4 leaves at depth 2.' },
+  { phase:'growth', title:'Round 2 — Leaf-wise (LightGBM): split BEST leaf only', desc:'LightGBM picks the single leaf with the highest gain — the left leaf (gain 0.80) — and splits only that one. Right leaf (gain 0.30) is untouched. Same depth budget but lower loss: LightGBM gets a deeper, more accurate left branch.' },
+  { phase:'growth', title:'Round 3 — Leaf-wise continues best-first', desc:'LightGBM scans all remaining leaves: left-left (gain 0.50), left-right (gain 0.20), right (gain 0.30). Best is left-left (0.50). Split it. After 3 splits: LightGBM has touched 4 nodes total vs 4 for XGBoost, but the gain path is 0.80→0.50 (deep) vs XGBoost\'s balanced 0.80+0.30 split.' },
+  { phase:'goss', title:'GOSS: Sort Samples by |gradient|', desc:'After one boosting round, each sample has a gradient magnitude |g|. Samples where the model is wrong have large |g| (red/amber). With a=0.30, b=0.40: keep top 3 large-gradient samples always; randomly sample 3 from the remaining 9 small-gradient samples. Reweight small sample by (1−0.3)/0.4 = 1.75×.' },
+  { phase:'goss', title:'GOSS: Reweighted Gain Estimate', desc:'GOSS uses all 3 large-gradient samples + 3 reweighted small-gradient samples (6 total out of 12 = 50% data). The reweighting ensures the split gain estimate remains approximately unbiased. LightGBM paper proves approximation error is O(1/√n).' },
+  { phase:'efb', title:'EFB: Exclusive Feature Bundling', desc:'Features A, B, C are mutually exclusive (one-hot style: never nonzero together). EFB merges all three into one bundle by adding integer offsets. A stays as-is (range 0–1), B gets offset +2 (values: 0→2, 1→3), C gets offset +4. The bundled feature replaces 3 columns with 1, cutting histogram building time by 3×.' },
+];
+
+// ─── Colors (CSS var approximations) ─────────────────────────────────────
+function getVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+const COL = {
+  xgb: '#A32D2D',   // red-mid (XGBoost)
+  lgb: '#534AB7',   // purple-mid (LightGBM)
+  large: '#854F0B', // amber-mid (large gradient)
+  small: '#3B6D11', // green-mid (sampled small)
+  drop: '#9c9a92',  // text3 (dropped)
+  node: '#185FA5',  // blue-mid
+  leaf: '#006064',  // cyan-mid
+  split: '#EF9F27', // amber
+};
+
+// ─── Draw dispatcher ─────────────────────────────────────────────────────
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // Background
+  ctx.fillStyle = getVar('--bg2') || '#f0efe9';
+  ctx.fillRect(0, 0, W, H);
+
+  if (step <= 4) drawTreeGrowth(W, H);
+  else if (step <= 6) drawGOSS(W, H);
+  else drawEFB(W, H);
+}
+
+// ─── Tree Growth Visualization ────────────────────────────────────────────
+function drawTreeGrowth(W, H) {
+  const half = W / 2;
+  const pad = 20;
+
+  // Labels
+  ctx.font = 'bold 13px ' + (getVar('--sans') || 'DM Sans, sans-serif');
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COL.xgb;
+  ctx.fillText('XGBoost — Level-wise', half / 2, 22);
+  ctx.fillStyle = COL.lgb;
+  ctx.fillText('LightGBM — Leaf-wise', half + half / 2, 22);
+
+  // Divider
+  ctx.strokeStyle = getVar('--border2') || 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(half, 30); ctx.lineTo(half, H - 20); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw trees depending on step
+  if (step === 0) {
+    drawNode(ctx, half/2, 70, 'Root\nn=100', COL.node, 36);
+    drawNode(ctx, half+half/2, 70, 'Root\nn=100', COL.node, 36);
+  } else if (step === 1) {
+    // Both have one split
+    drawTreeSplit(ctx, half/2, 70, ['.80', '.30'], COL.xgb, [true, true]);
+    drawTreeSplit(ctx, half+half/2, 70, ['.80', '.30'], COL.lgb, [true, true]);
+  } else if (step === 2) {
+    // XGBoost: splits both children (depth 2, 4 leaves)
+    drawTreeLevel2(ctx, half/2, 70, COL.xgb);
+    // LightGBM: same state as step 1 (not yet split)
+    drawTreeSplit(ctx, half+half/2, 70, ['.80', '.30'], COL.lgb, [true, true]);
+    // Annotation
+    ctx.fillStyle = COL.xgb;
+    ctx.font = '11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'center';
+    ctx.fillText('Both leaves split ✓', half/2, H-60);
+    ctx.fillText('Gain: 0.80 + 0.30 = 1.10', half/2, H-44);
+  } else if (step === 3) {
+    // XGBoost: depth 2 (same as step 2)
+    drawTreeLevel2(ctx, half/2, 70, COL.xgb);
+    // LightGBM: split ONLY the best leaf (left, gain 0.80 -> depth 2 on left)
+    drawTreeLeafwiseStep1(ctx, half+half/2, 70, COL.lgb);
+    ctx.fillStyle = COL.lgb;
+    ctx.font = '11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'center';
+    ctx.fillText('Only best leaf split ✓', half+half/2, H-60);
+    ctx.fillText('Gain: 0.80 (deeper left branch)', half+half/2, H-44);
+  } else if (step === 4) {
+    drawTreeLevel2(ctx, half/2, 70, COL.xgb);
+    drawTreeLeafwiseStep2(ctx, half+half/2, 70, COL.lgb);
+    ctx.fillStyle = COL.lgb;
+    ctx.font = '11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'center';
+    ctx.fillText('Next best: left-left (0.50)', half+half/2, H-60);
+    ctx.fillText('Cumulative gain: 0.80+0.50 = 1.30 > 1.10', half+half/2, H-44);
+  }
+}
+
+function drawNode(ctx, x, y, label, color, r) {
+  r = r || 28;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color + '22';
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.font = 'bold 10px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lines = label.split('\n');
+  if (lines.length === 2) {
+    ctx.fillText(lines[0], x, y - 6);
+    ctx.fillText(lines[1], x, y + 7);
+  } else {
+    ctx.fillText(label, x, y);
+  }
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawEdge(ctx, x1, y1, x2, y2, label, color) {
+  ctx.strokeStyle = color || '#9c9a92';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  if (label) {
+    const mx = (x1+x2)/2, my = (y1+y2)/2;
+    ctx.fillStyle = color || '#6b6b65';
+    ctx.font = '10px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'center';
+    ctx.fillText(label, mx + 6, my);
+  }
+}
+
+function drawTreeSplit(ctx, cx, rootY, gains, color, showGain) {
+  const dy = 90, dx = 70;
+  drawNode(ctx, cx, rootY, 'Root', color, 28);
+  const lx = cx - dx, rx = cx + dx, cy = rootY + dy;
+  drawEdge(ctx, cx, rootY+28, lx, cy-28, '', color);
+  drawEdge(ctx, cx, rootY+28, rx, cy-28, '', color);
+  drawNode(ctx, lx, cy, showGain[0]?'gain\n'+gains[0]:'leaf', color, 28);
+  drawNode(ctx, rx, cy, showGain[1]?'gain\n'+gains[1]:'leaf', color, 28);
+}
+
+function drawTreeLevel2(ctx, cx, rootY, color) {
+  const dy = 90, dx = 75, dy2 = 85, dx2 = 35;
+  drawNode(ctx, cx, rootY, 'Root', color, 26);
+  const lx = cx - dx, rx = cx + dx, y1 = rootY + dy;
+  drawEdge(ctx, cx, rootY+26, lx, y1-26, '', color);
+  drawEdge(ctx, cx, rootY+26, rx, y1-26, '', color);
+  drawNode(ctx, lx, y1, 'gain\n.80', color, 26);
+  drawNode(ctx, rx, y1, 'gain\n.30', color, 26);
+  // Second level for left
+  const ll = lx - dx2, lr = lx + dx2, y2 = y1 + dy2;
+  drawEdge(ctx, lx, y1+26, ll, y2-22, '', color);
+  drawEdge(ctx, lx, y1+26, lr, y2-22, '', color);
+  drawNode(ctx, ll, y2, 'leaf', color, 22);
+  drawNode(ctx, lr, y2, 'leaf', color, 22);
+  // Second level for right
+  const rl = rx - dx2, rr = rx + dx2;
+  drawEdge(ctx, rx, y1+26, rl, y2-22, '', color);
+  drawEdge(ctx, rx, y1+26, rr, y2-22, '', color);
+  drawNode(ctx, rl, y2, 'leaf', color, 22);
+  drawNode(ctx, rr, y2, 'leaf', color, 22);
+}
+
+function drawTreeLeafwiseStep1(ctx, cx, rootY, color) {
+  const dy = 90, dx = 75, dy2 = 85, dx2 = 35;
+  drawNode(ctx, cx, rootY, 'Root', color, 26);
+  const lx = cx - dx, rx = cx + dx, y1 = rootY + dy;
+  drawEdge(ctx, cx, rootY+26, lx, y1-26, '', color);
+  drawEdge(ctx, cx, rootY+26, rx, y1-26, '', color);
+  drawNode(ctx, lx, y1, 'gain\n.80 ★', color, 26);
+  // Right leaf NOT split (lighter)
+  ctx.globalAlpha = 0.45;
+  drawNode(ctx, rx, y1, 'gain\n.30', color, 26);
+  ctx.globalAlpha = 1;
+  // Left gets split
+  const ll = lx - dx2, lr = lx + dx2, y2 = y1 + dy2;
+  drawEdge(ctx, lx, y1+26, ll, y2-22, '', color);
+  drawEdge(ctx, lx, y1+26, lr, y2-22, '', color);
+  drawNode(ctx, ll, y2, 'gain\n.50', color, 22);
+  drawNode(ctx, lr, y2, 'gain\n.20', color, 22);
+}
+
+function drawTreeLeafwiseStep2(ctx, cx, rootY, color) {
+  const dy = 90, dx = 75, dy2 = 85, dy3 = 80, dx2 = 35, dx3 = 18;
+  drawNode(ctx, cx, rootY, 'Root', color, 26);
+  const lx = cx - dx, rx = cx + dx, y1 = rootY + dy;
+  drawEdge(ctx, cx, rootY+26, lx, y1-26, '', color);
+  drawEdge(ctx, cx, rootY+26, rx, y1-26, '', color);
+  drawNode(ctx, lx, y1, 'gain\n.80', color, 26);
+  ctx.globalAlpha = 0.45;
+  drawNode(ctx, rx, y1, 'gain\n.30', color, 26);
+  ctx.globalAlpha = 1;
+  const ll = lx - dx2, lr = lx + dx2, y2 = y1 + dy2;
+  drawEdge(ctx, lx, y1+26, ll, y2-22, '', color);
+  drawEdge(ctx, lx, y1+26, lr, y2-22, '', color);
+  drawNode(ctx, ll, y2, 'gain\n.50 ★', color, 22);
+  drawNode(ctx, lr, y2, 'gain\n.20', color, 22);
+  // ll gets split (best leaf)
+  const lll = ll - dx3, llr = ll + dx3, y3 = y2 + dy3;
+  drawEdge(ctx, ll, y2+22, lll, y3-18, '', color);
+  drawEdge(ctx, ll, y2+22, llr, y3-18, '', color);
+  drawNode(ctx, lll, y3, 'leaf', color, 18);
+  drawNode(ctx, llr, y3, 'leaf', color, 18);
+}
+
+// ─── GOSS Visualization ───────────────────────────────────────────────────
+// Gradients: [2.1,0.1,1.8,0.05,1.5,0.2,0.08,1.2,0.15,0.9,0.3,0.6] (12 samples)
+const GOSS_GRADS = [2.1,1.8,1.5,1.2,0.9,0.6,0.3,0.2,0.15,0.1,0.08,0.05];
+const GOSS_LABELS = ['s0','s2','s4','s7','s9','s11','s10','s5','s8','s1','s6','s3'];
+// Sorted descending; top 3 = large, sampled 3 from rest = {s6,s9,s8} → indices 6,8 in sorted order + s9=idx4
+// Actually from the python output: sampled indices from sorted list are s6,s9,s8 → sorted positions 6,4,8
+const GOSS_CATEGORY = [
+  'large','large','large',   // top 3
+  'drop','sampled','drop',   // s7,s9,s11 → s9 is sampled
+  'drop','drop','sampled',   // s10,s5,s8 → s8 is sampled
+  'drop','sampled','drop',   // s1,s6,s3 → s6 is sampled
+];
+// Colors: large→amber, sampled→green, drop→gray
+
+function drawGOSS(W, H) {
+  const n = 12;
+  const barW = Math.min(40, (W - 80) / n - 6);
+  const barMaxH = H - 140;
+  const baseY = H - 70;
+  const startX = (W - (barW + 6) * n) / 2 + 20;
+  const maxG = 2.1;
+
+  // Title
+  ctx.fillStyle = getVar('--text')||'#1a1a18';
+  ctx.font = 'bold 13px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'center';
+  ctx.fillText('GOSS: 12 samples sorted by |gradient|', W/2, 24);
+
+  ctx.font = '11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.fillStyle = getVar('--text2')||'#6b6b65';
+  ctx.fillText('a=0.30 → keep top 3 large-grad    b=0.40 → sample 3 from rest (reweight ×1.75)', W/2, 42);
+
+  for (let i = 0; i < n; i++) {
+    const x = startX + i * (barW + 6);
+    const g = GOSS_GRADS[i];
+    const bh = (g / maxG) * barMaxH;
+    const cat = GOSS_CATEGORY[i];
+    let col, label;
+    if (cat === 'large')   { col = COL.large;  label = '★'; }
+    else if (cat === 'sampled') { col = COL.small; label = '●'; }
+    else                   { col = COL.drop;   label = ''; }
+
+    // Bar
+    ctx.fillStyle = col + (cat==='drop'?'55':'cc');
+    ctx.beginPath();
+    ctx.roundRect(x, baseY - bh, barW, bh, [4,4,0,0]);
+    ctx.fill();
+
+    // Gradient value label
+    ctx.fillStyle = col;
+    ctx.font = 'bold 9px ' + (getVar('--mono')||'JetBrains Mono,monospace');
+    ctx.textAlign = 'center';
+    ctx.fillText(g.toFixed(2), x + barW/2, baseY - bh - 5);
+
+    // Sample label
+    ctx.fillStyle = cat==='drop'?(getVar('--text3')||'#9c9a92'):col;
+    ctx.font = '9px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.fillText(GOSS_LABELS[i], x + barW/2, baseY + 14);
+
+    // Category indicator
+    if (label) {
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = col;
+      ctx.fillText(label, x + barW/2, baseY - bh - 18);
+    }
+  }
+
+  // Boundary marker between large and rest
+  const bx = startX + 3*(barW+6) - 3;
+  ctx.strokeStyle = COL.large;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5,3]);
+  ctx.beginPath(); ctx.moveTo(bx, 50); ctx.lineTo(bx, baseY+20); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = COL.large;
+  ctx.font = 'bold 10px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'left';
+  ctx.fillText('← large (keep all)', bx - 70, 58);
+  ctx.fillStyle = getVar('--text2')||'#6b6b65';
+  ctx.fillText('small (sample + reweight) →', bx + 4, 58);
+
+  if (step === 6) {
+    // Show reweighting box
+    const bx2 = W/2;
+    ctx.fillStyle = getVar('--amber-bg')||'#FAEEDA';
+    ctx.strokeStyle = getVar('--amber-border')||'#EF9F27';
+    ctx.lineWidth = 1.5;
+    const rw = 260, rh = 44;
+    ctx.beginPath(); ctx.roundRect(bx2-rw/2, baseY+28, rw, rh, 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COL.large;
+    ctx.font = 'bold 11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'center';
+    ctx.fillText('Reweight factor = (1−0.30)/0.40 = 1.75×', bx2, baseY+46);
+    ctx.font = '10px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.fillStyle = getVar('--text2')||'#6b6b65';
+    ctx.fillText('Sampled small-grad contributions × 1.75 → unbiased gain estimate', bx2, baseY+62);
+  }
+}
+
+// ─── EFB Visualization ────────────────────────────────────────────────────
+function drawEFB(W, H) {
+  const samples = 10;
+  const featA = [1,0,0,1,0,1,0,0,1,0];
+  const featB = [0,1,0,0,1,0,1,0,0,1];
+  const featC = [0,0,1,0,0,0,0,1,0,0];
+  const bundled= [1,3,5,1,3,1,3,5,1,3]; // A=1(as-is), B=3 (2+1), C=5 (4+1)
+
+  const colW = (W - 60) / (samples + 1);
+  const rowH = 52;
+  const rows = [{label:'feat A', data:featA, col:COL.node},
+                {label:'feat B', data:featB, col:COL.lgb},
+                {label:'feat C', data:featC, col:COL.leaf}];
+  const startY = 60;
+
+  ctx.fillStyle = getVar('--text')||'#1a1a18';
+  ctx.font = 'bold 13px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'center';
+  ctx.fillText('EFB: Merging Mutually Exclusive Sparse Features', W/2, 28);
+
+  ctx.font = '11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.fillStyle = getVar('--text2')||'#6b6b65';
+  ctx.fillText('Features A, B, C are never nonzero at the same sample → bundle into 1 column with offsets', W/2, 46);
+
+  // Draw feature rows
+  rows.forEach((row, ri) => {
+    const y = startY + ri * rowH;
+    // Label
+    ctx.fillStyle = row.col;
+    ctx.font = 'bold 12px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.textAlign = 'right';
+    ctx.fillText(row.label, 55, y + rowH/2 + 5);
+
+    for (let i = 0; i < samples; i++) {
+      const x = 65 + i * colW;
+      const val = row.data[i];
+      const isNonzero = val !== 0;
+
+      ctx.fillStyle = isNonzero ? row.col + 'cc' : (getVar('--bg2')||'#f0efe9');
+      ctx.strokeStyle = isNonzero ? row.col : (getVar('--border')||'rgba(0,0,0,0.12)');
+      ctx.lineWidth = isNonzero ? 2 : 1;
+      ctx.beginPath();
+      ctx.roundRect(x + 2, y + 4, colW - 8, rowH - 12, 6);
+      ctx.fill(); ctx.stroke();
+
+      ctx.fillStyle = isNonzero ? '#fff' : (getVar('--text3')||'#9c9a92');
+      ctx.font = 'bold 12px ' + (getVar('--mono')||'JetBrains Mono,monospace');
+      ctx.textAlign = 'center';
+      ctx.fillText(val, x + colW/2 - 2, y + rowH/2 + 6);
+    }
+  });
+
+  // Arrow
+  const arrowY = startY + 3*rowH + 10;
+  ctx.strokeStyle = getVar('--text2')||'#6b6b65';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W/2-60, arrowY); ctx.lineTo(W/2+60, arrowY); ctx.stroke();
+  ctx.fillStyle = getVar('--text2')||'#6b6b65';
+  ctx.font = 'bold 11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'center';
+  ctx.fillText('Bundle: A offset=0, B offset=+2, C offset=+4', W/2, arrowY+16);
+
+  // Bundled row
+  const bY = arrowY + 32;
+  ctx.fillStyle = COL.large;
+  ctx.font = 'bold 12px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'right';
+  ctx.fillText('bundled', 55, bY + 22);
+
+  const bColors = {1:COL.node, 3:COL.lgb, 5:COL.leaf};
+  const bLabels = {1:'A(1)', 3:'B(1+2)', 5:'C(1+4)'};
+  for (let i = 0; i < samples; i++) {
+    const x = 65 + i * colW;
+    const val = bundled[i];
+    ctx.fillStyle = bColors[val] + 'bb';
+    ctx.strokeStyle = bColors[val];
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x+2, bY, colW-8, 40, 6);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px ' + (getVar('--mono')||'JetBrains Mono,monospace');
+    ctx.textAlign = 'center';
+    ctx.fillText(val, x + colW/2 - 2, bY + 15);
+    ctx.font = '9px ' + (getVar('--sans')||'DM Sans,sans-serif');
+    ctx.fillText(bLabels[val], x + colW/2 - 2, bY + 30);
+  }
+
+  // Summary box
+  ctx.fillStyle = getVar('--green-bg')||'#EAF3DE';
+  ctx.strokeStyle = getVar('--green-border')||'#97C459';
+  ctx.lineWidth = 1.5;
+  const sy = bY + 58, sw = 280, sh = 40;
+  ctx.beginPath(); ctx.roundRect(W/2 - sw/2, sy, sw, sh, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = COL.small;
+  ctx.font = 'bold 11px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.textAlign = 'center';
+  ctx.fillText('3 features → 1 bundle: 3× fewer histogram builds', W/2, sy + 17);
+  ctx.font = '10px ' + (getVar('--sans')||'DM Sans,sans-serif');
+  ctx.fillStyle = getVar('--text2')||'#6b6b65';
+  ctx.fillText('Original splits recoverable: check which offset range threshold falls in', W/2, sy + 32);
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────
+function updateUI() {
+  const s = steps[step];
+  document.getElementById('infoPhase').textContent = ({growth:'Growth Strategy',goss:'GOSS Sampling',efb:'EFB Bundling'})[s.phase];
+  document.getElementById('infoPhase').className = 'info-phase phase-' + s.phase;
+  document.getElementById('infoStep').textContent = 'Step ' + (step+1) + ' / ' + TOTAL_STEPS;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').textContent = s.desc;
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === TOTAL_STEPS - 1;
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.className = 'dot' + (i===step?' active':(i<step?' done':''));
+  });
+}
+
+function go(dir) {
+  const ns = step + dir;
+  if (ns < 0 || ns >= TOTAL_STEPS) return;
+  step = ns;
+  draw();
+  updateUI();
+}
+
+function reset() {
+  step = 0;
+  draw();
+  updateUI();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Fix roundRect for older browsers
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+    this.beginPath();
+    this.moveTo(x+r, y);
+    this.lineTo(x+w-r, y); this.arcTo(x+w,y,x+w,y+r,r);
+    this.lineTo(x+w, y+h-r); this.arcTo(x+w,y+h,x+w-r,y+h,r);
+    this.lineTo(x+r, y+h); this.arcTo(x,y+h,x,y+h-r,r);
+    this.lineTo(x, y+r); this.arcTo(x,y,x+r,y,r);
+    this.closePath();
+    return this;
+  };
+}
+
+// Initial render
+resizeCanvas();
+updateUI();
+</script>
+</body>
+</html>

@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Importance from Trees | AI/ML Vault</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+/* ── Design Tokens ──────────────────────────────────────────────────────── */
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+/* ── Base ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 15px;
+}
+.container { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.page-header {
+  padding: 32px 0 24px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+}
+.breadcrumb { font-size: 12px; color: var(--text3); margin-bottom: 10px; letter-spacing: 0.3px; }
+h1 { font-size: clamp(22px, 4vw, 32px); font-weight: 700; line-height: 1.25; }
+.subtitle { font-size: 15px; color: var(--text2); margin-top: 8px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px;
+}
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-category     { background: var(--blue-bg);   color: var(--blue-mid); }
+.tag-complexity   { background: var(--cyan-bg);   color: var(--cyan-mid); }
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.card-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px; cursor: pointer;
+  user-select: none; transition: background 0.2s;
+}
+.card-header:hover { background: var(--bg2); }
+.section-number {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--blue-bg); color: var(--blue-mid);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.section-title { font-size: 17px; font-weight: 700; flex: 1; }
+.chevron { color: var(--text3); font-size: 18px; transition: transform 0.25s; }
+.card-header.open .chevron { transform: rotate(90deg); }
+.card-body { padding: 0 20px 20px; }
+.card-body p { margin-bottom: 12px; color: var(--text2); line-height: 1.75; }
+.card-body p:last-child { margin-bottom: 0; }
+.card-body h4 { font-size: 14px; font-weight: 700; color: var(--text); margin: 16px 0 6px; }
+.card-body ul { padding-left: 20px; color: var(--text2); }
+.card-body li { margin-bottom: 6px; }
+
+/* ── Concept Boxes ──────────────────────────────────────────────────────── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.concept-box.insight  { background: var(--green-bg);  border: 1px solid var(--green-border); }
+.concept-box.insight  .concept-box-title { color: var(--green-mid); }
+.concept-box.warning  { background: var(--amber-bg);  border: 1px solid var(--amber-border); }
+.concept-box.warning  .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.danger   { background: var(--red-bg);    border: 1px solid var(--red-border); }
+.concept-box.danger   .concept-box-title { color: var(--red-mid); }
+.concept-box.math     { background: var(--cyan-bg);   border: 1px solid var(--cyan-border); }
+.concept-box.math     .concept-box-title { color: var(--cyan-mid); }
+
+/* ── Equations ──────────────────────────────────────────────────────────── */
+.eq {
+  text-align: center; padding: 14px 20px; margin: 0.75rem 0;
+  background: var(--cyan-bg); border: 1px solid var(--cyan-border);
+  border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto;
+}
+
+/* ── Code Panel ─────────────────────────────────────────────────────────── */
+.code-panel {
+  margin-top: 1rem; background: var(--bg2); border-radius: var(--radius);
+  padding: 12px 16px; font-family: var(--mono); font-size: 12px;
+  line-height: 1.8; overflow-x: auto;
+}
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* ── Comparison Table ───────────────────────────────────────────────────── */
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+.cmp-table th { background: var(--blue-bg); color: var(--blue-mid); font-weight: 700; padding: 10px 12px; text-align: left; border: 1px solid var(--blue-border); }
+.cmp-table td { padding: 9px 12px; border: 1px solid var(--border); color: var(--text2); }
+.cmp-table tr:nth-child(even) td { background: var(--bg2); }
+
+/* ── Visualization Container ─────────────────────────────────────────────── */
+#viz-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+#viz-section h3 { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+.viz-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 680px) { .viz-layout { grid-template-columns: 1fr; } }
+
+/* ── Tree SVG Canvas ─────────────────────────────────────────────────────── */
+#tree-canvas-wrap {
+  background: var(--bg2); border-radius: var(--radius-lg);
+  padding: 16px; border: 1px solid var(--border);
+}
+#tree-svg { width: 100%; height: 320px; overflow: visible; }
+
+/* ── Bar Chart ───────────────────────────────────────────────────────────── */
+#bar-chart-wrap {
+  background: var(--bg2); border-radius: var(--radius-lg);
+  padding: 16px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px;
+}
+#bar-chart-wrap h4 { font-size: 13px; font-weight: 700; color: var(--text); }
+.bar-row { display: flex; flex-direction: column; gap: 4px; }
+.bar-label-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
+.bar-label-name { color: var(--text); }
+.bar-label-val { color: var(--text3); font-family: var(--mono); }
+.bar-bg { background: var(--border); border-radius: 4px; height: 20px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.7s cubic-bezier(.4,0,.2,1); }
+
+/* ── Info Card ───────────────────────────────────────────────────────────── */
+.info-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 16px; margin-top: 16px;
+}
+.info-phase { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.info-phase.tree { color: var(--blue-mid); }
+.info-phase.impurity { color: var(--amber-mid); }
+.info-phase.attribution { color: var(--purple-mid); }
+.info-phase.result { color: var(--green-mid); }
+.info-step-counter { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.info-title { font-size: 15px; font-weight: 700; margin-top: 8px; margin-bottom: 6px; }
+.info-text { font-size: 13px; color: var(--text2); line-height: 1.65; }
+.info-math { font-family: var(--mono); font-size: 12px; padding: 8px 12px; background: var(--cyan-bg); border-radius: var(--radius); color: var(--cyan-text); margin-top: 8px; border: 1px solid var(--cyan-border); }
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 20px;
+  border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text); cursor: pointer; transition: all 0.2s;
+}
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 8px; font-size: 11px; color: var(--text3); }
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; font-size: 12px; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.leg-root { background: var(--purple-mid); }
+.leg-split { background: var(--amber-mid); }
+.leg-leaf  { background: var(--green-mid); }
+.leg-active { background: #e74c3c; }
+.leg-credit { background: var(--blue-mid); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ── HEADER ──────────────────────────────────────────────────────────── -->
+<header class="page-header">
+  <div class="breadcrumb">AI/ML Vault &rsaquo; Part III: Classical Machine Learning &rsaquo; 11. Decision Trees</div>
+  <h1>Feature Importance from Trees</h1>
+  <p class="subtitle">Mean Decrease in Impurity (MDI) — how decision trees attribute credit to each input feature, its bias toward high-cardinality features, and permutation importance as a less-biased alternative.</p>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-category">Decision Trees</span>
+    <span class="tag tag-complexity">Must Know</span>
+  </div>
+</header>
+
+<!-- ── CARD 1: Understanding ─────────────────────────────────────────── -->
+<div class="card" id="card1">
+  <div class="card-header open" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Feature Importance</div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="card-body">
+    <p>When a decision tree learns to classify or regress, it repeatedly splits the data using the most informative features first. After training, every split records <strong>how much it reduced impurity</strong> (disorder in the data). <em>Feature importance</em> simply sums those reductions, weighted by how many samples flowed through each split, and normalizes the totals to sum to one.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">Key Insight</div>
+      <p style="margin:0;font-size:14px;">A feature's importance = the total reduction in Gini (or entropy) it is responsible for, across <em>all</em> splits in the tree, weighted by the fraction of training samples at each split node.</p>
+    </div>
+    <p><strong>Analogy.</strong> Imagine you're sorting mail by urgency. First you separate "today's deadline" from "no deadline" — that single sort resolves most ambiguity (big impurity drop). Then within each pile you refine by sender. The first sorting rule (feature) earned most of the credit; the second rule earned a smaller share. That accounting is exactly MDI.</p>
+    <p><strong>One-sentence summary.</strong> MDI feature importance measures each feature's average contribution to making tree nodes purer, summed over all splits and normalized.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">If You Remember One Thing</div>
+      <p style="margin:0;font-size:14px;">MDI importance = \(\sum_{\text{splits on feature } j} \frac{n_t}{n} \cdot \Delta I(t)\), normalized to sum to 1. It is fast but <em>biased toward high-cardinality features</em>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── CARD 2: How It Works ───────────────────────────────────────────── -->
+<div class="card" id="card2">
+  <div class="card-header open" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How MDI Works Internally</div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="card-body">
+    <h4>Step 1 — Gini Impurity at Each Node</h4>
+    <p>For a node \(t\) with \(K\) classes and class probabilities \(p_k\), Gini impurity is:</p>
+    <div class="eq">$$G(t) = 1 - \sum_{k=1}^{K} p_k^2 \;=\; \sum_{k \ne k'} p_k p_{k'} $$</div>
+    <p>A pure node (all one class) has \(G = 0\); maximum disorder for binary classification gives \(G = 0.5\).</p>
+    <h4>Step 2 — Impurity Decrease at a Split</h4>
+    <p>When node \(t\) splits into left child \(t_L\) and right child \(t_R\), the impurity decrease is:</p>
+    <div class="eq">$$\Delta I(t) = G(t) - \frac{n_{t_L}}{n_t} G(t_L) - \frac{n_{t_R}}{n_t} G(t_R)$$</div>
+    <p>The tree greedily picks the feature and threshold that maximizes \(\Delta I(t)\) at every node.</p>
+    <h4>Step 3 — Weighted Accumulation per Feature</h4>
+    <p>For each feature \(j\), sum over every split node \(t\) that used \(j\):</p>
+    <div class="eq">$$\text{Imp}(j) = \sum_{t : \text{split on } j} \frac{n_t}{n} \cdot \Delta I(t)$$</div>
+    <p>The \(n_t / n\) factor (node sample fraction) weights deep splits in sparse regions less heavily.</p>
+    <h4>Step 4 — Normalization</h4>
+    <div class="eq">$$\hat{\text{Imp}}(j) = \frac{\text{Imp}(j)}{\sum_{j'} \text{Imp}(j')}$$</div>
+    <p>After normalization, all importances sum to exactly 1.0.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">High-Cardinality Bias</div>
+      <p style="margin:0;font-size:14px;">A numerical feature (e.g., age with hundreds of unique values) has more possible split thresholds than a binary feature (e.g., gender). More thresholds → more chances to look good by chance → MDI systematically overestimates importance of high-cardinality features, especially on small datasets. Permutation importance does not share this bias.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── CARD 3: Math & Permutation Importance ─────────────────────────── -->
+<div class="card" id="card3">
+  <div class="card-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">Permutation Importance — The Less-Biased Alternative</div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="card-body">
+    <p>Permutation importance (Breiman 2001, refined by Fisher et al. 2019) sidesteps the cardinality problem entirely. Instead of inspecting split statistics, it asks: <em>how much does model accuracy drop when feature \(j\)'s values are randomly shuffled?</em></p>
+    <div class="eq">$$\text{PI}(j) = \overline{\text{score}} - \frac{1}{K}\sum_{k=1}^{K} \text{score}\bigl(f,\, \tilde{\mathbf{X}}^{(j,k)}\bigr)$$</div>
+    <p>where \(\tilde{\mathbf{X}}^{(j,k)}\) is the dataset with column \(j\) randomly permuted in the \(k\)-th trial. Shuffling breaks the feature–target association while preserving marginal distributions.</p>
+    <h4>Key Differences</h4>
+    <table class="cmp-table">
+      <tr><th>Property</th><th>MDI (Gini Importance)</th><th>Permutation Importance</th></tr>
+      <tr><td>Computation speed</td><td>Instant (read from tree)</td><td>Slow (\(K \times\) inference)</td></tr>
+      <tr><td>High-cardinality bias</td><td>Yes — inflated importance</td><td>No</td></tr>
+      <tr><td>Works on unseen data</td><td>No (uses train set)</td><td>Yes (any split)</td></tr>
+      <tr><td>Sensitive to correlated features</td><td>Splits credit poorly</td><td>Spread across correlated set</td></tr>
+      <tr><td>Requires retraining</td><td>No</td><td>No</td></tr>
+      <tr><td>Used in sklearn</td><td><code>feature_importances_</code></td><td><code>permutation_importance()</code></td></tr>
+    </table>
+    <div class="concept-box danger">
+      <div class="concept-box-title">Critical Pitfall</div>
+      <p style="margin:0;font-size:14px;">When two features are strongly correlated, permutation importance splits the credit between them (shuffling one is partly compensated by the other). MDI exhibits the same issue but also compounds it with cardinality bias. SHAP values (game-theoretic) are the gold standard when exact credit attribution matters.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── CARD 4: Interactive Visualization ─────────────────────────────── -->
+<div id="viz-section">
+  <h3>Interactive Visualization — MDI Step-by-Step</h3>
+  <div class="viz-layout">
+    <!-- Tree SVG -->
+    <div id="tree-canvas-wrap">
+      <svg id="tree-svg" viewBox="0 0 360 300"></svg>
+    </div>
+    <!-- Bar chart -->
+    <div id="bar-chart-wrap">
+      <h4>Feature Importance (MDI)</h4>
+      <div class="bar-row" id="bar-age">
+        <div class="bar-label-row"><span class="bar-label-name">Age (X&#8320;)</span><span class="bar-label-val" id="val-age">0.00</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="fill-age" style="width:0%;background:var(--purple-mid)"></div></div>
+      </div>
+      <div class="bar-row" id="bar-income">
+        <div class="bar-label-row"><span class="bar-label-name">Income (X&#8321;)</span><span class="bar-label-val" id="val-income">0.00</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="fill-income" style="width:0%;background:var(--amber-mid)"></div></div>
+      </div>
+      <div class="bar-row" id="bar-educ">
+        <div class="bar-label-row"><span class="bar-label-name">Education (X&#8322;)</span><span class="bar-label-val" id="val-educ">0.00</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="fill-educ" style="width:0%;background:var(--green-mid)"></div></div>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text3);">
+        Sum = <span id="sum-check" style="font-family:var(--mono);font-weight:600;">0.0000</span>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot leg-root"></div><span>Root split</span></div>
+        <div class="legend-item"><div class="legend-dot leg-split"></div><span>Active split</span></div>
+        <div class="legend-item"><div class="legend-dot leg-leaf"></div><span>Leaf node</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--cyan-mid)"></div><span>Credit flow</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Info card -->
+  <div class="info-card">
+    <div class="info-phase tree" id="info-phase">SETUP</div>
+    <div class="info-step-counter" id="info-counter">Step 1 of 7</div>
+    <div class="info-title" id="info-title">Loading...</div>
+    <div class="info-text" id="info-text">Please wait...</div>
+    <div class="info-math" id="info-math" style="display:none"></div>
+  </div>
+
+  <!-- Code trace -->
+  <div class="code-panel" id="code-trace">
+    <div class="code-line" id="cl0">n_root = 100; G_root = 2*0.45*(1-0.45)   # = 0.4950</div>
+    <div class="code-line" id="cl1">n_L=55; G_L = 2*(15/55)*(40/55)          # = 0.3967</div>
+    <div class="code-line" id="cl2">n_R=45; G_R = 2*(30/45)*(15/45)          # = 0.4444</div>
+    <div class="code-line" id="cl3">dI_X0 = G_root-(n_L/n)*G_L-(n_R/n)*G_R  # = 0.0768</div>
+    <div class="code-line" id="cl4">imp_X0 = (n_root/n) * dI_X0             # = 0.0768</div>
+    <div class="code-line" id="cl5">n_LL=30; G_LL=2*(2/30)*(28/30)          # = 0.1244</div>
+    <div class="code-line" id="cl6">n_LR=25; G_LR=2*(13/25)*(12/25)         # = 0.4992</div>
+    <div class="code-line" id="cl7">dI_X1 = G_L-(n_LL/n_L)*G_LL-(n_LR/n_L)*G_LR # = 0.1019</div>
+    <div class="code-line" id="cl8">imp_X1 = (n_L/n) * dI_X1               # = 0.0560</div>
+    <div class="code-line" id="cl9">n_RL=20; G_RL=2*(5/20)*(15/20)          # = 0.3750</div>
+    <div class="code-line" id="cl10">n_RR=25; G_RR=2*(25/25)*(0/25)          # = 0.0000</div>
+    <div class="code-line" id="cl11">dI_X2 = G_R-(n_RL/n_R)*G_RL-(n_RR/n_R)*G_RR # = 0.2778</div>
+    <div class="code-line" id="cl12">imp_X2 = (n_R/n) * dI_X2               # = 0.1250</div>
+    <div class="code-line" id="cl13">total = imp_X0 + imp_X1 + imp_X2        # = 0.2579</div>
+    <div class="code-line" id="cl14">imp_X0/total, imp_X1/total, imp_X2/total # = 0.298, 0.217, 0.485</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn" id="btn-prev" onclick="go(-1)" disabled>&#8592; Prev</button>
+    <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next &#8594;</button>
+    <button class="btn" onclick="reset()">&#8635; Reset</button>
+  </div>
+  <div class="progress-wrap" id="progress-wrap"></div>
+  <div class="kbd-hint">Use &#8592; &#8594; arrow keys to navigate &nbsp;&bull;&nbsp; R to reset</div>
+</div>
+
+<!-- ── CARD 5: Code Implementation ───────────────────────────────────── -->
+<div class="card" id="card5">
+  <div class="card-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Code Implementation</div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="card-body">
+    <h4>From-Scratch MDI (NumPy)</h4>
+    <div class="code-panel" style="margin-top:0">
+      <div class="code-line" style="color:var(--text3)"># Compute MDI feature importances from a fitted sklearn DecisionTreeClassifier</div>
+      <div class="code-line" style="color:var(--text3)"># — identical logic to what sklearn does internally</div>
+      <div class="code-line">import numpy as np</div>
+      <div class="code-line">from sklearn.tree import DecisionTreeClassifier</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line">def mdi_importance_from_scratch(tree, n_features):</div>
+      <div class="code-line">    """Replicate sklearn's feature_importances_ from the tree's node data."""</div>
+      <div class="code-line">    t = tree.tree_</div>
+      <div class="code-line">    n_total = t.n_node_samples[0]          # total training samples</div>
+      <div class="code-line">    importances = np.zeros(n_features)</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line">    for node_id in range(t.node_count):</div>
+      <div class="code-line">        # Skip leaf nodes (no split)</div>
+      <div class="code-line">        if t.children_left[node_id] == -1:</div>
+      <div class="code-line">            continue</div>
+      <div class="code-line">        feature_j  = t.feature[node_id]</div>
+      <div class="code-line">        n_t        = t.n_node_samples[node_id]</div>
+      <div class="code-line">        n_tL       = t.n_node_samples[t.children_left[node_id]]</div>
+      <div class="code-line">        n_tR       = t.n_node_samples[t.children_right[node_id]]</div>
+      <div class="code-line">        G_t  = t.impurity[node_id]</div>
+      <div class="code-line">        G_tL = t.impurity[t.children_left[node_id]]</div>
+      <div class="code-line">        G_tR = t.impurity[t.children_right[node_id]]</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line">        # Weighted impurity decrease</div>
+      <div class="code-line">        delta = (n_t/n_total) * (G_t - (n_tL/n_t)*G_tL - (n_tR/n_t)*G_tR)</div>
+      <div class="code-line">        importances[feature_j] += delta</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line">    return importances / importances.sum()   # normalize to sum=1</div>
+    </div>
+    <h4>Production Usage (sklearn)</h4>
+    <div class="code-panel" style="margin-top:0">
+      <div class="code-line">from sklearn.tree import DecisionTreeClassifier</div>
+      <div class="code-line">from sklearn.ensemble import RandomForestClassifier</div>
+      <div class="code-line">from sklearn.inspection import permutation_importance</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line"># MDI (fast, built-in, biased)</div>
+      <div class="code-line">rf = RandomForestClassifier(n_estimators=100, random_state=42).fit(X_train, y_train)</div>
+      <div class="code-line">mdi = rf.feature_importances_          # averaged MDI across all trees</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line"># Permutation importance (slower, unbiased, use val set!)</div>
+      <div class="code-line">pi = permutation_importance(rf, X_val, y_val, n_repeats=10, random_state=42)</div>
+      <div class="code-line">perm_imp = pi.importances_mean         # mean over permutation trials</div>
+      <div class="code-line">&nbsp;</div>
+      <div class="code-line"># ⚠️ Gotcha 1: Always use a HELD-OUT set for permutation importance.</div>
+      <div class="code-line">#    Using training data gives inflated importance for overfit features.</div>
+      <div class="code-line"># ⚠️ Gotcha 2: MDI on a single tree can be noisy; average over a forest.</div>
+      <div class="code-line"># ⚠️ Gotcha 3: Correlated features split importance between them (both methods).</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CARD 6: Takeaways ──────────────────────────────────────────────── -->
+<div class="card" id="card6">
+  <div class="card-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways &amp; When to Use</div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="card-body">
+    <div class="concept-box insight">
+      <div class="concept-box-title">When to Use MDI</div>
+      <ul style="padding-left:18px;margin:0;color:var(--green-text);font-size:14px;">
+        <li>Quick feature ranking during exploratory analysis</li>
+        <li>Features are roughly same cardinality (all continuous or all binary)</li>
+        <li>Dataset is large enough that split-selection noise is small</li>
+        <li>You need importances instantly post-training (no extra compute)</li>
+      </ul>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">When NOT to Use MDI (Use Permutation Instead)</div>
+      <ul style="padding-left:18px;margin:0;color:var(--amber-text);font-size:14px;">
+        <li>Dataset is small (&lt; 1000 samples) — cardinality bias is severe</li>
+        <li>Features have very different cardinalities (mix of binary and continuous)</li>
+        <li>You need importance on unseen/test data</li>
+        <li>Regulatory requirements demand post-hoc, model-agnostic attribution</li>
+      </ul>
+    </div>
+    <h4>Related Topics</h4>
+    <p>Decision Trees (prerequisite) &bull; Random Forests (MDI averaged across trees) &bull; Gradient Boosting / XGBoost (same MDI formula, gain importance) &bull; SHAP Values (game-theoretic, handles correlations) &bull; LIME (local, model-agnostic explanations)</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Decision Rule</div>
+      <p style="margin:0;font-size:14px;">
+        <strong>Exploration / fast feedback:</strong> use <code>feature_importances_</code> (MDI).<br>
+        <strong>Reporting / high-stakes decisions:</strong> use <code>permutation_importance()</code> on a validation set.<br>
+        <strong>Correlated features / credit allocation:</strong> use SHAP TreeExplainer.
+      </p>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+/* ── Card toggle ─────────────────────────────────────────────────────────── */
+function toggleCard(id) {
+  const hdr = document.querySelector('#' + id + ' .card-header');
+  const body = document.querySelector('#' + id + ' .card-body');
+  const isOpen = hdr.classList.contains('open');
+  if (isOpen) {
+    hdr.classList.remove('open');
+    body.style.display = 'none';
+  } else {
+    hdr.classList.add('open');
+    body.style.display = '';
+  }
+}
+// Initialize closed cards
+['card3','card5','card6'].forEach(id => {
+  document.querySelector('#' + id + ' .card-body').style.display = 'none';
+});
+
+/* ── Numerical data (Python-verified) ────────────────────────────────────── */
+const N = 100;
+// Node definitions: [id, n, gini, class1_frac, x, y, label]
+const nodes = {
+  root: { n:100, g:0.4950, label:'Root\nn=100, G=0.495', cx:180, cy:30 },
+  L:    { n:55,  g:0.3967, label:'Age≤35\nn=55, G=0.397', cx:90,  cy:120 },
+  R:    { n:45,  g:0.4444, label:'Age>35\nn=45, G=0.444', cx:270, cy:120 },
+  LL:   { n:30,  g:0.1244, label:'Inc≤50k\nn=30, G=0.124', cx:45,  cy:220 },
+  LR:   { n:25,  g:0.4992, label:'Inc>50k\nn=25, G=0.499', cx:135, cy:220 },
+  RL:   { n:20,  g:0.3750, label:'Educ≤HS\nn=20, G=0.375', cx:225, cy:220 },
+  RR:   { n:25,  g:0.0000, label:'Educ>HS\nn=25, G=0.000', cx:315, cy:220 },
+};
+
+// Importances (Python-verified)
+const IMP_RAW = { age:0.0768, income:0.0560, educ:0.1250 };
+const IMP_TOTAL = 0.2579;
+const IMP_NORM = {
+  age:   +(0.0768/IMP_TOTAL).toFixed(4),   // 0.2979
+  income:+(0.0560/IMP_TOTAL).toFixed(4),   // 0.2172
+  educ:  +(0.1250/IMP_TOTAL).toFixed(4),   // 0.4847
+};
+
+// Steps definition
+const steps = [
+  {
+    phase:'tree', phaseLabel:'TREE STRUCTURE',
+    title:'A Decision Tree on Loan Default',
+    text:'We have 100 applicants. The tree uses three features: Age (X₀), Income (X₁), and Education (X₂). It makes three binary splits. The root node holds all 100 samples; Gini impurity = 0.495 (45% defaulted). We will trace exactly how impurity-reduction credit is attributed to each feature.',
+    math:'G(root) = 1 − (0.45)² − (0.55)² = 0.4950',
+    highlight:['root'],
+    active:[], done:[],
+    bars:{age:0,income:0,educ:0},
+    codeLines:[0]
+  },
+  {
+    phase:'impurity', phaseLabel:'SPLIT 1 — AGE',
+    title:'Split 1: Age ≤ 35 (Root Node)',
+    text:'The tree splits the root on Age ≤ 35. Left child: 55 samples (15 defaulted, G=0.397). Right child: 45 samples (30 defaulted, G=0.444). Impurity decrease = 0.495 − (55/100)×0.397 − (45/100)×0.444 = 0.0768. Since this split is at the root (100% of samples), weighted impurity = 1.0 × 0.0768 = 0.0768.',
+    math:'ΔI(root) = 0.4950 − 0.55×0.3967 − 0.45×0.4444 = 0.0768\nImp(Age) += (100/100) × 0.0768 = 0.0768',
+    highlight:['root','L','R'],
+    active:['L','R'], done:[],
+    bars:{age:IMP_NORM.age,income:0,educ:0},
+    codeLines:[1,2,3,4]
+  },
+  {
+    phase:'impurity', phaseLabel:'SPLIT 2 — INCOME',
+    title:'Split 2: Income ≤ 50k (Left Child)',
+    text:'Within the Age≤35 branch (55 samples, G=0.397), the tree splits on Income ≤ 50k. Left: 30 samples, 2 defaulted, G=0.124. Right: 25 samples, 13 defaulted, G=0.499. Impurity decrease = 0.397 − (30/55)×0.124 − (25/55)×0.499 = 0.1019. But this node holds only 55/100 = 55% of samples, so the weighted contribution is 0.55 × 0.1019 = 0.0560.',
+    math:'ΔI(L) = 0.3967 − (30/55)×0.1244 − (25/55)×0.4992 = 0.1019\nImp(Income) += (55/100) × 0.1019 = 0.0560',
+    highlight:['L','LL','LR'],
+    active:['LL','LR'], done:['L'],
+    bars:{age:IMP_NORM.age,income:IMP_NORM.income,educ:0},
+    codeLines:[5,6,7,8]
+  },
+  {
+    phase:'impurity', phaseLabel:'SPLIT 3 — EDUCATION',
+    title:'Split 3: Education > HS (Right Child)',
+    text:'Within the Age>35 branch (45 samples, G=0.444), the tree splits on Education level. Left: 20 samples, 5 defaulted, G=0.375. Right: 25 samples, ALL defaulted, G=0.000 — a perfectly pure leaf! Impurity decrease = 0.444 − (20/45)×0.375 − (25/45)×0.000 = 0.2778. Weighted: 0.45 × 0.2778 = 0.1250.',
+    math:'ΔI(R) = 0.4444 − (20/45)×0.3750 − (25/45)×0.0000 = 0.2778\nImp(Educ) += (45/100) × 0.2778 = 0.1250',
+    highlight:['R','RL','RR'],
+    active:['RL','RR'], done:['R'],
+    bars:{age:IMP_NORM.age,income:IMP_NORM.income,educ:IMP_NORM.educ},
+    codeLines:[9,10,11,12]
+  },
+  {
+    phase:'attribution', phaseLabel:'ACCUMULATION',
+    title:'Raw Importances (Before Normalization)',
+    text:'Total raw importance = 0.0768 + 0.0560 + 0.1250 = 0.2579. Note this equals the total impurity reduced from root Gini 0.495 down to the leaf Gini values (a sanity check). Each feature\'s raw score reflects its total contribution but in different units than the final normalized score.',
+    math:'Σ raw = 0.0768 + 0.0560 + 0.1250 = 0.2579\n(= total impurity reduction across all splits)',
+    highlight:['root','L','R','LL','LR','RL','RR'],
+    active:[], done:['L','R'],
+    bars:{age:IMP_NORM.age,income:IMP_NORM.income,educ:IMP_NORM.educ},
+    codeLines:[13]
+  },
+  {
+    phase:'result', phaseLabel:'NORMALIZATION',
+    title:'Normalized Feature Importances',
+    text:'Divide each raw importance by the total (0.2579) so they sum to 1. Result: Age = 0.298 (29.8%), Income = 0.217 (21.7%), Education = 0.485 (48.5%). Education wins despite appearing only once — it made the biggest single split (creating a perfect leaf). This is correct and consistent with information-theoretic expectations.',
+    math:'Imp̂(Age) = 0.0768/0.2579 = 0.298\nImp̂(Income) = 0.0560/0.2579 = 0.217\nImp̂(Educ) = 0.1250/0.2579 = 0.485',
+    highlight:['root','L','R','LL','LR','RL','RR'],
+    active:[], done:['L','R','LL','LR','RL','RR'],
+    bars:{age:IMP_NORM.age,income:IMP_NORM.income,educ:IMP_NORM.educ},
+    codeLines:[14]
+  },
+  {
+    phase:'result', phaseLabel:'BIAS WARNING',
+    title:'The High-Cardinality Bias Trap',
+    text:'Age and Income are continuous with many possible thresholds; Education might have few levels. MDI implicitly gives continuous features more opportunities to find a good split, inflating their apparent importance on small datasets. For an unbiased estimate, use sklearn\'s permutation_importance() on a held-out validation set — it measures actual prediction degradation, irrespective of cardinality.',
+    math:'Use: from sklearn.inspection import permutation_importance\npi = permutation_importance(model, X_val, y_val, n_repeats=10)',
+    highlight:[],
+    active:[], done:['root','L','R','LL','LR','RL','RR'],
+    bars:{age:IMP_NORM.age,income:IMP_NORM.income,educ:IMP_NORM.educ},
+    codeLines:[]
+  },
+];
+
+let currentStep = 0;
+const TOTAL = steps.length;
+
+/* ── SVG Tree Rendering ──────────────────────────────────────────────────── */
+const svg = document.getElementById('tree-svg');
+
+function nodeColor(id, step) {
+  const s = steps[step];
+  if (s.done.includes(id)) return 'var(--green-mid)';
+  if (s.active.includes(id)) return 'var(--amber-mid)';
+  if (s.highlight.includes(id)) return 'var(--purple-mid)';
+  return 'var(--border2)';
+}
+
+function renderTree(step) {
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+
+  // Edges
+  const edges = [
+    ['root','L'],['root','R'],['L','LL'],['L','LR'],['R','RL'],['R','RR']
+  ];
+  edges.forEach(([a,b]) => {
+    const na=nodes[a], nb=nodes[b];
+    const line = document.createElementNS(ns,'line');
+    line.setAttribute('x1', na.cx); line.setAttribute('y1', na.cy+20);
+    line.setAttribute('x2', nb.cx); line.setAttribute('y2', nb.cy-20);
+    const isActive = steps[step].active.includes(b) || steps[step].done.includes(b);
+    line.setAttribute('stroke', isActive ? 'var(--cyan-mid)' : 'var(--border2)');
+    line.setAttribute('stroke-width', isActive ? '2.5' : '1.5');
+    line.setAttribute('stroke-dasharray', isActive ? '' : '4,3');
+    svg.appendChild(line);
+  });
+
+  // Node circles + labels
+  Object.entries(nodes).forEach(([id, nd]) => {
+    const g = document.createElementNS(ns, 'g');
+
+    const circle = document.createElementNS(ns, 'circle');
+    circle.setAttribute('cx', nd.cx);
+    circle.setAttribute('cy', nd.cy);
+    const isLeaf = ['LL','LR','RL','RR'].includes(id);
+    circle.setAttribute('r', isLeaf ? 18 : 22);
+    circle.setAttribute('fill', nodeColor(id, step));
+    circle.setAttribute('stroke', 'var(--surface)');
+    circle.setAttribute('stroke-width', '2');
+    g.appendChild(circle);
+
+    // Node label below circle
+    const lines = nd.label.split('\n');
+    lines.forEach((line, i) => {
+      const txt = document.createElementNS(ns, 'text');
+      txt.setAttribute('x', nd.cx);
+      txt.setAttribute('y', nd.cy + (isLeaf ? 18 : 22) + 14 + i*13);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('font-size', '9');
+      txt.setAttribute('fill', 'var(--text2)');
+      txt.setAttribute('font-family', 'JetBrains Mono, monospace');
+      txt.textContent = line;
+      g.appendChild(txt);
+    });
+
+    // Feature label on edge for non-root splits
+    if (id === 'L') {
+      const tl = document.createElementNS(ns, 'text');
+      tl.setAttribute('x', 130); tl.setAttribute('y', 78);
+      tl.setAttribute('text-anchor','middle'); tl.setAttribute('font-size','10');
+      tl.setAttribute('fill','var(--purple-mid)'); tl.setAttribute('font-weight','700');
+      tl.textContent = 'Age≤35'; g.appendChild(tl);
+    }
+    if (id === 'R') {
+      const tl = document.createElementNS(ns, 'text');
+      tl.setAttribute('x', 232); tl.setAttribute('y', 78);
+      tl.setAttribute('text-anchor','middle'); tl.setAttribute('font-size','10');
+      tl.setAttribute('fill','var(--purple-mid)'); tl.setAttribute('font-weight','700');
+      tl.textContent = 'Age>35'; g.appendChild(tl);
+    }
+
+    svg.appendChild(g);
+  });
+}
+
+/* ── Bar Chart Update ────────────────────────────────────────────────────── */
+function updateBars(bars) {
+  const vals = [
+    { key:'age',    fillId:'fill-age',    valId:'val-age' },
+    { key:'income', fillId:'fill-income', valId:'val-income' },
+    { key:'educ',   fillId:'fill-educ',   valId:'val-educ' },
+  ];
+  vals.forEach(({key, fillId, valId}) => {
+    const v = bars[key] || 0;
+    document.getElementById(fillId).style.width = (v * 100).toFixed(1) + '%';
+    document.getElementById(valId).textContent = (v * 100).toFixed(1) + '%';
+  });
+  const sum = (bars.age||0) + (bars.income||0) + (bars.educ||0);
+  document.getElementById('sum-check').textContent = sum.toFixed(4);
+}
+
+/* ── Info Card Update ────────────────────────────────────────────────────── */
+const phaseColors = {tree:'tree', impurity:'impurity', attribution:'attribution', result:'result'};
+function updateInfo(step) {
+  const s = steps[step];
+  const phaseEl = document.getElementById('info-phase');
+  phaseEl.className = 'info-phase ' + phaseColors[s.phase];
+  phaseEl.textContent = s.phaseLabel;
+  document.getElementById('info-counter').textContent = `Step ${step+1} of ${TOTAL}`;
+  document.getElementById('info-title').textContent = s.title;
+  document.getElementById('info-text').textContent = s.text;
+  const mathEl = document.getElementById('info-math');
+  if (s.math) {
+    mathEl.style.display = '';
+    mathEl.textContent = s.math;
+  } else {
+    mathEl.style.display = 'none';
+  }
+}
+
+/* ── Code Trace Update ────────────────────────────────────────────────────── */
+function updateCode(step) {
+  const active = new Set(steps[step].codeLines);
+  for (let i=0;i<=14;i++) {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.toggle('active', active.has(i));
+  }
+}
+
+/* ── Progress Dots ────────────────────────────────────────────────────────── */
+function buildDots() {
+  const wrap = document.getElementById('progress-wrap');
+  wrap.innerHTML = '';
+  for (let i=0;i<TOTAL;i++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.onclick = () => jumpTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots(step) {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d,i) => {
+    d.classList.remove('active','done');
+    if (i < step) d.classList.add('done');
+    else if (i === step) d.classList.add('active');
+  });
+}
+
+/* ── Navigation ──────────────────────────────────────────────────────────── */
+function render(step) {
+  renderTree(step);
+  updateBars(steps[step].bars);
+  updateInfo(step);
+  updateCode(step);
+  updateDots(step);
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === TOTAL - 1;
+}
+
+function go(dir) {
+  const next = currentStep + dir;
+  if (next >= 0 && next < TOTAL) { currentStep = next; render(currentStep); }
+}
+function jumpTo(i) { currentStep = i; render(currentStep); }
+function reset() { currentStep = 0; render(0); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+buildDots();
+render(0);
+</script>
+
+</body>
+</html>

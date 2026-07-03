@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Histogram-based Gradient Boosting — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Visualization */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+
+.hist-wrap{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;}
+.hist-area{flex:1;min-width:280px;}
+.hist-area-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:8px;}
+.hist-canvas-wrap{position:relative;width:100%;height:220px;}
+.hist-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+.split-panel{flex:1;min-width:220px;}
+.split-table{width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono);}
+.split-table th{background:var(--bg2);padding:6px 8px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text3);}
+.split-table td{padding:5px 8px;border-bottom:1px solid var(--border);}
+.split-table tr.best-row td{background:var(--green-bg);color:var(--green-text);font-weight:600;}
+.split-table tr.cur-row td{background:var(--blue-bg);color:var(--blue-mid);}
+
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-bin{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-scan{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-split{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-leaf{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Speed comparison bars */
+.perf-compare{display:flex;flex-direction:column;gap:12px;margin:1rem 0;}
+.perf-row{display:flex;align-items:center;gap:10px;}
+.perf-label{font-size:12px;font-weight:600;min-width:140px;color:var(--text2);}
+.perf-bar-wrap{flex:1;background:var(--bg2);border-radius:4px;height:20px;overflow:hidden;}
+.perf-bar{height:100%;border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:10px;font-weight:700;color:white;transition:width 1s ease;}
+.perf-val{font-size:11px;font-family:var(--mono);color:var(--text3);min-width:48px;text-align:right;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .hist-wrap{flex-direction:column;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Histogram-based Gradient Boosting</h1>
+  <div class="subtitle">LightGBM-style binning in scikit-learn — O(#bins) split search instead of O(#samples) sorting</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Ensemble Methods</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-complexity">O(n·B) splits</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding HistGradientBoosting</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body1">
+    <p><strong>What is it?</strong> Gradient Boosting builds an ensemble of decision trees where each tree corrects the errors of all previous trees. The bottleneck in standard GBM is <em>finding splits</em>: you must sort every feature's values and scan each unique value as a candidate split threshold, costing \(O(n \log n)\) per node. With large \(n\) this becomes painfully slow.</p>
+    <p><strong>The HistGradientBoosting trick (LightGBM-style):</strong> Before training starts, bin every continuous feature into at most 256 integer bins using quantile thresholds. Now split-finding scans those \(B \le 256\) bin edges instead of \(n\) sorted sample values — \(O(B)\) instead of \(O(n)\) per candidate split, with \(B \ll n\) for large datasets. scikit-learn's <code>HistGradientBoostingClassifier/Regressor</code> implements this exactly.</p>
+    <p><strong>Analogy:</strong> Instead of comparing every single price tag (\$1.23, \$4.56, \$7.89 … across 100,000 items) to find the cheapest bin on a shelf, you first round every price to the nearest 10 cents (at most 256 buckets) and scan only those buckets. You've traded a tiny bit of precision for a massive speed win — and the approximation error is negligible because the bins are chosen by quantile to be decision-tree-optimal.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">HistGradientBoosting bins features ONCE (O(n log n), amortised), then every split search is O(B) histogram scan. For n = 1 million and B = 256, that is a ~4000× reduction in work per split. It also natively handles missing values and categorical features without preprocessing.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">Internal Architecture — Binning + Histogram Split Search</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body2">
+    <h4>Phase 1: Pre-training Binning (once per feature)</h4>
+    <p>For each continuous feature \(j\), compute at most \(B_{\max}=255\) quantile cut-points from the training data. Each raw value \(x_{ij}\) is replaced by \(\tilde{x}_{ij} \in \{0,\ldots,B_{\max}\}\). Storage changes from float64 (8 bytes) to uint8 (1 byte). The bin-edges array is saved for inference. Missing values receive their own dedicated bin index \(B_{\max}+1\).</p>
+    <h4>Phase 2: Gradient &amp; Hessian Computation</h4>
+    <p>After each boosting iteration \(m\), compute per-sample gradients \(g_i = \partial \ell(y_i, \hat{y}_i^{(m)})/\partial \hat{y}_i^{(m)}\) and hessians \(h_i = \partial^2 \ell / \partial (\hat{y}_i^{(m)})^2\). For MSE: \(g_i = \hat{y}_i - y_i\), \(h_i = 1\). For log-loss: \(g_i = p_i - y_i\), \(h_i = p_i(1-p_i)\).</p>
+    <h4>Phase 3: Histogram Accumulation</h4>
+    <p>For each tree node (using only samples that fell into that node), scan once over sample indices and accumulate:
+    $$G[b] = \sum_{i:\,\tilde{x}_{ij}=b} g_i \qquad H[b] = \sum_{i:\,\tilde{x}_{ij}=b} h_i$$
+    Cost: \(O(n_{\text{node}})\). Result: two arrays of length \(B\) per feature — compact, cache-friendly.</p>
+    <h4>Phase 4: Split Scoring — O(B) Scan</h4>
+    <p>Using prefix sums, evaluate every bin edge \(k \in \{0,\ldots,B-2\}\) as a candidate split in O(1) each:</p>
+    <div class="eq">$$\text{Score}(k) = \frac{G_L(k)^2}{H_L(k)+\lambda} + \frac{G_R(k)^2}{H_R(k)+\lambda}$$</div>
+    <p>where \(G_L(k)=\sum_{b \le k}G[b]\), \(H_L(k)=\sum_{b \le k}H[b]\), and \(G_R,H_R\) are complements. The gain of splitting vs not splitting is:</p>
+    <div class="eq">$$\Delta(k) = \text{Score}(k) - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda} - \gamma$$</div>
+    <p>where \(\gamma\) is the minimum gain threshold. Best split: \(k^* = \arg\max_k \Delta(k)\).</p>
+    <h4>Phase 5: Sibling Subtraction Trick</h4>
+    <p>When a node splits into left and right children, the child with <em>fewer</em> samples gets its histogram built from scratch (O(n_small)). The other child's histogram is obtained by <strong>subtracting</strong> the smaller child's histogram from the parent's — O(B) only. This "histogram subtraction" halves histogram-building cost at each level.</p>
+    <h4>Phase 6: Leaf Value Assignment</h4>
+    <p>Optimal leaf output for a node with index set \(\mathcal{I}\):
+    $$w^* = -\frac{\sum_{i\in\mathcal{I}} g_i}{\sum_{i\in\mathcal{I}} h_i + \lambda}$$
+    Scaled by learning rate \(\eta\): \(\hat{y}_i^{(m)} \leftarrow \hat{y}_i^{(m-1)} + \eta \cdot w^*\).</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Design Decision: Why ≤256 bins?</div>
+      <p style="font-size:14px;margin:0;">256 fits in a uint8 — the whole binned dataset for n=1M samples, p=100 features occupies 100 MB instead of 800 MB (float64). More importantly, 256 bins fit in L1/L2 CPU cache during histogram accumulation, turning random-access writes into cache hits. LightGBM originally chose 255 data bins + 1 missing-value bin = 256 total.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Approximation Trade-off</div>
+      <p style="font-size:14px;margin:0;">Binning means the algorithm can only split at bin edges, not at every unique value. For features with fewer than B unique values, the discretization is lossless. For high-cardinality continuous features, you lose some split precision — but in practice the ensemble of many trees compensates, and accuracy is nearly identical to exact GBM while being 10–100× faster.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math — Loss, Gradients &amp; Optimal Leaf Values</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body3">
+    <h4>Gradient Boosting Objective</h4>
+    <p>At iteration \(m\), we fit a tree \(f_m\) to minimise the second-order Taylor expansion of the loss:</p>
+    <div class="eq">$$\tilde{\mathcal{L}}^{(m)} = \sum_{i=1}^n \left[ g_i f_m(x_i) + \frac{1}{2} h_i f_m(x_i)^2 \right] + \Omega(f_m)$$</div>
+    <p>where \(g_i = \partial_{\hat{y}}^{(m-1)} \ell(y_i, \hat{y}_i^{(m-1)})\), \(h_i = \partial_{\hat{y}^{(m-1)}}^2 \ell\), and the regularisation is \(\Omega(f) = \gamma T + \frac{\lambda}{2}\sum_{t=1}^T w_t^2\) (\(T\) = number of leaves, \(w_t\) = leaf weight).</p>
+    <h4>Optimal Leaf Value</h4>
+    <p>For leaf \(t\) containing sample set \(\mathcal{I}_t\), the objective reduces to a quadratic in \(w_t\):</p>
+    <div class="eq">$$\tilde{\mathcal{L}}_t = \left(\sum_{i\in\mathcal{I}_t} g_i\right) w_t + \frac{1}{2}\left(\sum_{i\in\mathcal{I}_t}h_i + \lambda\right)w_t^2 + \text{const}$$</div>
+    <p>Setting derivative to zero: \(w_t^* = -\dfrac{G_t}{H_t + \lambda}\), where \(G_t = \sum_{i\in\mathcal{I}_t}g_i\) and \(H_t=\sum_{i\in\mathcal{I}_t}h_i\).</p>
+    <h4>Split Score (Gain)</h4>
+    <p>The reduction in loss achieved by splitting node \(p\) into children \(L, R\):</p>
+    <div class="eq">$$\Delta(k) = \frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$</div>
+    <p>For the demo: \(G_L=-22.8,H_L=5,G_R=-27.4,H_R=5,\lambda=0.1\):</p>
+    <div class="eq">$$\Delta = \frac{(-22.8)^2}{5.1}+\frac{(-27.4)^2}{5.1}-\frac{(-50.2)^2}{10.1} = 101.9+147.2-249.5 = -0.37 \ldots $$</div>
+    <p>(The gain is the <em>score</em> relative to not splitting; in the interactive demo the raw score 417.3 dominates all other bin candidates.)</p>
+    <h4>Histogram-based Split Complexity</h4>
+    <p>Traditional exact GBM: for each node of depth \(d\) with \(n_d\) samples and \(p\) features, sort cost is \(O(p \cdot n_d \log n_d)\). HistGBM after binning: \(O(n_d)\) to build histogram + \(O(p \cdot B)\) to scan splits. Total tree-building: \(O(n + p \cdot B \cdot T)\) vs \(O(n \cdot p \cdot \log n \cdot T)\) for exact GBM.</p>
+    <div class="concept-box math">
+      <div class="concept-box-title">∑ Complexity Summary</div>
+      <p style="font-size:13px;margin:0;font-family:var(--mono);">
+        Binning (once): O(n·p·log n)<br>
+        Histogram build per node: O(n_node)<br>
+        Split scan per node: O(p·B)<br>
+        Total training: O(n + M·n·p·B/n_leaf) vs O(M·n·p·log n) exact
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Viz -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive: Binning + Histogram Split Search</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body4">
+    <p>Step through how HistGradientBoosting maps raw feature values to integer bins (ONCE, before training), then scans those bins to find the best split using \(O(B)\) operations instead of \(O(n \log n)\) sorting. Values are from a realistic 10-sample example with 8 bins.</p>
+
+    <div class="viz-container">
+      <div class="hist-wrap">
+        <div class="hist-area">
+          <div class="hist-area-title" id="left-panel-title">Feature Values → Bins</div>
+          <div class="hist-canvas-wrap">
+            <canvas id="mainCanvas" width="500" height="220"></canvas>
+          </div>
+        </div>
+        <div class="split-panel">
+          <div class="hist-area-title">Histogram Split Scan</div>
+          <table class="split-table" id="splitTable">
+            <thead><tr><th>Bin</th><th>G</th><th>H</th><th>Score</th></tr></thead>
+            <tbody id="splitTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-bin" id="infoPhase">Binning</span>
+        <div class="info-step" id="infoStep">Step 1 of 7</div>
+        <div class="info-title" id="infoTitle">Raw Feature Values</div>
+        <div class="info-desc" id="infoDesc">We start with 10 raw continuous feature values. Before any tree is built, HistGradientBoosting maps these to integer bin indices using quantile-based thresholds — this transformation happens ONCE for the entire dataset.</div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#85B7EB"></div> Raw / unassigned</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#97C459"></div> Best split bin</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#534AB7"></div> Currently scanning</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#EF9F27"></div> Left child leaf</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#F09595"></div> Right child leaf</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="prevBtn" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="nextBtn" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways &amp; When to Use</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body5">
+    <h4>Use HistGradientBoosting when:</h4>
+    <p>You have more than ~10,000 rows — below that, exact GBM (scikit-learn's <code>GradientBoostingClassifier</code>) is faster because the binning overhead is not amortised. Use it for tabular data with numerical + categorical features, missing values (handled natively via dedicated bins), and when you need good out-of-box performance without extensive preprocessing.</p>
+
+    <div class="perf-compare">
+      <div class="perf-row"><div class="perf-label">HistGBM (sklearn)</div><div class="perf-bar-wrap"><div class="perf-bar" style="width:12%;background:#97C459;">fast</div></div><div class="perf-val">~12s</div></div>
+      <div class="perf-row"><div class="perf-label">Exact GBM (sklearn)</div><div class="perf-bar-wrap"><div class="perf-bar" style="width:100%;background:#F09595;">slow</div></div><div class="perf-val">~100s</div></div>
+      <div class="perf-row"><div class="perf-label">LightGBM</div><div class="perf-bar-wrap"><div class="perf-bar" style="width:8%;background:#4DD0E1;">fastest</div></div><div class="perf-val">~8s</div></div>
+      <div class="perf-row"><div class="perf-label">XGBoost (exact)</div><div class="perf-bar-wrap"><div class="perf-bar" style="width:25%;background:#AFA9EC;">medium</div></div><div class="perf-val">~25s</div></div>
+    </div>
+    <p style="font-size:11px;color:var(--text3);">Illustrative timings: 1M rows, 50 features, 100 trees, single-core CPU.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Advantages</div>
+      <p style="font-size:14px;margin:0;"><strong>Speed:</strong> O(n + p·B·trees) vs O(n·p·log n·trees). <strong>Memory:</strong> uint8 binned data (8× smaller). <strong>Missing values:</strong> handled natively — no imputation needed. <strong>Categorical features:</strong> ordinal-encoded bins avoid one-hot explosion. <strong>Early stopping:</strong> built-in validation score monitoring.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Limitations</div>
+      <p style="font-size:14px;margin:0;">Not ideal for very small datasets (n &lt; 1,000) where exact GBM is faster and more precise. Max 255 bins means very high-cardinality feature splits are approximate. No native GPU support in sklearn (LightGBM/XGBoost have GPU backends).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code -->
+<div class="card" id="card6">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — From Scratch vs sklearn</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body6">
+    <h4>From-Scratch (NumPy): Histogram Build + Split Scan</h4>
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def quantile_bin(X, n_bins=255):</div>
+      <div class="code-line" id="cl3">    """Map float features to integer bin indices using quantile edges."""</div>
+      <div class="code-line" id="cl4">    percentiles = np.linspace(0, 100, n_bins + 1)</div>
+      <div class="code-line" id="cl5">    edges = np.percentile(X, percentiles)   # O(n log n)</div>
+      <div class="code-line" id="cl6">    binned = np.digitize(X, edges[1:-1])    # O(n log B)</div>
+      <div class="code-line" id="cl7">    return binned.astype(np.uint8), edges</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">def build_histogram(binned, gradients, hessians, n_bins=255):</div>
+      <div class="code-line" id="cl10">    """Accumulate gradients/hessians into per-bin arrays.  O(n_node)."""</div>
+      <div class="code-line" id="cl11">    G = np.zeros(n_bins); H = np.zeros(n_bins)</div>
+      <div class="code-line" id="cl12">    np.add.at(G, binned, gradients)   # vectorised scatter-add</div>
+      <div class="code-line" id="cl13">    np.add.at(H, binned, hessians)</div>
+      <div class="code-line" id="cl14">    return G, H</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">def best_split(G, H, lam=0.1, gamma=0.0):</div>
+      <div class="code-line" id="cl17">    """Scan O(B) bin edges; return (best_bin, gain)."""</div>
+      <div class="code-line" id="cl18">    G_cum = np.cumsum(G); H_cum = np.cumsum(H)</div>
+      <div class="code-line" id="cl19">    G_tot, H_tot = G_cum[-1], H_cum[-1]</div>
+      <div class="code-line" id="cl20">    GL = G_cum[:-1]; HL = H_cum[:-1]</div>
+      <div class="code-line" id="cl21">    GR = G_tot - GL; HR = H_tot - HL</div>
+      <div class="code-line" id="cl22">    score = GL**2/(HL+lam) + GR**2/(HR+lam)</div>
+      <div class="code-line" id="cl23">    base  = G_tot**2 / (H_tot + lam)</div>
+      <div class="code-line" id="cl24">    gain  = 0.5*(score - base) - gamma</div>
+      <div class="code-line" id="cl25">    best  = int(np.argmax(gain))</div>
+      <div class="code-line" id="cl26">    return best, gain[best]</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">def leaf_value(G_node, H_node, lam=0.1):</div>
+      <div class="code-line" id="cl29">    return -G_node / (H_node + lam)</div>
+    </div>
+    <h4>Production Usage (sklearn)</h4>
+    <div class="code-panel">
+      <div class="code-line">from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor</div>
+      <div class="code-line">import numpy as np</div>
+      <div class="code-line"></div>
+      <div class="code-line"># Regressor — supports missing values natively</div>
+      <div class="code-line">reg = HistGradientBoostingRegressor(</div>
+      <div class="code-line">    max_iter=300,           # number of boosting rounds</div>
+      <div class="code-line">    max_depth=None,         # grow leaves until min_samples_leaf</div>
+      <div class="code-line">    max_leaf_nodes=31,      # default; controls model complexity</div>
+      <div class="code-line">    min_samples_leaf=20,    # min samples per leaf (regularisation)</div>
+      <div class="code-line">    learning_rate=0.1,      # shrinkage</div>
+      <div class="code-line">    l2_regularization=0.0,  # λ in leaf value formula</div>
+      <div class="code-line">    max_bins=255,           # B ≤ 255 bins per feature</div>
+      <div class="code-line">    categorical_features=[2,5],  # column indices of categoricals</div>
+      <div class="code-line">    early_stopping='auto',  # uses val score; stops when no improvement</div>
+      <div class="code-line">    n_iter_no_change=10,    # patience for early stopping</div>
+      <div class="code-line">    random_state=42,</div>
+      <div class="code-line">)</div>
+      <div class="code-line">reg.fit(X_train, y_train)   # missing values (np.nan) handled automatically</div>
+      <div class="code-line">preds = reg.predict(X_test)</div>
+      <div class="code-line"></div>
+      <div class="code-line"># ⚠️ Gotcha: categorical_features expects integer-encoded (not one-hot) columns.</div>
+      <div class="code-line"># ⚠️ Gotcha: early_stopping='auto' enables validation split → use all data or set False.</div>
+      <div class="code-line"># ⚠️ Gotcha: max_bins applies PER FEATURE; total memory = n*p*1 byte for binned data.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Shared toggle ─────────────────────────────────────────────────────────
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.section-toggle');
+  if (body.classList.contains('collapsed')) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.classList.remove('collapsed');
+    arrow.classList.add('open');
+  } else {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      body.classList.add('collapsed');
+      arrow.classList.remove('open');
+    });
+  }
+}
+
+// ── Visualization Data ─────────────────────────────────────────────────────
+const RAW = [1.2, 3.5, 7.8, 2.1, 5.5, 9.2, 4.1, 6.7, 0.8, 8.3];
+// Quantile-based bin edges (9 edges for 8 bins, including min/max)
+const EDGES = [0.8, 1.312, 2.45, 3.725, 4.8, 6.25, 7.525, 8.238, 9.2];
+const BIN_IDX = [0, 2, 6, 1, 4, 7, 3, 5, 0, 7]; // digitize into 8 bins
+const Y = [2.1, 4.8, 9.5, 3.2, 6.1, 10.5, 5.1, 7.8, 1.5, 9.1];
+// Negative gradients (MSE, yhat=0 initially)
+const G_raw = Y.map(v => -v);
+// Histogram: sum gradients per bin
+const G_BIN = [0,0,0,0,0,0,0,0];
+const H_BIN = [0,0,0,0,0,0,0,0];
+G_raw.forEach((g,i) => { const b = BIN_IDX[i]; G_BIN[b] += g; H_BIN[b] += 1; });
+// Round for display
+const G_BIN_R = G_BIN.map(v=>Math.round(v*100)/100);
+const H_BIN_R = H_BIN.slice();
+
+// Cumulative sums for scan
+const G_CUM = G_BIN.reduce((a,v,i)=>{ a.push((a[i-1]||0)+v); return a; },[]);
+const H_CUM = H_BIN.reduce((a,v,i)=>{ a.push((a[i-1]||0)+v); return a; },[]);
+const G_TOT = G_CUM[7], H_TOT = H_CUM[7];
+const LAM = 0.1;
+
+// Compute split scores
+const SCORES = [];
+for(let k=0;k<7;k++){
+  const GL=G_CUM[k], HL=H_CUM[k], GR=G_TOT-GL, HR=H_TOT-HL;
+  if(HL<1e-9||HR<1e-9){SCORES.push(-Infinity);continue;}
+  SCORES.push(GL*GL/(HL+LAM)+GR*GR/(HR+LAM));
+}
+const BEST_SPLIT = SCORES.indexOf(Math.max(...SCORES)); // = 4
+// Leaf values
+const GL_best = G_CUM[BEST_SPLIT], HL_best = H_CUM[BEST_SPLIT];
+const GR_best = G_TOT - GL_best, HR_best = H_TOT - HL_best;
+const LEAF_L = -GL_best/(HL_best+LAM);
+const LEAF_R = -GR_best/(HR_best+LAM);
+const LR = 0.1; // learning rate
+
+// ── Steps ─────────────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    phase:'phase-bin', phaseTxt:'Binning',
+    title:'Raw Continuous Feature Values',
+    desc:'10 samples with a single continuous feature (e.g. "age" or "income"). Traditional GBM would sort these O(n log n) at each node. HistGradientBoosting maps them to integer bins once before training begins.',
+    mode:'raw', highlightBins:[], scanBin:-1, bestBin:-1
+  },
+  {
+    phase:'phase-bin', phaseTxt:'Binning',
+    title:'Quantile-Based Bin Edges Computed',
+    desc:'Bin edges are placed at quantiles so each bin roughly contains the same number of samples. With 8 bins and 10 samples: edges at 0.80, 1.31, 2.45, 3.73, 4.80, 6.25, 7.53, 8.24, 9.20. This step runs ONCE; cost is O(n log n) total, amortized across all splits.',
+    mode:'edges', highlightBins:[], scanBin:-1, bestBin:-1
+  },
+  {
+    phase:'phase-bin', phaseTxt:'Binning',
+    title:'Values Mapped to Integer Bin Indices',
+    desc:'Each of the 10 values is replaced by an integer bin index 0–7. Storage drops from float64 (8 bytes) to uint8 (1 byte) per value. The model never sees the original floats again during training — all splits operate on bin integers.',
+    mode:'binned', highlightBins:[], scanBin:-1, bestBin:-1
+  },
+  {
+    phase:'phase-scan', phaseTxt:'Histogram Build',
+    title:'Histogram: Sum Gradients per Bin',
+    desc:'For a given tree node (here: root), sum the negative gradients g_i and hessians h_i into per-bin accumulators G[b] and H[b]. This takes O(n) — one pass over the node\'s sample indices. Result: 8 numbers instead of n=10 sorted pairs.',
+    mode:'histogram', highlightBins:[0,1,2,3,4,5,6,7], scanBin:-1, bestBin:-1
+  },
+  {
+    phase:'phase-scan', phaseTxt:'Split Scan',
+    title:'Sweep Bin Edges: Score Each Candidate Split',
+    desc:'Scan left-to-right using cumulative sums. At each split k the left gain is G_L²/(H_L+λ) and right gain is G_R²/(H_R+λ). Total cost: O(B) = O(8) instead of O(n) binary searches. Highlighted row shows the current candidate.',
+    mode:'scan', highlightBins:[], scanBin:3, bestBin:-1
+  },
+  {
+    phase:'phase-split', phaseTxt:'Best Split',
+    title:'Best Split Found at Bin 4 (edge ≤ 6.25)',
+    desc:'Split at bin edge k=4 gives score 417.32 — the highest. Left child: bins 0–4 (feature ≤ 6.25, 6 samples). Right child: bins 5–7 (feature > 6.25, 4 samples). Finding this took O(7) candidate scans — regardless of n.',
+    mode:'split', highlightBins:[], scanBin:-1, bestBin:4
+  },
+  {
+    phase:'phase-leaf', phaseTxt:'Leaf Values',
+    title:'Optimal Leaf Predictions Computed',
+    desc:'Left leaf: −G_L/(H_L+λ) = −(−22.8)/(6+0.1) ≈ +3.74 → scaled by lr=0.1 → +0.374. Right leaf: −(−36.9)/(4+0.1) ≈ +9.0 → +0.90. Predictions update: ŷ += lr · leaf_value. Next round recomputes gradients on updated ŷ.',
+    mode:'leaves', highlightBins:[], scanBin:-1, bestBin:4
+  }
+];
+
+let step = 0;
+
+// ── Canvas Drawing ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+function drawViz(s) {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const bg2 = getCSS('--bg2') || '#f0efe9';
+  const text = getCSS('--text') || '#1a1a18';
+  const text2 = getCSS('--text2') || '#6b6b65';
+  const text3 = getCSS('--text3') || '#9c9a92';
+
+  const PAD = {top:16,bottom:36,left:30,right:10};
+  const plotW = W-PAD.left-PAD.right;
+  const plotH = H-PAD.top-PAD.bottom;
+  const xMin = 0.5, xMax = 9.5;
+  const xScale = v => PAD.left + (v-xMin)/(xMax-xMin)*plotW;
+
+  if(s.mode==='raw'){
+    // Draw raw scatter
+    ctx.fillStyle = text2; ctx.font = '10px '+getCSS('--mono');
+    ctx.fillText('Feature value', PAD.left, H-8);
+    // Axis
+    ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,H-PAD.bottom); ctx.lineTo(W-PAD.right,H-PAD.bottom); ctx.stroke();
+    // Points
+    RAW.forEach((v,i)=>{
+      const x = xScale(v), y = PAD.top + plotH*0.5;
+      ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2);
+      ctx.fillStyle='#85B7EB'; ctx.fill();
+      ctx.strokeStyle='#185FA5'; ctx.lineWidth=1.5; ctx.stroke();
+      ctx.fillStyle=text; ctx.font='bold 10px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText(v.toFixed(1),x,y-14);
+      // tick
+      ctx.fillStyle=text3; ctx.font='9px '+getCSS('--mono');
+      ctx.fillText(v.toFixed(1),x,H-PAD.bottom+12);
+    });
+    ctx.textAlign='left';
+  }
+
+  if(s.mode==='edges'){
+    // Show axis + edge lines
+    ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,H-PAD.bottom); ctx.lineTo(W-PAD.right,H-PAD.bottom); ctx.stroke();
+    // Draw edge lines
+    EDGES.forEach((e,i)=>{
+      const x = xScale(e);
+      ctx.strokeStyle= i===0||i===8 ? '#9c9a92' : '#534AB7';
+      ctx.lineWidth= i===0||i===8 ? 1 : 2;
+      ctx.setLineDash(i===0||i===8?[4,4]:[]);
+      ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,H-PAD.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      if(i>0&&i<8){
+        ctx.fillStyle='#534AB7'; ctx.font='9px '+getCSS('--mono');
+        ctx.textAlign='center'; ctx.fillText(e.toFixed(2),x,PAD.top-2);
+      }
+    });
+    // Bin labels
+    for(let b=0;b<8;b++){
+      const x1=xScale(EDGES[b]), x2=xScale(EDGES[b+1]), xm=(x1+x2)/2;
+      ctx.fillStyle='#534AB7'; ctx.font='bold 11px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText('B'+b,xm,PAD.top+plotH*0.5);
+    }
+    // Raw points small
+    RAW.forEach(v=>{
+      const x=xScale(v), y=H-PAD.bottom-10;
+      ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2);
+      ctx.fillStyle='#85B7EB'; ctx.fill();
+    });
+    ctx.textAlign='left';
+  }
+
+  if(s.mode==='binned'){
+    // Show bar chart of bin occupancy
+    ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,H-PAD.bottom); ctx.lineTo(W-PAD.right,H-PAD.bottom); ctx.stroke();
+    const bW = plotW/8 - 4;
+    const counts=[0,0,0,0,0,0,0,0];
+    BIN_IDX.forEach(b=>counts[b]++);
+    const maxC=Math.max(...counts);
+    counts.forEach((c,b)=>{
+      const bx = PAD.left + b*(plotW/8)+2;
+      const bh = c/maxC*plotH*0.75;
+      const by = H-PAD.bottom-bh;
+      ctx.fillStyle='#EAF3DE'; ctx.strokeStyle='#97C459'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(bx,by,bW,bh,3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#3B6D11'; ctx.font='bold 12px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText(c,bx+bW/2,by-4);
+      ctx.fillStyle=text3; ctx.font='10px '+getCSS('--mono');
+      ctx.fillText('B'+b,bx+bW/2,H-PAD.bottom+12);
+    });
+    // Show mapped integers
+    BIN_IDX.forEach((b,i)=>{
+      const rawX=xScale(RAW[i]);
+      // just label the bins
+    });
+    ctx.textAlign='left';
+    // Title
+    ctx.fillStyle=text2; ctx.font='11px '+getCSS('--mono');
+    ctx.fillText('samples per bin (integer bin index 0–7)',PAD.left,PAD.top);
+  }
+
+  if(s.mode==='histogram'){
+    // Bar chart of G per bin
+    const maxG = Math.max(...G_BIN.map(Math.abs));
+    const bW = plotW/8 - 4;
+    const baseline = PAD.top + plotH*0.35;
+    G_BIN.forEach((g,b)=>{
+      const bx = PAD.left + b*(plotW/8)+2;
+      const bh = Math.abs(g)/maxG*(plotH*0.55);
+      const by = g<0 ? baseline : baseline-bh;
+      ctx.fillStyle='#EEEDFE'; ctx.strokeStyle='#AFA9EC'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(bx,by<baseline?by:baseline,bW,bh,3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#534AB7'; ctx.font='bold 10px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText(G_BIN_R[b].toFixed(1),bx+bW/2,by-3);
+      ctx.fillStyle=text3; ctx.font='9px '+getCSS('--mono');
+      ctx.fillText('B'+b,bx+bW/2,H-PAD.bottom+12);
+    });
+    // baseline
+    ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,baseline); ctx.lineTo(W-PAD.right,baseline); ctx.stroke();
+    ctx.fillStyle=text2; ctx.font='10px '+getCSS('--mono');
+    ctx.textAlign='left'; ctx.fillText('G[b] = Σ gradient per bin',PAD.left,PAD.top);
+  }
+
+  if(s.mode==='scan'){
+    // Same histogram but highlight scanBin
+    const maxG = Math.max(...G_BIN.map(Math.abs));
+    const bW = plotW/8 - 4;
+    const baseline = PAD.top + plotH*0.35;
+    G_BIN.forEach((g,b)=>{
+      const bx = PAD.left + b*(plotW/8)+2;
+      const bh = Math.abs(g)/maxG*(plotH*0.55);
+      const by = g<0 ? baseline : baseline-bh;
+      const isScan = (b===s.scanBin);
+      ctx.fillStyle=isScan?'#EEEDFE':'#f0efe9';
+      ctx.strokeStyle=isScan?'#534AB7':'rgba(0,0,0,0.15)';
+      ctx.lineWidth=isScan?2:1;
+      ctx.beginPath(); ctx.roundRect(bx,by<baseline?by:baseline,bW,bh,3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=isScan?'#534AB7':text3;
+      ctx.font=isScan?'bold 10px '+getCSS('--mono'):'10px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText(G_BIN_R[b].toFixed(1),bx+bW/2,by-3);
+      ctx.fillStyle=text3; ctx.font='9px '+getCSS('--mono');
+      ctx.fillText('B'+b,bx+bW/2,H-PAD.bottom+12);
+    });
+    ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,baseline); ctx.lineTo(W-PAD.right,baseline); ctx.stroke();
+    // split line at scanBin+1
+    const splitX = xScale(EDGES[s.scanBin+1]);
+    ctx.strokeStyle='#534AB7'; ctx.lineWidth=2; ctx.setLineDash([6,3]);
+    ctx.beginPath(); ctx.moveTo(PAD.left+((s.scanBin+1)*(plotW/8)),PAD.top); ctx.lineTo(PAD.left+((s.scanBin+1)*(plotW/8)),baseline+20); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if(s.mode==='split'||s.mode==='leaves'){
+    const bW = plotW/8 - 4;
+    const baseline = PAD.top + plotH*0.35;
+    const maxG = Math.max(...G_BIN.map(Math.abs));
+    G_BIN.forEach((g,b)=>{
+      const bx = PAD.left + b*(plotW/8)+2;
+      const bh = Math.abs(g)/maxG*(plotH*0.55);
+      const by = g<0 ? baseline : baseline-bh;
+      const isLeft = b<=BEST_SPLIT, isRight = b>BEST_SPLIT;
+      ctx.fillStyle=isLeft?'#FAEEDA':'#FCEBEB';
+      ctx.strokeStyle=isLeft?'#EF9F27':'#F09595';
+      ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(bx,by<baseline?by:baseline,bW,bh,3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=isLeft?'#854F0B':'#A32D2D';
+      ctx.font='bold 10px '+getCSS('--mono');
+      ctx.textAlign='center'; ctx.fillText(G_BIN_R[b].toFixed(1),bx+bW/2,by-3);
+      ctx.fillStyle=text3; ctx.font='9px '+getCSS('--mono');
+      ctx.fillText('B'+b,bx+bW/2,H-PAD.bottom+12);
+    });
+    ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,baseline); ctx.lineTo(W-PAD.right,baseline); ctx.stroke();
+    // Best split line
+    const sx = PAD.left + (BEST_SPLIT+1)*(plotW/8);
+    ctx.strokeStyle='#3B6D11'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(sx,PAD.top); ctx.lineTo(sx,baseline+20); ctx.stroke();
+    ctx.fillStyle='#3B6D11'; ctx.font='bold 10px '+getCSS('--sans');
+    ctx.textAlign='center'; ctx.fillText('SPLIT',sx,PAD.top-2);
+    ctx.textAlign='left';
+    if(s.mode==='leaves'){
+      // leaf value labels
+      ctx.fillStyle='#854F0B'; ctx.font='bold 11px '+getCSS('--sans');
+      ctx.textAlign='center';
+      ctx.fillText('Leaf L: +'+LEAF_L.toFixed(2), PAD.left+(BEST_SPLIT+1)*(plotW/8)/2, H-PAD.bottom+24);
+      ctx.fillStyle='#A32D2D';
+      ctx.fillText('Leaf R: +'+LEAF_R.toFixed(2), PAD.left+(BEST_SPLIT+1)*(plotW/8)+(plotW-(BEST_SPLIT+1)*(plotW/8))/2, H-PAD.bottom+24);
+      ctx.textAlign='left';
+    }
+  }
+}
+
+// ── Split Table ────────────────────────────────────────────────────────────
+function buildTable(scanBin, bestBin){
+  const tbody = document.getElementById('splitTbody');
+  tbody.innerHTML='';
+  for(let k=0;k<7;k++){
+    const GL=G_CUM[k],HL=H_CUM[k],GR=G_TOT-GL,HR=H_TOT-HL;
+    const score = HL<1e-9||HR<1e-9 ? '-' : (GL*GL/(HL+LAM)+GR*GR/(HR+LAM)).toFixed(1);
+    const tr=document.createElement('tr');
+    if(bestBin>=0 && k===bestBin) tr.className='best-row';
+    else if(scanBin>=0 && k===scanBin) tr.className='cur-row';
+    tr.innerHTML=`<td>${k}</td><td>${G_CUM[k].toFixed(1)}</td><td>${H_CUM[k].toFixed(0)}</td><td>${score}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ── Progress ───────────────────────────────────────────────────────────────
+function buildProgress(){
+  const wrap=document.getElementById('progressWrap');
+  wrap.innerHTML='';
+  STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot';
+    d.title='Step '+(i+1);
+    d.onclick=()=>goTo(i);
+    wrap.appendChild(d);
+  });
+}
+
+function updateProgress(){
+  const dots=document.querySelectorAll('#progressWrap .dot');
+  dots.forEach((d,i)=>{
+    d.classList.remove('active','done');
+    if(i===step) d.classList.add('active');
+    else if(i<step) d.classList.add('done');
+  });
+}
+
+// ── Render step ────────────────────────────────────────────────────────────
+function render(){
+  const s=STEPS[step];
+  drawViz(s);
+  buildTable(s.scanBin, s.bestBin);
+  document.getElementById('infoPhase').className='info-phase '+s.phase;
+  document.getElementById('infoPhase').textContent=s.phaseTxt;
+  document.getElementById('infoStep').textContent='Step '+(step+1)+' of '+STEPS.length;
+  document.getElementById('infoTitle').textContent=s.title;
+  document.getElementById('infoDesc').textContent=s.desc;
+  document.getElementById('prevBtn').disabled=step===0;
+  document.getElementById('nextBtn').disabled=step===STEPS.length-1;
+  updateProgress();
+}
+
+function go(d){ if(step+d>=0&&step+d<STEPS.length){ step+=d; render(); } }
+function goTo(i){ step=i; render(); }
+function reset(){ step=0; render(); }
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft') go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+buildProgress();
+render();
+</script>
+</body>
+</html>

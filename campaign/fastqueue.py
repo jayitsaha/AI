@@ -21,7 +21,15 @@ CDIR = os.path.dirname(os.path.abspath(__file__))
 CURSOR = os.path.join(CDIR, "cursor.txt")
 DONE = os.path.join(CDIR, "completed_idx.json")
 NEXT = os.path.join(CDIR, "next.txt")
+FLOOR = os.path.join(CDIR, "floor.txt")  # never advance cursor below this canonical index
 IDS = os.path.join(AI, "topic_page_ids.json")
+
+
+def get_floor():
+    try:
+        return int(open(FLOOR).read().strip())
+    except Exception:
+        return 0
 
 TOKEN = "NOTION_TOKEN_REDACTED"
 DB = "33c93418-809c-81f7-a93d-df0ac011aa09"
@@ -55,12 +63,12 @@ def reconcile():
             break
         payload["start_cursor"] = res["next_cursor"]
     json.dump(sorted(completed), open(DONE, "w"))
-    # cursor = first index not completed
-    cur = 0
+    # cursor = first index at/after the floor that is not completed
+    cur = get_floor()
     while cur in completed:
         cur += 1
     open(CURSOR, "w").write(str(cur))
-    print(f"reconciled: {len(completed)} completed, cursor={cur}")
+    print(f"reconciled: {len(completed)} completed, floor={get_floor()}, cursor={cur}")
     return completed, cur
 
 

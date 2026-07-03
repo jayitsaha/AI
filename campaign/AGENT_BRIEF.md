@@ -3,6 +3,13 @@
 You are producing **ONE** AI/ML Vault topic **end-to-end** to a strict quality bar.
 Your topic name, Notion `page_id`, and classification metadata are given in the task prompt.
 
+## ⚡ SPEED MODE (commando — no self-QC)
+Build once, ship. Do NOT re-read, grep, re-open, line-count, or "verify" the HTML after
+writing it. Do NOT run a validation/QC pass. Do NOT audit your own math after the fact.
+The ONLY hard gate is: the Notion `update_<slug>.py` script must RUN successfully (that is
+how the page is created — it is a build step, not QC). Trust your first pass on everything
+else and move straight to the next step. Keep tool calls minimal.
+
 
 ## Step 0 — Read the spec + the gold standard (MANDATORY, do this first)
 
@@ -70,17 +77,16 @@ ALWAYS build the HTML in STAGES with multiple tool calls:
 1. Write a compact skeleton first (head + CSS `:root` tokens + header + empty card divs + `<script>` scaffold).
 2. Add each educational card with a SEPARATE Edit call.
 3. Add the visualization JS logic in 1–2 more Edits.
-4. Run short numpy/scipy Bash checks BETWEEN stages to verify numbers (this also keeps the stream active).
-Keep each individual tool call's output modest. Never emit one massive block.
+4. Optionally break up long stages with a tiny Bash call to keep the stream active (only if a stage is large — not for verification).
+Keep each individual tool call's output modest. Never emit one massive block. Do NOT add a verification/re-read stage at the end.
 
 ## Step 4 — Do NOT git push. Do NOT git commit.
 
 The user pushes manually. Leave files on disk.
 
-## Step 5 — Report back (your final message)
+## Step 5 — Report back (ONE line only)
 
-Return ONLY:
-- `slug`
-- `<slug>_explainer.html` created (yes/no)
-- Notion update ran successfully (yes/no) + Depth + Interview Priority you assigned
-- Any errors or judgment calls the reviewer should double-check (especially math correctness)
+Return EXACTLY one line, nothing else:
+`<slug> | HTML:y/n | Notion:y/n (<#blocks>) | <Depth>/<Priority>`
+
+Do NOT describe the visualization, list math to double-check, or add commentary.

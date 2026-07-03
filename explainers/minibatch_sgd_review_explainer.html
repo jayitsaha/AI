@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini-batch SGD: Batch Size Trade-offs | AI/ML Vault</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\\\(', right: '\\\\)', display: false}
+    ]
+  });"></script>
+<style>
+/* ── Design Tokens ── */
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.65; }
+a { color: var(--blue-mid); }
+
+/* ── Layout ── */
+.page-wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* ── Header ── */
+.hero { margin-bottom: 2rem; }
+.hero-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 6px; }
+.hero h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 800; color: var(--text); line-height: 1.2; margin-bottom: 6px; }
+.hero-sub { font-size: 1rem; color: var(--text2); margin-bottom: 10px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-foundational { background: var(--green-bg); color: var(--green-mid); }
+.tag-intermediate  { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-advanced      { background: var(--red-bg);   color: var(--red-mid); }
+.tag-category      { background: var(--blue-bg);  color: var(--blue-mid); }
+.tag-complexity    { background: var(--cyan-bg);  color: var(--cyan-mid); }
+
+/* ── Card / Section ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; cursor: pointer; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.toggle-icon { color: var(--text3); font-size: 18px; transition: transform 0.25s; }
+.collapsed .toggle-icon { transform: rotate(-90deg); }
+.card-body { }
+.card-body p { color: var(--text2); margin-bottom: 0.85rem; font-size: 0.95rem; }
+.card-body p:last-child { margin-bottom: 0; }
+.card-body h4 { font-size: 0.9rem; font-weight: 700; color: var(--text); margin: 1.1rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.3px; }
+.card-body ul, .card-body ol { padding-left: 1.4rem; color: var(--text2); font-size: 0.95rem; margin-bottom: 0.85rem; }
+.card-body li { margin-bottom: 0.3rem; }
+
+/* ── Concept Boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight    { background: var(--green-bg);  border: 1px solid var(--green-border); }
+.concept-box.insight  .concept-box-title { color: var(--green-mid); }
+.concept-box.warning    { background: var(--amber-bg);  border: 1px solid var(--amber-border); }
+.concept-box.warning  .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept{ background: var(--blue-bg);   border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.danger     { background: var(--red-bg);    border: 1px solid var(--red-border); }
+.concept-box.danger   .concept-box-title { color: var(--red-mid); }
+.concept-box.math       { background: var(--cyan-bg);   border: 1px solid var(--cyan-border); }
+.concept-box.math     .concept-box-title { color: var(--cyan-mid); }
+.concept-box p { color: inherit; margin-bottom: 0; font-size: 0.93rem; }
+
+/* ── Equations ── */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* ── Comparison Table ── */
+.compare-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 1rem 0; }
+.compare-table th { background: var(--bg2); color: var(--text); font-weight: 700; padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border2); }
+.compare-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
+.compare-table tr:hover td { background: var(--bg2); }
+.compare-table .best { color: var(--green-mid); font-weight: 600; }
+.compare-table .worst { color: var(--red-mid); }
+
+/* ── Code Panel ── */
+.code-panel { margin-top: 1.25rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* ── Visualization area ── */
+#viz-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+#viz-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 10px; }
+
+.viz-canvas-wrap { position: relative; width: 100%; background: var(--bg2); border-radius: var(--radius-lg); border: 1px solid var(--border); margin-bottom: 1rem; overflow: hidden; }
+canvas#descent-canvas { display: block; width: 100%; height: auto; }
+
+/* ── Slider panel ── */
+.slider-panel { background: var(--bg2); border-radius: var(--radius-lg); padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 12px; }
+.slider-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.slider-label { font-size: 13px; font-weight: 600; color: var(--text); min-width: 110px; }
+.slider-value { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--purple-mid); min-width: 60px; }
+input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--border2); cursor: pointer; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--purple-mid); cursor: pointer; }
+.noise-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; font-family: var(--mono); }
+.noise-low  { background: var(--green-bg);  color: var(--green-mid); }
+.noise-med  { background: var(--amber-bg);  color: var(--amber-mid); }
+.noise-high { background: var(--red-bg);    color: var(--red-mid); }
+
+/* ── Info card ── */
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; }
+.info-card .phase-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 20px; background: var(--purple-bg); color: var(--purple-mid); margin-bottom: 8px; }
+.info-card .step-title { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.info-card .step-body  { font-size: 0.9rem; color: var(--text2); }
+
+/* ── Legend ── */
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 0.75rem; align-items: center; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+.legend-line { width: 24px; height: 3px; border-radius: 2px; }
+
+/* ── Controls ── */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+/* ── Progress dots ── */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done   { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* ── Variance meter ── */
+.variance-bar-wrap { background: var(--bg2); border-radius: var(--radius); padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.variance-label { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; display: flex; justify-content: space-between; }
+.variance-track { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; margin-bottom: 4px; }
+.variance-fill { height: 100%; border-radius: 5px; transition: width 0.4s ease, background 0.4s ease; }
+
+@media (max-width: 600px) {
+  .hero h1 { font-size: 1.5rem; }
+  .slider-group { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+<!-- HEADER -->
+<header class="hero">
+  <div class="hero-label">AI/ML Vault &mdash; Part I: Math &amp; Stats &middot; Section 0.2 Calculus &amp; Optimization</div>
+  <h1>Mini-batch SGD: Batch Size Trade-offs</h1>
+  <p class="hero-sub">The practical middle ground between full-batch gradient descent and pure SGD &mdash; where noise, speed, and hardware efficiency collide.</p>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Optimization</span>
+    <span class="tag tag-category">Training Dynamics</span>
+    <span class="tag tag-complexity">Must Know</span>
+  </div>
+</header>
+
+<!-- CARD 1: Understanding the Concept -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <span class="toggle-icon">&#9660;</span>
+  </div>
+  <div class="card-body" id="card1-body">
+    <p>Training a neural network means repeatedly asking: <em>"How should I nudge every parameter to make the model less wrong?"</em> The answer comes from the <strong>gradient</strong> of the loss. But computing that gradient exactly requires scanning your entire dataset &mdash; which could be millions of images. That's expensive.</p>
+    <p>There are three strategies, arranged by how many examples you look at per update:</p>
+    <ul>
+      <li><strong>Full-Batch Gradient Descent (GD):</strong> use <em>all N examples</em> to estimate the gradient exactly. Slow per step; perfectly smooth path to the minimum.</li>
+      <li><strong>Stochastic Gradient Descent (SGD, B=1):</strong> use <em>one random example</em> per step. Very fast iterations but extremely noisy gradient estimates &mdash; the path bounces all over.</li>
+      <li><strong>Mini-batch SGD (B = 32 … 512):</strong> use a <em>random subset of B examples</em>. This is the practical sweet spot used in almost every real-world deep learning training run.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">&#128161; If You Remember One Thing</div>
+      <p>Mini-batch SGD is the universal default because it reduces gradient variance by a factor of \(B\) compared to pure SGD, while keeping each update far cheaper than full-batch GD. The noise that remains is not only tolerable &mdash; it often helps generalization.</p>
+    </div>
+    <p><strong>Analogy:</strong> Imagine you're a chef trying to perfect a recipe. Full-batch GD = taste every dish before adjusting (perfect info, parallelism waste). Pure SGD = adjust after every single bite (reactive and jerky). Mini-batch = taste a random table of 32 dishes and adjust &mdash; fast, good signal, still affordable.</p>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <span class="toggle-icon">&#9660;</span>
+  </div>
+  <div class="card-body" id="card2-body">
+    <p>At each training step, mini-batch SGD performs three actions:</p>
+    <ol>
+      <li><strong>Sample</strong> a random mini-batch \(\mathcal{B} = \{(x_1,y_1),\ldots,(x_B,y_B)\}\) uniformly from the training set.</li>
+      <li><strong>Compute</strong> the mini-batch gradient: the average loss gradient over those \(B\) examples.</li>
+      <li><strong>Update</strong> parameters by stepping in the negative gradient direction, scaled by learning rate \(\eta\).</li>
+    </ol>
+    <div class="eq">$$\theta_{t+1} = \theta_t - \eta \cdot \frac{1}{B} \sum_{i \in \mathcal{B}} \nabla_\theta \ell(f_\theta(x_i), y_i)$$</div>
+    <h4>Why the Gradient is Unbiased</h4>
+    <p>The mini-batch gradient is an <em>unbiased estimator</em> of the true gradient:</p>
+    <div class="eq">$$\mathbb{E}_{\mathcal{B}}\!\left[\frac{1}{B}\sum_{i \in \mathcal{B}} \nabla \ell_i\right] = \frac{1}{N}\sum_{i=1}^N \nabla \ell_i = \nabla L(\theta)$$</div>
+    <p>Each random mini-batch points on average in the correct direction. The stochasticity is pure <em>variance</em>, not bias &mdash; which is why convergence is still guaranteed (under standard conditions).</p>
+    <h4>The Variance and Why It Scales as 1/B</h4>
+    <p>Let \(\sigma^2\) be the per-sample gradient variance. Averaging over \(B\) i.i.d. samples reduces variance by \(B\) (standard statistics):</p>
+    <div class="eq">$$\operatorname{Var}\!\left[\hat{g}_{\mathcal{B}}\right] = \frac{\sigma^2}{B}$$</div>
+    <p>At \(B=1\) you get pure noise \(\sigma^2\). At \(B=N\) you get zero variance (full gradient). Mini-batch gives you the \(1/\!\sqrt{B}\) noise-reduction of averaging without paying the cost of the full dataset.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Key Invariant</div>
+      <p>The gradient estimator is unbiased for any \(B\). The only thing \(B\) controls is the <em>variance</em> of that estimate. Larger batch = lower variance = smoother path = potentially larger safe learning rate.</p>
+    </div>
+    <h4>Numerical Trace (B=4, loss = MSE on a mini-batch)</h4>
+    <p>Suppose \(\theta = 2.0\), true gradient \(= 4.0\), per-sample gradients \([3.8, 4.2, 3.9, 4.1]\):</p>
+    <ul>
+      <li>Mini-batch mean: \(\hat{g} = (3.8+4.2+3.9+4.1)/4 = 4.0\) &rarr; exact this time</li>
+      <li>Update: \(\theta \leftarrow 2.0 - 0.1 \times 4.0 = 1.6\)</li>
+      <li>Per-sample variance: \(\approx 0.025\) &nbsp; &rarr; &nbsp; \(\operatorname{Var}[\hat{g}] = 0.025/4 = 0.00625\)</li>
+    </ul>
+    <div class="concept-box warning">
+      <div class="concept-box-title">&#9888; Common Confusion</div>
+      <p>People say "SGD is noisy and GD is stable." True &mdash; but <em>some noise helps</em>. The noise from small batches acts as implicit regularization, allowing the optimizer to escape sharp minima and find flatter, more generalizable ones (Keskar et al., 2017).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math: Variance &#8733; 1/B</div>
+    <span class="toggle-icon">&#9660;</span>
+  </div>
+  <div class="card-body" id="card3-body">
+    <p>Let the true loss be \(L(\theta) = \frac{1}{N}\sum_{i=1}^N \ell_i(\theta)\). Denote the per-sample gradients \(g_i = \nabla_\theta \ell_i(\theta)\) and define:</p>
+    <ul>
+      <li>True gradient: \(\mu = \frac{1}{N}\sum_{i=1}^N g_i\)</li>
+      <li>Per-sample variance: \(\sigma^2 = \frac{1}{N}\sum_{i=1}^N \|g_i - \mu\|^2\)</li>
+    </ul>
+    <p>A mini-batch of size \(B\) drawn uniformly without replacement gives the estimator:</p>
+    <div class="eq">$$\hat{g}_{\mathcal{B}} = \frac{1}{B}\sum_{i \in \mathcal{B}} g_i$$</div>
+    <h4>Bias and Variance</h4>
+    <p>Bias: \(\mathbb{E}[\hat{g}_{\mathcal{B}}] = \mu\) (zero bias &mdash; see Card 2).</p>
+    <p>Variance of the estimator (sampling without replacement from a finite population):</p>
+    <div class="eq">$$\operatorname{Var}[\hat{g}_{\mathcal{B}}] = \frac{\sigma^2}{B} \cdot \left(1 - \frac{B}{N}\right)$$</div>
+    <p>For large \(N \gg B\), the finite-population correction \((1 - B/N) \approx 1\), so the dominant term is simply \(\sigma^2/B\). This is the key formula:</p>
+    <div class="eq">$$\operatorname{Var}[\hat{g}_{\mathcal{B}}] \approx \frac{\sigma^2}{B} \qquad (B \ll N)$$</div>
+    <div class="concept-box math">
+      <div class="concept-box-title">Gradient Noise Scales as \(1/\!\sqrt{B}\)</div>
+      <p>The standard deviation (noise magnitude) of the gradient estimate is \(\sigma/\!\sqrt{B}\). Doubling the batch size halves the gradient noise in standard deviation terms. This is exactly the same relationship as the standard error of the mean.</p>
+    </div>
+    <h4>Convergence Rate</h4>
+    <p>For a convex loss with Lipschitz-smooth gradient (constant \(L\)), SGD with batch size \(B\) and step size \(\eta = \mathcal{O}(1/\!\sqrt{T})\) converges after \(T\) steps as:</p>
+    <div class="eq">$$\mathbb{E}[L(\theta_T)] - L^* \leq \mathcal{O}\!\left(\frac{\sigma}{\sqrt{BT}}\right)$$</div>
+    <p>Increasing \(B\) by factor \(k\) keeps the same convergence bound with \(T/k\) iterations (i.e., \(k\times\) fewer passes through data), provided the learning rate is scaled appropriately.</p>
+    <h4>The Linear Scaling Rule</h4>
+    <p>Goyal et al. (2017) showed empirically that for large-batch training:</p>
+    <div class="eq">$$\eta_{\text{large}} = \eta_{\text{base}} \times \frac{B_{\text{large}}}{B_{\text{base}}}$$</div>
+    <p>This "linear scaling rule" keeps the effective update magnitude constant as batch size grows. For very large batches a warmup schedule is needed as abrupt large learning rates destabilize early training.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">&#9888; Large Batch Generalization Gap</div>
+      <p>Very large batches (B &gt; ~8192 for ImageNet) often find <em>sharper</em> minima and generalize worse than small-batch training, even at matched training loss. The noise from small batches acts as implicit regularization. This is the "generalization gap" and is an active research area.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div id="viz-section">
+  <h2><span>4</span> Interactive Visualization &mdash; Three Noise Regimes</h2>
+  <!-- Slider -->
+  <div class="slider-panel">
+    <div class="slider-group">
+      <span class="slider-label">Batch Size B</span>
+      <input type="range" id="batchSlider" min="0" max="4" step="1" value="1">
+      <span class="slider-value" id="batchVal">B = 32</span>
+      <span class="noise-badge noise-med" id="noiseBadge">Medium noise</span>
+    </div>
+    <div class="slider-group">
+      <span class="slider-label">Animate speed</span>
+      <input type="range" id="speedSlider" min="1" max="5" step="1" value="3">
+      <span class="slider-value" id="speedVal">&#215;3</span>
+    </div>
+  </div>
+
+  <!-- Variance bars -->
+  <div class="variance-bar-wrap">
+    <div class="variance-label"><span>Gradient Variance &sigma;&sup2;/B</span><span id="varianceLabel">0.0028</span></div>
+    <div class="variance-track"><div class="variance-fill" id="varianceFill" style="width:28%;background:var(--amber-mid)"></div></div>
+    <div class="variance-label"><span>Noise std = &sigma;/&radic;B</span><span id="noiseStdLabel">0.053</span></div>
+    <div class="variance-track"><div class="variance-fill" id="noiseStdFill" style="width:28%;background:var(--amber-mid)"></div></div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-line" style="background:#3B6D11"></div><span>Full-Batch GD (B=N)</span></div>
+    <div class="legend-item"><div class="legend-line" style="background:#534AB7"></div><span>Current mini-batch</span></div>
+    <div class="legend-item"><div class="legend-line" style="background:#A32D2D"></div><span>Pure SGD (B=1)</span></div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--border2);height:6px;border-radius:3px;width:12px;"></div><span>Loss contours</span></div>
+  </div>
+
+  <!-- Canvas -->
+  <div class="viz-canvas-wrap">
+    <canvas id="descent-canvas" width="800" height="480"></canvas>
+  </div>
+
+  <!-- Info card -->
+  <div class="info-card">
+    <div class="phase-badge" id="step-phase">Optimization</div>
+    <div class="step-title" id="step-title">Gradient Descent on a Quadratic Bowl</div>
+    <div class="step-body" id="step-body">Use the Batch Size slider to compare how full-batch GD (smooth path), mini-batch SGD (moderate noise), and pure SGD (high noise) traverse the same loss landscape. Press Play to animate.</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn" id="prevBtn" onclick="stepViz(-1)" disabled>&#8592; Prev</button>
+    <button class="btn btn-primary" id="playBtn" onclick="togglePlay()">&#9654; Play</button>
+    <button class="btn" id="nextBtn" onclick="stepViz(1)">Next &#8594;</button>
+    <button class="btn" onclick="resetViz()">&#8635; Reset</button>
+  </div>
+  <div class="progress-wrap" id="progress-dots"></div>
+  <div class="kbd-hint">Use &#8592; &#8594; arrow keys to step &middot; R to reset</div>
+</div>
+
+<!-- CARD 5: Hardware Efficiency & LR Scaling -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Hardware Efficiency &amp; LR Scaling</div>
+    <span class="toggle-icon">&#9660;</span>
+  </div>
+  <div class="card-body" id="card5-body">
+    <p>Hardware efficiency is just as important as statistical efficiency. Modern GPUs/TPUs are massively parallel: they process a batch of B examples at nearly the same wall-clock time as a single example, up to a saturation point.</p>
+    <h4>Throughput vs. Batch Size</h4>
+    <ul>
+      <li><strong>B=1 (pure SGD):</strong> near-zero GPU utilization. The forward pass of one sample uses &lt;1% of CUDA cores. Most hardware cycles wasted.</li>
+      <li><strong>B=32–256:</strong> GPU utilization climbs sharply. Memory bandwidth and compute are both exercised. Throughput (samples/second) rises nearly linearly with B in this range.</li>
+      <li><strong>B&gt;1024:</strong> GPU memory saturates. Throughput plateaus or grows sub-linearly. You're now paying for memory bandwidth, not compute.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">&#128161; The Practical Sweet Spot</div>
+      <p>For most convolutional and transformer models, B = 32–512 saturates GPU compute while keeping per-sample noise low enough for stable training. The exact optimum depends on model size, GPU memory, and dataset size.</p>
+    </div>
+    <h4>Learning Rate Scaling Options</h4>
+    <table class="compare-table">
+      <tr><th>Rule</th><th>Formula</th><th>Works when</th></tr>
+      <tr><td>Linear scaling (Goyal 2017)</td><td>\(\eta \propto B\)</td><td>Large B, same #epochs, ResNet-style</td></tr>
+      <tr><td>Square-root scaling</td><td>\(\eta \propto \sqrt{B}\)</td><td>Convex loss, constant #steps</td></tr>
+      <tr><td>No scaling</td><td>\(\eta = \text{const}\)</td><td>Small batches (B&lt;64) where noise dominates</td></tr>
+    </table>
+    <p>In practice, most practitioners start with the linear rule plus a warmup of 5–10 epochs, then monitor validation loss curves to decide if further adjustment is needed.</p>
+    <h4>Gradient Accumulation (for large effective B)</h4>
+    <p>When GPU VRAM is limited, you can simulate a larger effective batch by accumulating gradients over \(k\) forward passes before each parameter update. Effective batch size = \(k \times B_{\text{per\,step}}\). This is mathematically identical to using the larger batch (since gradient averages commute with addition).</p>
+  </div>
+</div>
+
+<!-- CARD 6: Key Takeaways -->
+<div class="card" id="card6">
+  <div class="section-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways &amp; Trade-offs</div>
+    <span class="toggle-icon">&#9660;</span>
+  </div>
+  <div class="card-body" id="card6-body">
+    <table class="compare-table">
+      <tr>
+        <th>Dimension</th>
+        <th>Full-Batch GD (B=N)</th>
+        <th>Mini-batch SGD (B=32–512)</th>
+        <th>Pure SGD (B=1)</th>
+      </tr>
+      <tr><td>Gradient variance</td><td class="best">0 (exact)</td><td>\(\sigma^2/B\)</td><td class="worst">\(\sigma^2\) (max)</td></tr>
+      <tr><td>GPU utilization</td><td class="worst">Overkill (slow per step)</td><td class="best">High</td><td class="worst">Near zero</td></tr>
+      <tr><td>Iterations per epoch</td><td class="best">1</td><td>\(N/B\)</td><td class="worst">\(N\)</td></tr>
+      <tr><td>Wall-clock/epoch</td><td class="worst">Slowest</td><td class="best">Fastest</td><td>Slow (serial)</td></tr>
+      <tr><td>Generalization</td><td class="worst">Tends to sharp minima</td><td class="best">Good (noise helps)</td><td>Good (most noise)</td></tr>
+      <tr><td>LR tuning difficulty</td><td>Easy (stable)</td><td class="best">Moderate</td><td class="worst">Hard (very sensitive)</td></tr>
+      <tr><td>Memory footprint</td><td class="worst">Huge (whole dataset)</td><td class="best">Constant (B samples)</td><td class="best">Minimal</td></tr>
+    </table>
+    <div class="concept-box insight">
+      <div class="concept-box-title">Decision Rule</div>
+      <p>Start with B = 256 (or the largest power-of-2 that fits GPU memory). If training is unstable, halve B and halve \(\eta\) (or use \(\eta \propto \sqrt{B}\) scaling). If training is slow and stable, double B and apply linear scaling rule. Always monitor validation performance, not just training loss.</p>
+    </div>
+    <ul>
+      <li>Mini-batch SGD is the de facto standard optimizer substrate for deep learning</li>
+      <li>Variance \(\propto 1/B\) means doubling batch halves gradient noise (std dev halved by \(\sqrt{2}\))</li>
+      <li>Hardware efficiency plateaus: sweet spot is usually B = 32–512</li>
+      <li>Large-batch training requires careful LR scaling + warmup to avoid generalization gap</li>
+      <li>The noise from small batches is a feature, not a bug &mdash; it provides implicit regularization</li>
+    </ul>
+  </div>
+</div>
+
+<footer style="text-align:center;padding:2rem 0 0;font-size:12px;color:var(--text3);">
+  AI/ML Mastery Vault &mdash; <a href="https://jayitsaha.github.io/PersonalSkillUp/">PersonalSkillUp</a>
+</footer>
+
+</div><!-- .page-wrap -->
+
+<script>
+// ── Toggle card collapse ──
+function toggleCard(id) {
+  const card = document.getElementById(id);
+  card.classList.toggle('collapsed');
+  const body = document.getElementById(id + '-body');
+  body.style.display = card.classList.contains('collapsed') ? 'none' : '';
+}
+
+// ══════════════════════════════════════════════════════════
+//  MINI-BATCH SGD VISUALIZATION
+//  Loss landscape: f(x,y) = 0.6*x^2 + 1.4*y^2  (elongated bowl)
+//  Three simultaneous paths with different noise levels
+// ══════════════════════════════════════════════════════════
+
+(function() {
+  const SIGMA_SQ = 0.09; // per-sample gradient variance σ²
+  const LR = 0.12;
+  const STEPS = 28;
+  const START = [2.2, 1.4];
+
+  // Batch size options
+  const BATCH_OPTS = [
+    { label: 'B = 1 (SGD)',      B: 1,    color: '#A32D2D', colorLight: 'rgba(163,45,45,0.18)' },
+    { label: 'B = 4',            B: 4,    color: '#854F0B', colorLight: 'rgba(133,79,11,0.18)' },
+    { label: 'B = 32',           B: 32,   color: '#534AB7', colorLight: 'rgba(83,74,183,0.18)' },
+    { label: 'B = 256',          B: 256,  color: '#185FA5', colorLight: 'rgba(24,95,165,0.18)' },
+    { label: 'B = N (Full-GD)',  B: 1e9,  color: '#3B6D11', colorLight: 'rgba(59,109,17,0.18)' },
+  ];
+
+  // Loss and gradient functions (with noise)
+  function loss(x, y) { return 0.6*x*x + 1.4*y*y; }
+  function trueGrad(x, y) { return [1.2*x, 2.8*y]; }
+
+  // Seeded PRNG (xorshift32) for reproducible paths
+  function makePRNG(seed) {
+    let s = seed >>> 0 || 1;
+    return function() {
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      return (s >>> 0) / 4294967296;
+    };
+  }
+  function randNorm(rng) {
+    // Box-Muller
+    const u = rng() || 1e-10, v = rng();
+    return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+  }
+
+  // Pre-generate all paths for all batch options
+  function genPath(B, seed) {
+    const rng = makePRNG(seed);
+    const noiseStd = B >= 1e8 ? 0 : Math.sqrt(SIGMA_SQ / B);
+    let x = START[0], y = START[1];
+    const pts = [[x, y]];
+    for (let i = 0; i < STEPS; i++) {
+      const [gx, gy] = trueGrad(x, y);
+      const nx = noiseStd * randNorm(rng);
+      const ny = noiseStd * randNorm(rng);
+      x -= LR * (gx + nx);
+      y -= LR * (gy + ny);
+      pts.push([x, y]);
+    }
+    return pts;
+  }
+
+  // All paths keyed by batch option index
+  const PATHS = BATCH_OPTS.map((opt, i) => genPath(opt.B, 42 + i * 17));
+  // Full-batch path (deterministic, index 4)
+  const FULL_PATH = PATHS[4];
+
+  // Canvas setup
+  const canvas = document.getElementById('descent-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = 800, H = 480;
+  canvas.width = W; canvas.height = H;
+
+  // World-to-canvas transform
+  const WORLD_X = [-2.8, 2.8], WORLD_Y = [-2.0, 2.0];
+  function toCanvas(wx, wy) {
+    const px = ((wx - WORLD_X[0]) / (WORLD_X[1] - WORLD_X[0])) * W;
+    const py = H - ((wy - WORLD_Y[0]) / (WORLD_Y[1] - WORLD_Y[0])) * H;
+    return [px, py];
+  }
+
+  // Draw loss contours
+  function drawContours() {
+    const levels = [0.15, 0.5, 1.0, 2.0, 3.5, 5.5];
+    ctx.save();
+    levels.forEach(level => {
+      ctx.beginPath();
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.09)';
+      ctx.lineWidth = 1;
+      // Draw ellipse: 0.6x²+1.4y²=level → x²/(level/0.6) + y²/(level/1.4)=1
+      const rx = Math.sqrt(level / 0.6);
+      const ry = Math.sqrt(level / 1.4);
+      const [cx, cy] = toCanvas(0, 0);
+      const scaleX = (toCanvas(rx, 0)[0] - cx);
+      const scaleY = (cy - toCanvas(0, ry)[1]);
+      if (scaleX > 0 && scaleY > 0) {
+        ctx.ellipse(cx, cy, scaleX, scaleY, 0, 0, 2 * Math.PI);
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // Draw a path up to step index
+  function drawPath(pts, color, alpha, step, lineWidth) {
+    if (step < 1) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const [sx, sy] = toCanvas(pts[0][0], pts[0][1]);
+    ctx.moveTo(sx, sy);
+    for (let i = 1; i <= Math.min(step, pts.length - 1); i++) {
+      const [px, py] = toCanvas(pts[i][0], pts[i][1]);
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    // Draw dot at current position
+    const [ex, ey] = toCanvas(pts[Math.min(step, pts.length-1)][0], pts[Math.min(step, pts.length-1)][1]);
+    ctx.beginPath();
+    ctx.arc(ex, ey, lineWidth * 2, 0, 2*Math.PI);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 1;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Draw minimum marker
+  function drawMinimum() {
+    const [mx, my] = toCanvas(0, 0);
+    ctx.save();
+    ctx.strokeStyle = '#9c9a92';
+    ctx.lineWidth = 1;
+    const s = 7;
+    ctx.beginPath(); ctx.moveTo(mx-s, my); ctx.lineTo(mx+s, my); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mx, my-s); ctx.lineTo(mx, my+s); ctx.stroke();
+    ctx.font = '11px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+    ctx.fillStyle = '#9c9a92';
+    ctx.fillText('min', mx+8, my-4);
+    ctx.restore();
+  }
+
+  // Draw start marker
+  function drawStart() {
+    const [sx, sy] = toCanvas(START[0], START[1]);
+    ctx.save();
+    ctx.fillStyle = '#9c9a92';
+    ctx.beginPath(); ctx.arc(sx, sy, 5, 0, 2*Math.PI); ctx.fill();
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#9c9a92';
+    ctx.fillText('start', sx+6, sy-4);
+    ctx.restore();
+  }
+
+  // Step info text for each regime
+  const STEP_INFO = [
+    { phase: 'Overview', title: 'The Loss Bowl', body: 'Loss landscape: \\(L(\\theta) = 0.6\\,x^2 + 1.4\\,y^2\\). Contours show equal-loss ellipses. All three paths start from the same point. Use the Batch Size slider to change the noise regime, then press Play.' },
+    { phase: 'Optimization', title: 'Early Steps: Paths Diverge', body: 'In the first few steps, all paths move quickly in the right direction. The noise from small batches is small compared to the large gradient magnitude near the start.' },
+    { phase: 'Optimization', title: 'Mid-Path: Noise Regime Visible', body: 'As we approach the minimum, gradients shrink. Now gradient noise \\(\\sigma/\\!\\sqrt{B}\\) dominates. Full-batch (green) glides smoothly; mini-batch (purple) oscillates gently; SGD B=1 (red) bounces erratically.' },
+    { phase: 'Convergence', title: 'Near the Minimum: Noise vs. Precision', body: 'Full-batch converges tightly to the minimum. Mini-batch circles nearby (variance \\(\\propto 1/B\\)). Pure SGD continues to wander — it never fully settles unless the learning rate is decayed.' },
+    { phase: 'Analysis', title: 'Gradient Variance = \\(\\sigma^2 / B\\)', body: 'The slider changes B. Watch the variance bars update in real time. Doubling B halves the variance and reduces the noise standard deviation by \\(1/\\!\\sqrt{2}\\). The path becomes proportionally smoother.' },
+    { phase: 'Hardware', title: 'GPU Throughput vs. Noise', body: 'Small B wastes GPU parallelism. Large B saturates it but reduces exploration. The sweet spot (B = 32–512) maximizes hardware utilization while keeping gradient noise low enough for stable convergence.' },
+    { phase: 'LR Scaling', title: 'Learning Rate Must Scale with B', body: 'When B doubles, the effective noise halves. You can afford a larger \\(\\eta\\). The linear scaling rule: \\(\\eta_{\\text{new}} = \\eta_{\\text{base}} \\times B_{\\text{new}}/B_{\\text{base}}\\). This keeps the signal-to-noise ratio of updates constant.' },
+    { phase: 'Summary', title: 'The Trade-off Summarized', body: 'Mini-batch SGD is the universally practical choice: it exploits GPU parallelism (unlike B=1), provides regularizing noise (unlike full-GD), and allows flexible learning rate scaling. Tune B based on your GPU memory and convergence behaviour.' },
+  ];
+
+  const N_STEPS = STEP_INFO.length;
+  let currentStep = 0;
+  let animFrame = null;
+  let isPlaying = false;
+  let animProgress = 0; // 0..STEPS (path animation progress)
+
+  // Current batch option (from slider)
+  function currentBatchIdx() { return parseInt(document.getElementById('batchSlider').value); }
+
+  function render(pathStep) {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = isDark ? '#222224' : '#f0efe9';
+    ctx.fillRect(0, 0, W, H);
+
+    drawContours();
+    drawStart();
+
+    const bIdx = currentBatchIdx();
+
+    // Always show full-batch (green) and pure SGD (red) as reference
+    drawPath(FULL_PATH, '#3B6D11', 0.75, pathStep, 2.5);
+    drawPath(PATHS[0],  '#A32D2D', 0.5,  pathStep, 1.5);
+
+    // Show selected mini-batch path (highlighted)
+    if (bIdx !== 0 && bIdx !== 4) {
+      drawPath(PATHS[bIdx], BATCH_OPTS[bIdx].color, 0.92, pathStep, 3);
+    }
+
+    drawMinimum();
+
+    // Axes labels
+    ctx.save();
+    ctx.font = '11px ' + (getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace');
+    ctx.fillStyle = isDark ? '#666460' : '#9c9a92';
+    ctx.fillText('θ₁', W - 16, H/2 + 4);
+    ctx.fillText('θ₂', W/2 + 4, 12);
+    ctx.restore();
+  }
+
+  function updateInfoCard() {
+    const info = STEP_INFO[currentStep] || STEP_INFO[STEP_INFO.length - 1];
+    document.getElementById('step-phase').textContent = info.phase;
+    document.getElementById('step-title').innerHTML = info.title;
+    document.getElementById('step-body').innerHTML = info.body;
+    if (window.renderMathInElement) {
+      renderMathInElement(document.getElementById('step-body'), {
+        delimiters: [{left:'\\(',right:'\\)',display:false},{left:'$$',right:'$$',display:true}]
+      });
+    }
+  }
+
+  function updateDots() {
+    const wrap = document.getElementById('progress-dots');
+    wrap.innerHTML = '';
+    for (let i = 0; i < N_STEPS; i++) {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === currentStep ? ' active' : (i < currentStep ? ' done' : ''));
+      d.onclick = () => { goToStep(i); };
+      wrap.appendChild(d);
+    }
+  }
+
+  function updateSliderDisplay() {
+    const idx = currentBatchIdx();
+    const opt = BATCH_OPTS[idx];
+    const B = opt.B >= 1e8 ? 'N' : opt.B;
+    document.getElementById('batchVal').textContent = 'B = ' + B;
+
+    const sigma_sq = SIGMA_SQ;
+    const B_real = opt.B >= 1e8 ? 1e6 : opt.B;
+    const variance = sigma_sq / B_real;
+    const noiseStd = Math.sqrt(variance);
+
+    document.getElementById('varianceLabel').textContent = opt.B >= 1e8 ? '≈ 0 (exact)' : variance.toFixed(4);
+    document.getElementById('noiseStdLabel').textContent = opt.B >= 1e8 ? '≈ 0' : noiseStd.toFixed(4);
+
+    const maxVar = SIGMA_SQ; // B=1 case
+    const varPct = opt.B >= 1e8 ? 0 : Math.min(100, (variance / maxVar) * 100);
+    const noisePct = opt.B >= 1e8 ? 0 : Math.min(100, (noiseStd / Math.sqrt(maxVar)) * 100);
+
+    const fillV = document.getElementById('varianceFill');
+    const fillN = document.getElementById('noiseStdFill');
+    fillV.style.width = varPct + '%';
+    fillN.style.width = noisePct + '%';
+
+    const color = varPct < 10 ? 'var(--green-mid)' : varPct < 40 ? 'var(--amber-mid)' : 'var(--red-mid)';
+    fillV.style.background = color;
+    fillN.style.background = color;
+
+    const badge = document.getElementById('noiseBadge');
+    if (varPct < 5) { badge.className = 'noise-badge noise-low'; badge.textContent = 'Very low noise'; }
+    else if (varPct < 20) { badge.className = 'noise-badge noise-low'; badge.textContent = 'Low noise'; }
+    else if (varPct < 60) { badge.className = 'noise-badge noise-med'; badge.textContent = 'Medium noise'; }
+    else { badge.className = 'noise-badge noise-high'; badge.textContent = 'High noise'; }
+  }
+
+  function goToStep(s) {
+    currentStep = Math.max(0, Math.min(N_STEPS - 1, s));
+    animProgress = STEPS * (currentStep / (N_STEPS - 1));
+    render(Math.round(animProgress));
+    updateInfoCard();
+    updateDots();
+    updateSliderDisplay();
+    document.getElementById('prevBtn').disabled = currentStep === 0;
+    document.getElementById('nextBtn').disabled = currentStep === N_STEPS - 1;
+  }
+
+  window.stepViz = function(dir) { goToStep(currentStep + dir); };
+  window.resetViz = function() { stopPlay(); goToStep(0); };
+
+  let playInterval = null;
+  function stopPlay() {
+    isPlaying = false;
+    if (playInterval) { clearInterval(playInterval); playInterval = null; }
+    document.getElementById('playBtn').innerHTML = '&#9654; Play';
+  }
+
+  window.togglePlay = function() {
+    if (isPlaying) { stopPlay(); return; }
+    isPlaying = true;
+    document.getElementById('playBtn').innerHTML = '&#9646;&#9646; Pause';
+    const speedMultiplier = parseInt(document.getElementById('speedSlider').value);
+    const msPerStep = Math.max(60, 280 - speedMultiplier * 40);
+    let subStep = Math.round(animProgress);
+    playInterval = setInterval(() => {
+      subStep++;
+      if (subStep > STEPS) {
+        const nextInfoStep = currentStep + 1;
+        if (nextInfoStep >= N_STEPS) { stopPlay(); return; }
+        currentStep = nextInfoStep;
+        updateInfoCard(); updateDots();
+        document.getElementById('prevBtn').disabled = currentStep === 0;
+        document.getElementById('nextBtn').disabled = currentStep === N_STEPS - 1;
+      }
+      animProgress = subStep;
+      render(subStep);
+      if (subStep >= STEPS && currentStep >= N_STEPS - 1) { stopPlay(); }
+    }, msPerStep / speedMultiplier);
+  };
+
+  // Slider events
+  document.getElementById('batchSlider').addEventListener('input', () => {
+    updateSliderDisplay();
+    render(Math.round(animProgress));
+  });
+  document.getElementById('speedSlider').addEventListener('input', () => {
+    document.getElementById('speedVal').textContent = '×' + document.getElementById('speedSlider').value;
+    if (isPlaying) { stopPlay(); togglePlay(); }
+  });
+
+  // Keyboard nav
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') stepViz(1);
+    if (e.key === 'ArrowLeft')  stepViz(-1);
+    if (e.key === 'r' || e.key === 'R') resetViz();
+  });
+
+  // Init
+  goToStep(0);
+  updateSliderDisplay();
+})();
+</script>
+</body>
+</html>

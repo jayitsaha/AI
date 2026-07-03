@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Adadelta · Nadam · Lion · Sophia — Modern Optimizer Zoo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+    --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+    --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+    --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+    --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+    --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;font-size:15px}
+a{color:var(--blue-mid);text-decoration:none}
+/* ── Layout ── */
+.page-wrap{max-width:900px;margin:0 auto;padding:2rem 1.5rem 4rem}
+/* ── Header ── */
+.header{margin-bottom:2rem}
+.header h1{font-size:2rem;font-weight:700;letter-spacing:-0.5px;color:var(--text);line-height:1.2}
+.header .subtitle{font-size:1rem;color:var(--text2);margin-top:.4rem}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:.8rem}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:20px}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+/* ── Cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.card-toggle-header{display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;list-style:none}
+.card-toggle-header::-webkit-details-marker{display:none}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.section-title{font-size:17px;font-weight:700;color:var(--text);flex:1}
+.toggle-icon{font-size:18px;color:var(--text3);transition:transform .2s}
+details[open] .toggle-icon{transform:rotate(90deg)}
+.card-body{margin-top:1.1rem}
+/* ── Concept boxes ── */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+/* ── Equations ── */
+.eq{text-align:center;padding:12px 20px;margin:.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{background:var(--bg2);color:var(--text2);font-weight:700;padding:8px 12px;text-align:left;border-bottom:2px solid var(--border2)}
+td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+/* ── Typography helpers ── */
+p{margin:.6rem 0}
+ul,ol{padding-left:1.4rem;margin:.6rem 0}
+li{margin:.3rem 0}
+strong{color:var(--text)}
+/* ── Visualization container ── */
+#viz-section{margin-top:1rem}
+.opt-stepper{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.opt-tabs{display:flex;border-bottom:2px solid var(--border2)}
+.opt-tab{flex:1;padding:10px 6px;font-size:12px;font-weight:700;text-align:center;cursor:pointer;border:none;background:none;color:var(--text3);transition:all .2s;font-family:var(--sans)}
+.opt-tab.active{background:var(--purple-bg);color:var(--purple-mid);border-bottom:3px solid var(--purple-mid);margin-bottom:-2px}
+.opt-body{padding:1.25rem}
+.opt-panel{display:none}
+.opt-panel.active{display:block}
+.update-rule{background:var(--bg2);border-radius:var(--radius);padding:10px 14px;margin-bottom:.8rem}
+.update-rule .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
+.fix-badge{display:inline-block;background:var(--green-bg);color:var(--green-mid);border:1px solid var(--green-border);border-radius:6px;font-size:11px;font-weight:700;padding:2px 8px;margin-bottom:.6rem}
+/* ── Canvas trajectory viz ── */
+.canvas-wrap{position:relative;margin:1rem 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border)}
+canvas{display:block;width:100%;height:280px}
+.legend-row{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:.6rem}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+/* ── Controls ── */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:#fff}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:.8rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all .25s;cursor:pointer}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+.kbd-hint{text-align:center;margin-top:.6rem;font-size:11px;color:var(--text3)}
+/* ── Step info card ── */
+.step-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.2rem;margin-top:.8rem;min-height:80px}
+.step-card .phase{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--purple-mid);margin-bottom:4px}
+.step-card .step-title{font-size:15px;font-weight:700;margin-bottom:.4rem}
+.step-card .step-prose{font-size:13px;color:var(--text2);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+<!-- ── HEADER ── -->
+<header class="header">
+  <h1>Adadelta · Nadam · Lion · Sophia</h1>
+  <p class="subtitle">A targeted tour of four modern optimizers — each a surgical fix to a different Adam shortcoming</p>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Optimization</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">4 Optimizers</span>
+  </div>
+</header>
+
+<!-- ── CARD 1: The Concept ── -->
+<details class="card" open>
+<summary class="card-toggle-header">
+  <span class="section-number">1</span>
+  <span class="section-title">The Big Picture — Why Four More Optimizers?</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<p>Adam is the dominant optimizer in deep learning, but it carries four known pathologies: (1) its two accumulated-squared-gradient buffers require the same global learning rate to be hand-tuned; (2) its first-moment momentum is <em>vanilla</em> — it does not look ahead; (3) it stores two full-parameter buffers (memory cost), and (4) it ignores curvature — every parameter is treated identically regardless of how curved the loss surface is in that direction. Four modern optimizers each surgically remove one of these flaws.</p>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">The Zoo at a Glance</div>
+  <ul style="font-size:13px;line-height:1.8;margin-top:.4rem">
+    <li><strong>Adadelta</strong> (Zeiler 2012) — eliminates the global LR entirely; uses a ratio of RMS statistics to self-calibrate units.</li>
+    <li><strong>Nadam</strong> (Dozat 2016) — swaps Adam's lagged first-moment estimate for a Nesterov-style lookahead, gaining sharper momentum direction.</li>
+    <li><strong>Lion</strong> (Chen et al. 2023) — replaces the adaptive gradient scale with a simple <em>sign</em>, slashing memory from 2× to 1× parameters, matching or beating Adam on large vision/LLM runs.</li>
+    <li><strong>Sophia</strong> (Liu et al. 2023) — approximates the diagonal Hessian cheaply (Hutchinson estimator), enabling true second-order per-parameter scaling for LLM pretraining.</li>
+  </ul>
+</div>
+
+<p>Think of Adam as a Swiss Army knife that does most jobs adequately. Each optimizer here is a purpose-built tool: Adadelta for unit-robustness, Nadam for sharper descent direction, Lion for memory efficiency, Sophia for curvature-awareness at LLM scale.</p>
+
+<div class="concept-box insight">
+  <div class="concept-box-title">If you remember one thing</div>
+  <p style="font-size:13px">Every optimizer here is Adam plus one targeted correction. Understanding <em>what problem each corrects</em> is more useful than memorising update rules.</p>
+</div>
+</div>
+</details>
+
+<!-- ── CARD 2: Update Rules ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number">2</span>
+  <span class="section-title">Update Rules &amp; Mathematical Derivations</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<p>Let \(\theta_t\) be parameters, \(g_t = \nabla_\theta L(\theta_t)\) the gradient, and all divisions/square-roots element-wise.</p>
+
+<h4 style="margin-top:1rem;font-size:15px;font-weight:700">Adadelta</h4>
+<p>Adam's RMSProp denominator grows monotonically — the effective step size shrinks to zero. Adadelta fixes this by maintaining a <em>second running average</em> of squared updates \(\mathbb{E}[\Delta\theta^2]\) to mimic the units of the numerator:</p>
+<div class="eq">$$\mathbb{E}[g^2]_t = \rho\,\mathbb{E}[g^2]_{t-1} + (1-\rho)\,g_t^2$$</div>
+<div class="eq">$$\Delta\theta_t = -\dfrac{\sqrt{\mathbb{E}[\Delta\theta^2]_{t-1}+\varepsilon}}{\sqrt{\mathbb{E}[g^2]_t+\varepsilon}}\,g_t$$</div>
+<div class="eq">$$\mathbb{E}[\Delta\theta^2]_t = \rho\,\mathbb{E}[\Delta\theta^2]_{t-1} + (1-\rho)\,\Delta\theta_t^2$$</div>
+<p style="font-size:13px;color:var(--text2)">No global learning rate appears — the numerator RMS \(\sqrt{\mathbb{E}[\Delta\theta^2]+\varepsilon}\) acts as an adaptive scale. The ratio ensures dimensional consistency: if gradients are in units \(u\), parameters in \(u\), then \(\Delta\theta\) is in \(u\) regardless of gradient magnitude.</p>
+
+<h4 style="margin-top:1.2rem;font-size:15px;font-weight:700">Nadam (Nesterov Adam)</h4>
+<p>Adam's update uses \(\hat{m}_t = m_t/(1-\beta_1^t)\) which reflects momentum <em>before</em> seeing the gradient impact. Nesterov's idea: look <em>ahead</em> in the momentum direction first, then compute the gradient. In practice, this is achieved by replacing \(\hat{m}_t\) in the Adam formula with the next-step corrected estimate:</p>
+<div class="eq">$$m_t = \beta_1 m_{t-1} + (1-\beta_1)g_t, \quad v_t = \beta_2 v_{t-1} + (1-\beta_2)g_t^2$$</div>
+<div class="eq">$$\tilde{m}_t = \frac{\beta_1\,m_t}{1-\beta_1^{t+1}} + \frac{(1-\beta_1)\,g_t}{1-\beta_1^t}$$</div>
+<div class="eq">$$\theta_{t+1} = \theta_t - \alpha\,\frac{\tilde{m}_t}{\sqrt{\hat{v}_t}+\varepsilon}, \quad \hat{v}_t = \frac{v_t}{1-\beta_2^t}$$</div>
+<p style="font-size:13px;color:var(--text2)">The key change: \(\tilde{m}_t\) uses the <em>next bias-corrected</em> momentum \(\beta_1 m_t/(1-\beta_1^{t+1})\) rather than the current \(\beta_1 m_{t-1}/(1-\beta_1^t)\). This single substitution captures the Nesterov lookahead.</p>
+
+<h4 style="margin-top:1.2rem;font-size:15px;font-weight:700">Lion (EvoLved Sign Momentum)</h4>
+<p>Discovered via program search (Chen et al. 2023). The update rule is strikingly simple:</p>
+<div class="eq">$$c_t = \beta_1 m_{t-1} + (1-\beta_1)g_t \quad \text{(interpolated direction)}$$</div>
+<div class="eq">$$\theta_{t+1} = \theta_t - \alpha\bigl(\operatorname{sign}(c_t) + \lambda\,\theta_t\bigr)$$</div>
+<div class="eq">$$m_t = \beta_2 m_{t-1} + (1-\beta_2)g_t \quad \text{(update momentum for next step)}$$</div>
+<p style="font-size:13px;color:var(--text2)">Note \(\beta_2\) is applied <em>after</em> the update — momentum is used for the <em>direction decision</em> (\(\beta_1\)) then updated with a slower \(\beta_2\). The \(\operatorname{sign}(\cdot)\) makes every step the same magnitude \(\alpha\) — Adam-style per-parameter scaling is absent, so a larger \(\alpha\) and weight decay \(\lambda\) are needed.</p>
+
+<h4 style="margin-top:1.2rem;font-size:15px;font-weight:700">Sophia (Second-Order Clipped Gradient)</h4>
+<p>Adam uses \(\sqrt{\hat{v}_t}\) as a curvature proxy — it is actually the RMS of past gradients, not the true curvature. Sophia uses Hutchinson's estimator to cheaply approximate the diagonal Hessian \(\hat{h}_t \approx \text{diag}(H)\):</p>
+<div class="eq">$$h_t \;=\; \beta_2\,h_{t-1} + (1-\beta_2)\,\bigl[g_t \odot \hat{u}_t\bigr], \quad \hat{u}_t\sim\mathcal{N}(0,I)$$</div>
+<div class="eq">$$m_t = \beta_1 m_{t-1} + (1-\beta_1)g_t$$</div>
+<div class="eq">$$\theta_{t+1} = \theta_t - \alpha \cdot \operatorname{clip}\!\left(\frac{m_t}{\max(\rho\,h_t,\,\varepsilon)},\,-1,\,1\right)$$</div>
+<p style="font-size:13px;color:var(--text2)">The clip-to-\([-1,1]\) prevents exploding steps when the Hessian estimate is near zero. \(\rho\) controls trust-region size. On LLM pretraining, Sophia achieves the same validation loss as Adam in roughly half the steps.</p>
+</div>
+</details>
+
+<!-- ── CARD 3: Internals ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number">3</span>
+  <span class="section-title">Internal Mechanics &amp; Design Decisions</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<h4 style="font-size:15px;font-weight:700;margin-bottom:.5rem">Adadelta — Unit Invariance Without a Global LR</h4>
+<p>RMSProp and Adam suffer because the accumulated squared gradient \(\mathbb{E}[g^2]\) only grows, shrinking steps over time. Zeiler noticed that the true Newton step \(-H^{-1}g\) is in the same units as parameters (a ratio of gradient to curvature), so the update should have units \(\propto \Delta\theta / g\). Maintaining \(\mathbb{E}[\Delta\theta^2]\) in the numerator provides this correction automatically — no tuning required. In practice, \(\rho=0.9\) and \(\varepsilon=10^{-6}\) work broadly. The downside: slow initial convergence because \(\mathbb{E}[\Delta\theta^2]\approx\varepsilon\) for early steps.</p>
+
+<div class="concept-box warning">
+  <div class="concept-box-title">Design Trade-off</div>
+  <p style="font-size:13px">Adadelta was designed in an era before large-batch training. In modern large-batch / cosine-LR schedules, the "no LR" design is actually a hindrance — you need to control the step size for warm-up and decay. This is why Adadelta is rarely used today despite being correct in principle.</p>
+</div>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.2rem;margin-bottom:.5rem">Nadam — Why Nesterov Helps</h4>
+<p>Vanilla momentum's update uses the gradient at the <em>current</em> position, then takes the momentum step. Nesterov reverses the order: step in the momentum direction first, evaluate the gradient at the <em>lookahead</em> position. In the bias-corrected Adam world, this is equivalent to replacing \(\hat{m}_t\) with a blended estimate that weights the current gradient more aggressively. Empirically, Nadam converges 5–15% faster than Adam on many RNN/LSTM tasks where momentum direction matters more than curvature scaling.</p>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.2rem;margin-bottom:.5rem">Lion — What the Sign Does</h4>
+<p>Replacing per-parameter scales with \(\operatorname{sign}(\cdot)\) means every parameter receives the same magnitude update each step. This sounds crude, but it has a surprising theoretical justification: Lion can be seen as solving a proximal regularization problem under an \(\ell_\infty\) norm on the update — it is a signed-momentum version of steepest descent in the dual norm. In practice: (1) memory drops from 2 Adam buffers to 1, (2) the effective learning rate landscape changes — Lion needs \(\alpha_\text{Lion} \approx \alpha_\text{Adam}/10\) to compensate for the fixed step size, and (3) weight decay \(\lambda\) becomes load-bearing (replaces the gradient magnitude scaling role).</p>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.2rem;margin-bottom:.5rem">Sophia — Hutchinson's Estimator for Hessian Diagonal</h4>
+<p>The diagonal of the Hessian \(\text{diag}(H)\) requires one Hessian-vector product per Hutchinson sample. For a random vector \(u\sim\mathcal{N}(0,I)\), \(\mathbb{E}[u^\top H u \cdot u] = H u\) — but we use only the <em>element-wise</em> product \(g \odot u\) when \(H\) is approximated by the gradient outer product (Gauss-Newton form). In practice one sample every \(k\) steps (e.g. \(k=10\)) is sufficient because \(h_t\) is EMA-smoothed. Sophia-H uses the full Hessian-vector product; Sophia-G uses the Gauss-Newton approximation (cheaper for transformers).</p>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">Memory Comparison (parameters = P)</div>
+  <p style="font-size:13px;margin-top:.3rem">SGD: 1P (momentum) · Adam: 3P (params + m + v) · Lion: 2P (params + m) · Sophia: 3P (params + m + h). Sophia's <em>h</em> replaces Adam's <em>v</em> but carries true curvature information.</p>
+</div>
+</div>
+</details>
+
+<!-- ── CARD 3b: Theoretical Foundations ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number">3b</span>
+  <span class="section-title">Theoretical Guarantees &amp; Convergence Properties</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<h4 style="font-size:15px;font-weight:700;margin-bottom:.6rem">Adadelta — Regret Bound</h4>
+<p>Adadelta is derived from AdaGrad. AdaGrad's regret bound for convex objectives is \(O(\sqrt{T})\), achieved by the cumulative squared gradient denominator. Adadelta's exponential moving average breaks the monotonic growth, forfeiting the strict AdaGrad guarantee in exchange for non-vanishing steps. No tight regret bound exists for the general non-convex case, but empirically it converges.</p>
+<div class="eq">$$\text{AdaGrad regret: } \sum_{t=1}^T f_t(\theta_t) - f_t(\theta^*) \;\leq\; \frac{1}{2\alpha}\|\theta_1-\theta^*\|_{\mathbf{H}_T}^2 + \text{const}$$</div>
+<p style="font-size:13px;color:var(--text2)">where \(\mathbf{H}_T = \text{diag}(\sum_t g_t^2)^{1/2}\). Adadelta's EMA breaks this precise bound but prevents step-size collapse.</p>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.1rem;margin-bottom:.6rem">Nadam — Nesterov Acceleration in Stochastic Settings</h4>
+<p>In deterministic convex settings, Nesterov acceleration achieves \(O(1/T^2)\) convergence vs \(O(1/T)\) for gradient descent. In the stochastic setting the benefit is subdominant to gradient noise — the convergence rate is \(O(1/\sqrt{T})\) regardless. However, Nadam's lookahead reduces the effective "lag" in momentum, which matters in practice especially for RNNs with long-range dependencies.</p>
+<div class="eq">$$\tilde{m}_t = \underbrace{\frac{\beta_1 m_t}{1-\beta_1^{t+1}}}_{\text{next-step }m\text{ estimate}} + \underbrace{\frac{(1-\beta_1)g_t}{1-\beta_1^t}}_{\text{current gradient correction}}$$</div>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.1rem;margin-bottom:.6rem">Lion — \(\ell_\infty\) Steepest Descent &amp; Proximal Interpretation</h4>
+<p>Lion can be derived as the solution to a proximal optimization problem. At each step, Lion finds the signed update that minimizes momentum disagreement under an \(\ell_1\) regularization:</p>
+<div class="eq">$$u_t^* = \underset{\|u\|_\infty \leq 1}{\operatorname{argmin}}\; \langle c_t, u \rangle = \operatorname{sign}(c_t)$$</div>
+<p style="font-size:13px;color:var(--text2)">The \(\ell_\infty\) constraint on the update (unit max-norm) is why every component steps exactly \(\pm\alpha\). The EvoLved part: this update rule was discovered by a neural architecture search over update-rule programs, not human derivation.</p>
+
+<h4 style="font-size:15px;font-weight:700;margin-top:1.1rem;margin-bottom:.6rem">Sophia — Newton's Method with Trust Region</h4>
+<p>The full Newton step is \(\theta \leftarrow \theta - H^{-1}g\). Sophia approximates the diagonal: \(\theta \leftarrow \theta - \text{diag}(H)^{-1}g\). The clip to \([-1,1]\) acts as a trust-region constraint — it prevents the step from becoming arbitrarily large when \(h_t\) underestimates true curvature:</p>
+<div class="eq">$$\text{Sophia step} = \alpha \cdot \operatorname{clip}\!\left(\frac{m_t}{\rho\,h_t}, -1, 1\right) \approx \alpha \cdot \frac{g_t}{[\text{diag}(H)]_t} \quad \text{(when not clipped)}$$</div>
+<p style="font-size:13px;color:var(--text2)">The Hutchinson estimator gives \(\mathbb{E}[u^\top g \cdot u] = Hg\) for random \(u\sim\mathcal{N}(0,I)\), enabling unbiased diagonal Hessian estimation from one extra Hessian-vector product per step (or per \(k\) steps with EMA smoothing).</p>
+
+<div class="concept-box math">
+  <div class="concept-box-title">Key Papers</div>
+  <ul style="font-size:13px;line-height:1.8;margin-top:.3rem">
+    <li><strong>Adadelta</strong>: Zeiler, "ADADELTA: An Adaptive Learning Rate Method", 2012 (arXiv:1212.5701)</li>
+    <li><strong>Nadam</strong>: Dozat, "Incorporating Nesterov Momentum into Adam", ICLR 2016 Workshop</li>
+    <li><strong>Lion</strong>: Chen et al., "Symbolic Discovery of Optimization Algorithms", NeurIPS 2023</li>
+    <li><strong>Sophia</strong>: Liu et al., "Sophia: A Scalable Stochastic Second-order Optimizer for Language Model Pre-training", ICLR 2024</li>
+  </ul>
+</div>
+</div>
+</details>
+
+<!-- ── CARD 4: Visualization ── -->
+<details class="card" open>
+<summary class="card-toggle-header">
+  <span class="section-number">4</span>
+  <span class="section-title">Interactive Comparison Stepper</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body" id="viz-section">
+<!-- Optimizer tabs for update rules -->
+<div class="opt-stepper">
+  <div class="opt-tabs">
+    <button class="opt-tab active" onclick="switchOpt(0)">Adadelta</button>
+    <button class="opt-tab" onclick="switchOpt(1)">Nadam</button>
+    <button class="opt-tab" onclick="switchOpt(2)">Lion</button>
+    <button class="opt-tab" onclick="switchOpt(3)">Sophia</button>
+  </div>
+  <div class="opt-body">
+    <div class="opt-panel active" id="op0">
+      <div class="fix-badge">FIX: Monotone LR decay</div>
+      <p style="font-size:13px;margin-bottom:.6rem">Adam's RMS denominator only grows → steps vanish. Adadelta adds a matching RMS of <em>updates</em> in the numerator to restore scale.</p>
+      <div class="update-rule">
+        <div class="label">One-line update rule</div>
+        <div class="eq" style="margin:0">$$\Delta\theta_t = -\frac{\text{RMS}[\Delta\theta]_{t-1}}{\text{RMS}[g]_t}\cdot g_t \quad \text{(no }\alpha\text{)}$$</div>
+      </div>
+      <div class="eq">$$\mathbb{E}[g^2]_t = \rho\,\mathbb{E}[g^2]_{t-1}+(1-\rho)g_t^2$$</div>
+      <div class="eq">$$\mathbb{E}[\Delta\theta^2]_t = \rho\,\mathbb{E}[\Delta\theta^2]_{t-1}+(1-\rho)\Delta\theta_t^2$$</div>
+      <div class="tbl-wrap"><table><tr><th>vs Adam</th><th>Adam</th><th>Adadelta</th></tr>
+        <tr><td>Global LR</td><td>✓ (required)</td><td>✗ (self-calibrating)</td></tr>
+        <tr><td>Memory</td><td>3P</td><td>3P</td></tr>
+        <tr><td>Curvature</td><td>RMS[g] proxy</td><td>RMS[g] proxy (same)</td></tr>
+        <tr><td>Step units</td><td>unitless</td><td>dimensionally consistent</td></tr>
+        <tr><td>Best for</td><td>General</td><td>Sparse / noisy gradients</td></tr>
+      </table></div>
+    </div>
+    <div class="opt-panel" id="op1">
+      <div class="fix-badge">FIX: Lagged momentum direction</div>
+      <p style="font-size:13px;margin-bottom:.6rem">Adam's \(\hat{m}_t\) reflects momentum <em>after</em> the current gradient. Nesterov's trick: use a lookahead that blends current gradient with the next step's corrected momentum.</p>
+      <div class="update-rule">
+        <div class="label">One-line update rule</div>
+        <div class="eq" style="margin:0">$$\theta_{t+1}=\theta_t - \alpha\,\frac{\beta_1 m_t/(1-\beta_1^{t+1})\;+\;(1-\beta_1)g_t/(1-\beta_1^t)}{\sqrt{\hat{v}_t}+\varepsilon}$$</div>
+      </div>
+      <div class="eq">$$m_t=\beta_1 m_{t-1}+(1-\beta_1)g_t, \quad v_t=\beta_2 v_{t-1}+(1-\beta_2)g_t^2$$</div>
+      <div class="tbl-wrap"><table><tr><th>vs Adam</th><th>Adam</th><th>Nadam</th></tr>
+        <tr><td>Momentum type</td><td>Standard EMA</td><td>Nesterov lookahead</td></tr>
+        <tr><td>Extra memory</td><td>—</td><td>None (same buffers)</td></tr>
+        <tr><td>Extra compute</td><td>—</td><td>One extra bias-correction</td></tr>
+        <tr><td>Convergence</td><td>Baseline</td><td>5–15% faster on RNNs</td></tr>
+        <tr><td>Best for</td><td>General</td><td>RNNs, sequence models</td></tr>
+      </table></div>
+    </div>
+    <div class="opt-panel" id="op2">
+      <div class="fix-badge">FIX: Memory cost + per-param scaling</div>
+      <p style="font-size:13px;margin-bottom:.6rem">Drops adaptive scaling entirely. Every step is exactly \(\alpha\), in the direction given by \(\operatorname{sign}(\beta_1 m + (1-\beta_1)g)\). Uses momentum for direction, not magnitude.</p>
+      <div class="update-rule">
+        <div class="label">One-line update rule</div>
+        <div class="eq" style="margin:0">$$\theta_{t+1}=\theta_t - \alpha\bigl(\operatorname{sign}(\beta_1 m_{t-1}+(1-\beta_1)g_t)+\lambda\theta_t\bigr)$$</div>
+      </div>
+      <div class="eq">$$m_t=\beta_2 m_{t-1}+(1-\beta_2)g_t \quad \text{(updated AFTER step)}$$</div>
+      <div class="tbl-wrap"><table><tr><th>vs Adam</th><th>Adam</th><th>Lion</th></tr>
+        <tr><td>Step magnitude</td><td>Adaptive per param</td><td>Fixed \(\alpha\) per param</td></tr>
+        <tr><td>Memory (buffers)</td><td>m + v (2×P)</td><td>m only (1×P)</td></tr>
+        <tr><td>LR sensitivity</td><td>Moderate</td><td>Higher (tune \(\alpha\) carefully)</td></tr>
+        <tr><td>Weight decay</td><td>Optional</td><td>Load-bearing (critical)</td></tr>
+        <tr><td>Best for</td><td>General</td><td>Large vision/LLM, memory budget</td></tr>
+      </table></div>
+    </div>
+    <div class="opt-panel" id="op3">
+      <div class="fix-badge">FIX: Ignores true curvature</div>
+      <p style="font-size:13px;margin-bottom:.6rem">Adam's \(\hat{v}_t\) is RMS of past gradients — a proxy for curvature, not curvature itself. Sophia uses Hutchinson's estimator to get the diagonal Hessian cheaply.</p>
+      <div class="update-rule">
+        <div class="label">One-line update rule</div>
+        <div class="eq" style="margin:0">$$\theta_{t+1}=\theta_t - \alpha\cdot\operatorname{clip}\!\left(\frac{m_t}{\max(\rho\,h_t,\varepsilon)},\,-1,\,1\right)$$</div>
+      </div>
+      <div class="eq">$$h_t=\beta_2 h_{t-1}+(1-\beta_2)(u_t^\top g_t)\,u_t, \quad u_t\sim\mathcal{N}(0,I)$$</div>
+      <div class="tbl-wrap"><table><tr><th>vs Adam</th><th>Adam</th><th>Sophia</th></tr>
+        <tr><td>Denominator</td><td>RMS[g] (gradient proxy)</td><td>Diagonal Hessian</td></tr>
+        <tr><td>Order</td><td>First-order</td><td>Second-order (diagonal)</td></tr>
+        <tr><td>Extra compute</td><td>—</td><td>Hessian-vector product (/k steps)</td></tr>
+        <tr><td>Convergence</td><td>Baseline</td><td>~2× fewer steps on LLMs</td></tr>
+        <tr><td>Best for</td><td>General</td><td>LLM pretraining at scale</td></tr>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<!-- Trajectory visualization -->
+<p style="font-size:13px;color:var(--text2);margin:.8rem 0 .3rem">Descent on a 2D bowl \(f(x,y)=0.5x^2+2y^2\) from \((2.0,\,1.5)\). Steps are numerically computed. Each optimizer shows 30 trajectory steps.</p>
+<div class="canvas-wrap"><canvas id="trajCanvas"></canvas></div>
+<div class="legend-row">
+  <div class="legend-item"><div class="legend-dot" style="background:#E24B4A"></div>Adam (baseline)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#378ADD"></div>Adadelta</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#97C459"></div>Nadam</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#EF9F27"></div>Lion</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#AFA9EC"></div>Sophia</div>
+</div>
+
+<!-- Step-through -->
+<div class="step-card" id="stepCard">
+  <div class="phase" id="stepPhase">STEP 0 / 8</div>
+  <div class="step-title" id="stepTitle">Overview</div>
+  <div class="step-prose" id="stepProse">Press Next to step through the optimizer comparison, or use ← → keys.</div>
+</div>
+<div class="controls">
+  <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+  <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+  <button class="btn" onclick="reset()">Reset</button>
+</div>
+<div class="progress-wrap" id="progressWrap"></div>
+<div class="kbd-hint">Use ← → arrow keys · R to reset</div>
+</div>
+</details>
+
+<!-- ── CARD 5: Numerical Traces ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number">5</span>
+  <span class="section-title">Numerically Correct Step-by-Step Traces</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<p style="font-size:13px;color:var(--text2);margin-bottom:.8rem">All traces on \(f(x)=x^2\), starting \(x=2.0\), computed numerically.</p>
+
+<h4 style="font-size:14px;font-weight:700;margin:.8rem 0 .4rem">Adadelta trace (\(\rho=0.9\), \(\varepsilon=10^{-6}\))</h4>
+<div class="tbl-wrap"><table><tr><th>t</th><th>x</th><th>g=2x</th><th>E[g²]</th><th>Δx</th><th>x_new</th></tr>
+  <tr><td>1</td><td>2.0000</td><td>4.0000</td><td>1.6000</td><td>−0.0032</td><td>1.9968</td></tr>
+  <tr><td>2</td><td>1.9968</td><td>3.9937</td><td>3.0349</td><td>−0.0032</td><td>1.9936</td></tr>
+  <tr><td>3</td><td>1.9936</td><td>3.9872</td><td>4.3212</td><td>−0.0033</td><td>1.9903</td></tr>
+  <tr><td>4</td><td>1.9903</td><td>3.9806</td><td>5.4736</td><td>−0.0033</td><td>1.9870</td></tr>
+  <tr><td>5</td><td>1.9870</td><td>3.9739</td><td>6.5055</td><td>−0.0034</td><td>1.9836</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--text2)">Note: steps are tiny initially because \(\mathbb{E}[\Delta\theta^2]\approx\varepsilon\) until enough updates accumulate. Adadelta is known to have a slow warm-up phase.</p>
+
+<h4 style="font-size:14px;font-weight:700;margin:.8rem 0 .4rem">Nadam trace (\(\alpha=0.01\), \(\beta_1=0.9\), \(\beta_2=0.999\))</h4>
+<div class="tbl-wrap"><table><tr><th>t</th><th>x</th><th>g</th><th>m̃_nadam</th><th>v̂</th><th>x_new</th></tr>
+  <tr><td>1</td><td>2.0000</td><td>4.0000</td><td>5.8947</td><td>16.0000</td><td>1.9853</td></tr>
+  <tr><td>2</td><td>1.9853</td><td>3.9705</td><td>4.6039</td><td>15.8825</td><td>1.9737</td></tr>
+  <tr><td>3</td><td>1.9737</td><td>3.9474</td><td>4.2728</td><td>15.7823</td><td>1.9630</td></tr>
+  <tr><td>4</td><td>1.9630</td><td>3.9259</td><td>4.1329</td><td>15.6898</td><td>1.9525</td></tr>
+  <tr><td>5</td><td>1.9525</td><td>3.9050</td><td>4.0566</td><td>15.6015</td><td>1.9423</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--text2)">The lookahead inflates \(\tilde{m}_1 = 5.89\) vs Adam's \(\hat{m}_1 = 4.21\) — larger initial steps, faster descent.</p>
+
+<h4 style="font-size:14px;font-weight:700;margin:.8rem 0 .4rem">Lion trace (\(\alpha=0.01\), \(\beta_1=0.9\), \(\beta_2=0.99\), \(\lambda=0.01\))</h4>
+<div class="tbl-wrap"><table><tr><th>t</th><th>x</th><th>c=β₁m+(1−β₁)g</th><th>sign(c)</th><th>x_new</th><th>m_new</th></tr>
+  <tr><td>1</td><td>2.0000</td><td>0.4000</td><td>+1</td><td>1.9898</td><td>0.0400</td></tr>
+  <tr><td>2</td><td>1.9898</td><td>0.4340</td><td>+1</td><td>1.9796</td><td>0.0794</td></tr>
+  <tr><td>3</td><td>1.9796</td><td>0.4674</td><td>+1</td><td>1.9694</td><td>0.1182</td></tr>
+  <tr><td>4</td><td>1.9694</td><td>0.5003</td><td>+1</td><td>1.9592</td><td>0.1564</td></tr>
+  <tr><td>5</td><td>1.9592</td><td>0.5326</td><td>+1</td><td>1.9490</td><td>0.1940</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--text2)">Lion takes perfectly uniform steps (Δx ≈ −0.0102 each). The sign is +1 (gradient positive → descend left). Weight decay adds a small correction \(-\lambda x\).</p>
+
+<h4 style="font-size:14px;font-weight:700;margin:.8rem 0 .4rem">Sophia trace (\(\alpha=0.01\), \(\rho=0.04\), Hutchinson estimate)</h4>
+<div class="tbl-wrap"><table><tr><th>t</th><th>x</th><th>g</th><th>m</th><th>h (Hess diag est)</th><th>clip(m/ρh)</th><th>x_new</th></tr>
+  <tr><td>1</td><td>2.0000</td><td>4.0000</td><td>0.4000</td><td>0.0800</td><td>1.000</td><td>1.9900</td></tr>
+  <tr><td>2</td><td>1.9900</td><td>3.9800</td><td>0.7580</td><td>0.1588</td><td>1.000</td><td>1.9800</td></tr>
+  <tr><td>3</td><td>1.9800</td><td>3.9600</td><td>1.0782</td><td>0.2364</td><td>1.000</td><td>1.9700</td></tr>
+  <tr><td>4</td><td>1.9700</td><td>3.9400</td><td>1.3644</td><td>0.3128</td><td>1.000</td><td>1.9600</td></tr>
+  <tr><td>5</td><td>1.9600</td><td>3.9200</td><td>1.6199</td><td>0.3881</td><td>1.000</td><td>1.9500</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--text2)">Sophia clips to ±1 in early steps (gradient momentum overwhelms curvature estimate). As \(h_t\) grows, the step becomes truly curvature-scaled. For a quadratic bowl the clip is active early — in real LLM loss landscapes with sharp/flat regions, Sophia's curvature advantage is more pronounced.</p>
+</div>
+</details>
+
+<!-- ── CARD 6: Key Takeaways ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number">6</span>
+  <span class="section-title">When to Use Each — Decision Guide</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<div class="concept-box key-concept">
+  <div class="concept-box-title">Quick Decision Guide</div>
+  <ul style="font-size:13px;line-height:1.9;margin-top:.4rem">
+    <li><strong>LR tuning is painful</strong> → try <strong>Adadelta</strong> (no LR parameter). But expect slow start.</li>
+    <li><strong>RNN / sequence model, want faster convergence</strong> → <strong>Nadam</strong> (same code as Adam, one extra line).</li>
+    <li><strong>Training large vision/LLM model, memory is tight</strong> → <strong>Lion</strong> (half the buffer of Adam; tune LR carefully, increase weight decay).</li>
+    <li><strong>Pretraining an LLM, want to cut compute in half</strong> → <strong>Sophia</strong> (second-order; implement Hessian-vector products).</li>
+    <li><strong>Fine-tuning or unclear workload</strong> → stick with <strong>Adam/AdamW</strong> (most robust default).</li>
+  </ul>
+</div>
+
+<div class="tbl-wrap"><table>
+  <tr><th>Optimizer</th><th>Memory</th><th>Key Hyper</th><th>Best Scenario</th><th>Worst Scenario</th></tr>
+  <tr><td>Adadelta</td><td>3P</td><td>ρ=0.9, ε=1e-6</td><td>Sparse gradients, no LR budget</td><td>Large-batch training with LR schedule</td></tr>
+  <tr><td>Nadam</td><td>3P</td><td>β₁=0.9, β₂=0.999</td><td>RNNs, sequential models</td><td>Marginal over Adam for CNNs</td></tr>
+  <tr><td>Lion</td><td>2P</td><td>α=3e-4, β₁=0.9, β₂=0.99, λ=0.01</td><td>Large ViT, LLM, memory budget</td><td>Small datasets (sign noise dominates)</td></tr>
+  <tr><td>Sophia</td><td>3P</td><td>α=2e-4, β₁=0.965, β₂=0.99, ρ=0.04</td><td>LLM pretraining at scale</td><td>Fine-tuning (Hessian overhead not worth it)</td></tr>
+  <tr><td>Adam (ref)</td><td>3P</td><td>α=1e-3, β₁=0.9, β₂=0.999</td><td>Almost everything</td><td>Memory-constrained settings</td></tr>
+</table></div>
+
+<div class="concept-box warning">
+  <div class="concept-box-title">Common Pitfalls</div>
+  <ul style="font-size:13px;line-height:1.8;margin-top:.3rem">
+    <li><strong>Lion LR too large</strong>: Lion's sign update means every parameter steps exactly \(\alpha\). Start with \(\alpha_\text{Lion} = \alpha_\text{Adam} / 10\) as a baseline.</li>
+    <li><strong>Sophia without Hessian updates</strong>: If you freeze \(h_t\) (skip Hutchinson steps), Sophia degrades to biased Adam. Update \(h_t\) every \(k\leq 10\) steps.</li>
+    <li><strong>Adadelta stalling</strong>: If \(\mathbb{E}[\Delta\theta^2]\) is near \(\varepsilon\) for many steps (sparse gradients), the step stays tiny. Add a small LR as a floor (or switch to AdamW).</li>
+    <li><strong>Nadam vs Adam at large batch</strong>: Nesterov advantage shrinks as batch size grows (gradients are already low-noise). The benefit is most visible at small-medium batch sizes.</li>
+  </ul>
+</div>
+
+<h4 style="font-size:14px;font-weight:700;margin-top:1rem;margin-bottom:.4rem">Related Topics</h4>
+<ul style="font-size:13px;line-height:1.8">
+  <li>Adam / AdamW — the shared baseline all four optimizers improve upon</li>
+  <li>SGD with Nesterov momentum — parent of the Nesterov idea in Nadam</li>
+  <li>RMSProp — parent of Adadelta's denominator design</li>
+  <li>Shampoo / K-FAC — full-matrix second-order methods vs Sophia's diagonal</li>
+  <li>Muon / Adan — other post-2022 optimizers in the same design space as Lion</li>
+  <li>Learning rate schedulers — Cosine, Warmup — interact strongly with Lion and Sophia</li>
+</ul>
+</div>
+</details>
+
+<!-- ── EXTRA CARD: Code Implementations ── -->
+<details class="card">
+<summary class="card-toggle-header">
+  <span class="section-number" style="background:var(--green-bg);color:var(--green-mid)">★</span>
+  <span class="section-title">From-Scratch Implementations (NumPy)</span>
+  <span class="toggle-icon">▶</span>
+</summary>
+<div class="card-body">
+<pre style="background:var(--bg2);border-radius:var(--radius);padding:14px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;color:var(--text2)"><code><span style="color:var(--green-mid)"># ── Adadelta ────────────────────────────────────────────────</span>
+def adadelta(grad_fn, theta0, rho=0.9, eps=1e-6, n_steps=100):
+    theta = theta0.copy()
+    E_g2  = np.zeros_like(theta)   # running avg of squared gradients
+    E_dx2 = np.zeros_like(theta)   # running avg of squared updates
+    for _ in range(n_steps):
+        g     = grad_fn(theta)
+        E_g2  = rho * E_g2 + (1 - rho) * g**2
+        rms_g = np.sqrt(E_g2 + eps)
+        rms_d = np.sqrt(E_dx2 + eps)    # ← numerator (unit correction)
+        dx    = -(rms_d / rms_g) * g    # ← no alpha anywhere!
+        E_dx2 = rho * E_dx2 + (1 - rho) * dx**2
+        theta += dx
+    return theta
+
+<span style="color:var(--green-mid)"># ── Nadam ────────────────────────────────────────────────────</span>
+def nadam(grad_fn, theta0, alpha=1e-3, b1=0.9, b2=0.999, eps=1e-8, n=100):
+    theta = theta0.copy(); m = v = np.zeros_like(theta)
+    for t in range(1, n + 1):
+        g  = grad_fn(theta)
+        m  = b1 * m + (1 - b1) * g
+        v  = b2 * v + (1 - b2) * g**2
+        v_hat = v / (1 - b2**t)
+        # Nesterov: blend next-step bias-corrected m with current gradient
+        m_nadam = b1 * m / (1 - b1**(t + 1)) + (1 - b1) * g / (1 - b1**t)
+        theta  -= alpha * m_nadam / (np.sqrt(v_hat) + eps)
+    return theta
+
+<span style="color:var(--green-mid)"># ── Lion ─────────────────────────────────────────────────────</span>
+def lion(grad_fn, theta0, alpha=3e-4, b1=0.9, b2=0.99, lam=0.01, n=100):
+    theta = theta0.copy(); m = np.zeros_like(theta)
+    for _ in range(n):
+        g  = grad_fn(theta)
+        c  = b1 * m + (1 - b1) * g       # interpolated direction
+        theta -= alpha * (np.sign(c) + lam * theta)   # fixed step + WD
+        m  = b2 * m + (1 - b2) * g       # update momentum AFTER step
+    return theta
+
+<span style="color:var(--green-mid)"># ── Sophia (Hutchinson diagonal Hessian estimate) ────────────</span>
+def sophia(grad_fn, hess_diag_fn, theta0,
+           alpha=2e-4, b1=0.965, b2=0.99, rho=0.04, eps=1e-12,
+           n=100, k=10):
+    theta = theta0.copy(); m = h = np.zeros_like(theta)
+    for t in range(1, n + 1):
+        g = grad_fn(theta)
+        m = b1 * m + (1 - b1) * g
+        if t % k == 0:                   # update Hessian estimate every k steps
+            h_est = hess_diag_fn(theta)  # e.g. via Hutchinson sampling
+            h = b2 * h + (1 - b2) * h_est
+        denom = np.maximum(rho * h, eps)
+        step  = np.clip(m / denom, -1, 1)   # trust-region clip
+        theta -= alpha * step
+    return theta</code></pre>
+<div class="concept-box warning" style="margin-top:.8rem">
+  <div class="concept-box-title">Production Notes</div>
+  <ul style="font-size:13px;line-height:1.8;margin-top:.3rem">
+    <li><strong>PyTorch Lion</strong>: available in <code>torchopt</code> and <code>optimi</code> libraries. Use <code>weight_decouple=True</code> to apply \(\lambda\) to params, not gradients.</li>
+    <li><strong>PyTorch Sophia</strong>: use <code>torch.autograd.functional.hvp</code> for the Hessian-vector product. Budget ~10% extra compute for Hutchinson sampling every 10 steps.</li>
+    <li><strong>Nadam in PyTorch</strong>: <code>torch.optim.NAdam(params, lr=1e-3, betas=(0.9,0.999))</code> — available natively since PyTorch 1.13.</li>
+    <li><strong>Adadelta in PyTorch</strong>: <code>torch.optim.Adadelta(params, rho=0.9, eps=1e-6)</code>. Rarely used today — prefer AdamW.</li>
+  </ul>
+</div>
+</div>
+</details>
+
+</div><!-- /page-wrap -->
+<script>
+// ── Optimizer tab switcher ──────────────────────────────────────────────
+function switchOpt(idx){
+  document.querySelectorAll('.opt-tab').forEach((t,i)=>{
+    t.classList.toggle('active',i===idx);
+  });
+  document.querySelectorAll('.opt-panel').forEach((p,i)=>{
+    p.classList.toggle('active',i===idx);
+  });
+}
+
+// ── Trajectory computation on f(x,y)=0.5*x^2+2*y^2 ──────────────────
+function computeTrajectories(){
+  const N=30, x0=2.0, y0=1.5;
+  const eps=1e-8;
+
+  // Adam baseline
+  let adam=[];
+  {let x=x0,y=y0,mx=0,my=0,vx=0,vy=0,a=0.15,b1=0.9,b2=0.999;
+  for(let t=1;t<=N;t++){
+    let gx=x,gy=4*y;
+    mx=b1*mx+(1-b1)*gx; my=b1*my+(1-b1)*gy;
+    vx=b2*vx+(1-b2)*gx*gx; vy=b2*vy+(1-b2)*gy*gy;
+    let mxh=mx/(1-Math.pow(b1,t)),myh=my/(1-Math.pow(b1,t));
+    let vxh=vx/(1-Math.pow(b2,t)),vyh=vy/(1-Math.pow(b2,t));
+    x-=a*mxh/(Math.sqrt(vxh)+eps); y-=a*myh/(Math.sqrt(vyh)+eps);
+    adam.push([x,y]);
+  }}
+
+  // Adadelta
+  let adad=[];
+  {let x=x0,y=y0,eg2x=0,eg2y=0,edx2=0,edy2=0,rho=0.9,ep=1e-6;
+  for(let t=1;t<=N;t++){
+    let gx=x,gy=4*y;
+    eg2x=rho*eg2x+(1-rho)*gx*gx; eg2y=rho*eg2y+(1-rho)*gy*gy;
+    let rmsDx=Math.sqrt(edx2+ep),rmsDy=Math.sqrt(edy2+ep);
+    let rmsGx=Math.sqrt(eg2x+ep),rmsGy=Math.sqrt(eg2y+ep);
+    let dx=-(rmsDx/rmsGx)*gx, dy=-(rmsDy/rmsGy)*gy;
+    edx2=rho*edx2+(1-rho)*dx*dx; edy2=rho*edy2+(1-rho)*dy*dy;
+    x+=dx; y+=dy;
+    adad.push([x,y]);
+  }}
+
+  // Nadam
+  let nadam=[];
+  {let x=x0,y=y0,mx=0,my=0,vx=0,vy=0,a=0.15,b1=0.9,b2=0.999;
+  for(let t=1;t<=N;t++){
+    let gx=x,gy=4*y;
+    mx=b1*mx+(1-b1)*gx; my=b1*my+(1-b1)*gy;
+    vx=b2*vx+(1-b2)*gx*gx; vy=b2*vy+(1-b2)*gy*gy;
+    let vxh=vx/(1-Math.pow(b2,t)),vyh=vy/(1-Math.pow(b2,t));
+    let nmx=b1*mx/(1-Math.pow(b1,t+1))+(1-b1)*gx/(1-Math.pow(b1,t));
+    let nmy=b1*my/(1-Math.pow(b1,t+1))+(1-b1)*gy/(1-Math.pow(b1,t));
+    x-=a*nmx/(Math.sqrt(vxh)+eps); y-=a*nmy/(Math.sqrt(vyh)+eps);
+    nadam.push([x,y]);
+  }}
+
+  // Lion
+  let lion=[];
+  {let x=x0,y=y0,mx=0,my=0,a=0.15,b1=0.9,b2=0.99,lam=0.01;
+  for(let t=1;t<=N;t++){
+    let gx=x,gy=4*y;
+    let cx=b1*mx+(1-b1)*gx, cy=b1*my+(1-b1)*gy;
+    x-=a*(Math.sign(cx)+lam*x); y-=a*(Math.sign(cy)+lam*y);
+    mx=b2*mx+(1-b2)*gx; my=b2*my+(1-b2)*gy;
+    lion.push([x,y]);
+  }}
+
+  // Sophia (diagonal Hessian estimate; true Hessian diag of 0.5x^2+2y^2 is [1,4])
+  let sophia=[];
+  {let x=x0,y=y0,mx=0,my=0,hx=0,hy=0,a=0.15,b1=0.965,b2=0.99,rho=0.04,ep=1e-12;
+  for(let t=1;t<=N;t++){
+    let gx=x,gy=4*y;
+    // Hutchinson: u=1 for deterministic trace; h = g * Hess * u^2 where Hess_diag=[1,4]
+    let hx_est=gx*1, hy_est=gy*4; // using true Hessian diagonal for determinism
+    hx=b2*hx+(1-b2)*hx_est; hy=b2*hy+(1-b2)*hy_est;
+    mx=b1*mx+(1-b1)*gx; my=b1*my+(1-b1)*gy;
+    let stepx=Math.max(Math.min(mx/Math.max(rho*hx,ep),1),-1);
+    let stepy=Math.max(Math.min(my/Math.max(rho*hy,ep),1),-1);
+    x-=a*stepx; y-=a*stepy;
+    sophia.push([x,y]);
+  }}
+
+  return {adam,adad,nadam,lion,sophia};
+}
+
+// ── Canvas drawing ──────────────────────────────────────────────────────
+const COLORS={adam:'#E24B4A',adad:'#378ADD',nadam:'#97C459',lion:'#EF9F27',sophia:'#AFA9EC'};
+const trajs=computeTrajectories();
+const canvas=document.getElementById('trajCanvas');
+const ctx=canvas.getContext('2d');
+
+function worldToCanvas(x,y,W,H){
+  // Map x in [-0.2,2.2], y in [-0.2,1.7] to canvas
+  const xMin=-0.2,xMax=2.4,yMin=-0.25,yMax=1.75;
+  return [(x-xMin)/(xMax-xMin)*W,(1-(y-yMin)/(yMax-yMin))*H];
+}
+
+function drawContour(W,H){
+  // Draw contour lines of f(x,y)=0.5x^2+2y^2
+  const isDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  const contourLevels=[0.05,0.2,0.5,1.0,1.8,3.0];
+  contourLevels.forEach(level=>{
+    ctx.beginPath();
+    ctx.strokeStyle=isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.07)';
+    ctx.lineWidth=1;
+    // Approximate ellipse: 0.5x^2+2y^2=L → x=sqrt(2L)cosθ, y=sqrt(L/2)sinθ
+    const a=Math.sqrt(2*level),b=Math.sqrt(level/2);
+    let first=true;
+    for(let ang=0;ang<=2*Math.PI+0.01;ang+=0.02){
+      const wx=a*Math.cos(ang), wy=b*Math.sin(ang);
+      const [cx,cy]=worldToCanvas(wx,wy,W,H);
+      if(first){ctx.moveTo(cx,cy);first=false;}else ctx.lineTo(cx,cy);
+    }
+    ctx.stroke();
+  });
+}
+
+function drawTrajs(W,H,upToStep){
+  const entries=[
+    ['adam',trajs.adam],['adad',trajs.adad],['nadam',trajs.nadam],
+    ['lion',trajs.lion],['sophia',trajs.sophia]
+  ];
+  entries.forEach(([name,pts])=>{
+    const col=COLORS[name];
+    const lim=Math.min(upToStep,pts.length);
+    if(lim===0)return;
+    ctx.beginPath();
+    ctx.strokeStyle=col;
+    ctx.lineWidth=2;
+    ctx.globalAlpha=0.85;
+    let [px,py]=worldToCanvas(2.0,1.5,W,H);
+    ctx.moveTo(px,py);
+    for(let i=0;i<lim;i++){
+      let [cx,cy]=worldToCanvas(pts[i][0],pts[i][1],W,H);
+      ctx.lineTo(cx,cy);
+    }
+    ctx.stroke();
+    // Draw current point
+    let [ex,ey]=worldToCanvas(pts[lim-1][0],pts[lim-1][1],W,H);
+    ctx.beginPath();
+    ctx.arc(ex,ey,4,0,2*Math.PI);
+    ctx.fillStyle=col;
+    ctx.fill();
+    ctx.globalAlpha=1;
+  });
+  // Draw start point
+  let [sx,sy]=worldToCanvas(2.0,1.5,W,H);
+  ctx.beginPath();
+  ctx.arc(sx,sy,6,0,2*Math.PI);
+  ctx.fillStyle='#888';
+  ctx.fill();
+  ctx.fillStyle='white';
+  ctx.font='9px JetBrains Mono,monospace';
+  ctx.fillText('★',sx-5,sy+3);
+}
+
+function redraw(step){
+  const W=canvas.offsetWidth||700, H=280;
+  canvas.width=W*window.devicePixelRatio||W;
+  canvas.height=H*window.devicePixelRatio||H;
+  canvas.style.height=H+'px';
+  ctx.scale(window.devicePixelRatio||1,window.devicePixelRatio||1);
+  ctx.clearRect(0,0,W,H);
+  drawContour(W,H);
+  drawTrajs(W,H,step);
+}
+
+// ── Step-through ──────────────────────────────────────────────────────
+const STEPS=[
+  {phase:'INTRO',title:'Starting Position',
+   prose:'All five optimizers start at (2.0, 1.5) on the bowl f(x,y)=0.5x²+2y². The bowl is elongated (y-axis is 4× steeper), which stress-tests anisotropic curvature handling.'},
+  {phase:'STEP 1–5 (5%)',title:'Early Steps — Warm-up Differences',
+   prose:'Nadam (green) takes larger early steps due to its Nesterov lookahead. Adadelta (blue) is slow — E[Δθ²]≈ε initially so the numerator is tiny. Lion (orange) and Sophia (purple) are uniform-magnitude.'},
+  {phase:'STEP 6–10 (33%)',title:'Mid-Run — Curvature Anisotropy',
+   prose:'On the elongated bowl, Adam corrects the y-direction more aggressively (larger vₜ). Sophia does the same via its Hessian diagonal (h_y ≈ 4× h_x). Adadelta catches up as E[Δθ²] grows.'},
+  {phase:'STEP 11–15 (50%)',title:'Momentum Accumulation',
+   prose:'Nadam and Adam converge similarly at this point — the Nesterov advantage is most visible in early steps and in loss landscapes with sharp valleys, not smooth quadratics.'},
+  {phase:'STEP 16–20 (67%)',title:'Lion\'s Fixed Steps',
+   prose:'Lion (orange) takes fixed-magnitude steps — visible as uniform spacing along its trajectory. Near the optimum it can oscillate slightly (the sign flips near zero), controlled by weight decay λ.'},
+  {phase:'STEP 21–25 (83%)',title:'Second-Order Advantage',
+   prose:'Sophia\'s curvature-scaled steps (purple) navigate the anisotropy efficiently. In a real loss landscape with highly non-uniform curvature (like LLM loss surfaces), this advantage compounds.'},
+  {phase:'STEP 26–30 (100%)',title:'Convergence Comparison',
+   prose:'After 30 steps: Nadam and Sophia reach closest to (0,0). Adadelta and Lion are still converging. Adam is between them — the jack-of-all-trades. The relative ordering changes with task and scale.'},
+  {phase:'SUMMARY',title:'Key Takeaway',
+   prose:'Each optimizer fixes exactly one Adam pathology. For most practical tasks, the differences are small. The large gains (Lion on ViT-22B, Sophia on LLM pretraining) appear at scale, not on toy problems.'},
+];
+
+let current=0;
+function buildDots(){
+  const w=document.getElementById('progressWrap');
+  w.innerHTML='';
+  STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.onclick=()=>jumpTo(i);
+    w.appendChild(d);
+  });
+}
+function jumpTo(i){
+  current=i;
+  update();
+}
+function update(){
+  const s=STEPS[current];
+  document.getElementById('stepPhase').textContent=s.phase+' | '+current+'/'+( STEPS.length-1);
+  document.getElementById('stepTitle').textContent=s.title;
+  document.getElementById('stepProse').textContent=s.prose;
+  document.getElementById('btnPrev').disabled=(current===0);
+  document.getElementById('btnNext').disabled=(current===STEPS.length-1);
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.classList.toggle('active',i===current);
+    d.classList.toggle('done',i<current);
+  });
+  // Map step index to trajectory step count
+  const trajStep=Math.round((current/(STEPS.length-1))*30);
+  redraw(trajStep);
+  if(window.renderMathInElement)renderMathInElement(document.getElementById('viz-section'),{
+    delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+  });
+}
+function go(d){current=Math.max(0,Math.min(STEPS.length-1,current+d));update();}
+function reset(){current=0;update();}
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight')go(1);
+  if(e.key==='ArrowLeft')go(-1);
+  if(e.key==='r'||e.key==='R')reset();
+});
+buildDots();
+window.addEventListener('resize',()=>redraw(Math.round((current/(STEPS.length-1))*30)));
+update();
+</script>
+</body>
+</html>

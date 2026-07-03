@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efficient NN Search: KD-Trees, Ball Trees & LSH — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:980px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Equation display */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Comparison table */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+.cmp-table th{background:var(--blue-bg);color:var(--blue-mid);padding:10px 12px;text-align:left;font-weight:700;border:1px solid var(--blue-border);}
+.cmp-table td{padding:8px 12px;border:1px solid var(--border);vertical-align:top;}
+.cmp-table tr:nth-child(even) td{background:var(--bg2);}
+.cmp-table td:first-child{font-weight:600;color:var(--blue-mid);}
+
+/* Viz area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;border-radius:var(--radius);background:var(--bg2);display:block;}
+
+/* Tab bar */
+.tab-bar{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;}
+.tab-btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:7px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all 0.2s;}
+.tab-btn.active{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-build{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-search{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-prune{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-lsh{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;flex-wrap:wrap;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .cmp-table{font-size:11px;}
+  .cmp-table th,.cmp-table td{padding:6px 8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Efficient Nearest-Neighbour Search</h1>
+  <div class="subtitle">KD-Trees, Ball Trees &amp; Locality-Sensitive Hashing — beyond brute force</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-category">KNN / Search</span>
+    <span class="tag tag-complexity">O(log n) avg · O(n) worst</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Problem</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body1">
+    <p><strong>What is Nearest-Neighbour (NN) search?</strong> Given a dataset of \(n\) points in \(d\)-dimensional space and a query point \(\mathbf{q}\), find the point \(\mathbf{x}^*\) that minimises \(\|\mathbf{q} - \mathbf{x}^*\|_2\). This is the core computation in KNN classification, retrieval systems, recommendation, and vector databases.</p>
+    <p><strong>The brute-force problem:</strong> Scanning all \(n\) points and computing distance to \(\mathbf{q}\) costs \(\mathcal{O}(nd)\) per query. With \(n=10^9\) documents and \(d=768\) (BERT embedding), that is ~768 billion multiply-adds <em>per query</em> — completely impractical.</p>
+    <p><strong>Analogy:</strong> Finding the nearest library in a city. Brute-force checks every building. A KD-tree is like using a street grid — "I'm north of Main St., so skip the south half." A ball tree uses circular zones. LSH is like a city-district postal code: points in the same zone are approximately close, so only check your zone.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Brute force is \(\mathcal{O}(nd)\). KD-trees reduce this to \(\mathcal{O}(d \log n)\) in low dimensions but degrade to \(\mathcal{O}(nd)\) for \(d \gtrsim 20\). Ball trees handle moderate \(d\) better. LSH gives <em>approximate</em> results in \(\mathcal{O}(n^\rho d)\) with \(\rho < 1\), sub-linear in \(n\) — trading exactness for speed.</p>
+    </div>
+  </div>
+</div>
+<!-- end card 1 -->
+
+<!-- CARD 2: How the Three Structures Work -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Three Structures Work</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body2">
+    <h4>KD-Tree — Axis-Aligned Binary Space Partitioning</h4>
+    <p>A KD-tree recursively splits the dataset by alternating axes. At depth \(k\), split on dimension \(k \bmod d\) at the median value. Each internal node stores a split hyperplane; leaves store points. Build time: \(\mathcal{O}(dn \log n)\). Query time: \(\mathcal{O}(d \log n)\) average, but degrades exponentially in \(d\) because the branch-and-bound pruning fails — every hypersphere in high-D intersects many cells.</p>
+    <p><strong>Branch-and-bound NN query:</strong> Descend to the leaf containing \(\mathbf{q}\), record the nearest point found as \(r^*\). Then backtrack: prune a sibling subtree if the distance from \(\mathbf{q}\) to its bounding hyperplane exceeds \(r^*\). For the 6-point 2D dataset with \(\mathbf{q}=(9,2)\), best distance is \(\sqrt{2}\approx 1.414\) to \((8,1)\). The split plane at \(x=5\) is distance \(|9-5|=4 > 1.414\), so the entire left subtree is <em>pruned</em>.</p>
+
+    <h4>Ball Tree — Nested Hyperspheres</h4>
+    <p>Instead of axis-aligned rectangles, a ball tree encloses each node's subset in the smallest enclosing ball \(\mathcal{B}(\mathbf{c}, r)\). Pruning condition: if \(\|\mathbf{q} - \mathbf{c}\| - r > r^*_{\text{current}}\), the entire subtree is skipped. Ball trees are more expensive to build (\(\mathcal{O}(dn \log n)\) with tighter constants) but their spherical bounds are much tighter in moderate dimensions (\(d \sim 20\text{–}100\)), reducing unnecessary expansions.</p>
+    <div class="eq">$$\text{prune ball} \iff \underbrace{\|\mathbf{q} - \mathbf{c}\|_2}_{\text{dist to ball center}} - \underbrace{r}_{\text{ball radius}} > r^*$$</div>
+
+    <h4>Locality-Sensitive Hashing (LSH) — Approximate Sub-linear Search</h4>
+    <p>LSH uses a family of random hash functions \(\mathcal{H}\) such that <em>nearby</em> points collide (same bucket) with high probability, and <em>far</em> points rarely collide. For \(\ell_2\) distance, Random Projection LSH (RPLSH) defines:</p>
+    <div class="eq">$$h_{\mathbf{r}}(\mathbf{x}) = \left\lfloor \frac{\mathbf{r} \cdot \mathbf{x} + b}{w} \right\rfloor, \quad \mathbf{r} \sim \mathcal{N}(\mathbf{0}, I),\ b \sim \text{Uniform}(0, w)$$</div>
+    <p>Using \(L\) independent hash tables, each with \(K\) concatenated hash bits, the query retrieves candidates from matching buckets and does <em>exact</em> distance computation only on those. Expected query time: \(\mathcal{O}(n^\rho dL)\) where \(\rho = \frac{1}{c^2} < 1\) for \((c,r)\)-approximate NN. The trade-off: recall can be less than 100% — this is <em>approximate</em> NN (ANN).</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Invariant: Collision Probability</div>
+      <p style="font-size:14px;margin:0;">For RPLSH, \(\Pr[h(\mathbf{x}) = h(\mathbf{y})] = 1 - \frac{\|\mathbf{x}-\mathbf{y}\|}{w}\) (decreasing in distance). Near points collide often; far points rarely share a bucket. By amplifying with \(K\)-bit concatenation and \(L\) tables: true NN is returned with probability \(\geq 1-(1-p_1^K)^L\).</p>
+    </div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ The Curse of Dimensionality</div>
+      <p style="font-size:14px;margin:0;">KD-trees become brute-force for \(d \gtrsim 20\): the search ball intersects \(2^d\) cells, so no subtrees are pruned. Ball trees survive to \(d \sim 50\text{–}100\). LSH gives sub-linear query time even in \(d=10{,}000\) by accepting approximate answers. For modern embeddings (\(d=768\text{+}\)), use HNSW or product quantization instead.</p>
+    </div>
+  </div>
+</div>
+<!-- end card 2 -->
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math — Complexity &amp; Collision Probability</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body3">
+    <h4>KD-Tree Build &amp; Query Complexity</h4>
+    <p>Building a balanced KD-tree with \(n\) points in \(\mathbb{R}^d\): at each level, finding the median costs \(\mathcal{O}(n)\) (median-of-medians). There are \(\log n\) levels, yielding build time \(\mathcal{O}(dn\log n)\). The tree has \(\mathcal{O}(n)\) nodes.</p>
+    <p><strong>Query time:</strong> In the best case (low \(d\)), we descend \(\mathcal{O}(\log n)\) levels and prune most subtrees, giving \(\mathcal{O}(d \log n)\). However, the number of cells intersected by the search ball of radius \(r^*\) grows as \(\mathcal{O}(r^{*d})\). In high \(d\), \(r^*\) becomes comparable to the data diameter (concentration of measure), so essentially all cells are visited: \(\mathcal{O}(nd)\).</p>
+
+    <h4>Ball Tree Pruning Guarantee</h4>
+    <p>For a ball node with center \(\mathbf{c}\) and radius \(r_\text{ball}\), the minimum possible distance from any point inside the ball to \(\mathbf{q}\) is:</p>
+    <div class="eq">$$d_{\min}(\mathbf{q}, \mathcal{B}) = \max(0,\ \|\mathbf{q} - \mathbf{c}\| - r_{\text{ball}})$$</div>
+    <p>If \(d_{\min} > r^*_{\text{current}}\), the entire subtree is skipped. Because spheres are rotationally symmetric, this bound is tighter than the KD-tree's axis-aligned bounding box in all directions simultaneously, giving better pruning in moderate \(d\).</p>
+
+    <h4>LSH Collision Probability Derivation</h4>
+    <p>For random projection \(\mathbf{r} \sim \mathcal{N}(\mathbf{0},I)\) and bucket width \(w\):</p>
+    <div class="eq">$$p(t) = \Pr[h(\mathbf{x}) = h(\mathbf{y})] = \int_0^w \frac{1}{t}\,f\!\left(\frac{u}{t}\right)\left(1 - \frac{u}{w}\right)du$$</div>
+    <p>where \(t = \|\mathbf{x}-\mathbf{y}\|\) and \(f\) is the half-normal PDF. This is a decreasing function of \(t\). For the \((r_1, r_2, p_1, p_2)\)-sensitive family: for points at distance \(\leq r_1\), collision probability is \(\geq p_1\); for distance \(\geq r_2 = cr_1\), collision probability is \(\leq p_2\).</p>
+
+    <h4>Amplification — Multiple Tables</h4>
+    <p>A single hash function has weak separation. Use \(K\)-bit concatenation (AND construction) and \(L\) tables (OR construction):</p>
+    <div class="eq">$$\Pr[\text{NN found}] \geq 1 - \left(1 - p_1^K\right)^L$$</div>
+    <p>AND reduces false-positive rate (far points collide on all \(K\) bits only with prob \(p_2^K\)). OR increases recall (at least one of \(L\) tables finds the true NN). Choosing \(K = \log_{1/p_2}(n)\) and \(L = n^\rho\) where \(\rho = \frac{\log p_1}{\log p_2}\) gives the \(\mathcal{O}(n^\rho)\) sub-linear guarantee.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 Key Complexity Summary</div>
+      <p style="font-size:14px;margin:0;">
+        Brute force: query \(\mathcal{O}(nd)\) · KD-tree: build \(\mathcal{O}(dn\log n)\), query \(\mathcal{O}(d\log n)\) in low-\(d\) · Ball tree: same complexity, better pruning for moderate \(d\) · LSH: build \(\mathcal{O}(nLK)\), query \(\mathcal{O}(n^\rho dL)\) with \(\rho < 1\)
+      </p>
+    </div>
+  </div>
+</div>
+<!-- end card 3 -->
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough — KD-Tree &amp; LSH</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body4">
+    <p>Six 2D points: <strong>A(2,3) B(5,4) C(9,6) D(4,7) E(8,1) F(7,2)</strong>. Query: <strong>Q(9,2)</strong>. Step through KD-tree partitioning + branch-and-bound pruning, then LSH bucketing.</p>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('kdtree', this)">KD-Tree</button>
+      <button class="tab-btn" onclick="switchTab('lsh', this)">LSH Buckets</button>
+    </div>
+
+    <!-- KD-Tree tab -->
+    <div class="tab-panel active" id="tab-kdtree">
+      <div class="viz-container">
+        <div class="viz-canvas-wrap" style="aspect-ratio:4/3;">
+          <canvas id="kdCanvas" width="600" height="450"></canvas>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#185FA5;"></div> Data point</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div> Query Q</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11;border:2px solid #97C459;"></div> Active split</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#A32D2D;opacity:0.5;"></div> Pruned region</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#854F0B;"></div> Current best</div>
+        </div>
+
+        <!-- Info card -->
+        <div class="info-card" id="kdInfo">
+          <div class="info-phase phase-build" id="kdPhase">BUILD</div>
+          <div class="info-step" id="kdStep">Step 1 of 7</div>
+          <div class="info-title" id="kdTitle">Starting point: 6 unsorted points</div>
+          <div class="info-desc" id="kdDesc">We have 6 points in 2D space. The KD-tree will recursively partition them by alternating axis splits. Query Q=(9,2) is shown in purple.</div>
+        </div>
+
+        <div class="controls">
+          <button class="btn" id="kdPrev" onclick="kdGo(-1)" disabled>← Prev</button>
+          <button class="btn btn-primary" id="kdNext" onclick="kdGo(1)">Next →</button>
+          <button class="btn" onclick="kdReset()">↺ Reset</button>
+        </div>
+        <div class="progress-wrap" id="kdDots"></div>
+        <div class="kbd-hint">Use ← → arrow keys or click dots to navigate</div>
+      </div>
+    </div>
+
+    <!-- LSH tab -->
+    <div class="tab-panel" id="tab-lsh">
+      <div class="viz-container">
+        <div class="viz-canvas-wrap" style="aspect-ratio:4/3;">
+          <canvas id="lshCanvas" width="600" height="450"></canvas>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:#185FA5;"></div> Data point</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div> Query Q</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11;"></div> Same bucket as Q</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#9c9a92;"></div> Different bucket</div>
+        </div>
+
+        <div class="info-card" id="lshInfo">
+          <div class="info-phase phase-lsh" id="lshPhase">LSH</div>
+          <div class="info-step" id="lshStep">Step 1 of 5</div>
+          <div class="info-title" id="lshTitle">LSH: Random Projection Hashing</div>
+          <div class="info-desc" id="lshDesc">We hash 6 points and query Q=(9,2) using random projection vectors. Points with the same hash bit as Q land in the same bucket and become NN candidates.</div>
+        </div>
+
+        <div class="controls">
+          <button class="btn" id="lshPrev" onclick="lshGo(-1)" disabled>← Prev</button>
+          <button class="btn btn-primary" id="lshNext" onclick="lshGo(1)">Next →</button>
+          <button class="btn" onclick="lshReset()">↺ Reset</button>
+        </div>
+        <div class="progress-wrap" id="lshDots"></div>
+        <div class="kbd-hint">Use ← → arrow keys or click dots to navigate</div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- end card 4 -->
+
+<!-- CARD 5: Comparison & When to Use -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison &amp; When to Use Each</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body5">
+    <table class="cmp-table">
+      <tr>
+        <th>Dimension</th>
+        <th>Brute Force</th>
+        <th>KD-Tree</th>
+        <th>Ball Tree</th>
+        <th>LSH / ANN</th>
+      </tr>
+      <tr>
+        <td>Query complexity</td>
+        <td>\(\mathcal{O}(nd)\)</td>
+        <td>\(\mathcal{O}(d\log n)\) low-D; \(\mathcal{O}(nd)\) high-D</td>
+        <td>\(\mathcal{O}(d\log n)\) up to \(d\approx50\)</td>
+        <td>\(\mathcal{O}(n^\rho dL)\), \(\rho&lt;1\)</td>
+      </tr>
+      <tr>
+        <td>Exact result?</td>
+        <td>Yes</td>
+        <td>Yes</td>
+        <td>Yes</td>
+        <td>Approximate (tunable recall)</td>
+      </tr>
+      <tr>
+        <td>Best dimensionality</td>
+        <td>Any</td>
+        <td>\(d \leq 10\text{–}15\)</td>
+        <td>\(d \leq 50\text{–}100\)</td>
+        <td>\(d \gg 100\)</td>
+      </tr>
+      <tr>
+        <td>Build cost</td>
+        <td>\(\mathcal{O}(1)\)</td>
+        <td>\(\mathcal{O}(dn\log n)\)</td>
+        <td>\(\mathcal{O}(dn\log n)\)</td>
+        <td>\(\mathcal{O}(nLKd)\)</td>
+      </tr>
+      <tr>
+        <td>Memory</td>
+        <td>\(\mathcal{O}(nd)\)</td>
+        <td>\(\mathcal{O}(n)\)</td>
+        <td>\(\mathcal{O}(n)\)</td>
+        <td>\(\mathcal{O}(nL)\)</td>
+      </tr>
+      <tr>
+        <td>Handles updates?</td>
+        <td>Yes</td>
+        <td>Rebuild needed</td>
+        <td>Rebuild needed</td>
+        <td>Partial (add to buckets)</td>
+      </tr>
+      <tr>
+        <td>Used in</td>
+        <td>Small datasets, baselines</td>
+        <td>sklearn KNeighbors (low-D)</td>
+        <td>sklearn KNeighbors (high-D)</td>
+        <td>FAISS, Annoy, ScaNN, Pinecone</td>
+      </tr>
+    </table>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🎯 Decision Guide</div>
+      <p style="font-size:14px;margin:0;">
+        <strong>\(n &lt; 10{,}000\) or \(d \leq 10\):</strong> KD-tree (sklearn default). <br>
+        <strong>\(10 &lt; d \leq 50\), tabular data:</strong> Ball-tree. <br>
+        <strong>\(d \geq 100\) or \(n \geq 10^6\):</strong> FAISS HNSW or IVF-PQ (hierarchical LSH + product quantization). <br>
+        <strong>Sub-millisecond recall \(\geq 95\%\):</strong> HNSW (Hierarchical Navigable Small World graphs).
+      </p>
+    </div>
+  </div>
+</div>
+<!-- end card 5 -->
+
+<!-- CARD 6: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways &amp; Code Sketch</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="body6">
+    <h4>Core Insight</h4>
+    <p>All three structures exploit the same idea: <em>avoid computing distances to most points</em>. KD/Ball trees do this exactly via geometric pruning; LSH does it approximately via hashing. The right choice depends on \(d\), \(n\), and whether you can tolerate approximate results.</p>
+
+    <h4>From-Scratch KD-tree (Python/NumPy)</h4>
+    <div class="code-panel">
+      <div class="code-line" id="cl1">import numpy as np</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class KDNode:</div>
+      <div class="code-line" id="cl4">    def __init__(self, point, axis, left=None, right=None):</div>
+      <div class="code-line" id="cl5">        self.point = point   # split point (median along axis)</div>
+      <div class="code-line" id="cl6">        self.axis  = axis    # split axis (0..d-1)</div>
+      <div class="code-line" id="cl7">        self.left  = left    # left subtree (< median)</div>
+      <div class="code-line" id="cl8">        self.right = right   # right subtree (>= median)</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">def build_kd(pts, depth=0):</div>
+      <div class="code-line" id="cl11">    if len(pts) == 0: return None</div>
+      <div class="code-line" id="cl12">    axis = depth % pts.shape[1]           # cycle through dimensions</div>
+      <div class="code-line" id="cl13">    pts  = pts[pts[:, axis].argsort()]    # sort along split axis</div>
+      <div class="code-line" id="cl14">    med  = len(pts) // 2                  # median index</div>
+      <div class="code-line" id="cl15">    return KDNode(</div>
+      <div class="code-line" id="cl16">        point = pts[med],</div>
+      <div class="code-line" id="cl17">        axis  = axis,</div>
+      <div class="code-line" id="cl18">        left  = build_kd(pts[:med],  depth+1),</div>
+      <div class="code-line" id="cl19">        right = build_kd(pts[med+1:], depth+1))</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">def nn_search(node, query, best=[None, float('inf')]):</div>
+      <div class="code-line" id="cl22">    if node is None: return best</div>
+      <div class="code-line" id="cl23">    d = np.linalg.norm(query - node.point) # distance to split point</div>
+      <div class="code-line" id="cl24">    if d < best[1]: best = [node.point, d] # update best if closer</div>
+      <div class="code-line" id="cl25">    ax = node.axis</div>
+      <div class="code-line" id="cl26">    # descend into the half containing the query</div>
+      <div class="code-line" id="cl27">    near, far = (node.left, node.right) if query[ax] < node.point[ax] else (node.right, node.left)</div>
+      <div class="code-line" id="cl28">    best = nn_search(near, query, best)</div>
+      <div class="code-line" id="cl29">    # only search far subtree if split-plane distance < current best</div>
+      <div class="code-line" id="cl30">    if abs(query[ax] - node.point[ax]) < best[1]:</div>
+      <div class="code-line" id="cl31">        best = nn_search(far, query, best)</div>
+      <div class="code-line" id="cl32">    return best</div>
+    </div>
+
+    <h4>Production: sklearn &amp; FAISS</h4>
+    <div class="code-panel">
+      <div class="code-line"># sklearn — exact KNN with auto tree selection</div>
+      <div class="code-line">from sklearn.neighbors import NearestNeighbors</div>
+      <div class="code-line">nn = NearestNeighbors(n_neighbors=5, algorithm='auto')  # picks kd_tree/ball_tree/brute</div>
+      <div class="code-line">nn.fit(X_train)</div>
+      <div class="code-line">dists, idxs = nn.kneighbors(X_query)</div>
+      <div class="code-line"></div>
+      <div class="code-line"># FAISS — approximate NN at billion scale</div>
+      <div class="code-line">import faiss</div>
+      <div class="code-line">d = X_train.shape[1]          # embedding dimension</div>
+      <div class="code-line">index = faiss.IndexHNSWFlat(d, 32)   # HNSW graph, M=32</div>
+      <div class="code-line">index.add(X_train.astype('float32'))</div>
+      <div class="code-line">D, I = index.search(X_query.astype('float32'), k=5)</div>
+    </div>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Related Topics</div>
+      <p style="font-size:14px;margin:0;">KNN Classification · Vector Databases (Pinecone, Weaviate, Qdrant) · HNSW Graphs · Product Quantization (PQ) · Inverted File Index (IVF) · MinHash / SimHash for Jaccard similarity · Approximate Nearest Neighbour (ANN) Benchmarks (ann-benchmarks.com)</p>
+    </div>
+  </div>
+</div>
+<!-- end card 6 -->
+
+<script>
+// ── Card toggle ──────────────────────────────────────────────────────────────
+function toggleSection(header) {
+  const toggle = header.querySelector('.section-toggle');
+  const body   = header.nextElementSibling;
+  const isOpen = toggle.classList.contains('open');
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(() => { body.style.maxHeight = '0px'; });
+    body.classList.add('collapsed');
+    toggle.classList.remove('open');
+  } else {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    toggle.classList.add('open');
+  }
+}
+// init all sections as open
+document.querySelectorAll('.section-body').forEach(b => {
+  b.style.maxHeight = b.scrollHeight + 'px';
+});
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+let activeTab = 'kdtree';
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  activeTab = name;
+  if (name === 'kdtree') drawKD();
+  else drawLSH();
+}
+
+// ── KD-tree visualization ─────────────────────────────────────────────────────
+// Points: A(2,3) B(5,4) C(9,6) D(4,7) E(8,1) F(7,2), Query Q(9,2)
+// Grid: data x in [1,10], y in [0,8]. Canvas 600x450, margin 50.
+const PTS  = [{x:2,y:3,l:'A'},{x:5,y:4,l:'B'},{x:9,y:6,l:'C'},
+              {x:4,y:7,l:'D'},{x:8,y:1,l:'E'},{x:7,y:2,l:'F'}];
+const QUERY = {x:9,y:2};
+const XMIN=1,XMAX=10,YMIN=0,YMAX=8,M=50;
+
+function toCanvas(px, py, W, H) {
+  return {
+    cx: M + (px - XMIN) / (XMAX - XMIN) * (W - 2*M),
+    cy: H - M - (py - YMIN) / (YMAX - YMIN) * (H - 2*M)
+  };
+}
+
+const kdSteps = [
+  {
+    phase:'BUILD', title:'Initial dataset',
+    desc:'6 points in 2D: A(2,3) B(5,4) C(9,6) D(4,7) E(8,1) F(7,2). Query Q=(9,2) shown in purple. KD-tree will recursively partition this space.',
+    splits:[],pruned:[],highlight:[],searchBall:false,bestPt:null
+  },
+  {
+    phase:'BUILD', title:'Root split: axis X = 5 (median)',
+    desc:'Depth 0 → split on X axis. Sorted x-values: 2,4,5,7,8,9. Median = x=5 (point B). Left child gets x≤5: {A,B,D}; right child gets x>5: {C,E,F}.',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8}],pruned:[],highlight:['B'],searchBall:false,bestPt:null
+  },
+  {
+    phase:'BUILD', title:'Left subtree: split Y = 4',
+    desc:'Depth 1 → switch to Y axis. Left child {A(2,3),B(5,4),D(4,7)}: sorted y=3,4,7; median=y=4 (point B). LL={A}; LR={D}.',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8},{axis:'y',val:4,color:'#185FA5',xlo:1,xhi:5}],
+    pruned:[],highlight:['B'],searchBall:false,bestPt:null
+  },
+  {
+    phase:'BUILD', title:'Right subtree: split Y = 2',
+    desc:'Right child {C(9,6),E(8,1),F(7,2)}: sorted y=1,2,6; median=y=2 (point F). RL={E}; RR={C}.',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8},{axis:'y',val:4,color:'#185FA5',xlo:1,xhi:5},{axis:'y',val:2,color:'#854F0B',xlo:5,xhi:10}],
+    pruned:[],highlight:['F'],searchBall:false,bestPt:null
+  },
+  {
+    phase:'SEARCH', title:'Query Q=(9,2): descend tree',
+    desc:'Q.x=9 > 5 → go RIGHT. Q.y=2 = split → go RIGHT (leaf: C(9,6)). dist(Q,C)=√(0+16)=4.0. Current best = 4.0.',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8},{axis:'y',val:4,color:'#185FA5',xlo:1,xhi:5},{axis:'y',val:2,color:'#854F0B',xlo:5,xhi:10}],
+    pruned:[],highlight:['C'],searchBall:true,ballR:4.0,bestPt:{x:9,y:6},bestDist:4.0
+  },
+  {
+    phase:'SEARCH', title:'Backtrack to right-y-split (F=7,2): dist=2.0',
+    desc:'Back to split node F(7,2): dist(Q,F)=√(4+0)=2.0 < 4.0. New best = F(7,2), dist=2.0. Check RL={E(8,1)}: dist=√(1+1)=1.414 < 2.0. New best = E(8,1).',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8},{axis:'y',val:4,color:'#185FA5',xlo:1,xhi:5},{axis:'y',val:2,color:'#854F0B',xlo:5,xhi:10}],
+    pruned:[],highlight:['E','F'],searchBall:true,ballR:1.414,bestPt:{x:8,y:1},bestDist:1.414
+  },
+  {
+    phase:'PRUNE', title:'Prune left subtree — distance 4 > best 1.414',
+    desc:'Back at root split x=5. Distance from Q.x=9 to plane x=5 is |9−5|=4. Current best=1.414. Since 4 > 1.414, no point in left half can be closer. PRUNE left subtree {A,B,D}. NN confirmed: E(8,1), dist=1.414 ≈ √2.',
+    splits:[{axis:'x',val:5,color:'#3B6D11',ylo:0,yhi:8},{axis:'y',val:4,color:'#185FA5',xlo:1,xhi:5},{axis:'y',val:2,color:'#854F0B',xlo:5,xhi:10}],
+    pruned:[{xlo:1,xhi:5,ylo:0,yhi:8}],highlight:['E'],searchBall:true,ballR:1.414,bestPt:{x:8,y:1},bestDist:1.414
+  }
+];
+
+let kdStep = 0;
+function buildKDDots() {
+  const wrap = document.getElementById('kdDots');
+  wrap.innerHTML = '';
+  kdSteps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = () => { kdStep=i; drawKD(); updateKDControls(); };
+    wrap.appendChild(d);
+  });
+}
+function updateKDDots() {
+  const dots = document.querySelectorAll('#kdDots .dot');
+  dots.forEach((d,i) => {
+    d.className = 'dot' + (i===kdStep?' active':(i<kdStep?' done':''));
+  });
+}
+function updateKDControls() {
+  document.getElementById('kdPrev').disabled = kdStep === 0;
+  document.getElementById('kdNext').disabled = kdStep === kdSteps.length - 1;
+  updateKDDots();
+}
+function kdGo(dir) { kdStep = Math.max(0, Math.min(kdSteps.length-1, kdStep+dir)); drawKD(); updateKDControls(); }
+function kdReset() { kdStep = 0; drawKD(); updateKDControls(); }
+
+function drawKD() {
+  const canvas = document.getElementById('kdCanvas');
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const s = kdSteps[kdStep];
+
+  // Background
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.fillStyle = isDark ? '#222224' : '#f0efe9';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid lines (faint)
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  ctx.lineWidth = 1;
+  for(let gx=2;gx<=9;gx++) {
+    const c = toCanvas(gx,0,W,H);
+    ctx.beginPath(); ctx.moveTo(c.cx,M); ctx.lineTo(c.cx,H-M); ctx.stroke();
+  }
+  for(let gy=1;gy<=7;gy++) {
+    const c = toCanvas(0,gy,W,H);
+    ctx.beginPath(); ctx.moveTo(M,c.cy); ctx.lineTo(W-M,c.cy); ctx.stroke();
+  }
+
+  // Pruned regions
+  s.pruned.forEach(p => {
+    const c1=toCanvas(p.xlo,p.yhi,W,H), c2=toCanvas(p.xhi,p.ylo,W,H);
+    ctx.fillStyle = isDark ? 'rgba(162,45,45,0.25)' : 'rgba(240,149,149,0.3)';
+    ctx.fillRect(c1.cx,c1.cy,c2.cx-c1.cx,c2.cy-c1.cy);
+    ctx.strokeStyle = isDark ? '#E24B4A' : '#A32D2D';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6,4]);
+    ctx.strokeRect(c1.cx,c1.cy,c2.cx-c1.cx,c2.cy-c1.cy);
+    ctx.setLineDash([]);
+    // PRUNED label
+    ctx.fillStyle = isDark ? '#F7C1C1' : '#A32D2D';
+    ctx.font = 'bold 13px DM Sans, system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('PRUNED', (c1.cx+c2.cx)/2, (c1.cy+c2.cy)/2);
+  });
+
+  // Split lines
+  s.splits.forEach(sp => {
+    ctx.strokeStyle = sp.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    if(sp.axis==='x') {
+      const c=toCanvas(sp.val,0,W,H);
+      const t=toCanvas(sp.val,YMAX,W,H);
+      ctx.beginPath(); ctx.moveTo(c.cx,H-M); ctx.lineTo(t.cx,M); ctx.stroke();
+      ctx.fillStyle=sp.color; ctx.font='bold 12px DM Sans'; ctx.textAlign='center';
+      ctx.fillText('x = '+sp.val, c.cx, H-M+18);
+    } else {
+      const xlo=sp.xlo||XMIN, xhi=sp.xhi||XMAX;
+      const cl=toCanvas(xlo,sp.val,W,H), cr=toCanvas(xhi,sp.val,W,H);
+      ctx.beginPath(); ctx.moveTo(cl.cx,cl.cy); ctx.lineTo(cr.cx,cr.cy); ctx.stroke();
+      ctx.fillStyle=sp.color; ctx.font='bold 12px DM Sans'; ctx.textAlign='left';
+      ctx.fillText('y = '+sp.val, cr.cx+4, cr.cy);
+    }
+  });
+
+  // Search ball (circle around current best)
+  if(s.searchBall && s.bestPt) {
+    const cq = toCanvas(QUERY.x, QUERY.y, W, H);
+    const scaleX = (W-2*M)/(XMAX-XMIN), scaleY = (H-2*M)/(YMAX-YMIN);
+    const rPx = s.ballR * Math.min(scaleX, scaleY);
+    ctx.beginPath();
+    ctx.arc(cq.cx, cq.cy, rPx, 0, 2*Math.PI);
+    ctx.strokeStyle = isDark ? '#7F77DD' : '#534AB7';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5,3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = isDark ? 'rgba(83,74,183,0.08)' : 'rgba(83,74,183,0.06)';
+    ctx.fill();
+    // label r*
+    ctx.fillStyle = isDark ? '#AFA9EC' : '#534AB7';
+    ctx.font = '11px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('r* = ' + s.bestDist.toFixed(3), cq.cx + rPx + 4, cq.cy);
+  }
+
+  // Data points
+  PTS.forEach(p => {
+    const c = toCanvas(p.x, p.y, W, H);
+    const isHL = s.highlight.includes(p.l);
+    const isBest = s.bestPt && s.bestPt.x===p.x && s.bestPt.y===p.y;
+    ctx.beginPath();
+    ctx.arc(c.cx, c.cy, isBest?9:7, 0, 2*Math.PI);
+    if(isBest) {
+      ctx.fillStyle = isDark ? '#EF9F27' : '#854F0B';
+    } else if(isHL) {
+      ctx.fillStyle = isDark ? '#97C459' : '#3B6D11';
+    } else {
+      ctx.fillStyle = isDark ? '#378ADD' : '#185FA5';
+    }
+    ctx.fill();
+    ctx.strokeStyle = isDark ? '#e8e6de' : '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // label
+    ctx.fillStyle = isDark ? '#e8e6de' : '#1a1a18';
+    ctx.font = 'bold 12px DM Sans, system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.l+'('+p.x+','+p.y+')', c.cx, c.cy - 12);
+  });
+
+  // Query point
+  const cq = toCanvas(QUERY.x, QUERY.y, W, H);
+  ctx.beginPath(); ctx.arc(cq.cx, cq.cy, 9, 0, 2*Math.PI);
+  ctx.fillStyle = isDark ? '#AFA9EC' : '#534AB7'; ctx.fill();
+  ctx.strokeStyle = isDark ? '#e8e6de' : '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = isDark ? '#CECBF6' : '#26215C';
+  ctx.font = 'bold 13px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Q(9,2)', cq.cx, cq.cy - 14);
+
+  // Update info card
+  const phaseEl = document.getElementById('kdPhase');
+  phaseEl.textContent = s.phase;
+  phaseEl.className = 'info-phase ' + (s.phase==='BUILD'?'phase-build':s.phase==='SEARCH'?'phase-search':'phase-prune');
+  document.getElementById('kdStep').textContent = 'Step ' + (kdStep+1) + ' of ' + kdSteps.length;
+  document.getElementById('kdTitle').textContent = s.title;
+  document.getElementById('kdDesc').textContent = s.desc;
+}
+
+// ── LSH visualization ─────────────────────────────────────────────────────────
+// Pre-computed: 3 random projections (sign-based hashing)
+// proj1=[1,0] (x-axis), proj2=[0,1] (y-axis), proj3=[0.707,−0.707]
+// Medians and hashes computed with numpy above
+
+const LSH_PTS = [
+  {x:2,y:3,l:'A', h1:0,h2:0,h3:0},  // bits for proj1(x>5),proj2(y>3.5),proj3
+  {x:5,y:4,l:'B', h1:0,h2:1,h3:0},
+  {x:9,y:6,l:'C', h1:1,h2:1,h3:1},
+  {x:4,y:7,l:'D', h1:0,h2:1,h3:0},
+  {x:8,y:1,l:'E', h1:1,h2:0,h3:1},
+  {x:7,y:2,l:'F', h1:1,h2:0,h3:1},
+];
+// Q=(9,2): h1=1, h2=0, h3=1 → matches E,F
+const LSH_Q_BITS = [1,0,1];
+// Projection lines to draw (direction vectors scaled to show)
+const PROJS = [
+  {r:[1,0],  label:'h₁: sign(x – 5)', med:5, axis:'x', color:'#185FA5'},
+  {r:[0,1],  label:'h₂: sign(y – 3.5)', med:3.5, axis:'y', color:'#3B6D11'},
+  {r:[0.707,-0.707], label:'h₃: sign(x – y)', med:0, axis:'diag', color:'#854F0B'},
+];
+
+const lshSteps = [
+  {
+    phase:'LSH', activeProj:-1, showBuckets:false,
+    title:'LSH Setup: 3 random projections',
+    desc:'We use 3 hash functions. Each divides the space with a hyperplane (line in 2D). Points on one side get bit 0; the other side gets bit 1. Query Q=(9,2) has compound hash [1,0,1].'
+  },
+  {
+    phase:'LSH', activeProj:0, showBuckets:false,
+    title:'h₁: split on x = 5 (x-axis projection)',
+    desc:'h₁(p) = sign(p.x − 5). Points with x>5 → bit 1: C,E,F,Q. Points with x≤5 → bit 0: A,B,D. Q gets h₁=1.'
+  },
+  {
+    phase:'LSH', activeProj:1, showBuckets:false,
+    title:'h₂: split on y = 3.5 (y-axis projection)',
+    desc:'h₂(p) = sign(p.y − 3.5). Points with y>3.5 → bit 1: B,C,D. Points with y≤3.5 → bit 0: A,E,F,Q. Q gets h₂=0.'
+  },
+  {
+    phase:'LSH', activeProj:2, showBuckets:false,
+    title:'h₃: split on x − y = 0 (diagonal projection)',
+    desc:'h₃(p) = sign(p.x − p.y). Points with x>y → bit 1: C,E,F,Q. Points with x≤y → bit 0: A,B,D. Q gets h₃=1.'
+  },
+  {
+    phase:'LSH', activeProj:-1, showBuckets:true,
+    title:'Compound hash [1,0,1]: candidate bucket → E,F',
+    desc:'Compound hash = [h₁,h₂,h₃]. Q=(9,2) → [1,0,1]. E(8,1)=[1,0,1] ✓, F(7,2)=[1,0,1] ✓. Others differ. Candidate set: {E,F}. Exact dist: E=1.414 (TRUE NN ✓), F=2.0. LSH found the correct nearest neighbour without scanning A,B,C,D!'
+  }
+];
+
+let lshStep = 0;
+function buildLSHDots() {
+  const wrap = document.getElementById('lshDots');
+  wrap.innerHTML = '';
+  lshSteps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = () => { lshStep=i; drawLSH(); updateLSHControls(); };
+    wrap.appendChild(d);
+  });
+}
+function updateLSHDots() {
+  const dots = document.querySelectorAll('#lshDots .dot');
+  dots.forEach((d,i) => {
+    d.className = 'dot' + (i===lshStep?' active':(i<lshStep?' done':''));
+  });
+}
+function updateLSHControls() {
+  document.getElementById('lshPrev').disabled = lshStep === 0;
+  document.getElementById('lshNext').disabled = lshStep === lshSteps.length - 1;
+  updateLSHDots();
+}
+function lshGo(dir) { lshStep = Math.max(0,Math.min(lshSteps.length-1,lshStep+dir)); drawLSH(); updateLSHControls(); }
+function lshReset() { lshStep=0; drawLSH(); updateLSHControls(); }
+
+function drawLSH() {
+  const canvas = document.getElementById('lshCanvas');
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const s = lshSteps[lshStep];
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  ctx.fillStyle = isDark ? '#222224' : '#f0efe9';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  ctx.lineWidth = 1;
+  for(let gx=2;gx<=9;gx++){const c=toCanvas(gx,0,W,H);ctx.beginPath();ctx.moveTo(c.cx,M);ctx.lineTo(c.cx,H-M);ctx.stroke();}
+  for(let gy=1;gy<=7;gy++){const c=toCanvas(0,gy,W,H);ctx.beginPath();ctx.moveTo(M,c.cy);ctx.lineTo(W-M,c.cy);ctx.stroke();}
+
+  const scaleX = (W-2*M)/(XMAX-XMIN), scaleY = (H-2*M)/(YMAX-YMIN);
+
+  // Draw active projection hyperplane
+  if(s.activeProj >= 0) {
+    const proj = PROJS[s.activeProj];
+    ctx.strokeStyle = proj.color;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8,4]);
+    if(proj.axis==='x') {
+      const c=toCanvas(proj.med,0,W,H);
+      ctx.beginPath();ctx.moveTo(c.cx,H-M);ctx.lineTo(c.cx,M);ctx.stroke();
+      ctx.fillStyle=proj.color; ctx.font='bold 12px DM Sans'; ctx.textAlign='center';
+      ctx.fillText(proj.label, c.cx, H-M+18);
+    } else if(proj.axis==='y') {
+      const cl=toCanvas(XMIN,proj.med,W,H),cr=toCanvas(XMAX,proj.med,W,H);
+      ctx.beginPath();ctx.moveTo(cl.cx,cl.cy);ctx.lineTo(cr.cx,cr.cy);ctx.stroke();
+      ctx.fillStyle=proj.color; ctx.font='bold 12px DM Sans'; ctx.textAlign='left';
+      ctx.fillText(proj.label, cr.cx+4, cr.cy-4);
+    } else { // diagonal x=y
+      const c1=toCanvas(XMIN,XMIN,W,H),c2=toCanvas(XMAX,XMAX,W,H);
+      ctx.beginPath();ctx.moveTo(c1.cx,c1.cy);ctx.lineTo(c2.cx,c2.cy);ctx.stroke();
+      ctx.fillStyle=proj.color; ctx.font='bold 12px DM Sans'; ctx.textAlign='left';
+      ctx.fillText(proj.label, c2.cx+4, c2.cy);
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Compute which bit each point has for active projection
+  function getBit(p, projIdx) {
+    if(projIdx===0) return p.x>5?1:0;
+    if(projIdx===1) return p.y>3.5?1:0;
+    return p.x>p.y?1:0;
+  }
+
+  // Color each data point
+  LSH_PTS.forEach(p => {
+    const c = toCanvas(p.x, p.y, W, H);
+    let fillColor = isDark ? '#378ADD' : '#185FA5';
+    let isCandidate = false;
+
+    if(s.showBuckets) {
+      // compound hash match
+      const bits = [p.h1,p.h2,p.h3];
+      isCandidate = bits.every((b,i) => b === LSH_Q_BITS[i]);
+      fillColor = isCandidate ? (isDark?'#97C459':'#3B6D11') : (isDark?'rgba(156,154,146,0.5)':'rgba(156,154,146,0.7)');
+    } else if(s.activeProj >= 0) {
+      const bit = getBit(p, s.activeProj);
+      const qbit = [1,0,1][s.activeProj];
+      fillColor = bit===qbit ? (isDark?'#97C459':'#3B6D11') : (isDark?'rgba(156,154,146,0.5)':'rgba(156,154,146,0.7)');
+    }
+
+    ctx.beginPath(); ctx.arc(c.cx, c.cy, 8, 0, 2*Math.PI);
+    ctx.fillStyle = fillColor; ctx.fill();
+    ctx.strokeStyle = isDark?'#e8e6de':'#ffffff'; ctx.lineWidth=2; ctx.stroke();
+
+    // Hash bits label
+    if(s.showBuckets || s.activeProj>=0) {
+      let bits;
+      if(s.showBuckets) bits = '['+p.h1+','+p.h2+','+p.h3+']';
+      else bits = getBit(p, s.activeProj).toString();
+      ctx.fillStyle = isDark?'#e8e6de':'#1a1a18';
+      ctx.font='10px JetBrains Mono, monospace'; ctx.textAlign='center';
+      ctx.fillText(bits, c.cx, c.cy-13);
+    }
+    ctx.fillStyle = isDark?'#e8e6de':'#1a1a18';
+    ctx.font='bold 12px DM Sans'; ctx.textAlign='center';
+    ctx.fillText(p.l, c.cx, c.cy+4);
+  });
+
+  // Query point
+  const cq = toCanvas(QUERY.x, QUERY.y, W, H);
+  ctx.beginPath(); ctx.arc(cq.cx, cq.cy, 10, 0, 2*Math.PI);
+  ctx.fillStyle = isDark?'#AFA9EC':'#534AB7'; ctx.fill();
+  ctx.strokeStyle='#ffffff'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.fillStyle = isDark?'#CECBF6':'#26215C';
+  ctx.font='bold 13px DM Sans'; ctx.textAlign='center';
+  if(s.showBuckets) ctx.fillText('Q [1,0,1]', cq.cx, cq.cy-15);
+  else if(s.activeProj>=0) ctx.fillText('Q → bit '+[1,0,1][s.activeProj], cq.cx, cq.cy-15);
+  else ctx.fillText('Q(9,2)', cq.cx, cq.cy-15);
+
+  // Update info
+  const phaseEl = document.getElementById('lshPhase');
+  phaseEl.textContent = s.phase;
+  phaseEl.className = 'info-phase phase-lsh';
+  document.getElementById('lshStep').textContent = 'Step '+(lshStep+1)+' of '+lshSteps.length;
+  document.getElementById('lshTitle').textContent = s.title;
+  document.getElementById('lshDesc').textContent  = s.desc;
+}
+
+// ── Keyboard navigation ──────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if(activeTab==='kdtree') {
+    if(e.key==='ArrowRight') kdGo(1);
+    else if(e.key==='ArrowLeft') kdGo(-1);
+    else if(e.key==='r'||e.key==='R') kdReset();
+  } else {
+    if(e.key==='ArrowRight') lshGo(1);
+    else if(e.key==='ArrowLeft') lshGo(-1);
+    else if(e.key==='r'||e.key==='R') lshReset();
+  }
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  buildKDDots(); drawKD(); updateKDControls();
+  buildLSHDots(); drawLSH(); updateLSHControls();
+});
+// Redraw on dark mode toggle
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  drawKD(); drawLSH();
+});
+</script>
+</body>
+</html>
