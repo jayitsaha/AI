@@ -14,7 +14,7 @@ Usage:
     python3 campaign/fastqueue.py --limit 8        # next 8 (instant), advance cursor
     python3 campaign/fastqueue.py --peek 8         # next 8 without advancing
 """
-import json, os, sys, argparse, urllib.request, ssl
+import json, os, sys, argparse, urllib.request, ssl, time
 
 AI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CDIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +36,19 @@ DB = "33c93418-809c-81f7-a93d-df0ac011aa09"
 _ctx = ssl.create_default_context(); _ctx.check_hostname = False; _ctx.verify_mode = ssl.CERT_NONE
 
 
+def _urlopen_retry(req, tries=8):
+    """Notion intermittently returns transient 401/429/5xx; retry with backoff."""
+    for k in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=_ctx) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 429, 500, 502, 503, 504) and k < tries - 1:
+                time.sleep(min(60, 2 * (2 ** k)))
+                continue
+            raise
+
+
 def load_order():
     d = json.load(open(IDS))
     topics = list(d.keys())
@@ -52,8 +65,7 @@ def reconcile():
     while True:
         data = json.dumps(payload).encode()
         req = urllib.request.Request(f"https://api.notion.com/v1/databases/{DB}/query", data=data, headers=H, method="POST")
-        with urllib.request.urlopen(req, timeout=60, context=_ctx) as r:
-            res = json.loads(r.read().decode())
+        res = _urlopen_retry(req)
         for p in res.get("results", []):
             arr = p["properties"].get("Topic", {}).get("title", [])
             name = arr[0]["text"]["content"] if arr else None
