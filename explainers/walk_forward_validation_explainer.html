@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Walk-Forward Validation — Time-Series CV</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 0 0 3rem;
+}
+.page-wrap { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; }
+
+/* ── Header ── */
+.hero {
+  background: linear-gradient(135deg, var(--blue-bg) 0%, var(--purple-bg) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 2.5rem 0 2rem;
+  margin-bottom: 2rem;
+}
+.hero-inner { max-width: 860px; margin: 0 auto; padding: 0 1.25rem; }
+.hero h1 { font-size: clamp(1.4rem,4vw,2rem); font-weight: 800; color: var(--blue-text); line-height: 1.2; }
+.hero .subtitle { font-size: 14px; color: var(--text2); margin-top: 6px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+.tag-category     { background: var(--blue-bg);  color: var(--blue-mid);  border: 1px solid var(--blue-border); }
+.tag-complexity   { background: var(--cyan-bg);  color: var(--cyan-mid);  border: 1px solid var(--cyan-border); }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number {
+  width: 28px; height: 28px;
+  background: var(--blue-bg); color: var(--blue-mid);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.card p { color: var(--text2); font-size: 14px; line-height: 1.7; margin-bottom: 0.75rem; }
+.card p:last-child { margin-bottom: 0; }
+.card ul, .card ol { margin: 0.5rem 0 0.75rem 1.2rem; }
+.card li { color: var(--text2); font-size: 14px; line-height: 1.7; margin-bottom: 0.25rem; }
+
+/* ── Concept Boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 0.75rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 0.4rem; }
+.concept-box p { margin: 0; font-size: 13.5px; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+.concept-box.danger { background: var(--red-bg); border: 1px solid var(--red-border); }
+.concept-box.danger .concept-box-title { color: var(--red-mid); }
+
+/* ── Equation display ── */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0;
+  background: var(--cyan-bg); border: 1px solid var(--cyan-border);
+  border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* ── Table ── */
+.tbl-wrap { overflow-x: auto; margin: 0.75rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { background: var(--blue-bg); color: var(--blue-mid); font-weight: 700;
+     padding: 8px 12px; border: 1px solid var(--border2); text-align: left; }
+td { padding: 7px 12px; border: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+tr:nth-child(even) td { background: var(--bg2); }
+
+/* ── Code Panel ── */
+.code-panel {
+  margin-top: 1rem; background: var(--bg2); border-radius: var(--radius);
+  padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8;
+  overflow-x: auto;
+}
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.hl { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+.code-lang { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+             color: var(--text3); margin-bottom: 6px; }
+
+/* ── Visualization Area ── */
+.viz-container {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.viz-inner { padding: 1.5rem; }
+.fold-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 1rem 0;
+}
+.fold-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fold-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text3);
+  width: 52px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.fold-blocks {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+.block {
+  height: 28px;
+  border-radius: 5px;
+  transition: all 0.4s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex: 1;
+  max-width: 60px;
+}
+.block-empty { background: var(--bg2); border: 1px solid var(--border); color: transparent; }
+.block-train { background: var(--blue-bg); border: 1px solid var(--blue-border); color: var(--blue-mid); }
+.block-val   { background: var(--amber-bg); border: 2px solid var(--amber-border); color: var(--amber-mid); }
+.block-future{ background: var(--bg2); border: 1px dashed var(--border2); color: var(--text3); opacity: 0.4; }
+.block-active-train { background: var(--blue-mid); border: 2px solid var(--blue-text); color: #fff; }
+.block-active-val   { background: var(--amber-mid); border: 2px solid var(--amber-text); color: #fff; }
+
+/* ── Info Card ── */
+.info-card {
+  background: var(--bg2);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-top: 1rem;
+  min-height: 120px;
+}
+.info-phase {
+  display: inline-block;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 3px 9px; border-radius: 20px;
+  background: var(--purple-bg); color: var(--purple-mid);
+  margin-bottom: 8px;
+}
+.info-step { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.info-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.info-body { font-size: 13.5px; color: var(--text2); line-height: 1.6; }
+
+/* ── Progress dots ── */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+
+/* ── Controls ── */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px;
+  border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text); cursor: pointer; transition: all 0.2s;
+}
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+/* ── Legend ── */
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 0.75rem; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+.legend-swatch { width: 18px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+.swatch-train  { background: var(--blue-mid); }
+.swatch-val    { background: var(--amber-mid); }
+.swatch-future { background: var(--bg2); border: 1px dashed var(--border2); opacity: 0.6; }
+
+/* ── Mode toggle ── */
+.mode-toggle { display: flex; gap: 6px; justify-content: center; margin-bottom: 0.75rem; }
+.mode-btn {
+  font-family: var(--sans); font-size: 12px; font-weight: 600; padding: 6px 16px;
+  border-radius: 20px; border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text2); cursor: pointer; transition: all 0.2s;
+}
+.mode-btn.active { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* ── Section divider ── */
+.section-divider { border: none; border-top: 1px solid var(--border); margin: 0.25rem 0 1rem; }
+
+/* ── Score chart ── */
+.score-chart { display: flex; align-items: flex-end; gap: 6px; height: 80px; margin: 1rem 0; }
+.score-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+.score-bar {
+  width: 100%; border-radius: 5px 5px 0 0;
+  background: var(--blue-bg); border: 1px solid var(--blue-border);
+  transition: height 0.5s ease, background 0.3s;
+}
+.score-bar.highlight { background: var(--amber-mid); border-color: var(--amber-text); }
+.score-val { font-size: 10px; font-family: var(--mono); color: var(--text3); }
+.score-label { font-size: 10px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="hero-inner">
+    <h1>Walk-Forward Validation</h1>
+    <div class="subtitle">Time-Series Cross-Validation — train on the past, validate on the next block, never peek at the future.</div>
+    <div class="tags">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">Classical ML</span>
+      <span class="tag tag-category">Model Selection</span>
+      <span class="tag tag-complexity">Important in Interviews</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-wrap">
+
+<!-- ── Card 1: Understanding ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+
+  <p><strong>What is this?</strong> Standard k-fold cross-validation shuffles your data and randomly assigns rows to folds. That works perfectly for, say, predicting house prices — the rows are independent. But time-series data is ordered: Monday's stock price influences Tuesday's. If you shuffle, you let the model peek at the future during training, making your error estimates wildly optimistic. Walk-forward validation solves this by respecting the arrow of time.</p>
+
+  <p><strong>The recipe:</strong> Always train on past data only, then validate on the very next block of unseen future data. Roll that window forward and repeat. Each fold mirrors how you'd actually deploy the model — only historical information is available at inference time.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">💡 If you remember one thing</div>
+    <p>Never shuffle time-series data before splitting. Walk-forward validation is the correct CV strategy when observations are temporally dependent — it produces honest out-of-sample estimates that match real deployment conditions.</p>
+  </div>
+
+  <p><strong>Real-world analogy:</strong> Imagine you're a weather forecaster. You train on January–March data, then predict April. Next iteration: train on January–April, predict May. You never "train on June and then predict March" — the past is fixed, the future is always unknown. That's walk-forward validation.</p>
+
+  <p><strong>Two flavours:</strong></p>
+  <ul>
+    <li><strong>Expanding window</strong> — each fold adds the new validation block to the training set. Training size grows: 1→1+2→1+2+3… Prefers more data, can be slow.</li>
+    <li><strong>Sliding window</strong> — training window has a fixed size; it shifts forward dropping old data. Controls for concept drift and keeps training cost constant.</li>
+  </ul>
+</div>
+
+<!-- ── Card 2: How It Works ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+  </div>
+
+  <p>Given a time series of \(T\) observations indexed \(t = 1, 2, \ldots, T\), choose an initial training size \(n_0\) and a step/horizon \(h\) (how many future steps each validation fold covers). The procedure produces \(K = \lfloor (T - n_0) / h \rfloor\) folds.</p>
+
+  <p><strong>Expanding window (grow the train set):</strong></p>
+  <p>Fold \(k\) uses training indices \(\{1, \ldots, n_0 + (k-1)h\}\) and validation indices \(\{n_0 + (k-1)h + 1, \ldots, n_0 + kh\}\). The total training size at fold \(k\) is \(n_0 + (k-1)h\).</p>
+
+  <p><strong>Sliding window (fixed train size \(W\)):</strong></p>
+  <p>Fold \(k\) uses training indices \(\{1 + (k-1)h, \ldots, n_0 + (k-1)h\}\) and validation indices \(\{n_0 + (k-1)h + 1, \ldots, n_0 + kh\}\). Training always covers exactly \(W = n_0\) points.</p>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">Key Invariant</div>
+    <p>Every training fold index is strictly less than every validation fold index. The data timeline is never violated. This is the core guarantee walk-forward provides.</p>
+  </div>
+
+  <p><strong>Aggregating error:</strong> Compute a metric (MAE, RMSE, MAPE…) on each fold's validation block, then average across folds — optionally weighting recent folds more heavily. This gives a temporally honest estimate of production performance.</p>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">⚠️ Common Mistake</div>
+    <p>Using <code>sklearn.model_selection.KFold</code> on time-series data. It shuffles indices, guaranteeing future leakage. Always use <code>TimeSeriesSplit</code> or implement walk-forward manually.</p>
+  </div>
+</div>
+
+<!-- ── Card 3: The Math ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math Behind It</div>
+  </div>
+
+  <p>Let \(\{y_t\}_{t=1}^T\) be a time series. Define initial window \(n_0\), horizon \(h\), and number of folds \(K\).</p>
+
+  <p><strong>Expanding window fold indices:</strong></p>
+  <div class="eq">$$\mathcal{T}_k = \{1,\ldots, n_0 + (k-1)h\}, \quad \mathcal{V}_k = \{n_0 + (k-1)h + 1,\ldots, n_0 + kh\}$$</div>
+
+  <p><strong>Sliding window fold indices (window size \(W\)):</strong></p>
+  <div class="eq">$$\mathcal{T}_k = \{1+(k-1)h, \ldots, W + (k-1)h\}, \quad \mathcal{V}_k = \{W + (k-1)h + 1,\ldots, W + kh\}$$</div>
+
+  <p><strong>Aggregate CV error</strong> (uniform weights):</p>
+  <div class="eq">$$\widehat{\text{Err}} = \frac{1}{K}\sum_{k=1}^{K} \frac{1}{|\mathcal{V}_k|} \sum_{t \in \mathcal{V}_k} \ell\!\left(y_t,\; \hat{y}_t^{(k)}\right)$$</div>
+
+  <p>where \(\hat{y}_t^{(k)}\) is the model trained on \(\mathcal{T}_k\) and \(\ell\) is the chosen loss (e.g. squared error, absolute error).</p>
+
+  <p><strong>Number of folds:</strong></p>
+  <div class="eq">$$K = \left\lfloor \frac{T - n_0}{h} \right\rfloor$$</div>
+
+  <div class="concept-box math">
+    <div class="concept-box-title">Key Property — Temporal Non-Overlap</div>
+    <p>For all valid \(k\): \(\max(\mathcal{T}_k) < \min(\mathcal{V}_k)\). The model never sees any validation observation during its training phase. This ensures unbiased estimation under temporal dependence.</p>
+  </div>
+
+  <p><strong>Practical example with numbers:</strong> \(T=20\), \(n_0=10\), \(h=2\).<br>
+  \(K = \lfloor(20-10)/2\rfloor = 5\) folds.<br>
+  Fold 1: Train \(\{1..10\}\), Val \(\{11,12\}\).<br>
+  Fold 2: Train \(\{1..12\}\) (expanding) or \(\{3..12\}\) (sliding \(W=10\)), Val \(\{13,14\}\).<br>
+  …and so on until Fold 5: Val \(\{19,20\}\).</p>
+</div>
+
+<!-- ── Card 4: Interactive Viz ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walk-Forward Visualizer</div>
+  </div>
+
+  <p style="font-size:13px; color:var(--text3);">Step through each fold. Watch training grow (expanding) or slide, then the validation block roll forward. The orange highlighted block is the current validation fold.</p>
+
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="btn-expanding" onclick="setMode('expanding')">Expanding Window</button>
+    <button class="mode-btn" id="btn-sliding" onclick="setMode('sliding')">Sliding Window</button>
+  </div>
+
+  <div class="viz-container">
+    <div class="viz-inner">
+      <!-- Time axis header -->
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <div style="width:52px;"></div>
+        <div id="time-axis" style="display:flex; gap:3px; flex:1; font-size:9px; color:var(--text3); font-family:var(--mono);"></div>
+      </div>
+
+      <!-- Fold rows -->
+      <div class="fold-grid" id="fold-grid"></div>
+
+      <!-- Legend -->
+      <div class="legend" style="margin-top:1rem;">
+        <div class="legend-item"><div class="legend-swatch swatch-train"></div>Training</div>
+        <div class="legend-item"><div class="legend-swatch swatch-val"></div>Validation (current fold)</div>
+        <div class="legend-item"><div class="legend-swatch swatch-future"></div>Future (unseen)</div>
+      </div>
+
+      <!-- Score bars -->
+      <div style="margin-top:1.25rem;">
+        <div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:4px;">Per-Fold Validation RMSE</div>
+        <div class="score-chart" id="score-chart"></div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="info-card">
+        <div class="info-phase" id="info-phase">Intro</div>
+        <div class="info-step" id="info-step">Step 0 of 6</div>
+        <div class="info-title" id="info-title">Walk-Forward Validation</div>
+        <div class="info-body" id="info-body">Press Next or use → arrow key to step through the folds.</div>
+      </div>
+
+      <!-- Progress + Controls -->
+      <div class="progress-wrap" id="progress-wrap"></div>
+      <div class="controls">
+        <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Card 5: Code ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Code: From Scratch & Production</div>
+  </div>
+
+  <p style="font-size:13px; font-weight:600; color:var(--text2);">From Scratch — NumPy</p>
+  <div class="code-panel">
+    <div class="code-lang">python</div>
+<div class="code-line">import numpy as np</div>
+<div class="code-line"></div>
+<div class="code-line">def walk_forward_split(n, n_init, h, mode='expanding', W=None):</div>
+<div class="code-line">    """Yield (train_idx, val_idx) pairs for walk-forward CV.</div>
+<div class="code-line"></div>
+<div class="code-line">    Args:</div>
+<div class="code-line">        n      : total number of timesteps</div>
+<div class="code-line">        n_init : initial training size</div>
+<div class="code-line">        h      : validation horizon per fold</div>
+<div class="code-line">        mode   : 'expanding' or 'sliding'</div>
+<div class="code-line">        W      : sliding window size (only for mode='sliding')</div>
+<div class="code-line">    """</div>
+<div class="code-line">    if mode == 'sliding' and W is None:</div>
+<div class="code-line">        W = n_init</div>
+<div class="code-line">    k = 0</div>
+<div class="code-line">    while True:</div>
+<div class="code-line">        val_end = n_init + (k + 1) * h           # exclusive end of val</div>
+<div class="code-line">        if val_end > n:</div>
+<div class="code-line">            break                                  # no more data for val</div>
+<div class="code-line">        val_start = n_init + k * h                # inclusive start of val</div>
+<div class="code-line">        if mode == 'expanding':</div>
+<div class="code-line">            train_start = 0</div>
+<div class="code-line">        else:  # sliding</div>
+<div class="code-line">            train_start = max(0, val_start - W)</div>
+<div class="code-line">        train_idx = np.arange(train_start, val_start)</div>
+<div class="code-line">        val_idx   = np.arange(val_start, val_end)</div>
+<div class="code-line">        # KEY INVARIANT: all train < all val</div>
+<div class="code-line">        assert train_idx.max() < val_idx.min(), "Future leakage!"</div>
+<div class="code-line">        yield train_idx, val_idx</div>
+<div class="code-line">        k += 1</div>
+<div class="code-line"></div>
+<div class="code-line"># Usage</div>
+<div class="code-line">y = np.sin(np.linspace(0, 4*np.pi, 60)) + np.random.randn(60)*0.1</div>
+<div class="code-line">scores = []</div>
+<div class="code-line">for train_idx, val_idx in walk_forward_split(60, n_init=30, h=5):</div>
+<div class="code-line">    # Fit a trivial mean model (replace with your model)</div>
+<div class="code-line">    pred = np.full(len(val_idx), y[train_idx].mean())</div>
+<div class="code-line">    rmse = np.sqrt(np.mean((y[val_idx] - pred)**2))</div>
+<div class="code-line">    scores.append(rmse)</div>
+<div class="code-line">print(f"Mean RMSE: {np.mean(scores):.4f} ± {np.std(scores):.4f}")</div>
+  </div>
+
+  <p style="font-size:13px; font-weight:600; color:var(--text2); margin-top:1.25rem;">Production — scikit-learn TimeSeriesSplit</p>
+  <div class="code-panel">
+    <div class="code-lang">python</div>
+<div class="code-line">from sklearn.model_selection import TimeSeriesSplit, cross_val_score</div>
+<div class="code-line">from sklearn.ensemble import GradientBoostingRegressor</div>
+<div class="code-line">import numpy as np</div>
+<div class="code-line"></div>
+<div class="code-line"># TimeSeriesSplit = expanding window by default</div>
+<div class="code-line">tscv = TimeSeriesSplit(</div>
+<div class="code-line">    n_splits=5,       # number of folds</div>
+<div class="code-line">    gap=0,            # !! set gap>0 to add buffer between train and val</div>
+<div class="code-line">    max_train_size=None,  # set to int for sliding window behaviour</div>
+<div class="code-line">    test_size=None,   # controls val horizon (None = auto)</div>
+<div class="code-line">)</div>
+<div class="code-line"></div>
+<div class="code-line">model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.05)</div>
+<div class="code-line">scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_root_mean_squared_error')</div>
+<div class="code-line">print(f"CV RMSE: {-scores.mean():.4f} ± {scores.std():.4f}")</div>
+<div class="code-line"></div>
+<div class="code-line"># ⚠️ gotcha: gap parameter matters for forecasting with lag features</div>
+<div class="code-line"># If features include y[t-1], set gap >= 1 to prevent indirect leakage</div>
+<div class="code-line"># ⚠️ gotcha: TimeSeriesSplit does NOT support sliding window natively</div>
+<div class="code-line"># use max_train_size to approximate it</div>
+  </div>
+</div>
+
+<!-- ── Card 6: Takeaways & Comparisons ── -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways & Comparisons</div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <tr>
+        <th>Dimension</th>
+        <th>k-Fold CV</th>
+        <th>Walk-Forward (Expanding)</th>
+        <th>Walk-Forward (Sliding)</th>
+      </tr>
+      <tr>
+        <td>Data ordering respected?</td>
+        <td style="color:var(--red-mid);">No — shuffles</td>
+        <td style="color:var(--green-mid);">Yes</td>
+        <td style="color:var(--green-mid);">Yes</td>
+      </tr>
+      <tr>
+        <td>Future leakage?</td>
+        <td style="color:var(--red-mid);">Yes</td>
+        <td style="color:var(--green-mid);">None</td>
+        <td style="color:var(--green-mid);">None</td>
+      </tr>
+      <tr>
+        <td>Training set size</td>
+        <td>Fixed fraction</td>
+        <td>Grows with each fold</td>
+        <td>Fixed (window size)</td>
+      </tr>
+      <tr>
+        <td>Handles concept drift?</td>
+        <td>No</td>
+        <td>Partially (diluted by old data)</td>
+        <td>Yes (drops stale data)</td>
+      </tr>
+      <tr>
+        <td>Compute cost</td>
+        <td>Low</td>
+        <td>Increases per fold</td>
+        <td>Constant per fold</td>
+      </tr>
+      <tr>
+        <td>Use when</td>
+        <td>i.i.d. tabular data</td>
+        <td>Stationary time series; more data → better</td>
+        <td>Non-stationary; fixed compute budget</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="concept-box insight" style="margin-top:1rem;">
+    <div class="concept-box-title">Decision Guide</div>
+    <p><strong>Series is stationary &amp; longer history helps?</strong> → Expanding window.<br>
+    <strong>Series drifts over time (non-stationary)?</strong> → Sliding window.<br>
+    <strong>Data is i.i.d.?</strong> → Standard k-fold is fine.<br>
+    <strong>Lag features included?</strong> → Add a <code>gap</code> to prevent indirect leakage.</p>
+  </div>
+
+  <p style="margin-top:0.75rem;"><strong>Prerequisites to understand this:</strong> Cross-validation basics, bias-variance tradeoff, time-series stationarity.</p>
+  <p><strong>What to learn next:</strong> Blocked time-series CV (for short series), purged CV (finance), hyperparameter tuning with TimeSeriesSplit, ARIMA/forecasting models.</p>
+</div>
+
+</div><!-- /page-wrap -->
+
+<script>
+/* ── State ── */
+let mode = 'expanding';
+let step = 0;
+
+const T = 16;      // total time blocks
+const n0 = 6;      // initial train size
+const h  = 2;      // horizon per fold
+const K  = Math.floor((T - n0) / h);  // = 5 folds
+
+/* Per-fold simulated RMSE scores (realistic, slightly varying) */
+const scores = [0.34, 0.29, 0.38, 0.31, 0.42];
+
+/* Steps: 0 = intro, 1..K = fold k, K+1 = summary */
+const TOTAL_STEPS = K + 2; // 0..K+1
+
+function getTrainVal(k, modeStr) {
+  /* k is 1-indexed fold number */
+  const valStart = n0 + (k - 1) * h;
+  const valEnd   = n0 + k * h;      // exclusive
+  let   trainStart, trainEnd;
+  if (modeStr === 'expanding') {
+    trainStart = 0;
+    trainEnd   = valStart;
+  } else {
+    trainStart = Math.max(0, valStart - n0);
+    trainEnd   = valStart;
+  }
+  return { trainStart, trainEnd, valStart, valEnd };
+}
+
+function buildAxis() {
+  const ax = document.getElementById('time-axis');
+  ax.innerHTML = '';
+  for (let i = 0; i < T; i++) {
+    const d = document.createElement('div');
+    d.style.cssText = 'flex:1;max-width:60px;text-align:center;';
+    d.textContent = `t${i+1}`;
+    ax.appendChild(d);
+  }
+}
+
+function buildGrid() {
+  const grid = document.getElementById('fold-grid');
+  grid.innerHTML = '';
+  for (let k = 1; k <= K; k++) {
+    const row = document.createElement('div');
+    row.className = 'fold-row';
+    row.id = `fold-row-${k}`;
+
+    const lbl = document.createElement('div');
+    lbl.className = 'fold-label';
+    lbl.textContent = `Fold ${k}`;
+    row.appendChild(lbl);
+
+    const blocks = document.createElement('div');
+    blocks.className = 'fold-blocks';
+    blocks.id = `fold-blocks-${k}`;
+    for (let i = 0; i < T; i++) {
+      const b = document.createElement('div');
+      b.className = 'block block-future';
+      b.id = `b-${k}-${i}`;
+      blocks.appendChild(b);
+    }
+    row.appendChild(blocks);
+    grid.appendChild(row);
+  }
+}
+
+function buildScoreChart() {
+  const chart = document.getElementById('score-chart');
+  chart.innerHTML = '';
+  const maxScore = Math.max(...scores);
+  scores.forEach((s, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'score-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'score-bar';
+    bar.id = `bar-${i}`;
+    bar.style.height = '0px';
+    const val = document.createElement('div');
+    val.className = 'score-val';
+    val.id = `bar-val-${i}`;
+    val.textContent = '';
+    const lbl = document.createElement('div');
+    lbl.className = 'score-label';
+    lbl.textContent = `F${i+1}`;
+    wrap.appendChild(bar);
+    wrap.appendChild(val);
+    wrap.appendChild(lbl);
+    chart.appendChild(wrap);
+  });
+}
+
+function buildDots() {
+  const wrap = document.getElementById('progress-wrap');
+  wrap.innerHTML = '';
+  for (let i = 0; i < TOTAL_STEPS; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => jumpTo(i);
+    d.title = i === 0 ? 'Intro' : (i < TOTAL_STEPS-1) ? `Fold ${i}` : 'Summary';
+    wrap.appendChild(d);
+  }
+}
+
+const stepInfo = {
+  0: {
+    phase: 'Introduction',
+    title: 'Walk-Forward Validation',
+    body: 'Time flows left → right. We have 16 time steps. The initial training window covers the first 6 steps. Press Next to begin fold-by-fold evaluation.',
+  },
+  7: {
+    phase: 'Summary',
+    title: 'All 5 Folds Complete',
+    body: 'Each fold trained strictly on past data and validated on the next 2 unseen future steps. The mean RMSE across folds gives an honest out-of-sample estimate. No future data was ever used during training.',
+  }
+};
+
+function renderStep(s) {
+  /* Update dots */
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot' + (i === s ? ' active' : (i < s ? ' done' : ''));
+  });
+
+  /* Update nav buttons */
+  document.getElementById('btn-prev').disabled = (s === 0);
+  document.getElementById('btn-next').disabled = (s === TOTAL_STEPS - 1);
+
+  if (s === 0) {
+    /* Intro: all future */
+    for (let k = 1; k <= K; k++) {
+      for (let i = 0; i < T; i++) {
+        const b = document.getElementById(`b-${k}-${i}`);
+        b.className = 'block block-future';
+        b.textContent = '';
+      }
+    }
+    /* Reset bars */
+    scores.forEach((_, i) => {
+      const bar = document.getElementById(`bar-${i}`);
+      const bv  = document.getElementById(`bar-val-${i}`);
+      bar.style.height = '0px';
+      bar.className = 'score-bar';
+      bv.textContent = '';
+    });
+    setInfo({ phase: 'Introduction', step: '0 of ' + K + ' folds', title: 'Walk-Forward Validation',
+      body: 'Time flows left → right. We have 16 time steps, initial training window = 6 steps, horizon h = 2. Press Next to step through each fold.' });
+    return;
+  }
+
+  if (s === TOTAL_STEPS - 1) {
+    /* Summary: show all folds completed */
+    for (let k = 1; k <= K; k++) {
+      const { trainStart, trainEnd, valStart, valEnd } = getTrainVal(k, mode);
+      for (let i = 0; i < T; i++) {
+        const b = document.getElementById(`b-${k}-${i}`);
+        if (i >= trainStart && i < trainEnd) {
+          b.className = 'block block-train'; b.textContent = 'TR';
+        } else if (i >= valStart && i < valEnd) {
+          b.className = 'block block-val'; b.textContent = 'VAL';
+        } else {
+          b.className = 'block block-future'; b.textContent = '';
+        }
+      }
+      /* Activate bar */
+      const bar = document.getElementById(`bar-${k-1}`);
+      const bv  = document.getElementById(`bar-val-${k-1}`);
+      const pct = (scores[k-1] / 0.5) * 68;
+      bar.style.height = pct + 'px';
+      bar.className = 'score-bar';
+      bv.textContent = scores[k-1].toFixed(2);
+    }
+    const mean = (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(3);
+    setInfo({ phase: 'Summary', step: `${K} of ${K} folds`, title: 'Evaluation Complete',
+      body: `All ${K} folds validated. Mean RMSE = ${mean}. This is the walk-forward CV error — a temporally honest estimate of model performance on unseen future data.` });
+    return;
+  }
+
+  /* Fold s (1-indexed) */
+  const k = s;
+  const { trainStart, trainEnd, valStart, valEnd } = getTrainVal(k, mode);
+
+  for (let fk = 1; fk <= K; fk++) {
+    for (let i = 0; i < T; i++) {
+      const b = document.getElementById(`b-${fk}-${i}`);
+      if (fk < k) {
+        /* Past fold — show completed train/val */
+        const { trainStart: ps, trainEnd: pe, valStart: vs, valEnd: ve } = getTrainVal(fk, mode);
+        if (i >= ps && i < pe) {
+          b.className = 'block block-train'; b.textContent = 'TR';
+        } else if (i >= vs && i < ve) {
+          b.className = 'block block-val'; b.textContent = 'VAL';
+        } else {
+          b.className = 'block block-future'; b.textContent = '';
+        }
+      } else if (fk === k) {
+        /* Current fold */
+        if (i >= trainStart && i < trainEnd) {
+          b.className = 'block block-active-train'; b.textContent = 'TR';
+        } else if (i >= valStart && i < valEnd) {
+          b.className = 'block block-active-val'; b.textContent = 'VAL';
+        } else {
+          b.className = 'block block-future'; b.textContent = '';
+        }
+      } else {
+        b.className = 'block block-future'; b.textContent = '';
+      }
+    }
+  }
+
+  /* Update score bars up to fold k */
+  scores.forEach((sc, i) => {
+    const bar = document.getElementById(`bar-${i}`);
+    const bv  = document.getElementById(`bar-val-${i}`);
+    if (i < k) {
+      const pct = (sc / 0.5) * 68;
+      bar.style.height = pct + 'px';
+      bar.className = 'score-bar' + (i === k-1 ? ' highlight' : '');
+      bv.textContent = sc.toFixed(2);
+    } else {
+      bar.style.height = '0px';
+      bar.className = 'score-bar';
+      bv.textContent = '';
+    }
+  });
+
+  const modeLabel = mode === 'expanding' ? 'expanding' : 'sliding';
+  const trainSize = trainEnd - trainStart;
+  const expandNote = mode === 'expanding'
+    ? `Training grows to ${trainSize} observations (indices t${trainStart+1}–t${trainEnd}).`
+    : `Training window is fixed at ${trainSize} observations (indices t${trainStart+1}–t${trainEnd}).`;
+
+  setInfo({ phase: `Fold ${k} of ${K}`, step: `${k} of ${K} folds`,
+    title: `${modeLabel.charAt(0).toUpperCase()+modeLabel.slice(1)} window — Fold ${k}`,
+    body: `${expandNote} Validate on the next h=2 steps: t${valStart+1}–t${valEnd}. ` +
+          `All training indices < ${valStart+1}, so no future data was seen. ` +
+          `Fold RMSE = ${scores[k-1].toFixed(2)}.`
+  });
+}
+
+function setInfo({ phase, step: stepStr, title, body }) {
+  document.getElementById('info-phase').textContent = phase;
+  document.getElementById('info-step').textContent = stepStr;
+  document.getElementById('info-title').textContent = title;
+  document.getElementById('info-body').textContent = body;
+}
+
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= TOTAL_STEPS) return;
+  step = next;
+  renderStep(step);
+}
+
+function jumpTo(s) {
+  step = s;
+  renderStep(step);
+}
+
+function reset() {
+  step = 0;
+  renderStep(step);
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-expanding').className = 'mode-btn' + (m === 'expanding' ? ' active' : '');
+  document.getElementById('btn-sliding').className   = 'mode-btn' + (m === 'sliding' ? ' active' : '');
+  step = 0;
+  buildGrid();
+  renderStep(step);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+/* Init */
+buildAxis();
+buildGrid();
+buildScoreChart();
+buildDots();
+renderStep(0);
+</script>
+
+</body>
+</html>

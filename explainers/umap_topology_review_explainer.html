@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>UMAP: Topology-Preserving Dimensionality Reduction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9;
+  --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;padding:0 0 60px}
+a{color:var(--blue-mid)}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:2rem 1.5rem 1.5rem;max-width:900px;margin:0 auto}
+.header h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:700;line-height:1.2;margin-bottom:.4rem}
+.header .subtitle{font-size:.95rem;color:var(--text2);margin-bottom:.75rem}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:20px}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+.tag-review{background:var(--purple-bg);color:var(--purple-mid)}
+
+.container{max-width:900px;margin:0 auto;padding:1.5rem}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:1rem;overflow:hidden}
+.card-header{display:flex;align-items:center;gap:12px;padding:1.1rem 1.5rem;cursor:pointer;user-select:none}
+.card-header:hover{background:var(--bg2)}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.section-title{font-size:17px;font-weight:700;color:var(--text);flex:1}
+.chevron{font-size:16px;color:var(--text3);transition:transform .3s}
+.chevron.open{transform:rotate(180deg)}
+.card-body{padding:0 1.5rem 1.5rem;display:none}
+.card-body.open{display:block}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border)}
+.concept-box.danger .concept-box-title{color:var(--red-mid)}
+
+h3{font-size:15px;font-weight:700;margin:1.2rem 0 .5rem;color:var(--text)}
+p{margin-bottom:.8rem;font-size:.94rem;color:var(--text2)}
+ul,ol{margin:.5rem 0 .8rem 1.5rem;font-size:.94rem;color:var(--text2)}
+li{margin-bottom:.3rem}
+.eq{text-align:center;padding:14px 20px;margin:.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.85rem}
+th{background:var(--bg2);padding:8px 12px;text-align:left;font-weight:600;border:1px solid var(--border)}
+td{padding:8px 12px;border:1px solid var(--border);color:var(--text2)}
+tr:nth-child(even) td{background:var(--bg2)}
+
+pre{font-family:var(--mono);font-size:12px;background:var(--bg2);padding:1rem;border-radius:var(--radius);overflow-x:auto;margin:.75rem 0;line-height:1.7;color:var(--text2)}
+code{font-family:var(--mono);font-size:.85em;background:var(--bg2);padding:1px 5px;border-radius:4px;color:var(--purple-mid)}
+
+/* ── VISUALIZATION ── */
+.viz-wrapper{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.viz-title{font-size:17px;font-weight:700;margin-bottom:1rem}
+
+#umap-canvas{width:100%;height:380px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);display:block}
+
+.info-card{background:var(--purple-bg);border:1px solid var(--purple-border);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem}
+.info-phase{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--purple-mid);margin-bottom:.3rem}
+.info-step-num{font-size:11px;color:var(--text3);margin-bottom:.2rem}
+.info-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:.4rem}
+.info-body{font-size:.88rem;color:var(--text2);line-height:1.55}
+
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all .25s;cursor:pointer}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:white}
+.kbd-hint{text-align:center;margin-top:.75rem;font-size:11px;color:var(--text3)}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:.8rem;justify-content:center}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.legend-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+
+.knobs{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:1rem;align-items:flex-end}
+.knob-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:140px}
+.knob-label{font-size:12px;font-weight:600;color:var(--text2)}
+.knob-val{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--purple-mid)}
+input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:var(--border2)}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>UMAP: Topology-Preserving Dimensionality Reduction</h1>
+  <div class="subtitle">Fuzzy simplicial sets → force-directed low-D layout · faster &amp; better global structure than t-SNE</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Dim Reduction</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-complexity">O(n log n)</span>
+    <span class="tag tag-review">Review Track</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- Card 1: 30-Second Version -->
+<div class="card">
+  <div class="card-header" onclick="toggle(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">The 30-Second Version</div>
+    <div class="chevron open">▾</div>
+  </div>
+  <div class="card-body open" id="card1-body"></div>
+</div>
+
+<!-- Card 2: How It Works -->
+<div class="card">
+  <div class="card-header" onclick="toggle(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works: Fuzzy Graphs → Force Layout</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card2-body"></div>
+</div>
+
+<!-- Card 3: The Math -->
+<div class="card">
+  <div class="card-header" onclick="toggle(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math Behind UMAP</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card3-body"></div>
+</div>
+
+<!-- Card 4: Interactive Visualization -->
+<div class="viz-wrapper">
+  <div class="viz-title">🎯 Interactive: Fuzzy Graph → Low-D Layout</div>
+  <div class="knobs" id="knobs-area"></div>
+  <canvas id="umap-canvas"></canvas>
+  <div class="info-card">
+    <div class="info-phase" id="info-phase">PHASE 1 — HIGH-D GRAPH</div>
+    <div class="info-step-num" id="info-stepnum">Step 1 / 6</div>
+    <div class="info-title" id="info-title">Build k-NN graph in high dimension</div>
+    <div class="info-body" id="info-body">UMAP starts by finding the k nearest neighbors of each point in the original high-dimensional space. Here k = n_neighbors.</div>
+  </div>
+  <div class="progress-wrap" id="progress"></div>
+  <div class="controls">
+    <button class="btn" id="btn-prev" onclick="go(-1)">← Prev</button>
+    <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+    <button class="btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+  <div class="legend" id="legend-area"></div>
+</div>
+
+<!-- Card 5: UMAP vs t-SNE Comparison -->
+<div class="card">
+  <div class="card-header" onclick="toggle(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">UMAP vs t-SNE vs PCA: Decision Guide</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card5-body"></div>
+</div>
+
+<!-- Card 6: Hyperparameter Knobs -->
+<div class="card">
+  <div class="card-header" onclick="toggle(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Hyperparameters &amp; Interview Q&amp;A</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card6-body"></div>
+</div>
+
+</div><!-- /container -->
+<script>
+// ── Card toggle ──
+function toggle(hdr){
+  const body = hdr.nextElementSibling;
+  const chev = hdr.querySelector('.chevron');
+  const open = body.classList.toggle('open');
+  chev.classList.toggle('open', open);
+}
+
+// ── Populate card bodies ──
+document.getElementById('card1-body').innerHTML = `
+<h3>What is UMAP?</h3>
+<p>UMAP (Uniform Manifold Approximation and Projection) is a dimensionality reduction algorithm that compresses high-dimensional data — say, 1,000 measurements per sample — into 2 or 3 dimensions for visualization or downstream ML. Unlike PCA, it preserves the curved, non-linear structure ("manifold") of your data.</p>
+
+<h3>Real-World Analogy</h3>
+<p>Think of a globe vs. a flat map. PCA is like a basic projection — it flattens the globe but severely distorts distances. t-SNE is like tearing the globe apart and pasting patches separately — great local detail but the patches don't relate to each other globally. UMAP is like a skilled cartographer who builds a graph of roads connecting cities, then lays out those cities on paper preserving the road network's structure — both local clusters <em>and</em> the large-scale geography survive.</p>
+
+<div class="concept-box insight">
+  <div class="concept-box-title">💡 If you remember one thing</div>
+  UMAP converts the high-D point cloud into a <strong>fuzzy simplicial-set graph</strong> (weighted k-NN), then finds a low-D layout that minimizes a cross-entropy loss between the two fuzzy graphs — faster and topologically sounder than t-SNE's KL divergence on a Gaussian kernel.
+</div>
+
+<h3>One-sentence summary</h3>
+<p>UMAP approximates the topological structure of high-dimensional data with a weighted graph, then optimizes a 2-D layout to match it, preserving both local clusters and global relationships far better and faster than t-SNE.</p>
+`;
+
+document.getElementById('card2-body').innerHTML = `
+<h3>The Two-Phase Pipeline</h3>
+<p>UMAP has two distinct phases: (1) construct a fuzzy topological representation in high-D, (2) optimize a matching low-D layout.</p>
+
+<h3>Phase 1 — Build the Fuzzy High-D Graph</h3>
+<ol>
+  <li><strong>Find k-NN:</strong> For each point \(x_i\), find its <em>n_neighbors</em> nearest neighbors. This uses an approximate nearest-neighbor structure (RP-trees / HNSW), giving <strong>O(n log n)</strong> complexity vs t-SNE's O(n²).</li>
+  <li><strong>Local adaptive metric:</strong> Let \(\rho_i\) = distance to the nearest neighbor of \(x_i\) (makes the metric locally adaptive — sparse regions stretch, dense regions compress). Let \(\sigma_i\) be the bandwidth satisfying the smooth approximation constraint:
+    <div class="eq">$$\sum_{j} \exp\!\left(\frac{-\max(0,\, d(x_i,x_j)-\rho_i)}{\sigma_i}\right) = \log_2(k)$$</div>
+  </li>
+  <li><strong>Edge weights (fuzzy membership):</strong>
+    <div class="eq">$$w_{ij}^{\text{high}} = \exp\!\left(\frac{-\max(0,\, d(x_i,x_j)-\rho_i)}{\sigma_i}\right)$$</div>
+    These weights live in [0,1] and represent "how confident we are that \(i\) and \(j\) are connected."</li>
+  <li><strong>Symmetrize:</strong> Combine directed edges with a fuzzy union:
+    <div class="eq">$$W_{ij} = w_{ij} + w_{ji} - w_{ij}\cdot w_{ji}$$</div>
+    This is the fuzzy set union — if either direction is confident, the edge survives.
+  </li>
+</ol>
+
+<h3>Phase 2 — Optimize the Low-D Layout</h3>
+<ol>
+  <li><strong>Initialize:</strong> Spectral embedding (Laplacian eigenmaps on the high-D graph) for a smart start — avoids random initial chaos that slows t-SNE.</li>
+  <li><strong>Low-D similarity:</strong> In the 2-D embedding, edge weight between \(y_i, y_j\):
+    <div class="eq">$$w_{ij}^{\text{low}} = \left(1 + a\,\|y_i - y_j\|_2^{2b}\right)^{-1}$$</div>
+    where \(a, b\) are set by <em>min_dist</em>. This is a smooth Student-t-like kernel (analogous to t-SNE's).
+  </li>
+  <li><strong>Cross-entropy loss:</strong>
+    <div class="eq">$$\mathcal{L} = \sum_{(i,j)\in E} \left[ W_{ij}\log\frac{W_{ij}}{w_{ij}^{\text{low}}} + (1-W_{ij})\log\frac{1-W_{ij}}{1-w_{ij}^{\text{low}}} \right]$$</div>
+    This is binary cross-entropy — treat each edge as a "connected?" prediction. The 1st term pulls neighbors together; the 2nd term pushes non-neighbors apart.
+  </li>
+  <li><strong>Optimize via SGD + negative sampling:</strong> Sample positive edges (connected pairs) and negative edges (random non-neighbors), update \(y_i\) coordinates with gradient descent. Negative sampling rate is tunable (default ≈ 5 per positive). This is <strong>O(n)</strong> per epoch.</li>
+</ol>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">🔑 Key Design Decision: Cross-Entropy vs KL Divergence</div>
+  t-SNE minimizes KL(\(P\|Q\)) which is asymmetric: it heavily penalizes placing nearby high-D points far apart (since \(\log(p/q)\to\infty\) when \(p\gg q, q\to 0\)), but tolerates placing far-apart points nearby. UMAP's symmetric binary CE penalizes both cases more evenly — that's why it preserves global structure better.
+</div>
+`;
+
+document.getElementById('card3-body').innerHTML = `
+<h3>Theoretical Foundation: Riemannian Manifolds &amp; Fuzzy Simplicial Sets</h3>
+<p>UMAP's theory (McInnes et al., 2018) rests on Riemannian geometry. The key assumption: data lies on a Riemannian manifold \(\mathcal{M}\) embedded in \(\mathbb{R}^D\), locally homeomorphic to \(\mathbb{R}^d\) (\(d \ll D\)).</p>
+
+<p>A <strong>simplicial complex</strong> is a generalization of a graph: 0-simplices are points, 1-simplices are edges, 2-simplices are triangles, etc. UMAP approximates the manifold with a <em>fuzzy</em> simplicial set — edges have membership values in [0,1] rather than just 0/1.</p>
+
+<h3>The Adaptive Bandwidth \(\sigma_i\)</h3>
+<p>Each point has its own bandwidth \(\sigma_i\) found by binary search such that the perplexity constraint holds. This is structurally similar to t-SNE's perplexity-based bandwidth, but UMAP uses log₂(k) instead of log(perplexity) and includes the \(\rho_i\) shift (distance to nearest neighbor) to normalize for local density. Result: uniform membership across the local neighborhood regardless of density.</p>
+
+<div class="concept-box math">
+  <div class="concept-box-title">📐 Key Formulas</div>
+  <div class="eq">$$w_{ij}^{\text{high}} = \exp\!\left(\tfrac{-\max(0, d_{ij} - \rho_i)}{\sigma_i}\right), \quad \sigma_i : \sum_j w_{ij}^{\text{high}} = \log_2(k)$$</div>
+  <div class="eq">$$W_{ij} = w_{ij} + w_{ji} - w_{ij}\cdot w_{ji} \quad \text{(fuzzy union)}$$</div>
+  <div class="eq">$$w_{ij}^{\text{low}} = \left(1 + a\|y_i - y_j\|^{2b}\right)^{-1}$$</div>
+  <div class="eq">$$\mathcal{L} = \sum_{e\in E^+} -\log w_e^{\text{low}} + \sum_{e\in E^-} -\log(1 - w_e^{\text{low}})$$</div>
+</div>
+
+<h3>Fitting \(a\) and \(b\)</h3>
+<p>The \(a,b\) parameters of the low-D kernel are found by non-linear least-squares fitting to the piecewise function: \(f(r) = 1\) if \(r \le \text{min\_dist}\), else \(\exp(-(r-\text{min\_dist}))\). This gives a smooth parameterization of how tightly points are packed in the 2-D space.</p>
+
+<div class="concept-box warning">
+  <div class="concept-box-title">⚠️ Common Misconception</div>
+  UMAP does <strong>not</strong> preserve distances quantitatively — the axis values in a UMAP plot are meaningless. Only the relative position of clusters and their approximate global arrangement is meaningful. Never interpret the scale of a UMAP plot.
+</div>
+`;
+
+document.getElementById('card5-body').innerHTML = `
+<h3>UMAP vs t-SNE vs PCA</h3>
+<table>
+  <tr><th>Dimension</th><th>PCA</th><th>t-SNE</th><th>UMAP</th></tr>
+  <tr><td>Manifold assumption</td><td>None (linear)</td><td>Local Gaussian</td><td>Riemannian, fuzzy simplicial</td></tr>
+  <tr><td>Complexity</td><td>O(D²n) or O(nd²)</td><td>O(n² ) naive, O(n log n) BH</td><td>O(n log n) approx kNN</td></tr>
+  <tr><td>Speed on 10K pts</td><td>&lt;1 s</td><td>~30–120 s</td><td>~3–15 s</td></tr>
+  <tr><td>Local structure</td><td>Poor (linear only)</td><td>Excellent</td><td>Excellent</td></tr>
+  <tr><td>Global structure</td><td>Excellent (linear)</td><td>Poor (clusters disconnected)</td><td>Good (better than t-SNE)</td></tr>
+  <tr><td>Deterministic</td><td>Yes</td><td>No (stochastic)</td><td>No (stochastic init unless fixed seed)</td></tr>
+  <tr><td>Supports new points</td><td>Yes (project)</td><td>No (must re-run)</td><td>Yes (transform() method)</td></tr>
+  <tr><td>Theoretical basis</td><td>Variance maximization</td><td>Heuristic KL</td><td>Riemannian geometry / category theory</td></tr>
+  <tr><td>Metric support</td><td>Euclidean only</td><td>Euclidean, cosine</td><td>Any metric (cosine, hamming, custom)</td></tr>
+  <tr><td>Best use</td><td>Linear data, preprocessing</td><td>Visualization (clusters)</td><td>Visualization + downstream ML</td></tr>
+</table>
+
+<div class="concept-box insight">
+  <div class="concept-box-title">🎯 Decision Guide</div>
+  <ul>
+    <li><strong>Want interpretable variance explained?</strong> → PCA</li>
+    <li><strong>Purely visual cluster separation, don't care about global layout?</strong> → t-SNE</li>
+    <li><strong>Want clusters + global structure + speed + out-of-sample projection?</strong> → UMAP</li>
+    <li><strong>Non-Euclidean data (text embeddings, genomics)?</strong> → UMAP (set metric='cosine' or metric='hamming')</li>
+  </ul>
+</div>
+`;
+
+document.getElementById('card6-body').innerHTML = `
+<h3>Critical Hyperparameters</h3>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">n_neighbors (default 15)</div>
+  Controls the size of the local neighborhood used to build the fuzzy graph. <strong>Small</strong> (e.g. 5): captures very fine local structure, may fragment global layout. <strong>Large</strong> (e.g. 50): smooths over local noise, preserves more global topology. Think of it as the "scale" of the manifold you're approximating. This is the most impactful parameter.
+</div>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">min_dist (default 0.1)</div>
+  Controls how tightly points are allowed to pack in the 2-D embedding. <strong>Small</strong> (0.001): clumps within clusters are very tight (good for density). <strong>Large</strong> (0.99): points spread out more evenly, clusters look looser. Does NOT affect which points are neighbors — only aesthetic compactness.
+</div>
+
+<h3>Interview Questions</h3>
+
+<p><strong>Q1 (Foundational):</strong> How does UMAP differ from t-SNE?</p>
+<p>UMAP uses a fuzzy simplicial set graph and cross-entropy loss; t-SNE uses Gaussian/t-Student kernels and KL divergence. UMAP is faster (O(n log n) vs O(n log n) BH t-SNE, but with smaller constant), supports out-of-sample projection, and better preserves global structure because CE penalizes false negatives (disconnected nearby points) more symmetrically than KL.</p>
+
+<p><strong>Q2 (Intermediate):</strong> Why does UMAP use \(\rho_i\) (distance to nearest neighbor) in the high-D kernel?</p>
+<p>To handle density variation. Without \(\rho_i\), dense regions would have high weights everywhere and sparse regions near-zero — the fuzzy graph would be dominated by dense clusters. Subtracting \(\rho_i\) guarantees that the nearest neighbor always has weight 1 (the edge to the nearest neighbor is always "present"), making the local topology density-invariant.</p>
+
+<p><strong>Q3 (Advanced):</strong> Why does UMAP use cross-entropy loss rather than KL?</p>
+<p>KL(\(P\|Q\)) is asymmetric: very large when \(P_{ij} > 0\) but \(Q_{ij} \approx 0\) (placing close high-D points far apart), but tolerates placing far points together. This forces t-SNE to prioritize local structure, neglecting global. Binary CE is symmetric in the sense that the "push" term (negative edges) is also explicitly optimized — UMAP explicitly repels non-neighbor pairs, maintaining global distances.</p>
+
+<p><strong>Q4 (Advanced):</strong> How does UMAP handle out-of-sample embedding (transform)?</p>
+<p>After training, UMAP fits the nearest-neighbor graph of new points against the training points, computes fuzzy membership weights, and solves the layout optimization with the training embeddings fixed. This is fast and deterministic for new points, unlike t-SNE which must rerun entirely.</p>
+
+<p><strong>Q5 (Expert):</strong> What is a fuzzy simplicial set formally?</p>
+<p>A simplicial set is a combinatorial description of a topological space via "simplices" (points, edges, triangles, …). A <em>fuzzy</em> simplicial set allows each simplex to have a membership grade in [0,1]. UMAP constructs a fuzzy 1-skeleton (fuzzy graph) and uses the categorical theoretic framework of extended metric spaces to show this is equivalent to a Riemannian manifold approximation under the uniform-distribution assumption.</p>
+
+<h3>Production Code</h3>
+<pre><code>import umap
+import numpy as np
+
+# Basic usage
+reducer = umap.UMAP(
+    n_neighbors=15,    # local structure scale
+    min_dist=0.1,      # embedding compactness
+    n_components=2,    # output dims
+    metric='euclidean',
+    random_state=42
+)
+embedding = reducer.fit_transform(X)  # shape (n, 2)
+
+# Out-of-sample projection (no re-fit!)
+new_embedding = reducer.transform(X_new)
+
+# Cosine metric for text/embedding data
+reducer_cos = umap.UMAP(metric='cosine', n_neighbors=30)
+
+# GOTCHA: random_state only sets numpy seed. For full reproducibility:
+# Also set: os.environ['PYTHONHASHSEED'] = '42'
+</code></pre>
+`;
+</script>
+<script>
+// ── UMAP Visualization: Fuzzy Graph → Force-Layout ──
+(function(){
+const canvas = document.getElementById('umap-canvas');
+const ctx = canvas.getContext('2d');
+
+// ── Responsive canvas ──
+function resize(){
+  const r = canvas.getBoundingClientRect();
+  canvas.width = r.width * devicePixelRatio;
+  canvas.height = r.height * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+window.addEventListener('resize', ()=>{ resize(); draw(); });
+resize();
+
+const W = ()=>canvas.getBoundingClientRect().width;
+const H = ()=>canvas.getBoundingClientRect().height;
+
+// ── Generate synthetic high-D data (3 clusters in 2D for demo) ──
+// We use 2D as proxy for "high-D" for visualization clarity
+const SEED = 42;
+let rng = (()=>{let s=SEED; return ()=>{s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/0xffffffff;}})();
+const N = 36;
+// 3 cluster centers
+const CLUSTERS = [{cx:0.22,cy:0.3,r:0.09,color:'#534AB7',label:'Cluster A'},{cx:0.75,cy:0.25,r:0.09,color:'#00ACC1',label:'Cluster B'},{cx:0.5,cy:0.72,r:0.09,color:'#3B6D11',label:'Cluster C'}];
+const pts = [];
+const ptColors = [];
+CLUSTERS.forEach((cl,ci)=>{
+  for(let i=0;i<12;i++){
+    const angle = rng()*Math.PI*2;
+    const rad = rng()*cl.r;
+    pts.push({hx: cl.cx+Math.cos(angle)*rad, hy: cl.cy+Math.sin(angle)*rad,
+               lx:0, ly:0, vx:0, vy:0, cluster:ci});
+    ptColors.push(cl.color);
+  }
+});
+
+// ── k-NN in high-D (k=6) ──
+const K = 6;
+function dist2D(a,b){ return Math.sqrt((a.hx-b.hx)**2+(a.hy-b.hy)**2); }
+const edges = []; // {i,j,w}
+pts.forEach((p,i)=>{
+  const dists = pts.map((q,j)=>({j,d:dist2D(p,q)})).filter(x=>x.j!==i).sort((a,b)=>a.d-b.d);
+  const rho = dists[0].d; // nearest neighbor distance
+  const sigma = 0.08; // simplified
+  dists.slice(0,K).forEach(({j,d})=>{
+    const w = Math.exp(-Math.max(0,d-rho)/sigma);
+    if(w>0.01) edges.push({i,j,w});
+  });
+});
+// Symmetrize
+const edgeMap = {};
+edges.forEach(e=>{
+  const key = e.i<e.j?`${e.i}-${e.j}`:`${e.j}-${e.i}`;
+  if(!edgeMap[key]) edgeMap[key]={i:Math.min(e.i,e.j),j:Math.max(e.i,e.j),wij:0,wji:0};
+  if(e.i<e.j) edgeMap[key].wij = Math.max(edgeMap[key].wij,e.w);
+  else edgeMap[key].wji = Math.max(edgeMap[key].wji,e.w);
+});
+const symEdges = Object.values(edgeMap).map(e=>({...e, w: e.wij+e.wji - e.wij*e.wji}));
+
+// ── Generate low-D layout via force simulation ──
+// Initialize with cluster-aware positions + noise for "before" state
+pts.forEach((p,i)=>{
+  p.lx0 = CLUSTERS[p.cluster].cx + (rng()-0.5)*0.35; // scrambled initial
+  p.ly0 = CLUSTERS[p.cluster].cy + (rng()-0.5)*0.35;
+  p.lx = p.lx0; p.ly = p.ly0;
+});
+// Run force-directed iterations to get "final" UMAP-like layout
+function clamp01(x){return Math.max(0.05,Math.min(0.95,x));}
+const lxFinal=[],lyFinal=[];
+// copy initial
+pts.forEach(p=>{lxFinal.push(p.lx0); lyFinal.push(p.ly0);});
+for(let iter=0;iter<300;iter++){
+  const forces = pts.map(()=>({fx:0,fy:0}));
+  symEdges.forEach(({i,j,w})=>{
+    if(w<0.1) return;
+    const dx=lxFinal[j]-lxFinal[i], dy=lyFinal[j]-lyFinal[i];
+    const d=Math.sqrt(dx*dx+dy*dy)+1e-6;
+    const d2b=d*d; // a=1,b=1 simplified
+    const wLow=1/(1+d2b);
+    // CE gradient: pull force for positive edges
+    const grad = -2*w*(wLow/(1+d2b));
+    forces[i].fx+=grad*dx/d; forces[i].fy+=grad*dy/d;
+    forces[j].fx-=grad*dx/d; forces[j].fy-=grad*dy/d;
+    // Repulsion for negative edges (simplified)
+    if(w<0.3){
+      const rep = 0.0008/(d2b+1e-4);
+      forces[i].fx-=rep*dx/d; forces[i].fy-=rep*dy/d;
+      forces[j].fx+=rep*dx/d; forces[j].fy+=rep*dy/d;
+    }
+  });
+  const lr=0.02;
+  for(let k=0;k<N;k++){
+    lxFinal[k]=clamp01(lxFinal[k]+lr*forces[k].fx);
+    lyFinal[k]=clamp01(lyFinal[k]+lr*forces[k].fy);
+  }
+}
+
+// ── Animation state ──
+let step = 0;
+const STEPS = 6;
+let animT = 0; // 0..1 for intermediate animations
+let animFrame=null;
+
+const stepData = [
+  { phase:'PHASE 1 — HIGH-D GRAPH', title:'High-D point cloud + k-NN edges', body:'For each point, UMAP finds its n_neighbors = 6 nearest neighbors in the original space. Edges are drawn with weight proportional to fuzzy membership \\( w_{ij} = \\exp(-(d_{ij}-\\rho_i)/\\sigma_i) \\). Thicker/darker edges = higher confidence the points are connected.' },
+  { phase:'PHASE 1 — HIGH-D GRAPH', title:'Fuzzy union symmetrization', body:'Directed edges are merged: \\( W_{ij} = w_{ij} + w_{ji} - w_{ij}\\cdot w_{ji} \\). This is the fuzzy-set union — if either direction votes "connected", the edge survives. Cross-cluster edges exist but are thin (low weight).' },
+  { phase:'PHASE 2 — LOW-D LAYOUT', title:'Random / spectral initialization', body:'The low-D embedding starts with a spectral initialization (Laplacian eigenmaps of the high-D graph). This is much smarter than t-SNE\'s random init — it already roughly reflects cluster structure, so convergence is faster.' },
+  { phase:'PHASE 2 — LOW-D LAYOUT', title:'Force-directed optimization (iteration 1)', body:'SGD with positive and negative edge sampling: positive edges attract, random non-edges repel. The binary cross-entropy gradient \\( \\nabla_{y_i}\\mathcal{L} \\) moves points toward their fuzzy neighbors and away from non-neighbors.' },
+  { phase:'PHASE 2 — LOW-D LAYOUT', title:'Converged UMAP embedding', body:'After ~200 epochs, the embedding stabilizes. Clusters are well-separated, and their relative global arrangement mirrors the high-D topology. Compare: t-SNE clusters would be similarly separated but their mutual positions would be arbitrary.' },
+  { phase:'PHASE 2 — KNOBS', title:'n_neighbors vs min_dist', body:'Increase n_neighbors → smoother, more globally connected layout. Decrease → tighter local clusters, more fragmentation. Increase min_dist → looser, more spread-out points within each cluster. Decrease → tighter, denser packing.' },
+];
+
+// ── Build progress dots ──
+const progressEl = document.getElementById('progress');
+for(let i=0;i<STEPS;i++){
+  const d=document.createElement('div');
+  d.className='dot'+(i===0?' active':'');
+  d.onclick=(()=>{const idx=i;return ()=>jumpTo(idx);})();
+  progressEl.appendChild(d);
+}
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.className='dot'+(i===step?'active':i<step?'done':'');
+  });
+}
+
+// ── Legend ──
+document.getElementById('legend-area').innerHTML = CLUSTERS.map(c=>`
+  <div class="legend-item"><div class="legend-dot" style="background:${c.color}"></div>${c.label}</div>`).join('')+`
+  <div class="legend-item"><div class="legend-dot" style="border:2px solid #aaa;background:transparent;width:18px;height:3px;border-radius:2px"></div>High-weight edge (fuzzy)</div>`;
+
+// ── Knobs ──
+let nNeighbors = 6, minDist = 0.1;
+document.getElementById('knobs-area').innerHTML=`
+  <div class="knob-group">
+    <div class="knob-label">n_neighbors <span class="knob-val" id="kv-nn">6</span></div>
+    <input type="range" min="3" max="15" value="6" id="sl-nn" oninput="document.getElementById('kv-nn').textContent=this.value; draw()"/>
+  </div>
+  <div class="knob-group">
+    <div class="knob-label">min_dist <span class="knob-val" id="kv-md">0.10</span></div>
+    <input type="range" min="1" max="99" value="10" id="sl-md" oninput="document.getElementById('kv-md').textContent=(this.value/100).toFixed(2); draw()"/>
+  </div>`;
+
+// ── Draw ──
+function toCanvas(nx, ny){
+  const cw=W(), ch=H();
+  const pad=40;
+  return {x: pad+nx*(cw-2*pad), y: pad+ny*(ch-2*pad)};
+}
+
+function drawHighD(alpha=1){
+  const cw=W(),ch=H();
+  ctx.save(); ctx.globalAlpha=alpha;
+  // edges
+  symEdges.forEach(({i,j,w})=>{
+    if(w<0.05) return;
+    const pi=toCanvas(pts[i].hx,pts[i].hy), pj=toCanvas(pts[j].hx,pts[j].hy);
+    ctx.beginPath(); ctx.moveTo(pi.x,pi.y); ctx.lineTo(pj.x,pj.y);
+    ctx.strokeStyle=`rgba(100,100,120,${w*0.7})`;
+    ctx.lineWidth=w*3.5;
+    ctx.stroke();
+  });
+  // points
+  pts.forEach((p,i)=>{
+    const {x,y}=toCanvas(p.hx,p.hy);
+    ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2);
+    ctx.fillStyle=ptColors[i]; ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5; ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawLowD(px,py,alpha=1){
+  // px,py are arrays of current positions
+  ctx.save(); ctx.globalAlpha=alpha;
+  // edges
+  symEdges.forEach(({i,j,w})=>{
+    if(w<0.15) return;
+    const pi=toCanvas(px[i],py[i]), pj=toCanvas(px[j],py[j]);
+    ctx.beginPath(); ctx.moveTo(pi.x,pi.y); ctx.lineTo(pj.x,pj.y);
+    ctx.strokeStyle=`rgba(100,100,120,${w*0.5})`;
+    ctx.lineWidth=w*2.5; ctx.stroke();
+  });
+  // points
+  pts.forEach((p,i)=>{
+    const {x,y}=toCanvas(px[i],py[i]);
+    ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2);
+    ctx.fillStyle=ptColors[i]; ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5; ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// Intermediate positions between init and final (for step 3→4→5 animation)
+function interpPos(t){
+  // t=0: scrambled, t=1: final
+  return {
+    px: pts.map((_,i)=>pts[i].lx0*(1-t)+lxFinal[i]*t),
+    py: pts.map((_,i)=>pts[i].ly0*(1-t)+lyFinal[i]*t)
+  };
+}
+
+function draw(){
+  const cw=W(), ch=H();
+  ctx.clearRect(0,0,cw,ch);
+
+  if(step===0){
+    // High-D point cloud, no edges yet
+    ctx.save();
+    pts.forEach((p,i)=>{
+      const {x,y}=toCanvas(p.hx,p.hy);
+      ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2);
+      ctx.fillStyle=ptColors[i]; ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5; ctx.stroke();
+    });
+    // draw a few kNN lines highlighted
+    symEdges.filter(e=>e.w>0.5).forEach(({i,j,w})=>{
+      const pi=toCanvas(pts[i].hx,pts[i].hy), pj=toCanvas(pts[j].hx,pts[j].hy);
+      ctx.beginPath(); ctx.moveTo(pi.x,pi.y); ctx.lineTo(pj.x,pj.y);
+      ctx.strokeStyle=`rgba(83,74,183,${w*0.6})`; ctx.lineWidth=w*3; ctx.stroke();
+    });
+    ctx.restore();
+  } else if(step===1){
+    drawHighD(1);
+  } else if(step===2){
+    // Show high-D fading + low-D scrambled appearing
+    drawHighD(0.3);
+    const {px,py}=interpPos(0);
+    drawLowD(px,py,0.8);
+  } else if(step===3){
+    // Partial convergence
+    const {px,py}=interpPos(0.4);
+    drawLowD(px,py,1);
+  } else if(step===4){
+    // Final UMAP
+    const {px,py}=interpPos(1);
+    drawLowD(px,py,1);
+  } else if(step===5){
+    // Show effect of min_dist on final layout
+    const md = parseFloat(document.getElementById('sl-md')?.value||10)/100;
+    const nn = parseInt(document.getElementById('sl-nn')?.value||6);
+    // Simulate min_dist effect: scale spread within cluster
+    const scaleFactor = 0.3 + md*1.4;
+    const px = pts.map((_,i)=>{
+      const cx=CLUSTERS[pts[i].cluster].cx;
+      return cx+(lxFinal[i]-cx)*scaleFactor;
+    });
+    const py = pts.map((_,i)=>{
+      const cy=CLUSTERS[pts[i].cluster].cy;
+      return cy+(lyFinal[i]-cy)*scaleFactor;
+    });
+    drawLowD(px.map(x=>clamp01(x)), py.map(y=>clamp01(y)), 1);
+    // Draw a label
+    ctx.save();
+    ctx.font='12px '+getComputedStyle(document.body).getPropertyValue('--mono');
+    ctx.fillStyle='rgba(83,74,183,0.8)';
+    ctx.fillText(`min_dist=${md.toFixed(2)}  n_neighbors=${nn}`, 12, ch-12);
+    ctx.restore();
+  }
+}
+
+function updateInfo(){
+  const s=stepData[step];
+  document.getElementById('info-phase').textContent=s.phase;
+  document.getElementById('info-stepnum').textContent=`Step ${step+1} / ${STEPS}`;
+  document.getElementById('info-title').textContent=s.title;
+  document.getElementById('info-body').innerHTML=s.body;
+  document.getElementById('btn-prev').disabled=step===0;
+  document.getElementById('btn-next').disabled=step===STEPS-1;
+  updateDots();
+  if(window.renderMathInElement) renderMathInElement(document.getElementById('info-body'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});
+}
+
+function go(dir){
+  step=Math.max(0,Math.min(STEPS-1,step+dir));
+  draw(); updateInfo();
+}
+function jumpTo(idx){ step=idx; draw(); updateInfo(); }
+function reset(){ step=0; draw(); updateInfo(); }
+
+window.go=go; window.reset=reset; window.jumpTo=jumpTo;
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft') go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+// clamp helper in outer scope
+function clamp01(x){return Math.max(0.05,Math.min(0.95,x));}
+
+draw(); updateInfo();
+})();
+</script>
+</body>
+</html>

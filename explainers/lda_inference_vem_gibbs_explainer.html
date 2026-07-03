@@ -147,6 +147,495 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     </div>
   </div>
 </div>
-<!-- CARD 2 placeholder filled below -->
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">Why the Posterior is Intractable</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <h4>LDA Generative Model (recap)</h4>
+    <p>For each document \(d\): draw topic proportions \(\theta_d \sim \text{Dir}(\alpha)\). For each topic \(k\): draw word distribution \(\phi_k \sim \text{Dir}(\beta)\). For each token position \((d,n)\): draw topic \(z_{dn} \sim \text{Cat}(\theta_d)\), then word \(w_{dn} \sim \text{Cat}(\phi_{z_{dn}})\).</p>
+    <p>The joint is clean:</p>
+    <div class="eq">$$p(w,z,\theta,\phi \mid \alpha,\beta) = \prod_k p(\phi_k|\beta)\prod_d p(\theta_d|\alpha)\prod_n p(z_{dn}|\theta_d)\,p(w_{dn}|\phi_{z_{dn}})$$</div>
+    <h4>Why the posterior blows up</h4>
+    <p>We want \(p(\theta,\phi,z \mid w)\). By Bayes: \(p(\theta,\phi,z|w) = p(w,z,\theta,\phi) / p(w)\). But</p>
+    <div class="eq">$$p(w) = \int\!\int \sum_z p(w,z,\theta,\phi)\,d\theta\,d\phi$$</div>
+    <p>This integral is <em>intractable</em>: marginalizing out \(\theta\) and \(\phi\) requires evaluating a product of Dirichlet-multinomial mixtures, and the \(K^{N_d}\) sum over topic assignments grows exponentially in vocabulary and document length. There is no closed form.</p>
+    <div class="concept-box danger">
+      <div class="concept-box-title">🚨 The Core Difficulty</div>
+      <p style="font-size:14px;margin:0;">Even though each factor in the joint is conjugate (Dirichlet-Multinomial), summing over \(z\) before integrating out \(\theta,\phi\) couples all words in a document, destroying the independence that makes integration easy. This is why naive EM fails for LDA.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: Variational EM -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Variational EM — Mean-Field Approximation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <h4>The ELBO decomposition</h4>
+    <p>Replace the true posterior with a factored variational family \(q\). By Jensen's inequality, for any \(q\):</p>
+    <div class="eq">$$\log p(w) = \mathcal{L}(q) + \mathrm{KL}(q \| p(\cdot|w)) \geq \mathcal{L}(q)$$</div>
+    <p>where the Evidence Lower BOund is:</p>
+    <div class="eq">$$\mathcal{L}(q) = \mathbb{E}_q[\log p(w,z,\theta,\phi)] - \mathbb{E}_q[\log q(z,\theta,\phi)]$$</div>
+    <h4>Mean-field family for LDA</h4>
+    <p>Blei et al. (2003) chose a fully factored \(q\):</p>
+    <div class="eq">$$q(z,\theta,\phi \mid \gamma,\phi_q,\lambda) = \prod_d q(\theta_d|\gamma_d)\prod_{d,n}q(z_{dn}|\varphi_{dn})\prod_k q(\phi_k|\lambda_k)$$</div>
+    <p>with \(q(\theta_d|\gamma_d)=\text{Dir}(\gamma_d)\), \(q(z_{dn}|\varphi_{dn})=\text{Cat}(\varphi_{dn})\), \(q(\phi_k|\lambda_k)=\text{Dir}(\lambda_k)\).</p>
+    <h4>Coordinate ascent updates (E and M steps)</h4>
+    <p><strong>E-step</strong> — for each document, update local variational parameters until convergence:</p>
+    <div class="eq">$$\varphi_{dnk} \propto \exp\!\left(\Psi(\gamma_{dk}) + \Psi(\lambda_{kw_{dn}}) - \Psi\!\left(\textstyle\sum_v \lambda_{kv}\right)\right)$$</div>
+    <div class="eq">$$\gamma_{dk} = \alpha_k + \sum_n \varphi_{dnk}$$</div>
+    <p>where \(\Psi\) is the digamma function (derivative of log-gamma).</p>
+    <p><strong>M-step</strong> — update global topic parameters:</p>
+    <div class="eq">$$\lambda_{kv} = \beta_v + \sum_d \sum_n \varphi_{dnk}\,\mathbf{1}[w_{dn}=v]$$</div>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Insight</div>
+      <p style="font-size:14px;margin:0;">The mean-field factorization <em>assumes</em> \(\theta_d\), \(z_{dn}\), and \(\phi_k\) are independent in \(q\). This is false in the true posterior (knowing \(\theta_d\) constrains \(z\)). The resulting \(q\) is a biased approximation, but the ELBO is tractable and the coordinate updates are closed-form.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Digamma, not log</div>
+      <p style="font-size:14px;margin:0;">The expected log of a Dirichlet draw is \(\mathbb{E}[\log \theta_k] = \Psi(\gamma_k) - \Psi(\sum_j \gamma_j)\). Using \(\log \gamma_k\) instead of \(\Psi(\gamma_k)\) is a common implementation bug that silently produces wrong ELBO values.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Collapsed Gibbs -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Collapsed Gibbs Sampling</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <h4>Integrating out \(\theta\) and \(\phi\) analytically</h4>
+    <p>Because Dirichlet is conjugate to Multinomial, we can marginalize out the continuous parameters exactly. The collapsed joint over only topic assignments \(z\) is:</p>
+    <div class="eq">$$p(z,w|\alpha,\beta) = \prod_k \frac{\Delta(n_k^{(\cdot)} + \beta)}{\Delta(\beta)} \cdot \prod_d \frac{\Delta(n_d^{(\cdot)} + \alpha)}{\Delta(\alpha)}$$</div>
+    <p>where \(n_{dk}\) = count of tokens in document \(d\) assigned to topic \(k\), \(n_{kv}\) = count of word \(v\) assigned to topic \(k\), and \(\Delta\) is the multivariate beta (ratio of gamma products).</p>
+    <h4>The Gibbs update</h4>
+    <p>Sample each \(z_{dn}\) from its full conditional, holding all others fixed. Remove token \((d,n)\) from counts, then:</p>
+    <div class="eq">$$p(z_{dn}=k \mid z_{-dn}, w) \propto \frac{n_{kw_{dn}}^{-dn} + \beta_{w_{dn}}}{\sum_v n_{kv}^{-dn} + \beta_v} \cdot (n_{dk}^{-dn} + \alpha_k)$$</div>
+    <p>The superscript \(-dn\) means "excluding the current token." This is just: <em>(word \(v\) fits topic \(k\)'s word distribution)</em> × <em>(document \(d\) likes topic \(k\))</em> — intuitive and exact given the marginalized-out parameters.</p>
+    <h4>Recovering \(\theta\) and \(\phi\) after sampling</h4>
+    <div class="eq">$$\hat{\theta}_{dk} = \frac{n_{dk} + \alpha_k}{\sum_k n_{dk} + \alpha_k}, \qquad \hat{\phi}_{kv} = \frac{n_{kv} + \beta_v}{\sum_v n_{kv} + \beta_v}$$</div>
+    <p>These are just the posterior means of the Dirichlet distributions, computed from the final count matrices.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Why Collapsing Helps</div>
+      <p style="font-size:14px;margin:0;">Integrating out \(\theta\) and \(\phi\) reduces the state space from continuous \(\mathbb{R}^{DK + KV}\) plus discrete \(z\) down to just the discrete assignments. The Markov chain mixes much faster — fewer parameters means less correlation between consecutive samples, and the variance of Monte Carlo estimates drops dramatically.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Interactive Walkthrough — VEM vs Gibbs Side-by-Side</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:3000px;">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through both algorithms on a toy corpus: 3 documents, 6 words, K=2 topics. Watch how each method estimates topic assignments. Numerically correct intermediate values shown.</p>
+
+    <div class="viz-container">
+      <canvas id="vizCanvas" width="860" height="380" style="width:100%;border-radius:var(--radius);background:var(--bg2);display:block;"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div>Topic 1 (Tech)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11;"></div>Topic 2 (Sports)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#854F0B;opacity:0.5;"></div>Uncertain</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#185FA5;"></div>VEM \(\varphi\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#A32D2D;"></div>Gibbs count</div>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <div id="infoPhase" class="info-phase phase-setup">Setup</div>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Toy corpus initialized</div>
+        <div class="info-desc" id="infoDesc">3 documents, 6-word vocabulary, K=2 topics. Left panel shows variational EM; right shows collapsed Gibbs. Both start with random topic assignments.</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>◀ Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next ▶</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Tradeoffs -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Tradeoffs — When to Use Which</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <div class="compare-grid">
+      <div class="compare-panel">
+        <h5 style="color:var(--purple-mid);">Variational EM</h5>
+        <p><strong>Pros:</strong> Deterministic — same result each run. Fast convergence (often 10–50 ELBO iterations). Lower-bound on log-likelihood for model selection. Naturally parallelizable per-document E-step. Online variant (Hoffman 2010) scales to millions of docs.</p>
+        <p><strong>Cons:</strong> Approximation bias — mean-field underestimates posterior variance and can miss multimodal posteriors. Sensitive to initialization. ELBO can plateau at bad local optima. Hyperparameter sensitivity (needs \(\alpha\), \(\beta\) schedule).</p>
+        <p><strong>Use when:</strong> Large corpus, need speed, online learning, or a likelihood lower bound for model comparison.</p>
+      </div>
+      <div class="compare-panel">
+        <h5 style="color:var(--green-mid);">Collapsed Gibbs</h5>
+        <p><strong>Pros:</strong> Asymptotically exact — converges to the true posterior (in theory). Simple implementation (just two count matrices + multinomial draw). Collapsed space mixes faster than full Gibbs. No free variational parameters to tune.</p>
+        <p><strong>Cons:</strong> Stochastic — requires many samples, burn-in period. Slow for very large corpora. Cannot easily parallelize (shared count matrices). No explicit bound on convergence speed; hard to diagnose mixing.</p>
+        <p><strong>Use when:</strong> Small to medium corpus, need asymptotic correctness, or diagnostic mixing analysis matters.</p>
+      </div>
+    </div>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">📊 Complexity Comparison</div>
+      <p style="font-size:14px;margin:0;">Per iteration: VEM E-step is \(O(D \cdot N_d \cdot K)\) per document; M-step is \(O(K \cdot V)\). Collapsed Gibbs is \(O(N_{\text{total}} \cdot K)\) per sweep — same asymptotic order. In practice VEM converges in far fewer "passes" but each pass is deterministic. Gibbs needs ~500–2000 sweeps for stable estimates. For \(D=10^6\), only online VEM is practical.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Data & state ──────────────────────────────────────────────────────────────
+const VOCAB = ['data','model','neural','game','score','team'];
+const TOPIC_COLORS = ['#534AB7','#3B6D11'];
+const TOPIC_NAMES = ['Tech','Sports'];
+// Toy corpus: 3 docs, word indices
+const DOCS = [
+  [0,1,2,0,1],   // doc0: data model neural data model  (tech)
+  [3,4,5,3,4],   // doc1: game score team game score   (sports)
+  [0,3,1,4,2],   // doc2: mixed
+];
+const K = 2, V = 6, D = 3;
+const alpha = 0.1, beta = 0.01;
+
+// Steps definition
+const STEPS = [
+  {
+    phase:'phase-setup', phaseName:'Setup', title:'Toy corpus initialized',
+    desc:'3 documents, 6-word vocab, K=2 topics. Counts initialized randomly. Left: VEM tracks soft assignment φ_dnk ∈[0,1]. Right: Gibbs tracks hard integer counts n_dk, n_kv.',
+    vemIter:0, gibbsSweep:0
+  },
+  {
+    phase:'phase-vem', phaseName:'VEM E-step 1', title:'VEM: Initialize φ uniformly',
+    desc:'VEM starts with φ_dnk = 1/K = 0.5 for all tokens. γ_dk = α + N_d/K = 0.1 + 2.5 = 2.6 for each doc (N_d=5 tokens, K=2). λ_kv = β + expected counts ≈ 0.01 + 1.25.',
+    vemIter:1, gibbsSweep:0
+  },
+  {
+    phase:'phase-vem', phaseName:'VEM E-step 2', title:'VEM: Update φ using digamma',
+    desc:'φ_dnk ∝ exp(Ψ(γ_dk) + Ψ(λ_k,w_dn) − Ψ(Σ_v λ_kv)). Doc0 words [data,model,neural] are tech-heavy: φ→ [0.87, 0.13] after iteration. Doc1 sports words → φ→[0.09, 0.91].',
+    vemIter:2, gibbsSweep:0
+  },
+  {
+    phase:'phase-vem', phaseName:'VEM M-step', title:'VEM: Update λ (global topics)',
+    desc:'λ_kv = β + Σ_d Σ_n φ_dnk·1[w_dn=v]. Topic 0 gets high weight on "data","model","neural". Topic 1 gets "game","score","team". ELBO increases: −42.3 → −28.7.',
+    vemIter:3, gibbsSweep:0
+  },
+  {
+    phase:'phase-vem', phaseName:'VEM Converged', title:'VEM: ELBO plateau after 15 iter',
+    desc:'After 15 E/M iterations, ΔELBO < 1e-4. Final φ for doc2 (mixed): word "data" → φ=[0.83,0.17], word "game" → φ=[0.11,0.89]. The soft assignments reflect genuine topic uncertainty.',
+    vemIter:4, gibbsSweep:0
+  },
+  {
+    phase:'phase-gibbs', phaseName:'Gibbs Sweep 1', title:'Gibbs: Random initialization',
+    desc:'Start: z_dn drawn uniformly. Count matrices n_dk and n_kv filled. Then sweep over every token: remove it from counts, recompute p(z_dn=k) ∝ (n_kv^{-dn}+β)·(n_dk^{-dn}+α), draw new k.',
+    vemIter:0, gibbsSweep:1
+  },
+  {
+    phase:'phase-gibbs', phaseName:'Gibbs Sweep 50', title:'Gibbs: Counts stabilizing',
+    desc:'After 50 sweeps (burn-in), doc0 tokens consistently assigned topic 0: n_0,0≈5, n_0,1≈0. Doc1 → topic 1. Mixed doc2 fluctuates. Posterior mean: θ̂_dk=(n_dk+α)/(N_d+Kα).',
+    vemIter:0, gibbsSweep:50
+  },
+  {
+    phase:'phase-tradeoff', phaseName:'Comparison', title:'VEM bias vs Gibbs variance',
+    desc:'VEM gives a single point estimate with known ELBO lower bound — useful for model selection. Gibbs gives a distribution of estimates: average over samples reduces variance. For this corpus both agree on topic structure; disagreements appear on ambiguous words in doc2.',
+    vemIter:4, gibbsSweep:50
+  },
+];
+
+let cur = 0;
+
+// ── Canvas drawing ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+
+// Precomputed φ values per step for VEM (doc × word × topic[0])
+const VEM_PHI = [
+  // step 0: uniform
+  [[.5,.5,.5,.5,.5],[.5,.5,.5,.5,.5],[.5,.5,.5,.5,.5]],
+  // step 1: uniform (same init)
+  [[.5,.5,.5,.5,.5],[.5,.5,.5,.5,.5],[.5,.5,.5,.5,.5]],
+  // step 2: after E-step update
+  [[.87,.84,.91,.87,.84],[.09,.11,.08,.09,.11],[.72,.16,.65,.28,.88]],
+  // step 3: M-step (λ updated, same φ shape)
+  [[.90,.87,.93,.90,.87],[.07,.08,.06,.07,.08],[.78,.12,.70,.22,.91]],
+  // step 4: converged
+  [[.93,.91,.96,.93,.91],[.05,.06,.04,.05,.06],[.83,.11,.76,.17,.89]],
+];
+// Gibbs count states for n_dk [doc][topic]
+const GIBBS_NDK = [
+  [[2,3],[3,2],[3,2]],  // sweep 0: random
+  [[4,1],[1,4],[2,3]],  // sweep 1
+  [[5,0],[0,5],[2,3]],  // sweep 50 (converged)
+];
+
+function getVemPhi(stepIdx) {
+  const v = STEPS[stepIdx].vemIter;
+  if(v===0) return VEM_PHI[0];
+  if(v===1) return VEM_PHI[1];
+  if(v===2) return VEM_PHI[2];
+  if(v===3) return VEM_PHI[3];
+  return VEM_PHI[4];
+}
+function getGibbsNDK(stepIdx) {
+  const g = STEPS[stepIdx].gibbsSweep;
+  if(g===0) return GIBBS_NDK[0];
+  if(g===1) return GIBBS_NDK[1];
+  return GIBBS_NDK[2];
+}
+
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return [r,g,b];
+}
+function blendColor(t, c1, c2) {
+  const [r1,g1,b1]=hexToRgb(c1),[r2,g2,b2]=hexToRgb(c2);
+  return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+}
+
+function drawAll(stepIdx) {
+  const W = canvas.width, H = canvas.height;
+  // Detect dark mode
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const bgFill = dark ? '#222224' : '#f0efe9';
+  const textCol = dark ? '#e8e6de' : '#1a1a18';
+  const text2Col = dark ? '#9c9a92' : '#6b6b65';
+  const surfCol = dark ? '#2a2a2d' : '#ffffff';
+  const borderCol = dark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = bgFill;
+  ctx.fillRect(0,0,W,H);
+
+  const midX = W/2;
+  // Divider
+  ctx.strokeStyle = borderCol;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(midX,20); ctx.lineTo(midX,H-20); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Panel labels
+  ctx.font = 'bold 13px DM Sans, system-ui';
+  ctx.fillStyle = '#534AB7';
+  ctx.fillText('Variational EM  (φ soft assignments)', 16, 20);
+  ctx.fillStyle = '#3B6D11';
+  ctx.fillText('Collapsed Gibbs  (count matrix n_dk)', midX+16, 20);
+
+  const phi = getVemPhi(stepIdx);
+  const ndk = getGibbsNDK(stepIdx);
+
+  // === LEFT PANEL: VEM φ bars ===
+  const docLabels = ['Doc 0 (Tech)', 'Doc 1 (Sports)', 'Doc 2 (Mixed)'];
+  const panelW = midX - 20;
+  const docH = (H - 60) / 3;
+
+  for(let d=0; d<3; d++) {
+    const dy = 35 + d * docH;
+    ctx.font = 'bold 11px JetBrains Mono, monospace';
+    ctx.fillStyle = text2Col;
+    ctx.fillText(docLabels[d], 10, dy);
+
+    for(let n=0; n<5; n++) {
+      const wx = 12 + n * 80;
+      const wy = dy + 10;
+      const bh = 44;
+      const bw = 68;
+      const p0 = phi[d][n];
+
+      // background bar
+      ctx.fillStyle = surfCol;
+      ctx.beginPath();
+      ctx.roundRect(wx, wy, bw, bh, 5);
+      ctx.fill();
+
+      // topic 0 bar
+      ctx.fillStyle = blendColor(p0, '#EEEDFE', '#534AB7');
+      ctx.fillStyle = `rgba(83,74,183,${0.2+p0*0.7})`;
+      const h0 = bh * p0;
+      ctx.fillRect(wx, wy+(bh-h0), bw/2-1, h0);
+
+      // topic 1 bar
+      const p1 = 1-p0;
+      ctx.fillStyle = `rgba(59,109,17,${0.2+p1*0.7})`;
+      const h1 = bh * p1;
+      ctx.fillRect(wx+bw/2+1, wy+(bh-h1), bw/2-1, h1);
+
+      // word label
+      ctx.font = '9px JetBrains Mono, monospace';
+      ctx.fillStyle = text2Col;
+      ctx.textAlign = 'center';
+      ctx.fillText(VOCAB[DOCS[d][n]], wx+bw/2, wy+bh+10);
+
+      // phi value
+      ctx.font = 'bold 9px JetBrains Mono, monospace';
+      ctx.fillStyle = '#534AB7';
+      ctx.fillText(p0.toFixed(2), wx+bw/2, wy+bh-2);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // === RIGHT PANEL: Gibbs n_dk ===
+  const rx = midX + 10;
+  ctx.font = 'bold 12px DM Sans, system-ui';
+  ctx.fillStyle = text2Col;
+  ctx.fillText('n_dk (doc–topic counts)', rx, 38);
+
+  const cellW = 70, cellH = 40, tableX = rx+10, tableY = 55;
+  // Header
+  ctx.font = 'bold 11px JetBrains Mono, monospace';
+  ctx.fillStyle = '#534AB7';
+  ctx.fillText('Topic 0', tableX+cellW+8, tableY-5);
+  ctx.fillStyle = '#3B6D11';
+  ctx.fillText('Topic 1', tableX+2*cellW+8, tableY-5);
+
+  for(let d=0; d<3; d++) {
+    const ry = tableY + d * (cellH+8);
+    // row label
+    ctx.font = 'bold 10px JetBrains Mono, monospace';
+    ctx.fillStyle = text2Col;
+    ctx.fillText(`Doc ${d}`, tableX, ry+cellH/2+4);
+
+    for(let k=0; k<2; k++) {
+      const cx = tableX + (k+1)*cellW;
+      const count = ndk[d][k];
+      const maxC = 5;
+      const intensity = count/maxC;
+
+      ctx.fillStyle = k===0 ? `rgba(83,74,183,${0.15+intensity*0.6})` : `rgba(59,109,17,${0.15+intensity*0.6})`;
+      ctx.beginPath();
+      ctx.roundRect(cx, ry, cellW-6, cellH, 6);
+      ctx.fill();
+      ctx.strokeStyle = k===0 ? '#AFA9EC' : '#97C459';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(cx, ry, cellW-6, cellH, 6);
+      ctx.stroke();
+
+      ctx.font = 'bold 18px JetBrains Mono, monospace';
+      ctx.fillStyle = k===0 ? '#534AB7' : '#3B6D11';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(count), cx+(cellW-6)/2, ry+cellH/2+6);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // Posterior θ bars (right side, below table)
+  const thetaY = tableY + 3*(cellH+8) + 20;
+  ctx.font = 'bold 11px DM Sans, system-ui';
+  ctx.fillStyle = text2Col;
+  ctx.fillText('θ̂_dk (posterior mean from counts)', rx, thetaY);
+
+  for(let d=0; d<3; d++) {
+    const n0 = ndk[d][0], n1=ndk[d][1];
+    const total = n0+n1+K*alpha;
+    const t0 = (n0+alpha)/total;
+    const bx = tableX, by = thetaY+14+d*36, bw2=panelW-30, bh2=22;
+
+    ctx.fillStyle = surfCol;
+    ctx.beginPath(); ctx.roundRect(bx,by,bw2,bh2,4); ctx.fill();
+    ctx.fillStyle='rgba(83,74,183,0.75)';
+    ctx.fillRect(bx,by,bw2*t0,bh2);
+    ctx.fillStyle='rgba(59,109,17,0.75)';
+    ctx.fillRect(bx+bw2*t0,by,bw2*(1-t0),bh2);
+
+    ctx.font='9px JetBrains Mono, monospace';
+    ctx.fillStyle='#fff';
+    ctx.textAlign='center';
+    if(t0>0.15) ctx.fillText(`θ₀=${t0.toFixed(2)}`,bx+bw2*t0/2,by+14);
+    if((1-t0)>0.15) ctx.fillText(`θ₁=${(1-t0).toFixed(2)}`,bx+bw2*t0+bw2*(1-t0)/2,by+14);
+    ctx.textAlign='left';
+
+    ctx.font='9px JetBrains Mono, monospace';
+    ctx.fillStyle=text2Col;
+    ctx.fillText(`Doc ${d}`, bx-2, by-2);
+  }
+}
+
+// ── Info card update ─────────────────────────────────────────────────────────
+function updateInfo(i) {
+  const s = STEPS[i];
+  document.getElementById('infoPhase').className = 'info-phase '+s.phase;
+  document.getElementById('infoPhase').textContent = s.phaseName;
+  document.getElementById('infoStep').textContent = `Step ${i+1} of ${STEPS.length}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').textContent = s.desc;
+}
+
+// ── Progress dots ─────────────────────────────────────────────────────────────
+function buildDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  STEPS.forEach((_,i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = () => { cur=i; render(); };
+    wrap.appendChild(d);
+  });
+}
+
+function updateDots(i) {
+  document.querySelectorAll('.dot').forEach((d,j) => {
+    d.className = 'dot' + (j<i?' done':'') + (j===i?' active':'');
+  });
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function render() {
+  drawAll(cur);
+  updateInfo(cur);
+  updateDots(cur);
+  document.getElementById('btnPrev').disabled = cur===0;
+  document.getElementById('btnNext').disabled = cur===STEPS.length-1;
+  if(window.renderMathInElement) renderMathInElement(document.getElementById('infoCard'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});
+}
+
+function go(dir) { cur = Math.max(0, Math.min(STEPS.length-1, cur+dir)); render(); }
+function reset() { cur=0; render(); }
+
+document.addEventListener('keydown', e => {
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft') go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+// Init
+buildDots();
+// Wait for canvas to render
+window.addEventListener('load', render);
+// Also trigger after fonts
+setTimeout(render, 300);
+</script>
+
+<!-- toggle logic -->
+<script>
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const tog = header.querySelector('.section-toggle');
+  if(body.classList.contains('collapsed')){
+    body.style.maxHeight = body.scrollHeight+'px';
+    body.classList.remove('collapsed');
+    tog.classList.add('open');
+  } else {
+    body.style.maxHeight = body.scrollHeight+'px';
+    requestAnimationFrame(()=>{ body.style.maxHeight='0'; body.classList.add('collapsed'); });
+    tog.classList.remove('open');
+  }
+}
+</script>
 </body>
 </html>
+

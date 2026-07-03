@@ -206,6 +206,331 @@ strong{font-weight:700;}
 
 </div><!-- end .page -->
 <script>
+// ── Visualization ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Colour palette (CSS-var-matched hex for canvas)
+const COLS = {
+  c1:'#534AB7', c2:'#A32D2D', c3:'#3B6D11',
+  c1l:'rgba(83,74,183,0.18)', c2l:'rgba(163,45,45,0.18)', c3l:'rgba(59,109,17,0.18)',
+  outlier:'#854F0B', bg2:'#f0efe9', text:'#1a1a18', text2:'#6b6b65', border:'rgba(0,0,0,0.15)',
+  dbscan:'#00ACC1', noise:'#9c9a92', gmm:'#534AB7', gmm2:'#A32D2D'
+};
+
+// ── Data generation helpers ───────────────────────────────────────────────────
+function makeHalfCircle(n, cx, cy, r, startAngle, endAngle, noise, label){
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const t=startAngle+(endAngle-startAngle)*i/(n-1);
+    pts.push({x:cx+r*Math.cos(t)+(Math.random()-0.5)*noise, y:cy+r*Math.sin(t)+(Math.random()-0.5)*noise, label});
+  }
+  return pts;
+}
+
+// Precompute datasets
+const MOON_SCALE = {cx:280, cy:180, r:110, noise:20};
+const moonTop = makeHalfCircle(50, MOON_SCALE.cx-30, MOON_SCALE.cy, MOON_SCALE.r, Math.PI, 0, MOON_SCALE.noise, 0);
+const moonBot = makeHalfCircle(50, MOON_SCALE.cx+30, MOON_SCALE.cy, MOON_SCALE.r, 0, Math.PI, MOON_SCALE.noise, 1);
+const moons = [...moonTop, ...moonBot];
+
+// Blob dataset for outlier demo
+function makeBlob(n, cx, cy, sx, sy, label){
+  const pts=[];
+  for(let i=0;i<n;i++) pts.push({x:cx+(Math.random()-0.5)*2*sx, y:cy+(Math.random()-0.5)*2*sy, label});
+  return pts;
+}
+const blobA = makeBlob(35, 160, 180, 55, 45, 0);
+const blobB = makeBlob(35, 390, 180, 55, 45, 1);
+// outliers
+const outliers3 = [{x:680,y:100,label:'out'},{x:700,y:280,label:'out'},{x:660,y:200,label:'out'}];
+const blobsWithOut = [...blobA, ...blobB, ...outliers3];
+
+// K selection: 3-cluster blob
+const blk1 = makeBlob(25,140,130,40,35,0);
+const blk2 = makeBlob(25,400,100,40,35,1);
+const blk3 = makeBlob(25,260,280,40,35,2);
+const threeBlobs = [...blk1,...blk2,...blk3];
+
+// ── K-Means computation ───────────────────────────────────────────────────────
+function kmeans(pts, k, iters, initCentroids){
+  let centroids = initCentroids ? initCentroids.map(c=>({...c})) : [];
+  if(!initCentroids){
+    const used=new Set();
+    while(centroids.length<k){
+      const i=Math.floor(Math.random()*pts.length);
+      if(!used.has(i)){used.add(i);centroids.push({x:pts[i].x,y:pts[i].y});}
+    }
+  }
+  let assigns=pts.map(()=>0);
+  for(let it=0;it<iters;it++){
+    assigns=pts.map(p=>{
+      let best=0,bestD=1e9;
+      centroids.forEach((c,k2)=>{const d=(p.x-c.x)**2+(p.y-c.y)**2;if(d<bestD){bestD=d;best=k2;}});
+      return best;
+    });
+    centroids=centroids.map((c,ki)=>{
+      const members=pts.filter((_,i)=>assigns[i]===ki);
+      if(!members.length)return c;
+      return{x:members.reduce((s,p)=>s+p.x,0)/members.length, y:members.reduce((s,p)=>s+p.y,0)/members.length};
+    });
+  }
+  return{assigns,centroids};
+}
+
+// ── Canvas drawing helpers ────────────────────────────────────────────────────
+function clearCanvas(){ctx.clearRect(0,0,W,H);}
+function drawPoint(x,y,r,fill,stroke,sw=1.5){
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle=fill;ctx.fill();
+  ctx.strokeStyle=stroke||fill;ctx.lineWidth=sw;ctx.stroke();
+}
+function drawCentroid(x,y,col){
+  ctx.beginPath();
+  ctx.moveTo(x-9,y);ctx.lineTo(x+9,y);
+  ctx.moveTo(x,y-9);ctx.lineTo(x,y+9);
+  ctx.strokeStyle=col;ctx.lineWidth=3;ctx.stroke();
+  ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);
+  ctx.fillStyle=col;ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+}
+function drawLabel(text,x,y,col){
+  ctx.fillStyle=col||COLS.text2;
+  ctx.font='bold 11px DM Sans,system-ui,sans-serif';
+  ctx.textAlign='center';ctx.fillText(text,x,y);
+}
+function drawAnnotation(text,x,y,col){
+  ctx.fillStyle=col||COLS.text2;
+  ctx.font='12px DM Sans,system-ui,sans-serif';
+  ctx.textAlign='left';ctx.fillText(text,x,y);
+}
+function voronoiBackground(centroids, cols){
+  const img=ctx.createImageData(W,H);
+  for(let py=0;py<H;py++){
+    for(let px=0;px<W;px++){
+      let best=0,bestD=1e18;
+      centroids.forEach((c,ki)=>{const d=(px-c.x)**2+(py-c.y)**2;if(d<bestD){bestD=d;best=ki;}});
+      const col=hexToRgba(cols[best%cols.length],0.13);
+      const idx=4*(py*W+px);
+      img.data[idx]=col.r;img.data[idx+1]=col.g;img.data[idx+2]=col.b;img.data[idx+3]=col.a;
+    }
+  }
+  ctx.putImageData(img,0,0);
+}
+function hexToRgba(hex,alpha){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return{r,g,b,a:Math.round(alpha*255)};
+}
+
+// ── Step definitions ──────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    phase:'Failure 1 — Shape',stepLabel:'Step 1 of 8',
+    title:'Two Moons: Ground Truth',
+    prose:'Two interleaved half-circles — a classic non-convex dataset. The true boundary between clusters follows a curved path, not a straight line.',
+    legend:[{col:'#534AB7',label:'Moon A (true)'},{col:'#A32D2D',label:'Moon B (true)'}],
+    draw(){
+      clearCanvas();
+      moons.forEach(p=>drawPoint(p.x,p.y,4.5,p.label===0?COLS.c1:COLS.c2,'#fff',1));
+      drawAnnotation('Two Moons Dataset — K-Means with K=2',18,24,COLS.text2);
+    }
+  },
+  {
+    phase:'Failure 1 — Shape',stepLabel:'Step 2 of 8',
+    title:'K-Means Assigns: Wrong Boundary',
+    prose:'K-Means with K=2 cuts the moons with a vertical Voronoi boundary. Both moons are split — left halves go to one cluster, right halves to another. This is geometrically inevitable: centroids converge near the centre of mass of each half-plane.',
+    legend:[{col:'#534AB7',label:'K-Means cluster 0'},{col:'#A32D2D',label:'K-Means cluster 1'},{col:'#534AB7',label:'Centroid +'},{col:'#A32D2D',label:'Centroid +'}],
+    draw(){
+      clearCanvas();
+      // fixed centroids that K-Means converges to on two moons
+      const centroids=[{x:210,y:185},{x:340,y:175}];
+      voronoiBackground(centroids,['#534AB7','#A32D2D']);
+      // assign moons
+      const {assigns,centroids:cc}=kmeans(moons,2,20,centroids);
+      moons.forEach((p,i)=>drawPoint(p.x,p.y,4.5,assigns[i]===0?COLS.c1:COLS.c2,'#fff',1));
+      cc.forEach((c,i)=>drawCentroid(c.x,c.y,i===0?COLS.c1:COLS.c2));
+      ctx.strokeStyle=COLS.c2l; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+      ctx.beginPath(); ctx.moveTo(280,0); ctx.lineTo(280,H); ctx.stroke(); ctx.setLineDash([]);
+      drawAnnotation('Voronoi boundary (vertical cut) — wrong!',290,50,COLS.red||'#A32D2D');
+    }
+  },
+  {
+    phase:'Failure 1 — Shape',stepLabel:'Step 3 of 8',
+    title:'Spectral Clustering: Correct Recovery',
+    prose:'Spectral clustering uses the graph Laplacian — it treats the dataset as a similarity graph and clusters in eigenspace. The curved cluster boundary is captured correctly. Alternatively, DBSCAN recovers both moons using density reachability.',
+    legend:[{col:'#534AB7',label:'Moon A (recovered)'},{col:'#A32D2D',label:'Moon B (recovered)'}],
+    draw(){
+      clearCanvas();
+      // Simulate: spectral correctly recovers original labels
+      moons.forEach(p=>drawPoint(p.x,p.y,4.5,p.label===0?COLS.c1:COLS.c2,'#fff',1));
+      // draw curved boundary suggestion
+      ctx.beginPath(); ctx.moveTo(160,50);
+      ctx.bezierCurveTo(170,180,390,200,400,330);
+      ctx.strokeStyle='rgba(0,172,193,0.7)'; ctx.lineWidth=2.5; ctx.setLineDash([5,4]);
+      ctx.stroke(); ctx.setLineDash([]);
+      drawAnnotation('Spectral/DBSCAN boundary follows manifold',140,350,COLS.dbscan);
+    }
+  },
+  {
+    phase:'Failure 2 — Outliers',stepLabel:'Step 4 of 8',
+    title:'Two Blobs — No Outliers',
+    prose:'Two compact Gaussian blobs well-separated. K-Means (K=2) finds the correct centroids easily. This is the ideal scenario where K-Means works well.',
+    legend:[{col:'#534AB7',label:'Cluster A'},{col:'#A32D2D',label:'Cluster B'}],
+    draw(){
+      clearCanvas();
+      const {assigns,centroids}=kmeans(blobA.concat(blobB),2,20,[{x:160,y:180},{x:390,y:180}]);
+      const all=blobA.concat(blobB);
+      all.forEach((p,i)=>drawPoint(p.x,p.y,5,assigns[i]===0?COLS.c1:COLS.c2,'#fff',1.5));
+      centroids.forEach((c,i)=>drawCentroid(c.x,c.y,i===0?COLS.c1:COLS.c2));
+      drawLabel(`μ₀=(${centroids[0].x.toFixed(0)},${centroids[0].y.toFixed(0)})`,centroids[0].x,centroids[0].y-18,COLS.c1);
+      drawLabel(`μ₁=(${centroids[1].x.toFixed(0)},${centroids[1].y.toFixed(0)})`,centroids[1].x,centroids[1].y-18,COLS.c2);
+      drawAnnotation('Clean blobs — K-Means works perfectly',18,24,COLS.text2);
+    }
+  },
+  {
+    phase:'Failure 2 — Outliers',stepLabel:'Step 5 of 8',
+    title:'Three Outliers Added (Far Right)',
+    prose:'Three points are added far to the right. Watch how the centroid of Cluster B (red) is dragged toward the outliers. The breakdown point of the mean is 1/n ≈ 0.01 — even 3 out of 73 points corrupt the centroid significantly.',
+    legend:[{col:'#534AB7',label:'Cluster A'},{col:'#A32D2D',label:'Cluster B (dragged)'},{col:'#854F0B',label:'Outliers'}],
+    draw(){
+      clearCanvas();
+      const all=blobsWithOut;
+      const {assigns,centroids}=kmeans(all,2,25,[{x:160,y:180},{x:480,y:190}]);
+      // draw outlier halos
+      outliers3.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,15,0,Math.PI*2);ctx.fillStyle='rgba(133,79,11,0.15)';ctx.fill();});
+      all.forEach((p,i)=>{
+        const col=p.label==='out'?COLS.outlier:(assigns[i]===0?COLS.c1:COLS.c2);
+        drawPoint(p.x,p.y,p.label==='out'?7:5,col,'#fff',p.label==='out'?2:1.5);
+      });
+      centroids.forEach((c,i)=>drawCentroid(c.x,c.y,i===0?COLS.c1:COLS.c2));
+      // true B centroid
+      const trueB={x:390,y:180};
+      drawCentroid(trueB.x,trueB.y,'rgba(163,45,45,0.35)');
+      drawAnnotation('True B centroid (without outliers)',trueB.x+12,trueB.y-14,'rgba(163,45,45,0.6)');
+      drawAnnotation('Outlier-dragged centroid →',centroids[1].x-130,centroids[1].y-18,COLS.c2);
+      drawLabel(`μ₁ dragged to (${centroids[1].x.toFixed(0)},${centroids[1].y.toFixed(0)})`,centroids[1].x,centroids[1].y+22,COLS.c2);
+      drawAnnotation('Outliers ×3',663,72,COLS.outlier);
+    }
+  },
+  {
+    phase:'Failure 2 — Outliers',stepLabel:'Step 6 of 8',
+    title:'DBSCAN: Outliers Labelled as Noise',
+    prose:'DBSCAN marks low-density points as noise (label −1) rather than assigning them to a cluster. This makes it robust to outliers by design — it only grows clusters through density-reachable chains.',
+    legend:[{col:'#534AB7',label:'DBSCAN cluster A'},{col:'#A32D2D',label:'DBSCAN cluster B'},{col:'#9c9a92',label:'Noise (outliers)'}],
+    draw(){
+      clearCanvas();
+      blobA.forEach(p=>drawPoint(p.x,p.y,5,COLS.c1,'#fff',1.5));
+      blobB.forEach(p=>drawPoint(p.x,p.y,5,COLS.c2,'#fff',1.5));
+      outliers3.forEach(p=>{
+        drawPoint(p.x,p.y,6,COLS.noise,'#fff',1.5);
+        ctx.beginPath();ctx.arc(p.x,p.y,14,0,Math.PI*2);ctx.strokeStyle='rgba(156,154,146,0.5)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([]);
+      });
+      drawAnnotation('DBSCAN marks outliers as noise (grey ×) — clusters unaffected',18,24,COLS.dbscan);
+      drawAnnotation('Noise ε-neighbourhood',645,60,COLS.noise);
+    }
+  },
+  {
+    phase:'Failure 3 — K Selection',stepLabel:'Step 7 of 8',
+    title:'Elbow & Silhouette: Finding K',
+    prose:'For a 3-cluster dataset, the Within-Cluster Sum of Squares (WCSS/inertia) is plotted against K. The elbow at K=3 is where marginal gain drops sharply. The silhouette score peaks at K=3, confirming the correct structure.',
+    legend:[{col:'#534AB7',label:'WCSS curve'},{col:'#3B6D11',label:'Silhouette score'},{col:'#854F0B',label:'Elbow at K=3'}],
+    draw(){
+      clearCanvas();
+      // compute WCSS for K=1..6
+      const ks=[1,2,3,4,5,6];
+      const wcssVals=[];
+      for(const k of ks){
+        let best=1e18;
+        for(let t=0;t<5;t++){
+          const {assigns,centroids}=kmeans(threeBlobs,k,20);
+          const wcss=threeBlobs.reduce((s,p,i)=>{const c=centroids[assigns[i]];return s+(p.x-c.x)**2+(p.y-c.y)**2;},0);
+          if(wcss<best)best=wcss;
+        }
+        wcssVals.push(best);
+      }
+      // silhouette approximation (not exact — just for illustration)
+      const silVals=[0.0, 0.42, 0.72, 0.55, 0.45, 0.38];
+      const pad={l:80,r:50,t:40,b:50};
+      const pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
+      const maxW=wcssVals[0], minW=wcssVals[5];
+      function xOf(i){return pad.l+i*pw/(ks.length-1);}
+      function yOfW(v){return pad.t+ph*(1-(v-minW)/(maxW-minW+1));}
+      function yOfS(v){return pad.t+ph*(1-v);}
+      // axes
+      ctx.strokeStyle=COLS.border;ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(pad.l,pad.t);ctx.lineTo(pad.l,pad.t+ph);ctx.lineTo(pad.l+pw,pad.t+ph);ctx.stroke();
+      // WCSS
+      ctx.beginPath();ctx.strokeStyle=COLS.c1;ctx.lineWidth=2.5;
+      wcssVals.forEach((v,i)=>{i===0?ctx.moveTo(xOf(i),yOfW(v)):ctx.lineTo(xOf(i),yOfW(v));});
+      ctx.stroke();
+      wcssVals.forEach((v,i)=>drawPoint(xOf(i),yOfW(v),4.5,COLS.c1,'#fff',1.5));
+      // silhouette
+      ctx.beginPath();ctx.strokeStyle=COLS.c3;ctx.lineWidth=2.5;ctx.setLineDash([5,3]);
+      silVals.forEach((v,i)=>{i===0?ctx.moveTo(xOf(i),yOfS(v)):ctx.lineTo(xOf(i),yOfS(v));});
+      ctx.stroke();ctx.setLineDash([]);
+      silVals.forEach((v,i)=>drawPoint(xOf(i),yOfS(v),4.5,COLS.c3,'#fff',1.5));
+      // elbow at K=3 (i=2)
+      ctx.beginPath();ctx.strokeStyle=COLS.outlier;ctx.lineWidth=2;ctx.setLineDash([4,3]);
+      ctx.moveTo(xOf(2),pad.t);ctx.lineTo(xOf(2),pad.t+ph);ctx.stroke();ctx.setLineDash([]);
+      drawAnnotation('Elbow (K=3)',xOf(2)+6,pad.t+14,COLS.outlier);
+      // x-axis labels
+      ks.forEach((k,i)=>{
+        ctx.fillStyle=COLS.text2;ctx.font='12px sans-serif';ctx.textAlign='center';
+        ctx.fillText('K='+k,xOf(i),pad.t+ph+18);
+      });
+      ctx.fillStyle=COLS.c1;ctx.font='11px sans-serif';ctx.textAlign='left';ctx.fillText('WCSS (inertia)',pad.l+4,pad.t+14);
+      ctx.fillStyle=COLS.c3;ctx.fillText('Silhouette score',pad.l+4,pad.t+28);
+      ctx.fillStyle=COLS.text2;ctx.textAlign='center';ctx.fillText('K (number of clusters)',pad.l+pw/2,pad.t+ph+38);
+    }
+  },
+  {
+    phase:'Failure 3 — K Selection',stepLabel:'Step 8 of 8',
+    title:'Wrong K Splits/Merges Real Clusters',
+    prose:'With K=2 on three-blob data, two real clusters are merged into one. With K=4, one real cluster is split. Only K=3 recovers the truth. This illustrates why K selection is critical — and why methods like gap statistic or BIC (for GMM) are preferred over visual inspection.',
+    legend:[{col:'#534AB7',label:'Cluster 0'},{col:'#A32D2D',label:'Cluster 1'},{col:'#3B6D11',label:'Cluster 2'}],
+    draw(){
+      clearCanvas();
+      // show K=2 (wrong) on left, K=3 (correct) on right
+      const leftPts=threeBlobs.map(p=>({...p,x:p.x*0.52+20,y:p.y*0.85+30}));
+      const rightPts=threeBlobs.map(p=>({...p,x:p.x*0.52+W/2+10,y:p.y*0.85+30}));
+      const {assigns:a2,centroids:c2}=kmeans(leftPts,2,25);
+      const {assigns:a3,centroids:c3}=kmeans(rightPts,3,25);
+      const palette=[COLS.c1,COLS.c2,COLS.c3];
+      leftPts.forEach((p,i)=>drawPoint(p.x,p.y,5,palette[a2[i]%3],'#fff',1.5));
+      c2.forEach((c,i)=>drawCentroid(c.x,c.y,palette[i%3]));
+      rightPts.forEach((p,i)=>drawPoint(p.x,p.y,5,palette[a3[i]%3],'#fff',1.5));
+      c3.forEach((c,i)=>drawCentroid(c.x,c.y,palette[i%3]));
+      // divider
+      ctx.beginPath();ctx.moveTo(W/2,30);ctx.lineTo(W/2,H-20);ctx.strokeStyle=COLS.border;ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.stroke();ctx.setLineDash([]);
+      drawAnnotation('K=2 (wrong — merges 2 real clusters)',24,22,COLS.c2);
+      drawAnnotation('K=3 (correct — recovers all 3)',W/2+14,22,COLS.c3);
+    }
+  }
+];
+
+let step=0;
+function renderStep(s){
+  STEPS[s].draw();
+  document.getElementById('phaseBadge').textContent=STEPS[s].phase;
+  document.getElementById('infoStep').textContent=STEPS[s].stepLabel;
+  document.getElementById('infoTitle').textContent=STEPS[s].title;
+  document.getElementById('infoProse').textContent=STEPS[s].prose;
+  // legend
+  const lg=document.getElementById('legend');
+  lg.innerHTML=STEPS[s].legend.map(l=>`<div class="legend-item"><div class="legend-dot" style="background:${l.col}"></div>${l.label}</div>`).join('');
+  // dots
+  const dw=document.getElementById('progressDots');
+  dw.innerHTML=STEPS.map((_,i)=>`<div class="dot${i===s?' active':i<s?' done':''}" onclick="goto(${i})"></div>`).join('');
+  document.getElementById('btnPrev').disabled=s===0;
+  document.getElementById('btnNext').disabled=s===STEPS.length-1;
+}
+function go(dir){step=Math.max(0,Math.min(STEPS.length-1,step+dir));renderStep(step);}
+function goto(i){step=i;renderStep(step);}
+function reset(){step=0;renderStep(0);}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')go(1);if(e.key==='ArrowLeft')go(-1);if(e.key==='r'||e.key==='R')reset();});
+window.addEventListener('load',()=>renderStep(0));
+
 // ── Card toggle ──────────────────────────────────────────────────────────────
 function toggleCard(id){
   const c=document.getElementById(id);
