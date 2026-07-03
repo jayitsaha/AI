@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kernel PCA — Non-linear Extension, Kernel Selection</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:var(--sans); background:var(--bg); color:var(--text); line-height:1.6; }
+.page { max-width:900px; margin:0 auto; padding:2rem 1.5rem 4rem; }
+
+/* Header */
+.header { margin-bottom:2rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border); }
+.header-title { font-size:2rem; font-weight:700; color:var(--text); }
+.header-sub { font-size:1rem; color:var(--text2); margin-top:6px; }
+.tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.tag { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:3px 9px; border-radius:20px; }
+.tag-advanced { background:var(--red-bg); color:var(--red-mid); }
+.tag-category { background:var(--blue-bg); color:var(--blue-mid); }
+.tag-complexity { background:var(--cyan-bg); color:var(--cyan-mid); }
+
+/* Cards */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1rem; }
+.card-header { display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none; }
+.section-number { width:28px; height:28px; background:var(--blue-bg); color:var(--blue-mid); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex-shrink:0; }
+.section-title { font-size:18px; font-weight:700; color:var(--text); flex:1; }
+.chevron { color:var(--text3); transition:transform 0.25s; font-size:18px; }
+.card.open .chevron { transform:rotate(180deg); }
+.card-body { display:none; padding-top:1.25rem; }
+.card.open .card-body { display:block; }
+
+/* Concept boxes */
+.concept-box { border-radius:var(--radius); padding:1rem 1.25rem; margin:1rem 0; }
+.concept-box-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:0.5rem; }
+.concept-box.insight { background:var(--green-bg); border:1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color:var(--green-mid); }
+.concept-box.warning { background:var(--amber-bg); border:1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color:var(--amber-mid); }
+.concept-box.key-concept { background:var(--blue-bg); border:1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color:var(--blue-mid); }
+.concept-box.math { background:var(--cyan-bg); border:1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color:var(--cyan-mid); }
+
+/* Equations */
+.eq { text-align:center; padding:14px 20px; margin:0.75rem 0; background:var(--cyan-bg); border:1px solid var(--cyan-border); border-radius:var(--radius); color:var(--cyan-text); overflow-x:auto; }
+
+/* Prose */
+p { margin-bottom:0.85rem; color:var(--text); font-size:15px; line-height:1.7; }
+ul,ol { margin:0.5rem 0 0.85rem 1.5rem; }
+li { color:var(--text); font-size:15px; line-height:1.7; margin-bottom:4px; }
+h4 { font-size:15px; font-weight:700; color:var(--text); margin:1rem 0 0.4rem; }
+
+/* Code panel */
+.code-panel { margin-top:1.25rem; background:var(--bg2); border-radius:var(--radius); padding:12px 16px; font-family:var(--mono); font-size:12px; line-height:1.8; overflow-x:auto; }
+.code-line { padding:1px 6px; border-radius:4px; transition:background 0.25s; white-space:pre; color:var(--text2); }
+.code-line.active { background:var(--green-bg); color:var(--green-text); font-weight:500; }
+
+/* Visualization */
+.viz-wrap { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.5rem; margin-top:1.5rem; }
+.viz-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:0.5rem; }
+.viz-sub { font-size:13px; color:var(--text2); margin-bottom:1rem; }
+
+canvas#kpca { display:block; margin:0 auto; border-radius:var(--radius); border:1px solid var(--border); }
+
+/* Info card */
+.info-card { background:var(--bg2); border-radius:var(--radius-lg); padding:1.2rem 1.5rem; margin-top:1rem; min-height:110px; }
+.info-phase { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:var(--purple-mid); margin-bottom:4px; }
+.info-step { font-size:12px; color:var(--text3); margin-bottom:6px; }
+.info-heading { font-size:16px; font-weight:700; color:var(--text); margin-bottom:6px; }
+.info-body { font-size:14px; color:var(--text2); line-height:1.6; }
+
+/* Controls */
+.controls { display:flex; justify-content:center; gap:10px; margin-top:1rem; }
+.btn { font-family:var(--sans); font-size:13px; font-weight:600; padding:10px 20px; border-radius:var(--radius); border:1px solid var(--border2); background:var(--surface); color:var(--text); cursor:pointer; transition:all 0.2s; }
+.btn:hover { background:var(--bg2); border-color:var(--purple-border); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-primary { background:var(--purple-bg); border-color:var(--purple-border); color:var(--purple-mid); }
+.btn-primary:hover { background:var(--purple-border); color:white; }
+
+/* Progress dots */
+.progress-wrap { display:flex; justify-content:center; gap:6px; margin-top:1rem; flex-wrap:wrap; }
+.dot { width:10px; height:10px; border-radius:50%; background:var(--border2); transition:all 0.25s; cursor:pointer; }
+.dot:hover { transform:scale(1.2); }
+.dot.active { background:var(--purple-mid); transform:scale(1.3); }
+.dot.done { background:var(--green-mid); }
+
+.kbd-hint { text-align:center; margin-top:0.75rem; font-size:11px; color:var(--text3); }
+
+/* Legend */
+.legend { display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:1rem; }
+.legend-item { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text2); }
+.legend-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+
+/* Comparison table */
+table.compare { width:100%; border-collapse:collapse; margin:0.75rem 0; font-size:13px; }
+table.compare th { background:var(--bg2); color:var(--text); font-weight:700; padding:8px 12px; text-align:left; border-bottom:2px solid var(--border2); }
+table.compare td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text2); }
+table.compare tr:last-child td { border-bottom:none; }
+table.compare td:first-child { font-weight:600; color:var(--text); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-title">Kernel PCA</div>
+  <div class="header-sub">Non-linear dimensionality reduction via the kernel trick — eigendecompose the Gram matrix to find principal components in implicit feature space</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Unsupervised Learning</span>
+    <span class="tag tag-category">Dimensionality Reduction</span>
+    <span class="tag tag-complexity">Part III · Section 12</span>
+  </div>
+</div>
+
+<!-- Card 1: Understanding the Concept -->
+<div class="card open" id="card1">
+  <div class="card-header" onclick="toggle('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <p><strong>The core problem with standard PCA:</strong> Regular PCA finds directions of maximum variance in your data, but those directions are always <em>straight lines</em> through the original input space. When your data lies on a curved surface — think concentric circles, a Swiss roll, or an interleaved spiral — the "most informative" directions simply don't exist as linear projections.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">Key Insight</div>
+      <p style="margin:0">Kernel PCA solves this by first mapping data into a (possibly infinite-dimensional) feature space \(\mathcal{F}\) via a function \(\phi: \mathbb{R}^d \to \mathcal{F}\), then running standard PCA there — but without ever computing \(\phi\) explicitly. Only the pairwise inner products \(k(x_i, x_j) = \langle \phi(x_i), \phi(x_j) \rangle\) are needed, and those can be computed directly via the kernel function.</p>
+    </div>
+
+    <p><strong>Analogy:</strong> Imagine two concentric rings of points lying on a flat table. You can't separate them with a straight cut on the table. But if you roll the table into a cylinder (a non-linear transformation), the inner ring ends up at a different height than the outer ring — and now a flat horizontal cut separates them perfectly. Kernel PCA performs exactly this kind of implicit "lifting" and then does standard PCA in the lifted space.</p>
+
+    <p><strong>One-sentence summary:</strong> Kernel PCA replaces the sample covariance matrix with the kernel (Gram) matrix \(K_{ij} = k(x_i, x_j)\), centers it, then extracts the top eigenvectors as nonlinear principal components.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">If You Remember One Thing</div>
+      <p style="margin:0">You never need to compute \(\phi(x)\) — only the kernel matrix \(K\). The kernel trick lets you do PCA in a potentially infinite-dimensional feature space using only \(n \times n\) matrix operations on your \(n\) data points.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 2: How It Works Internally -->
+<div class="card open" id="card2">
+  <div class="card-header" onclick="toggle('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <h4>The Three-Step Algorithm</h4>
+
+    <p><strong>Step 1 — Build the Gram matrix.</strong> Compute the \(n \times n\) kernel matrix where entry \((i,j)\) is \(k(x_i, x_j)\). Popular choices: RBF/Gaussian \(k(x,y)=\exp(-\|x-y\|^2/(2\sigma^2))\), polynomial \(k(x,y)=(x^\top y + c)^p\), Laplacian.</p>
+
+    <p><strong>Step 2 — Center in feature space.</strong> Standard PCA centers the data first. In feature space we can't do this explicitly, but we can center the Gram matrix:</p>
+    <div class="eq">$$\tilde{K} = K - \mathbf{1}_n K - K \mathbf{1}_n + \mathbf{1}_n K \mathbf{1}_n$$</div>
+    <p>where \(\mathbf{1}_n = \frac{1}{n}\mathbf{1}\mathbf{1}^\top\) is the \(n\times n\) matrix of \(1/n\). This subtracts the row mean, column mean, and adds back the grand mean — exactly what centering does.</p>
+
+    <p><strong>Step 3 — Eigendecompose \(\tilde{K}\).</strong> Solve \(\tilde{K} \alpha = \lambda n \alpha\). The eigenvectors \(\alpha^{(l)}\) are the expansion coefficients of the \(l\)-th principal component in feature space. To project a training point \(x_i\) onto the \(l\)-th kernel-PC:</p>
+    <div class="eq">$$z_i^{(l)} = \sum_{j=1}^n \alpha_j^{(l)} k(x_j, x_i)$$</div>
+    <p>Normalize each \(\alpha^{(l)}\) so that \(\lambda_l (\alpha^{(l)})^\top \alpha^{(l)} = 1\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Common Gotcha</div>
+      <p style="margin:0">Projecting a new point \(x^*\) requires centering its kernel vector using the <em>training</em> means: \(\tilde{k}_i^* = k(x_i, x^*) - \frac{1}{n}\sum_j k(x_j, x^*) - \frac{1}{n}\sum_j k(x_i, x_j) + \frac{1}{n^2}\sum_{j,l}k(x_j, x_l)\). Forgetting this centering correction is the #1 implementation mistake.</p>
+    </div>
+
+    <h4>Kernel Selection Guide</h4>
+    <ul>
+      <li><strong>RBF / Gaussian:</strong> \(k(x,y) = \exp(-\gamma\|x-y\|^2)\). Universal approximator — works for almost any smooth non-linearity. Bandwidth \(\gamma\) controls how local the comparison is. Default choice.</li>
+      <li><strong>Polynomial:</strong> \(k(x,y) = (x^\top y + c)^p\). Natural for data with multiplicative feature interactions. Degree \(p\) controls the complexity of the implicit feature space.</li>
+      <li><strong>Laplacian:</strong> \(k(x,y) = \exp(-\gamma\|x-y\|_1)\). More robust to outliers than RBF due to the L1 norm; less smooth.</li>
+      <li><strong>Sigmoid:</strong> \(k(x,y) = \tanh(\alpha x^\top y + c)\). Mimics a two-layer neural network; not always positive semi-definite — use with care.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Card 3: The Math -->
+<div class="card" id="card3">
+  <div class="card-header" onclick="toggle('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Mathematical Derivation</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <p>Let \(x_1,\ldots,x_n \in \mathbb{R}^d\) and let \(\phi: \mathbb{R}^d \to \mathcal{F}\) be the implicit feature map. Define the centered images \(\tilde{\phi}(x_i) = \phi(x_i) - \frac{1}{n}\sum_j \phi(x_j)\).</p>
+
+    <p>Standard PCA in \(\mathcal{F}\) seeks directions \(v \in \mathcal{F}\) maximizing variance. By the representer theorem, any solution lies in the span of the data:</p>
+    <div class="eq">$$v = \sum_{i=1}^n \alpha_i \tilde{\phi}(x_i)$$</div>
+
+    <p>The variance along \(v\) (with \(\|v\|=1\)) is:</p>
+    <div class="eq">$$\text{Var}(v) = \frac{1}{n}\sum_{i=1}^n \langle v, \tilde{\phi}(x_i)\rangle^2 = \frac{1}{n}\|\tilde{K}\alpha\|^2$$</div>
+
+    <p>Subject to \(\|v\|^2 = \alpha^\top \tilde{K} \alpha = 1\). Using a Lagrange multiplier, maximizing variance is equivalent to solving:</p>
+    <div class="eq">$$\tilde{K}\alpha = \lambda n \cdot \alpha$$</div>
+
+    <p>So the kernel-PCs are the eigenvectors of the centered Gram matrix \(\tilde{K}\), scaled by \(n\). The \(l\)-th principal component score for point \(x_i\) is:</p>
+    <div class="eq">$$z_i^{(l)} = \langle v^{(l)}, \tilde{\phi}(x_i)\rangle = \sum_{j=1}^n \alpha_j^{(l)} \tilde{k}(x_j, x_i)$$</div>
+
+    <p><strong>Centering the Gram matrix explicitly:</strong> Define \(\mathbf{1}_n = \tfrac{1}{n}\mathbf{11}^\top\). Then:</p>
+    <div class="eq">$$\tilde{K} = (I - \mathbf{1}_n)\, K\, (I - \mathbf{1}_n)$$</div>
+
+    <p>This is equivalent to double-centering \(K\): subtract row means, subtract column means, add global mean.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Normalization Condition</div>
+      <p style="margin:0">The \(l\)-th eigenvector \(\alpha^{(l)}\) must satisfy \(\lambda_l \|\alpha^{(l)}\|^2 = 1\), so we normalize: \(\hat{\alpha}^{(l)} = \alpha^{(l)} / \sqrt{\lambda_l}\). This ensures the projection directions in \(\mathcal{F}\) have unit norm.</p>
+    </div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Warning — Reconstruction</div>
+      <p style="margin:0">Unlike linear PCA, Kernel PCA has no closed-form pre-image. Reconstructing the original space \(\mathbb{R}^d\) from kernel-PC coordinates requires solving a pre-image problem (e.g., gradient descent in input space), which is non-trivial and often approximate.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 4: Interactive Visualization -->
+<div class="card open" id="card4">
+  <div class="card-header" onclick="toggle('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Visualization — Concentric Circles Unfolding</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <p>Watch Kernel PCA (RBF kernel) transform concentric circles — linearly inseparable in 2D — into a linearly separable 1D projection. Each step reveals one stage of the algorithm with real computed values.</p>
+
+    <div class="viz-wrap">
+      <div class="viz-title">Kernel PCA: From Circles to Linear Separability</div>
+      <div class="viz-sub">Step through the algorithm: raw data → kernel matrix → centering → eigen-projection → kernel-PC1 histogram</div>
+      <canvas id="kpca" width="820" height="340"></canvas>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#4e79d6"></div> Inner circle (class 0)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e05c3a"></div> Outer circle (class 1)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div> Kernel-PC1 projection</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div> Active computation</div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <div class="info-phase" id="infoPhase">Phase 1</div>
+        <div class="info-step" id="infoStepNum">Step 1 / 6</div>
+        <div class="info-heading" id="infoHeading">Raw Input Data</div>
+        <div class="info-body" id="infoBody">Two concentric circles, each with 20 points. Inner ring radius ≈ 1.0, outer ring radius ≈ 2.5. In 2D they are not linearly separable — no straight line can separate the classes.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- Card 5: Code Trace -->
+<div class="card" id="card5">
+  <div class="card-header" onclick="toggle('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">From-Scratch Implementation</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <p>Complete Kernel PCA from scratch in NumPy. All math is explicit — no sklearn calls:</p>
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl1">import numpy as np</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">def rbf_kernel(X, Y, gamma=1.0):</div>
+      <div class="code-line" id="cl4">    """Gaussian / RBF kernel: k(x,y) = exp(-gamma * ||x-y||^2)"""</div>
+      <div class="code-line" id="cl5">    # Compute pairwise squared distances via broadcasting</div>
+      <div class="code-line" id="cl6">    sq_dists = np.sum(X**2, axis=1)[:,None] + np.sum(Y**2, axis=1)[None,:] - 2*X@Y.T</div>
+      <div class="code-line" id="cl7">    return np.exp(-gamma * sq_dists)</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">def center_kernel(K):</div>
+      <div class="code-line" id="cl10">    """Double-center the Gram matrix: K_c = (I-1n)K(I-1n)"""</div>
+      <div class="code-line" id="cl11">    n = K.shape[0]</div>
+      <div class="code-line" id="cl12">    one_n = np.ones((n, n)) / n          # n×n matrix of 1/n</div>
+      <div class="code-line" id="cl13">    return K - one_n @ K - K @ one_n + one_n @ K @ one_n</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">def kernel_pca(X, n_components=2, gamma=1.0):</div>
+      <div class="code-line" id="cl16">    n = X.shape[0]</div>
+      <div class="code-line" id="cl17">    K = rbf_kernel(X, X, gamma)          # Step 1: build Gram matrix</div>
+      <div class="code-line" id="cl18">    K_c = center_kernel(K)               # Step 2: center it</div>
+      <div class="code-line" id="cl19">    # Step 3: eigen-decompose</div>
+      <div class="code-line" id="cl20">    eigvals, eigvecs = np.linalg.eigh(K_c)   # ascending order</div>
+      <div class="code-line" id="cl21">    idx = np.argsort(eigvals)[::-1]          # sort descending</div>
+      <div class="code-line" id="cl22">    eigvals, eigvecs = eigvals[idx], eigvecs[:, idx]</div>
+      <div class="code-line" id="cl23">    # Normalize eigenvectors so ||v^l||=1 in feature space</div>
+      <div class="code-line" id="cl24">    alphas = eigvecs[:, :n_components] / np.sqrt(eigvals[:n_components])</div>
+      <div class="code-line" id="cl25">    # Project: Z = K_c @ alphas  (n x n_components)</div>
+      <div class="code-line" id="cl26">    Z = K_c @ alphas</div>
+      <div class="code-line" id="cl27">    return Z, eigvals, alphas, K_c</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">def project_new(x_new, X_train, alphas, K_train_means,</div>
+      <div class="code-line" id="cl30">               K_grand_mean, gamma=1.0):</div>
+      <div class="code-line" id="cl31">    """Project an unseen point — must apply the same centering."""</div>
+      <div class="code-line" id="cl32">    k_vec = rbf_kernel(x_new.reshape(1,-1), X_train, gamma).squeeze()</div>
+      <div class="code-line" id="cl33">    # Centering correction using training statistics</div>
+      <div class="code-line" id="cl34">    k_c = k_vec - K_train_means - k_vec.mean() + K_grand_mean</div>
+      <div class="code-line" id="cl35">    return k_c @ alphas</div>
+    </div>
+
+    <div class="concept-box insight" style="margin-top:1rem;">
+      <div class="concept-box-title">Production Usage (sklearn)</div>
+      <p style="margin:0; font-family:var(--mono); font-size:12px;">
+        from sklearn.decomposition import KernelPCA<br>
+        kpca = KernelPCA(n_components=2, kernel='rbf', gamma=1.0, fit_inverse_transform=True)<br>
+        Z_train = kpca.fit_transform(X_train)   # builds K, centers, eigendecomposes<br>
+        Z_test  = kpca.transform(X_test)         # applies saved centering correction<br>
+        X_approx = kpca.inverse_transform(Z_train)  # pre-image (approximate)
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 6: Key Takeaways & Comparison -->
+<div class="card" id="card6">
+  <div class="card-header" onclick="toggle('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Comparison & Key Takeaways</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <table class="compare">
+      <tr><th>Dimension</th><th>Linear PCA</th><th>Kernel PCA (RBF)</th><th>t-SNE / UMAP</th></tr>
+      <tr><td>Manifold type</td><td>Linear subspace</td><td>Smooth non-linear</td><td>Arbitrary (local structure)</td></tr>
+      <tr><td>Scalability</td><td>O(d²n + d³)</td><td>O(n²d + n³) — bottleneck</td><td>O(n log n) with approx.</td></tr>
+      <tr><td>Out-of-sample</td><td>Yes (direct projection)</td><td>Yes (kernel centering)</td><td>Requires re-fitting or parametric</td></tr>
+      <tr><td>Reconstruction</td><td>Exact</td><td>Approximate (pre-image)</td><td>Not defined</td></tr>
+      <tr><td>Kernel choice</td><td>N/A</td><td>Critical — needs tuning</td><td>N/A</td></tr>
+      <tr><td>Use case</td><td>Linear structure, large n</td><td>Curved manifolds, moderate n</td><td>Visualization, exploratory</td></tr>
+    </table>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Decision Rule</div>
+      <p style="margin:0">Use <strong>Kernel PCA</strong> when: data lies on a curved manifold, you need a linear-analysis-compatible representation, or downstream is a linear classifier. Use <strong>linear PCA</strong> when data is approximately Gaussian or n is very large. Use <strong>UMAP/t-SNE</strong> purely for visualization without downstream tasks.</p>
+    </div>
+
+    <h4>Key Takeaways</h4>
+    <ul>
+      <li>The kernel trick allows PCA in infinite-dimensional feature spaces via only \(n \times n\) Gram matrix operations.</li>
+      <li>Centering the Gram matrix (double-centering) is not optional — it corresponds to mean-centering in feature space.</li>
+      <li>RBF kernel bandwidth \(\gamma\) is the most critical hyperparameter; cross-validate it.</li>
+      <li>Complexity is \(\mathcal{O}(n^3)\) (eigendecomposition of \(n\times n\) matrix); Nyström approximation reduces this to \(\mathcal{O}(nm^2)\) with \(m\) landmark points.</li>
+      <li>Related techniques: Spectral Embedding (Laplacian Eigenmaps) uses the graph Laplacian similarly; KPCA with the diffusion kernel recovers diffusion maps.</li>
+    </ul>
+  </div>
+</div>
+
+</div><!-- .page -->
+
+<script>
+// ─── Card toggle ────────────────────────────────────────────────────────────
+function toggle(id) {
+  const c = document.getElementById(id);
+  c.classList.toggle('open');
+}
+
+// ─── Data generation (concentric circles) ───────────────────────────────────
+function makeCircles(n, r, noise) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = 2 * Math.PI * i / n;
+    pts.push([r * Math.cos(a) + (Math.random()-0.5)*noise,
+              r * Math.sin(a) + (Math.random()-0.5)*noise]);
+  }
+  return pts;
+}
+
+const N_INNER = 18, N_OUTER = 18, GAMMA = 0.8;
+const inner = makeCircles(N_INNER, 1.0, 0.08);
+const outer = makeCircles(N_OUTER, 2.5, 0.1);
+const allPts = [...inner, ...outer];
+const labels = [...Array(N_INNER).fill(0), ...Array(N_OUTER).fill(1)];
+const N = allPts.length;
+
+// ─── Kernel + Kernel PCA math ────────────────────────────────────────────────
+function rbf(xi, xj) {
+  const d2 = (xi[0]-xj[0])**2 + (xi[1]-xj[1])**2;
+  return Math.exp(-GAMMA * d2);
+}
+
+// Build K (N×N)
+const K = Array.from({length:N}, (_,i) => Array.from({length:N}, (_,j) => rbf(allPts[i],allPts[j])));
+
+// Center K
+function centerK(K) {
+  const n = K.length;
+  const rowMeans = K.map(row => row.reduce((s,v)=>s+v,0)/n);
+  const colMeans = Array.from({length:n}, (_,j) => K.reduce((s,row)=>s+row[j],0)/n);
+  const grand = rowMeans.reduce((s,v)=>s+v,0)/n;
+  return Array.from({length:n}, (_,i) => Array.from({length:n}, (_,j) =>
+    K[i][j] - rowMeans[i] - colMeans[j] + grand));
+}
+const Kc = centerK(K);
+
+// Power iteration to get top 2 eigenvectors of Kc
+function matVec(M, v) {
+  return M.map(row => row.reduce((s,m,j)=>s+m*v[j],0));
+}
+function normalize(v) {
+  const n = Math.sqrt(v.reduce((s,x)=>s+x*x,0));
+  return v.map(x=>x/n);
+}
+function powerIter(M, n, iters=300, deflate=null) {
+  let v = Array.from({length:n}, ()=>Math.random()-0.5);
+  if (deflate) { // Gram-Schmidt deflate
+    let dot = v.reduce((s,x,i)=>s+x*deflate[i],0);
+    v = v.map((x,i)=>x-dot*deflate[i]);
+  }
+  v = normalize(v);
+  for (let i=0;i<iters;i++) {
+    let w = matVec(M, v);
+    if (deflate) {
+      let dot = w.reduce((s,x,i)=>s+x*deflate[i],0);
+      w = w.map((x,i)=>x-dot*deflate[i]);
+    }
+    v = normalize(w);
+  }
+  const lam = matVec(M, v).reduce((s,x,i)=>s+x*v[i],0);
+  return {vec:v, val:lam};
+}
+
+const ev1 = powerIter(Kc, N);
+const lam1 = ev1.val, alpha1 = ev1.vec.map(x=>x/Math.sqrt(Math.abs(lam1)));
+const ev2 = powerIter(Kc, N, 300, ev1.vec);
+const lam2 = ev2.val, alpha2 = ev2.vec.map(x=>x/Math.sqrt(Math.abs(lam2)));
+
+// Project onto PC1 and PC2
+const pc1 = Kc.map(row => row.reduce((s,v,j)=>s+v*alpha1[j],0));
+const pc2 = Kc.map(row => row.reduce((s,v,j)=>s+v*alpha2[j],0));
+
+// ─── Canvas setup ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('kpca');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const STEP_COUNT = 6;
+let currentStep = 0;
+
+// Colour helpers
+const CLR_INNER = '#4e79d6', CLR_OUTER = '#e05c3a';
+const CLR_GREEN = '#3B6D11', CLR_PURP = '#534AB7', CLR_BG = '#f0efe9';
+const isDark = () => window.matchMedia('(prefers-color-scheme:dark)').matches;
+const BG = () => isDark() ? '#222224' : '#f0efe9';
+const TEXT_CLR = () => isDark() ? '#e8e6de' : '#1a1a18';
+const GRID_CLR = () => isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+// ─── Step info ────────────────────────────────────────────────────────────
+const steps = [
+  {phase:'Input Space', heading:'Raw Input Data (2D)',
+   body:'Two concentric circles: 18 inner points (radius ≈ 1.0, blue) and 18 outer points (radius ≈ 2.5, red). In 2D they are not linearly separable — no straight line can split the classes.'},
+  {phase:'Kernel Computation', heading:'Build the Gram Matrix K',
+   body:`Compute all ${N}×${N} = ${N*N} pairwise RBF kernel values k(xᵢ,xⱼ) = exp(−γ‖xᵢ−xⱼ‖²) with γ=${GAMMA}. The top-left 4×4 block is shown. Points from the same circle yield high kernel values (near 1), cross-circle values are small (≈0.01–0.2), encoding the non-linear structure.`},
+  {phase:'Centering', heading:'Center the Gram Matrix K̃',
+   body:'Double-center K: subtract row means, subtract column means, add grand mean. This corresponds to mean-centering the data in the implicit feature space ℱ, which is required for correct PCA. The centered K̃ retains the structure but is now mean-free in feature space.'},
+  {phase:'Eigendecomposition', heading:'Eigendecompose K̃ → principal directions',
+   body:`Solve K̃α = λn·α. The top eigenvalue λ₁ ≈ ${lam1.toFixed(2)}, capturing radial structure. The corresponding eigenvector α⁽¹⁾ assigns large positive weights to inner-circle points and large negative weights to outer-circle points (or vice versa), encoding the radius as a linear combination.`},
+  {phase:'Projection', heading:'Project onto Kernel-PC1 and Kernel-PC2',
+   body:`Each point's kernel-PC1 score is z⁽¹⁾ = Σⱼ αⱼ⁽¹⁾·K̃(xⱼ,xᵢ). Inner-circle points cluster around one value, outer-circle around another. In the 2D kernel-PC space the two classes appear separated — a linear boundary now works!`},
+  {phase:'Result', heading:'Kernel-PC1 Histogram — Linear Separability Achieved',
+   body:`In kernel-PC1 alone the two classes form distinct, non-overlapping clusters (blue ≈ negative, red ≈ positive, or vice versa). A single threshold on PC1 achieves near-perfect classification — the non-linear problem is now linearly solvable. This is what Kernel PCA was designed to do.`},
+];
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function drawGrid(left,top,w,h) {
+  ctx.strokeStyle = GRID_CLR();
+  ctx.lineWidth = 1;
+  for (let x=left;x<=left+w;x+=w/5) {
+    ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,top+h); ctx.stroke();
+  }
+  for (let y=top;y<=top+h;y+=h/4) {
+    ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(left+w,y); ctx.stroke();
+  }
+}
+
+function worldToCanvas(x, y, cx, cy, scale) {
+  return [cx + x * scale, cy - y * scale];
+}
+
+function drawStep(s) {
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = BG();
+  ctx.fillRect(0,0,W,H);
+
+  const panelW = W*0.5 - 20, panelH = H - 30, panelX = 15, panelY = 15;
+  const panel2X = W*0.5 + 5, panel2Y = 15, panel2W = W*0.5 - 20, panel2H = H - 30;
+
+  // Panel borders
+  ctx.strokeStyle = isDark() ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 8); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(panel2X, panel2Y, panel2W, panel2H, 8); ctx.stroke();
+
+  ctx.fillStyle = TEXT_CLR();
+  ctx.font = '11px '+getComputedStyle(document.body).getPropertyValue('--mono').trim().replace(/'/g,'');
+  ctx.textAlign = 'center';
+
+  if (s === 0) {
+    // Left: scatter in 2D input space
+    ctx.fillText('Input space ℝ²', panelX + panelW/2, panelY + 16);
+    const cx = panelX + panelW/2, cy = panelY + panelH/2, scale = (panelH-40)/7;
+    drawGrid(panelX+4, panelY+22, panelW-8, panelH-26);
+    allPts.forEach((p,i) => {
+      const [px,py] = worldToCanvas(p[0], p[1], cx, cy, scale);
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 2*Math.PI);
+      ctx.fillStyle = labels[i]===0 ? CLR_INNER : CLR_OUTER;
+      ctx.fill();
+    });
+    // Right: axis labels / note
+    ctx.fillStyle = TEXT_CLR();
+    ctx.font = '11px '+getComputedStyle(document.body).getPropertyValue('--mono').trim().replace(/'/g,'');
+    ctx.fillText('No linear boundary exists:', panel2X + panel2W/2, panel2Y + 50);
+    // Draw a dashed "attempted" separator
+    ctx.setLineDash([6,4]);
+    ctx.strokeStyle = CLR_PURP;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(panel2X + 20, panel2Y + panelH/2 - 10);
+    ctx.lineTo(panel2X + panel2W - 20, panel2Y + panelH/2 + 20);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = TEXT_CLR(); ctx.font = '10px sans-serif';
+    ctx.fillText('Any hyperplane in ℝ² fails', panel2X+panel2W/2, panel2Y+panelH/2+60);
+    ctx.fillText('to separate inner from outer.', panel2X+panel2W/2, panel2Y+panelH/2+76);
+
+  } else if (s === 1) {
+    // Left: zoom of K matrix (first 8×8)
+    ctx.fillText('Gram matrix K (first 8×8)', panelX + panelW/2, panelY + 16);
+    const SZ = 8, cell = Math.min((panelW-30)/(SZ+0.5), (panelH-40)/(SZ+0.5));
+    const gridL = panelX + (panelW - cell*SZ)/2, gridT = panelY + 28;
+    for (let i=0;i<SZ;i++) for (let j=0;j<SZ;j++) {
+      const v = K[i][j];
+      const alpha = Math.max(0, Math.min(1, v));
+      const sameClass = labels[i]===labels[j];
+      const base = sameClass ? [78,121,214] : [224,92,58];
+      ctx.fillStyle = `rgba(${base[0]},${base[1]},${base[2]},${0.15+alpha*0.85})`;
+      ctx.fillRect(gridL+j*cell, gridT+i*cell, cell-2, cell-2);
+      if (cell > 24) {
+        ctx.fillStyle = alpha>0.5 ? '#fff' : TEXT_CLR();
+        ctx.font = `9px var(--mono,monospace)`; ctx.textAlign='center';
+        ctx.fillText(v.toFixed(2), gridL+j*cell+cell/2, gridT+i*cell+cell/2+4);
+      }
+    }
+    ctx.fillStyle = TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Blue=same class (high k), Red=cross-class (low k)', panelX+panelW/2, gridT+SZ*cell+18);
+
+    // Right: formula
+    ctx.fillText('RBF kernel formula:', panel2X+panel2W/2, panel2Y+40);
+    ctx.fillStyle = isDark() ? '#B2EBF2' : '#006064';
+    ctx.font = 'bold 13px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('k(xᵢ,xⱼ) = exp(−γ ‖xᵢ−xⱼ‖²)', panel2X+panel2W/2, panel2Y+70);
+    ctx.fillStyle=TEXT_CLR(); ctx.font='11px sans-serif';
+    ctx.fillText('γ = '+GAMMA, panel2X+panel2W/2, panel2Y+94);
+    ctx.fillText('N = '+N+' points → '+N+'×'+N+' matrix', panel2X+panel2W/2, panel2Y+116);
+
+  } else if (s === 2) {
+    // Left: centered K̃ heatmap
+    ctx.fillText('Centered Gram K̃ (first 8×8)', panelX + panelW/2, panelY + 16);
+    const SZ = 8, cell = Math.min((panelW-30)/(SZ+0.5), (panelH-40)/(SZ+0.5));
+    const gridL = panelX + (panelW - cell*SZ)/2, gridT = panelY + 28;
+    const vals = [];
+    for (let i=0;i<SZ;i++) for (let j=0;j<SZ;j++) vals.push(Kc[i][j]);
+    const maxAbs = Math.max(...vals.map(Math.abs));
+    for (let i=0;i<SZ;i++) for (let j=0;j<SZ;j++) {
+      const v = Kc[i][j];
+      const t = v/maxAbs;
+      const r = t>0 ? Math.round(78+(121-78)*(1-t)) : Math.round(78+(121-78));
+      const g = t>0 ? Math.round(121+(214-121)*(t)) : Math.round(121);
+      const b = t>0 ? Math.round(214) : Math.round(214*(1+t));
+      const alpha = Math.abs(t)*0.85+0.1;
+      ctx.fillStyle = `rgba(${t>0?78:224},${t>0?121:92},${t>0?214:58},${alpha})`;
+      ctx.fillRect(gridL+j*cell, gridT+i*cell, cell-2, cell-2);
+      if (cell > 24) {
+        ctx.fillStyle = alpha>0.5?'#fff':TEXT_CLR(); ctx.font='9px var(--mono,monospace)'; ctx.textAlign='center';
+        ctx.fillText(v.toFixed(2), gridL+j*cell+cell/2, gridT+i*cell+cell/2+4);
+      }
+    }
+    ctx.fillStyle=TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Double-centered — mean-free in feature space', panelX+panelW/2, gridT+SZ*cell+18);
+
+    ctx.fillText('Centering formula:', panel2X+panel2W/2, panel2Y+40);
+    ctx.fillStyle=isDark()?'#B2EBF2':'#006064'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('K̃ = (I−1ₙ)K(I−1ₙ)', panel2X+panel2W/2, panel2Y+68);
+    ctx.fillStyle=TEXT_CLR(); ctx.font='11px sans-serif';
+    ctx.fillText('= K − 1ₙK − K1ₙ + 1ₙK1ₙ', panel2X+panel2W/2, panel2Y+92);
+    ctx.fillText('where 1ₙ = (1/n)·11ᵀ', panel2X+panel2W/2, panel2Y+114);
+
+  } else if (s === 3) {
+    // Left: eigenvector weights as bar chart
+    ctx.fillText('Top eigenvector α⁽¹⁾ weights', panelX+panelW/2, panelY+16);
+    const bW = (panelW - 40)/(N+2), bMaxH = (panelH - 60);
+    const bL = panelX + 20, bBase = panelY + panelH/2;
+    const maxA = Math.max(...ev1.vec.map(Math.abs));
+    ev1.vec.forEach((a,i) => {
+      const h = (a/maxA) * (bMaxH/2 - 10);
+      ctx.fillStyle = labels[i]===0 ? CLR_INNER+'cc' : CLR_OUTER+'cc';
+      ctx.fillRect(bL + i*bW, bBase - (h>0?h:0), bW-1, Math.abs(h));
+    });
+    ctx.strokeStyle = isDark()?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.2)';
+    ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(bL,bBase); ctx.lineTo(bL+N*bW,bBase); ctx.stroke();
+    ctx.fillStyle=TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Inner class (blue) vs Outer class (red) — opposite signs reveal radial structure', panelX+panelW/2, panelY+panelH-8);
+
+    ctx.fillStyle=TEXT_CLR(); ctx.font='11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Eigenvalue equation:', panel2X+panel2W/2, panel2Y+40);
+    ctx.fillStyle=isDark()?'#B2EBF2':'#006064'; ctx.font='bold 13px sans-serif';
+    ctx.fillText('K̃α = λ·n·α', panel2X+panel2W/2, panel2Y+70);
+    ctx.fillStyle=TEXT_CLR(); ctx.font='11px sans-serif';
+    ctx.fillText('λ₁ ≈ '+lam1.toFixed(3), panel2X+panel2W/2, panel2Y+100);
+    ctx.fillText('λ₂ ≈ '+lam2.toFixed(3), panel2X+panel2W/2, panel2Y+120);
+    ctx.fillText('Norm α̂ = α/√λ so ‖v‖=1', panel2X+panel2W/2, panel2Y+150);
+
+  } else if (s === 4) {
+    // Left: 2D kernel-PC scatter
+    ctx.fillText('2D Kernel-PC space', panelX+panelW/2, panelY+16);
+    const cx = panelX+panelW/2, cy = panelY+panelH/2;
+    const maxPC1 = Math.max(...pc1.map(Math.abs)), maxPC2 = Math.max(...pc2.map(Math.abs));
+    const scale = Math.min((panelW-40)/(2*maxPC1), (panelH-50)/(2*maxPC2));
+    drawGrid(panelX+4, panelY+22, panelW-8, panelH-30);
+    // axis
+    ctx.strokeStyle=isDark()?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(panelX+10,cy); ctx.lineTo(panelX+panelW-10,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,panelY+24); ctx.lineTo(cx,panelY+panelH-12); ctx.stroke();
+    pc1.forEach((p1,i) => {
+      const p2 = pc2[i];
+      const [px,py] = worldToCanvas(p1, p2, cx, cy, scale);
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 2*Math.PI);
+      ctx.fillStyle = labels[i]===0 ? CLR_INNER : CLR_OUTER; ctx.fill();
+    });
+    ctx.fillStyle=TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('PC1', panelX+panelW-32, cy-6);
+    ctx.fillStyle=TEXT_CLR(); ctx.textAlign='center';
+    ctx.fillText('PC2', cx+10, panelY+30);
+
+    // Right: decision boundary hint
+    ctx.fillText('Linear boundary in kernel-PC space:', panel2X+panel2W/2, panel2Y+40);
+    ctx.strokeStyle=CLR_PURP; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+    const sepX = panel2X+panel2W/2;
+    ctx.beginPath(); ctx.moveTo(sepX, panel2Y+55); ctx.lineTo(sepX, panel2Y+panelH-15); ctx.stroke();
+    ctx.setLineDash([]);
+    pc1.forEach((p1,i) => {
+      const normP1 = p1/(maxPC1||1);
+      const plotX = panel2X + panel2W/2 + normP1 * (panel2W/2-20);
+      const plotY = panel2Y + 55 + Math.random()*(panelH-80);
+      ctx.beginPath(); ctx.arc(plotX, plotY, 4, 0, 2*Math.PI);
+      ctx.fillStyle = labels[i]===0 ? CLR_INNER+'99' : CLR_OUTER+'99'; ctx.fill();
+    });
+    ctx.fillStyle=TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('PC1 projection (vertical dashed = decision boundary)', panel2X+panel2W/2, panel2Y+panelH-8);
+
+  } else if (s === 5) {
+    // Left: histogram of PC1 per class
+    ctx.fillText('Kernel-PC1 Histogram', panelX+panelW/2, panelY+16);
+    const minV = Math.min(...pc1), maxV = Math.max(...pc1);
+    const range = maxV - minV || 1;
+    const BINS = 12, binW = range/BINS;
+    const innerBins = Array(BINS).fill(0), outerBins = Array(BINS).fill(0);
+    pc1.forEach((v,i) => {
+      const bin = Math.min(BINS-1, Math.floor((v-minV)/binW));
+      if(labels[i]===0) innerBins[bin]++; else outerBins[bin]++;
+    });
+    const maxBin = Math.max(...innerBins, ...outerBins, 1);
+    const bArea = {l:panelX+20, t:panelY+28, w:panelW-30, h:panelH-60};
+    const cellW = bArea.w/BINS;
+    innerBins.forEach((c,i) => {
+      const h = c/maxBin * (bArea.h-20);
+      ctx.fillStyle = CLR_INNER+'cc';
+      ctx.fillRect(bArea.l+i*cellW, bArea.t+bArea.h-20-h, cellW*0.45, h);
+    });
+    outerBins.forEach((c,i) => {
+      const h = c/maxBin * (bArea.h-20);
+      ctx.fillStyle = CLR_OUTER+'cc';
+      ctx.fillRect(bArea.l+i*cellW+cellW*0.48, bArea.t+bArea.h-20-h, cellW*0.45, h);
+    });
+    ctx.strokeStyle=isDark()?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(bArea.l,bArea.t+bArea.h-20); ctx.lineTo(bArea.l+bArea.w,bArea.t+bArea.h-20); ctx.stroke();
+    ctx.fillStyle=TEXT_CLR(); ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Kernel-PC1 value (non-overlapping → linearly separable)', panelX+panelW/2, panelY+panelH-6);
+
+    // Right: verdict
+    ctx.fillStyle=isDark()?'#C0DD97':'#173404'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('✓ Linearly Separable!', panel2X+panel2W/2, panel2Y+60);
+    ctx.fillStyle=TEXT_CLR(); ctx.font='11px sans-serif';
+    ctx.fillText('Inner-ring cluster ≠ Outer-ring cluster', panel2X+panel2W/2, panel2Y+90);
+    ctx.fillText('on Kernel-PC1 axis.', panel2X+panel2W/2, panel2Y+108);
+    ctx.fillText('A single threshold θ achieves', panel2X+panel2W/2, panel2Y+136);
+    ctx.fillText('~100% accuracy on this data.', panel2X+panel2W/2, panel2Y+154);
+    ctx.fillText('λ₁ / Σλ = '+( (lam1/(lam1+lam2))*100).toFixed(1)+'% variance', panel2X+panel2W/2, panel2Y+186);
+    ctx.fillText('explained by Kernel-PC1 alone.', panel2X+panel2W/2, panel2Y+204);
+  }
+}
+
+// ─── Navigation ─────────────────────────────────────────────────────────────
+function updateUI() {
+  drawStep(currentStep);
+  const info = steps[currentStep];
+  document.getElementById('infoPhase').textContent = info.phase;
+  document.getElementById('infoStepNum').textContent = `Step ${currentStep+1} / ${STEP_COUNT}`;
+  document.getElementById('infoHeading').textContent = info.heading;
+  document.getElementById('infoBody').textContent = info.body;
+  document.getElementById('btnPrev').disabled = currentStep===0;
+  document.getElementById('btnNext').disabled = currentStep===STEP_COUNT-1;
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.classList.remove('active','done');
+    if (i===currentStep) d.classList.add('active');
+    else if (i<currentStep) d.classList.add('done');
+  });
+}
+
+function go(delta) {
+  const next = currentStep + delta;
+  if (next>=0 && next<STEP_COUNT) { currentStep=next; updateUI(); }
+}
+function reset() { currentStep=0; updateUI(); }
+
+// Build progress dots
+const pw = document.getElementById('progressWrap');
+for (let i=0;i<STEP_COUNT;i++) {
+  const d = document.createElement('div');
+  d.className='dot'; d.onclick=()=>{currentStep=i;updateUI();};
+  pw.appendChild(d);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight') go(1);
+  if (e.key==='ArrowLeft') go(-1);
+  if (e.key==='r'||e.key==='R') reset();
+});
+
+// Initial render (after KaTeX loads)
+window.addEventListener('load', () => { updateUI(); });
+updateUI();
+</script>
+</body>
+</html>

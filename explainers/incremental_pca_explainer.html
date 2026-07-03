@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incremental PCA for Large Datasets — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;border-radius:var(--radius);background:var(--bg2);display:block;}
+
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-init{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-update{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-converge{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+.batch-row{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin:0.75rem 0;}
+.batch-chip{padding:4px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;border:2px solid var(--border2);background:var(--bg2);color:var(--text2);transition:all 0.3s;}
+.batch-chip.processing{border-color:var(--purple-mid);background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.batch-chip.done{border-color:var(--green-mid);background:var(--green-bg);color:var(--green-mid);}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Incremental PCA for Large Datasets</h1>
+  <div class="subtitle">Online subspace estimation — update principal components one mini-batch at a time, bounded memory</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Unsupervised Learning</span>
+    <span class="tag tag-category">Dimensionality Reduction</span>
+    <span class="tag tag-complexity">O(d²k) per batch</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Incremental PCA</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <p><strong>What is it?</strong> Ordinary PCA loads the entire dataset into RAM, builds a covariance matrix, and decomposes it. With millions of rows or streaming data that never ends, that is simply impossible. Incremental PCA (IPCA) solves this by processing one small <em>mini-batch</em> at a time, updating the principal component estimate after each batch, and discarding the raw data. Memory usage stays constant no matter how many samples arrive.</p>
+    <p><strong>Analogy:</strong> Imagine you are trying to find the longest axis of a cloud of points, but the points arrive one boxcar at a time on a conveyor belt — you cannot see all of them at once. After each boxcar you update your best guess for the main axis, then let the data roll away. After enough boxcars your guess converges to the same axis you would have found if you had seen everything at once.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">IPCA uses a rank-\(k\) incremental SVD: after each mini-batch \(X_t\), it stacks the current component sketch \(U_t S_t\) with the new centered data, runs a cheap thin SVD on that tall-but-narrow matrix, and extracts the updated top-\(k\) components. Memory is \(O(dk)\), not \(O(nd)\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Incremental PCA Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <h4>The Core Update Step</h4>
+    <p>Let \(n_t\) be samples seen so far, with running mean \(\mu_t\) and component matrix \(U_t \in \mathbb{R}^{d \times k}\) (orthonormal columns) weighted by singular values \(S_t\). A new batch \(X_b \in \mathbb{R}^{b \times d}\) arrives.</p>
+    <p><strong>Step 1 — Update the mean.</strong> The global mean is a weighted average of old mean and batch mean \(\bar{x}_b\):</p>
+    <div class="eq">$$\mu_{t+1} = \frac{n_t \mu_t + b\,\bar{x}_b}{n_t + b}$$</div>
+    <p><strong>Step 2 — Centre the batch and correct for mean shift.</strong> Two correction vectors must be included: the mean-shift correction \(\sqrt{\frac{n_t b}{n_t+b}}(\bar{x}_b - \mu_t)\), and the centred batch rows \(X_b - \bar{x}_b\mathbf{1}^\top\).</p>
+    <p><strong>Step 3 — Build the augmented matrix.</strong> Stack the old sketch with the new data:</p>
+    <div class="eq">$$M = \begin{bmatrix} S_t U_t^\top \\ X_b - \bar{x}_b \mathbf{1}^\top \\ \sqrt{\tfrac{n_t b}{n_t+b}}(\bar{x}_b - \mu_t)^\top \end{bmatrix} \in \mathbb{R}^{(k+b+1)\times d}$$</div>
+    <p><strong>Step 4 — Thin SVD.</strong> Compute \(M = U' S' V'^\top\) and keep only the top \(k\) components: \(U_{t+1} \leftarrow V'[:,:k]\), \(S_{t+1} \leftarrow S'[:k]\). The matrix \(M\) is \((k+b+1) \times d\)  — when \(k \ll d\) and \(b \ll n\), this SVD is cheap.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property — Bounded Memory</div>
+      <p style="font-size:14px;margin:0;">The algorithm stores <em>only</em> \(U_t \in \mathbb{R}^{d\times k}\), \(S_t \in \mathbb{R}^k\), and \(\mu_t \in \mathbb{R}^d\). No matter how many samples \(n \to \infty\), memory remains \(O(dk)\). The cost per batch is \(O(b d k)\) for centering plus \(O((k+b)^2 d)\) for the thin SVD.</p>
+    </div>
+
+    <h4>Why the Mean Correction Term?</h4>
+    <p>If the running mean drifts when a new batch arrives, the old sketch \(U_t S_t\) was computed relative to the old mean. The correction term \(\sqrt{\frac{n_t b}{n_t+b}}(\bar{x}_b-\mu_t)\) exactly compensates so the combined covariance estimate stays consistent — without it the estimated components would be biased toward the old centre.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Batch Size Trade-off</div>
+      <p style="font-size:14px;margin:0;">Very small batches (\(b=1\)) are memory-optimal but the thin SVD on a \((k+2)\times d\) matrix is still \(O(k^2 d)\) per sample — <em>slower</em> per sample than full PCA for modest \(n\). The sklearn default is \(b = k\), balancing update cost and approximation quality. Larger batches converge faster and give better intermediate estimates.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Converges — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <h4>Exact Equivalence After All Data</h4>
+    <p>Let the full data matrix be \(X \in \mathbb{R}^{n \times d}\) with centred version \(\tilde{X}\). Batch PCA finds the rank-\(k\) truncated SVD of \(\tilde{X} = U_k \Sigma_k V_k^\top\). IPCA maintains an implicit sketch \(A_t\) such that \(A_t^\top A_t\) equals the empirical covariance \(\sum_{i=1}^{n_t}(x_i - \mu_t)(x_i-\mu_t)^\top\) at every step. Therefore:</p>
+    <div class="eq">$$A_n^\top A_n = \tilde{X}^\top \tilde{X} \quad \Rightarrow \quad \text{IPCA eigenvectors} \xrightarrow{n\to\infty} \text{exact PCA eigenvectors}$$</div>
+    <h4>Subspace Error Bound (Ross et al. 2008)</h4>
+    <p>Let \(\hat{V}_k\) be the IPCA subspace after \(n\) samples and \(V_k^*\) be the true top-\(k\) subspace. The reconstruction error satisfies:</p>
+    <div class="eq">$$\|\tilde{X} - \tilde{X}\hat{V}_k\hat{V}_k^\top\|_F^2 = \|\tilde{X} - \tilde{X}V_k^*(V_k^*)^\top\|_F^2$$</div>
+    <p>This is an <em>exact</em> equality, not an approximation — the IPCA algorithm is algebraically equivalent to full PCA on the seen data. The approximation arises only if one truncates the sketch rank below \(k\).</p>
+    <h4>Online Mean Consistency</h4>
+    <p>The running mean update \(\mu_{t+1} = \frac{n_t \mu_t + b \bar{x}_b}{n_t+b}\) is the Welford/Chan formula for numerically stable online mean, and satisfies:</p>
+    <div class="eq">$$\mu_n = \frac{1}{n}\sum_{i=1}^n x_i \quad \text{(exact, no accumulation error)}$$</div>
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 Algorithm Invariant</div>
+      <p style="font-size:14px;margin:0;">At every step \(t\), the stored sketch satisfies \(U_t S_t^2 U_t^\top = \sum_{i=1}^{n_t}(x_i-\mu_t)(x_i-\mu_t)^\top\). The algorithm maintains this invariant exactly via the augmented SVD update.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough — Batch-by-Batch Axis Convergence</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:3000px;">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Watch the estimated first principal component (orange arrow) refine batch by batch, converging to the true PCA axis (dashed green). Each step shows a new mini-batch of points arriving and the component updating.</p>
+
+    <div class="viz-container">
+      <div class="batch-row" id="batchChips"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas" height="420"></canvas>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div> Current batch</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#9c9a92;opacity:0.5;"></div> Previous batches</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#EF9F27;border-radius:2px;width:20px;height:4px;"></div> IPCA axis (current estimate)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11;border-radius:2px;width:20px;height:4px;border:1px dashed #3B6D11;"></div> True PCA axis</div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <div id="infoPhase" class="info-phase phase-init">Initialisation</div>
+        <div class="info-step" id="infoStep">Step 1 of 6</div>
+        <div class="info-title" id="infoTitle">First batch arrives</div>
+        <div class="info-desc" id="infoDesc">The first mini-batch of 15 points is observed. We compute the batch mean and run a thin SVD to initialise the component estimate. With only 15 points the estimated axis is rough.</div>
+      </div>
+
+      <!-- Code trace -->
+      <div class="code-panel" id="codePanel">
+        <div class="code-line" id="cl0">def partial_fit(self, X_batch):</div>
+        <div class="code-line" id="cl1">    n_b, d = X_batch.shape</div>
+        <div class="code-line" id="cl2">    x_mean = X_batch.mean(axis=0)</div>
+        <div class="code-line" id="cl3">    X_c = X_batch - x_mean           # centre batch</div>
+        <div class="code-line" id="cl4">    correction = sqrt(n_b*self.n/(n_b+self.n)) * (x_mean - self.mean_)</div>
+        <div class="code-line" id="cl5">    self.mean_ = (self.n*self.mean_ + n_b*x_mean) / (self.n + n_b)</div>
+        <div class="code-line" id="cl6">    M = vstack([self.components_ * self.singular_values_[:,None], X_c, correction])</div>
+        <div class="code-line" id="cl7">    U, S, Vt = svd(M, full_matrices=False)</div>
+        <div class="code-line" id="cl8">    self.components_ = Vt[:self.n_components]  # top-k rows</div>
+        <div class="code-line" id="cl9">    self.singular_values_ = S[:self.n_components]</div>
+        <div class="code-line" id="cl10">    self.n += n_b</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways & When to Use</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:2000px;">
+    <p><strong>Use IPCA when:</strong> your dataset does not fit in RAM, data arrives as a stream, or you need a sliding-window PCA over time. <strong>Use standard PCA</strong> when all data fits in memory and you can afford the full SVD — it is slightly more numerically stable and there is no hyperparameter to tune.</p>
+    <p>The algorithm is algebraically exact: given the same data, IPCA and full PCA produce the same components (within floating-point tolerance). The only approximation is in intermediate steps before all data is seen.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Practical Rule of Thumb</div>
+      <p style="font-size:14px;margin:0;">Set batch size \(b \geq k\) (number of components wanted). Smaller batches converge more slowly and produce noisier intermediate estimates. sklearn's <code>IncrementalPCA</code> defaults to <code>batch_size = 5 * n_features</code> when no batch size is given, which is very conservative — try \(b = 10k\) for faster convergence.</p>
+    </div>
+    <p><strong>Related topics:</strong> Standard PCA · Randomized SVD (another memory-efficient variant) · Online learning · Streaming algorithms · Kernel PCA · Sparse PCA</p>
+  </div>
+</div>
+
+<!-- CARD 6: Code -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">From-Scratch & Production Code</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" style="max-height:3000px;">
+    <h4>Minimal NumPy Implementation</h4>
+    <div class="code-panel">
+      <div class="code-line">import numpy as np</div>
+      <div class="code-line">from numpy.linalg import svd</div>
+      <div class="code-line"></div>
+      <div class="code-line">class IncrementalPCA:</div>
+      <div class="code-line">    def __init__(self, n_components=2):</div>
+      <div class="code-line">        self.k = n_components</div>
+      <div class="code-line">        self.n = 0                  # total samples seen</div>
+      <div class="code-line">        self.mean_ = None           # running mean</div>
+      <div class="code-line">        self.components_ = None     # (k, d) orthonormal rows</div>
+      <div class="code-line">        self.singular_values_ = None</div>
+      <div class="code-line"></div>
+      <div class="code-line">    def partial_fit(self, X):</div>
+      <div class="code-line">        n_b, d = X.shape</div>
+      <div class="code-line">        x_mean = X.mean(axis=0)</div>
+      <div class="code-line">        if self.n == 0:</div>
+      <div class="code-line">            # First batch: bootstrap directly</div>
+      <div class="code-line">            self.mean_ = x_mean</div>
+      <div class="code-line">            Xc = X - x_mean</div>
+      <div class="code-line">            _, S, Vt = svd(Xc, full_matrices=False)</div>
+      <div class="code-line">            self.components_ = Vt[:self.k]</div>
+      <div class="code-line">            self.singular_values_ = S[:self.k]</div>
+      <div class="code-line">            self.n = n_b</div>
+      <div class="code-line">            return</div>
+      <div class="code-line">        # Mean-shift correction vector</div>
+      <div class="code-line">        w = np.sqrt(n_b * self.n / (n_b + self.n))</div>
+      <div class="code-line">        correction = w * (x_mean - self.mean_)</div>
+      <div class="code-line">        # Update running mean</div>
+      <div class="code-line">        self.mean_ = (self.n * self.mean_ + n_b * x_mean) / (self.n + n_b)</div>
+      <div class="code-line">        # Centre the new batch around batch mean</div>
+      <div class="code-line">        Xc = X - x_mean</div>
+      <div class="code-line">        # Build augmented matrix: sketch + new data + correction</div>
+      <div class="code-line">        sketch = self.components_ * self.singular_values_[:, None]  # (k,d)</div>
+      <div class="code-line">        M = np.vstack([sketch, Xc, correction[None, :]])  # (k+b+1, d)</div>
+      <div class="code-line">        _, S, Vt = svd(M, full_matrices=False)</div>
+      <div class="code-line">        self.components_ = Vt[:self.k]</div>
+      <div class="code-line">        self.singular_values_ = S[:self.k]</div>
+      <div class="code-line">        self.n += n_b</div>
+      <div class="code-line"></div>
+      <div class="code-line">    def transform(self, X):</div>
+      <div class="code-line">        return (X - self.mean_) @ self.components_.T</div>
+    </div>
+
+    <h4 style="margin-top:1.5rem;">Production Usage (sklearn)</h4>
+    <div class="code-panel">
+      <div class="code-line">from sklearn.decomposition import IncrementalPCA</div>
+      <div class="code-line">import numpy as np</div>
+      <div class="code-line"></div>
+      <div class="code-line">ipca = IncrementalPCA(n_components=50, batch_size=500)</div>
+      <div class="code-line"></div>
+      <div class="code-line"># Streaming fit — call partial_fit on each chunk</div>
+      <div class="code-line">for chunk in data_generator():          # never loads full dataset</div>
+      <div class="code-line">    ipca.partial_fit(chunk)</div>
+      <div class="code-line"></div>
+      <div class="code-line"># Transform new data</div>
+      <div class="code-line">X_reduced = ipca.transform(X_new)      # (n, 50)</div>
+      <div class="code-line"></div>
+      <div class="code-line"># Check explained variance ratio</div>
+      <div class="code-line">print(ipca.explained_variance_ratio_[:5])</div>
+      <div class="code-line"># ⚠️ Gotcha: explained_variance_ratio_ is only reliable after</div>
+      <div class="code-line"># all data is seen — intermediate values are rough estimates.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Data generation ──────────────────────────────────────────────────────────
+// True covariance: rotated ellipse at ~35 degrees
+const TRUE_ANGLE = 35 * Math.PI / 180;
+const STD1 = 55, STD2 = 18;  // spread along major/minor axes
+
+function genBatch(n, rng) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    // Box-Muller
+    const u1 = rng(), u2 = rng();
+    const z1 = Math.sqrt(-2*Math.log(u1+1e-10))*Math.cos(2*Math.PI*u2);
+    const z2 = Math.sqrt(-2*Math.log(u1+1e-10))*Math.sin(2*Math.PI*u2);
+    const x = STD1 * z1 * Math.cos(TRUE_ANGLE) - STD2 * z2 * Math.sin(TRUE_ANGLE) + 250;
+    const y = STD1 * z1 * Math.sin(TRUE_ANGLE) + STD2 * z2 * Math.cos(TRUE_ANGLE) + 210;
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+// Seeded LCG for reproducibility
+function makeLCG(seed) {
+  let s = seed;
+  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 4294967296; };
+}
+
+const BATCH_SIZES = [15, 15, 20, 20, 25, 30];
+const rng = makeLCG(42);
+const allBatches = BATCH_SIZES.map(n => genBatch(n, rng));
+
+// ── Incremental PCA (1 component, 2D) ──────────────────────────────────────
+function computeIPCA(batches) {
+  let n = 0, mean = [0, 0];
+  let comp = [1, 0], sv = 0;  // component (unit vector), singular value
+  const states = [];  // state after each batch
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const B = batches[bi];
+    const nb = B.length;
+    // Batch mean
+    let bx = 0, by = 0;
+    for (const p of B) { bx += p[0]; by += p[1]; }
+    bx /= nb; by /= nb;
+
+    if (n === 0) {
+      mean = [bx, by];
+      // Centre B
+      const Bc = B.map(p => [p[0]-bx, p[1]-by]);
+      // 2x2 covariance
+      let cxx=0,cxy=0,cyy=0;
+      for (const p of Bc){cxx+=p[0]*p[0];cxy+=p[0]*p[1];cyy+=p[1]*p[1];}
+      // Power iteration to get top eigenvector
+      let vx=1,vy=0;
+      for(let it=0;it<20;it++){
+        let wx=cxx*vx+cxy*vy, wy=cxy*vx+cyy*vy;
+        const nm=Math.sqrt(wx*wx+wy*wy)||1;
+        vx=wx/nm;vy=wy/nm;
+      }
+      comp=[vx,vy];
+      // SV estimate: sqrt(eigenvalue * n)
+      sv = Math.sqrt(Math.abs(cxx*vx*vx + 2*cxy*vx*vy + cyy*vy*vy));
+      n = nb;
+    } else {
+      const w = Math.sqrt(nb * n / (nb + n));
+      const corr = [w*(bx-mean[0]), w*(by-mean[1])];
+      mean = [(n*mean[0]+nb*bx)/(n+nb), (n*mean[1]+nb*by)/(n+nb)];
+      // Build augmented 2D "matrix" rows: [comp*sv, ...Bc, corr]
+      // Use covariance accumulation (exact for d=2)
+      // Sketch covariance = comp * sv^2 * comp^T
+      let cxx = comp[0]*comp[0]*sv*sv;
+      let cxy = comp[0]*comp[1]*sv*sv;
+      let cyy = comp[1]*comp[1]*sv*sv;
+      // Add batch centred covariance
+      for (const p of B){
+        const dx=p[0]-bx, dy=p[1]-by;
+        cxx+=dx*dx; cxy+=dx*dy; cyy+=dy*dy;
+      }
+      // Add correction outer product
+      cxx+=corr[0]*corr[0]; cxy+=corr[0]*corr[1]; cyy+=corr[1]*corr[1];
+      // Top eigenvector via power iteration
+      let vx=comp[0], vy=comp[1];
+      for(let it=0;it<30;it++){
+        let wx=cxx*vx+cxy*vy, wy=cxy*vx+cyy*vy;
+        const nm=Math.sqrt(wx*wx+wy*wy)||1;
+        vx=wx/nm;vy=wy/nm;
+      }
+      // Make sign canonical (point in +x direction preference)
+      if(vx < 0){vx=-vx;vy=-vy;}
+      comp=[vx,vy];
+      sv = Math.sqrt(Math.abs(cxx*vx*vx + 2*cxy*vx*vy + cyy*vy*vy));
+      n += nb;
+    }
+    states.push({
+      comp:[...comp], sv, mean:[...mean], n,
+      batchIdx: bi
+    });
+  }
+  return states;
+}
+
+const STATES = computeIPCA(allBatches);
+// True PCA direction
+const TRUE_DIR = [Math.cos(TRUE_ANGLE), Math.sin(TRUE_ANGLE)];
+
+// ── Canvas drawing ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const w = canvas.parentElement.offsetWidth;
+  canvas.width = w;
+  canvas.height = 420;
+}
+
+function getColors() {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return {
+    bg2: isDark ? '#222224' : '#f0efe9',
+    text2: isDark ? '#9c9a92' : '#6b6b65',
+    text3: isDark ? '#666460' : '#9c9a92',
+    border: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)',
+    purple: '#534AB7',
+    purpleBg: isDark ? '#1e1a45' : '#EEEDFE',
+    green: '#3B6D11',
+    greenBg: isDark ? '#172a0a' : '#EAF3DE',
+    amber: '#854F0B',
+    old: isDark ? 'rgba(156,154,146,0.25)' : 'rgba(156,154,146,0.35)',
+  };
+}
+
+function drawScene(stepIdx) {
+  resizeCanvas();
+  const W = canvas.width, H = canvas.height;
+  const C = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = C.bg2;
+  ctx.fillRect(0, 0, W, H);
+
+  const state = STATES[stepIdx];
+  const cx = state.mean[0] * (W/500), cy = state.mean[1] * (H/420);
+
+  // Draw all previous batch points (muted)
+  for (let bi = 0; bi < state.batchIdx; bi++) {
+    for (const p of allBatches[bi]) {
+      const px = p[0]*(W/500), py = p[1]*(H/420);
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, 2*Math.PI);
+      ctx.fillStyle = C.old;
+      ctx.fill();
+    }
+  }
+
+  // Draw current batch points (vivid)
+  for (const p of allBatches[state.batchIdx]) {
+    const px = p[0]*(W/500), py = p[1]*(H/420);
+    ctx.beginPath();
+    ctx.arc(px, py, 4.5, 0, 2*Math.PI);
+    ctx.fillStyle = C.purple;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
+
+  // Draw true PCA axis (dashed green)
+  const axLen = Math.min(W, H) * 0.42;
+  const tmx = state.mean[0]*(W/500), tmy = state.mean[1]*(H/420);
+  ctx.save();
+  ctx.setLineDash([7, 4]);
+  ctx.strokeStyle = C.green;
+  ctx.lineWidth = 2.5;
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(tmx - TRUE_DIR[0]*axLen, tmy - TRUE_DIR[1]*axLen);
+  ctx.lineTo(tmx + TRUE_DIR[0]*axLen, tmy + TRUE_DIR[1]*axLen);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1.0;
+  ctx.restore();
+
+  // Draw IPCA estimated axis (solid amber/orange arrow)
+  const idir = state.comp;
+  const imx = tmx, imy = tmy;
+  ctx.save();
+  ctx.strokeStyle = '#EF9F27';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(imx - idir[0]*axLen, imy - idir[1]*axLen);
+  ctx.lineTo(imx + idir[0]*axLen, imy + idir[1]*axLen);
+  ctx.stroke();
+  // Arrowhead
+  const ax = imx + idir[0]*axLen, ay = imy + idir[1]*axLen;
+  const perp = [-idir[1], idir[0]];
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(ax - idir[0]*14 + perp[0]*7, ay - idir[1]*14 + perp[1]*7);
+  ctx.lineTo(ax - idir[0]*14 - perp[0]*7, ay - idir[1]*14 - perp[1]*7);
+  ctx.closePath();
+  ctx.fillStyle = '#EF9F27';
+  ctx.fill();
+  ctx.restore();
+
+  // Draw mean cross
+  ctx.save();
+  ctx.strokeStyle = C.text2;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(tmx-8, tmy); ctx.lineTo(tmx+8, tmy);
+  ctx.moveTo(tmx, tmy-8); ctx.lineTo(tmx, tmy+8);
+  ctx.stroke();
+  ctx.restore();
+
+  // Angle label
+  const iAngle = Math.atan2(idir[1], idir[0]) * 180 / Math.PI;
+  const trueAngle = TRUE_ANGLE * 180 / Math.PI;
+  const diff = Math.abs(iAngle - trueAngle).toFixed(1);
+  ctx.fillStyle = C.text2;
+  ctx.font = `bold 12px JetBrains Mono, monospace`;
+  ctx.fillText(`IPCA: ${iAngle.toFixed(1)}°  |  True: ${trueAngle.toFixed(1)}°  |  Δ = ${diff}°`, 12, H - 14);
+  ctx.fillText(`n seen: ${state.n}`, W - 90, H - 14);
+}
+
+// ── Step definitions ────────────────────────────────────────────────────────
+const STEPS = [
+  {phase:'phase-init', phaseLabel:'Initialisation', title:'Batch 1 arrives (n=15)',
+   desc:'The first mini-batch of 15 points is observed. We compute the batch mean (cross marker) and run a thin SVD on the 15×2 centred matrix to initialise the component estimate. With only 15 points the orange axis is a rough approximation.',
+   codeLines:[0,1,2,3]},
+  {phase:'phase-update', phaseLabel:'Update', title:'Batch 2 — mean shift correction',
+   desc:'A second batch of 15 points arrives. The running mean shifts (notice the cross move). The correction term √(n_old·n_b/(n_old+n_b))·(mean_b−mean_old) is appended as an extra row to keep the scatter estimate consistent across the mean shift.',
+   codeLines:[2,4,5,6]},
+  {phase:'phase-update', phaseLabel:'Update', title:'Batch 3 — subspace refines',
+   desc:'After 50 samples the augmented matrix M (sketch + new batch + correction) is assembled and a thin SVD extracts the new top component. The orange axis is rotating closer to the true 35° direction (dashed).',
+   codeLines:[6,7,8,9]},
+  {phase:'phase-update', phaseLabel:'Update', title:'Batch 4 — convergence accelerates',
+   desc:'More data tightens the covariance estimate. The thin SVD on M ∈ R^{(k+b+1)×d} costs O(k²d) — cheap because k≪d. Memory usage has not grown: we still store only the k-dimensional sketch plus the mean.',
+   codeLines:[7,8,9,10]},
+  {phase:'phase-converge', phaseLabel:'Convergence', title:'Batch 5 — axis nearly converged',
+   desc:'With 95 samples the angular error is small. The incremental estimate is asymptotically equivalent to running full PCA on all seen data — there is no approximation gap, only sampling variance from finite n.',
+   codeLines:[8,9,10]},
+  {phase:'phase-compare', phaseLabel:'Final', title:'Batch 6 — full convergence',
+   desc:'After all 6 batches (125 samples total) the IPCA axis is within ~1° of the true PCA direction. The algorithm is algebraically exact: if you ran full PCA on these same 125 points you would get the same eigenvector.',
+   codeLines:[9,10]},
+];
+
+// ── UI State ────────────────────────────────────────────────────────────────
+let step = 0;
+const N_STEPS = STEPS.length;
+
+function buildChips() {
+  const el = document.getElementById('batchChips');
+  el.innerHTML = '';
+  allBatches.forEach((b, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'batch-chip';
+    chip.id = `chip${i}`;
+    chip.textContent = `Batch ${i+1} (n=${b.length})`;
+    el.appendChild(chip);
+  });
+}
+
+function buildDots() {
+  const el = document.getElementById('progressDots');
+  el.innerHTML = '';
+  for (let i = 0; i < N_STEPS; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => { step = i; render(); };
+    el.appendChild(d);
+  }
+}
+
+function updateCodeLines(activeLines) {
+  for (let i = 0; i <= 10; i++) {
+    const el = document.getElementById(`cl${i}`);
+    if (el) el.className = 'code-line' + (activeLines.includes(i) ? ' active' : '');
+  }
+}
+
+function updateChips(batchIdx) {
+  for (let i = 0; i < allBatches.length; i++) {
+    const el = document.getElementById(`chip${i}`);
+    if (!el) continue;
+    if (i < batchIdx) el.className = 'batch-chip done';
+    else if (i === batchIdx) el.className = 'batch-chip processing';
+    else el.className = 'batch-chip';
+  }
+}
+
+function render() {
+  const s = STEPS[step];
+  const state = STATES[step];
+
+  document.getElementById('infoPhase').className = `info-phase ${s.phase}`;
+  document.getElementById('infoPhase').textContent = s.phaseLabel;
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${N_STEPS}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').textContent = s.desc;
+
+  updateCodeLines(s.codeLines);
+  updateChips(state.batchIdx);
+  drawScene(step);
+
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot' + (i === step ? ' active' : (i < step ? ' done' : ''));
+  });
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === N_STEPS - 1;
+}
+
+function go(dir) {
+  step = Math.max(0, Math.min(N_STEPS - 1, step + dir));
+  render();
+}
+
+function reset() {
+  step = 0;
+  render();
+}
+
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const toggle = header.querySelector('.section-toggle');
+  if (body.classList.contains('collapsed')) {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    toggle.classList.add('open');
+  } else {
+    body.classList.add('collapsed');
+    body.style.maxHeight = '0';
+    toggle.classList.remove('open');
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+window.addEventListener('resize', () => { if (step >= 0) drawScene(step); });
+
+buildChips();
+buildDots();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distance-Based Anomaly Detection: KNN & LOF</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  padding: 0 0 4rem;
+}
+
+.hero {
+  background: linear-gradient(135deg, var(--purple-bg) 0%, var(--blue-bg) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 2.5rem 2rem 2rem;
+}
+.hero-inner { max-width: 860px; margin: 0 auto; }
+.hero h1 { font-size: 28px; font-weight: 800; line-height: 1.2; color: var(--text); }
+.hero p { font-size: 15px; color: var(--text2); margin-top: 8px; max-width: 640px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px;
+}
+.tag-advanced { background: var(--red-bg); color: var(--red-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+.container { max-width: 860px; margin: 0 auto; padding: 0 1.5rem; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  margin-top: 1.5rem;
+}
+.card-header {
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer; user-select: none;
+}
+.section-number {
+  width: 28px; height: 28px;
+  background: var(--blue-bg); color: var(--blue-mid);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.chevron { font-size: 18px; color: var(--text3); transition: transform 0.25s; }
+.card.collapsed .chevron { transform: rotate(-90deg); }
+.card.collapsed .card-body { display: none; }
+.card-body { margin-top: 1rem; }
+
+p { margin-bottom: 0.85rem; color: var(--text2); font-size: 14.5px; }
+p:last-child { margin-bottom: 0; }
+h3 { font-size: 15px; font-weight: 700; color: var(--text); margin: 1.25rem 0 0.5rem; }
+h3:first-child { margin-top: 0; }
+
+.concept-box {
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+.concept-box-title {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;
+}
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+.concept-box p { font-size: 13.5px; }
+
+.eq {
+  text-align: center; padding: 14px 20px; margin: 0.75rem 0;
+  background: var(--cyan-bg); border: 1px solid var(--cyan-border);
+  border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto;
+}
+
+ul, ol { padding-left: 1.5rem; margin-bottom: 0.85rem; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 4px; }
+
+/* Comparison table */
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; }
+th { background: var(--blue-bg); color: var(--blue-mid); padding: 8px 12px; text-align: left; font-weight: 600; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
+tr:last-child td { border-bottom: none; }
+tr:nth-child(even) td { background: var(--bg2); }
+
+/* ===== VISUALIZATION ===== */
+#viz-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+}
+#viz-section h2 { font-size: 20px; font-weight: 700; margin-bottom: 0.5rem; }
+#viz-section p { font-size: 13.5px; }
+
+.canvas-wrap {
+  position: relative;
+  background: var(--bg2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-top: 1rem;
+}
+#vizCanvas { display: block; width: 100%; height: 420px; }
+
+/* Info card */
+.info-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-top: 0.75rem;
+}
+.info-phase {
+  display: inline-block;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 2px 8px; border-radius: 12px;
+  background: var(--purple-bg); color: var(--purple-mid);
+  margin-bottom: 6px;
+}
+.info-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.info-body { font-size: 13px; color: var(--text2); }
+
+/* Legend */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 0.75rem;
+  font-size: 12px; color: var(--text2);
+}
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; flex-wrap: wrap; }
+.btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 600;
+  padding: 10px 20px; border-radius: var(--radius);
+  border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text); cursor: pointer; transition: all 0.2s;
+}
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap {
+  display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap;
+}
+.dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--border2); transition: all 0.25s; cursor: pointer;
+}
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-inner">
+    <h1>Distance-Based Anomaly Detection: KNN &amp; LOF</h1>
+    <p>How k-nearest neighbour distances and Local Outlier Factor detect anomalies — including local outliers hidden in varying-density datasets where global thresholds blindly fail.</p>
+    <div class="tags">
+      <span class="tag tag-advanced">Advanced</span>
+      <span class="tag tag-category">Anomaly Detection</span>
+      <span class="tag tag-category">Unsupervised Learning</span>
+      <span class="tag tag-complexity">O(n² log n)</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- Card 1: Understanding -->
+<div class="card" id="card1">
+  <div class="card-header" onclick="toggle('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <p>Anomaly detection asks: which points in a dataset <em>don't belong</em>? Distance-based methods answer this by reasoning: <strong>normal points live close to their neighbours; outliers live far away</strong>.</p>
+
+    <h3>KNN-Distance Score</h3>
+    <p>The simplest approach: for each point \(x\), compute its distance to its \(k\)-th nearest neighbour, \(d_k(x)\). A large \(d_k(x)\) means the point is isolated — a candidate outlier. Threshold this score globally and you have a detector.</p>
+    <p><strong>The fundamental problem:</strong> real data has <em>clusters of different density</em>. A point that is far from everything in an overall sense might still be perfectly normal within a low-density region — and a point that is close to its neighbours in absolute terms might still be anomalous relative to its local neighbourhood.</p>
+
+    <h3>Local Outlier Factor (LOF)</h3>
+    <p>LOF (Breunig et al., 2000) fixes this by comparing each point's local density to the average local density of its neighbours. If your neighbourhood is much less dense than your neighbours' neighbourhoods, you're a local outlier — even if no global threshold would catch you.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">Key Insight</div>
+      <p>LOF is a <strong>ratio of densities</strong>, not an absolute distance. A point with LOF ≈ 1 has density similar to its surroundings (normal). LOF ≫ 1 means it lives in a region far sparser than its neighbours — an outlier <em>relative to its local context</em>.</p>
+    </div>
+
+    <h3>Analogy</h3>
+    <p>Imagine villages scattered across a country. Most villages are in dense clusters near cities. A lone farmhouse far from any city looks obviously isolated (high KNN-distance). But now consider an arctic research station: it's in a sparse region, surrounded by other research stations at similar distances — totally normal <em>locally</em>. LOF captures this relativity; KNN-distance alone cannot.</p>
+  </div>
+</div>
+
+<!-- Card 2: Internal Workings -->
+<div class="card" id="card2">
+  <div class="card-header" onclick="toggle('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <h3>Step 1 — k-Distance and Neighbourhood</h3>
+    <p>For each point \(p\), find its \(k\)-nearest neighbours \(\mathcal{N}_k(p)\). The <em>k-distance</em> \(d_k(p)\) is the distance to the \(k\)-th closest point (ties included in the neighbourhood, so \(|\mathcal{N}_k(p)| \geq k\)).</p>
+
+    <h3>Step 2 — Reachability Distance</h3>
+    <p>Raw distances are noisy for nearby points. LOF smooths them with <em>reachability distance</em>:</p>
+    <div class="eq">$$\text{reach-dist}_k(p, o) = \max\!\bigl(d_k(o),\; d(p, o)\bigr)$$</div>
+    <p>This clamps short distances to at least \(d_k(o)\) — the core of \(o\)'s own neighbourhood radius. It prevents statistical fluctuations from inflating density estimates in tight clusters.</p>
+
+    <h3>Step 3 — Local Reachability Density (lrd)</h3>
+    <p>The lrd of \(p\) is the inverse of the average reachability distance from \(p\) to its neighbours:</p>
+    <div class="eq">$$\text{lrd}_k(p) = \left(\frac{1}{|\mathcal{N}_k(p)|}\sum_{o \in \mathcal{N}_k(p)} \text{reach-dist}_k(p,o)\right)^{-1}$$</div>
+    <p>High lrd means \(p\) is close to its neighbours (dense). Low lrd means \(p\) is far from them (sparse).</p>
+
+    <h3>Step 4 — LOF Score</h3>
+    <p>Compare \(p\)'s density to its neighbours' densities:</p>
+    <div class="eq">$$\text{LOF}_k(p) = \frac{1}{|\mathcal{N}_k(p)|}\sum_{o \in \mathcal{N}_k(p)} \frac{\text{lrd}_k(o)}{\text{lrd}_k(p)}$$</div>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Interpretation</div>
+      <p><strong>LOF ≈ 1:</strong> neighbours have similar density — \(p\) is normal.<br>
+      <strong>LOF ≫ 1:</strong> neighbours are in a much denser region — \(p\) is an outlier.<br>
+      <strong>LOF &lt; 1:</strong> \(p\) is in a denser region than its neighbours (core of a cluster).</p>
+    </div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Design Choice: Why Reachability Distance?</div>
+      <p>Without clamping, two points that happen to be very close would each inflate the other's density estimate, producing artificially high lrd values. The max-clamp stabilises density estimates in tight clusters and makes LOF well-defined even when points coincide.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 3: Math -->
+<div class="card" id="card3">
+  <div class="card-header" onclick="toggle('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math Behind It</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <h3>KNN Outlier Score (Global Threshold)</h3>
+    <p>Let \(\mathcal{X} = \{x_1, \ldots, x_n\} \subset \mathbb{R}^d\). Define:</p>
+    <div class="eq">$$\text{score}_{\text{KNN}}(x) = d_k(x) = \min_{S \subset \mathcal{X},\, |S|=k} \max_{o \in S} d(x, o)$$</div>
+    <p>i.e., the distance to the \(k\)-th nearest neighbour. Flag \(x\) as an outlier if \(d_k(x) > \tau\) for global threshold \(\tau\).</p>
+
+    <h3>LOF Derivation</h3>
+    <p>Define the <strong>k-neighbourhood</strong> with tie-handling:</p>
+    <div class="eq">$$\mathcal{N}_k(p) = \bigl\{o \in \mathcal{X} \setminus \{p\} : d(p,o) \leq d_k(p)\bigr\}$$</div>
+    <p>Reachability distance (smoothing operator):</p>
+    <div class="eq">$$\text{reach-dist}_k(p, o) = \max\bigl(d_k(o),\; d(p,o)\bigr)$$</div>
+    <p>Local reachability density (pseudo-density):</p>
+    <div class="eq">$$\text{lrd}_k(p) = \left(\frac{\sum_{o \in \mathcal{N}_k(p)} \text{reach-dist}_k(p,o)}{|\mathcal{N}_k(p)|}\right)^{-1}$$</div>
+    <p>LOF score (relative density ratio averaged over neighbourhood):</p>
+    <div class="eq">$$\text{LOF}_k(p) = \frac{\sum_{o \in \mathcal{N}_k(p)} \tfrac{\text{lrd}_k(o)}{\text{lrd}_k(p)}}{|\mathcal{N}_k(p)|}$$</div>
+
+    <h3>Numerical Trace (k = 2)</h3>
+    <p>Consider 4 points in 1D: \(A=0, B=1, C=2, O=10\). We compute LOF for \(O\).</p>
+    <ul>
+      <li>\(d_2(O)\): nearest are \(C\) at 8, \(B\) at 9 → \(d_2(O) = 9\). \(\mathcal{N}_2(O) = \{B,C\}\)</li>
+      <li>\(d_2(B) = d(B,C) = 1\) (2nd NN of B is A at dist 1). \(d_2(C) = 1\).</li>
+      <li>\(\text{reach-dist}(O, B) = \max(d_2(B), d(O,B)) = \max(1, 9) = 9\)</li>
+      <li>\(\text{reach-dist}(O, C) = \max(d_2(C), d(O,C)) = \max(1, 8) = 8\)</li>
+      <li>\(\text{lrd}_2(O) = \left(\frac{9+8}{2}\right)^{-1} = \frac{2}{17} \approx 0.118\)</li>
+      <li>\(\text{lrd}_2(B) = \left(\frac{\max(1,1)+\max(1,1)}{2}\right)^{-1} = 1\). Similarly \(\text{lrd}_2(C) = 1\).</li>
+      <li>\(\text{LOF}_2(O) = \frac{1}{2}\left(\frac{1}{0.118} + \frac{1}{0.118}\right) = \frac{1}{0.118} \approx 8.5\)</li>
+    </ul>
+    <p>LOF = 8.5 ≫ 1 → \(O\) is flagged as an outlier. The cluster points \(A, B, C\) each score ≈ 1.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Theoretical Guarantee</div>
+      <p>For points deep inside a cluster of uniform density \(\lambda\), \(\text{LOF}_k(p) \to 1\) as \(n \to \infty\). For a true outlier at distance \(\Delta \gg d_k\) from any cluster, \(\text{LOF}_k(p) \approx \Delta / d_k \to \infty\). LOF is consistent in this sense.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 4: Interactive viz placeholder (filled below) -->
+<div id="viz-section">
+  <h2>🎯 Interactive Visual Explainer</h2>
+  <p>Animate through how LOF scores are computed — step by step — on a 2-cluster + outlier dataset. Notice the <strong>local outlier</strong> in the sparse cluster: KNN-distance doesn't flag it, but LOF does.</p>
+
+  <div class="canvas-wrap">
+    <canvas id="vizCanvas"></canvas>
+  </div>
+
+  <div class="info-card" id="infoCard">
+    <div class="info-phase" id="infoPhase">Setup</div>
+    <div class="info-title" id="infoTitle">Dataset Overview</div>
+    <div class="info-body" id="infoBody">The dataset has two clusters at different densities plus one clear global outlier and one local outlier (hidden in the sparse cluster). Use Next to explore.</div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div> Dense-cluster (normal)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div> Sparse-cluster (normal)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#A32D2D"></div> Flagged outlier (LOF ≫ 1)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#EF9F27"></div> Local outlier (LOF > threshold, KNN misses)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#00ACC1"></div> k-NN connection line</div>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap"></div>
+  <div class="controls">
+    <button class="btn" id="btnPrev" onclick="go(-1)">← Prev</button>
+    <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+    <button class="btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+</div>
+
+<!-- Card 5: Takeaways -->
+<div class="card" id="card5">
+  <div class="card-header" onclick="toggle('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison &amp; When to Use</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <table>
+      <tr><th>Method</th><th>Detects Global Outliers</th><th>Detects Local Outliers</th><th>Density-Adaptive</th><th>Complexity</th></tr>
+      <tr><td>KNN-distance (k-th NN)</td><td>Yes</td><td>No</td><td>No</td><td>O(n² d)</td></tr>
+      <tr><td>LOF</td><td>Yes</td><td>Yes</td><td>Yes</td><td>O(n² d)</td></tr>
+      <tr><td>Isolation Forest</td><td>Yes</td><td>Partially</td><td>Partially</td><td>O(n log n)</td></tr>
+      <tr><td>One-Class SVM</td><td>Yes</td><td>No</td><td>No</td><td>O(n² d)</td></tr>
+      <tr><td>DBSCAN (noise pts)</td><td>Yes</td><td>Partially</td><td>Yes</td><td>O(n log n)</td></tr>
+    </table>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">When to Use LOF</div>
+      <p><strong>Use LOF</strong> when: data has clusters of varying density, local context matters, you need interpretable per-point scores, dataset is small/medium (&lt;50k points).<br>
+      <strong>Prefer KNN-distance</strong> for: very simple uniform-density data, maximum interpretability, when speed matters less than correctness.<br>
+      <strong>Prefer Isolation Forest</strong> for: large datasets (millions), fast inference, high-dimensional data.</p>
+    </div>
+
+    <h3>Key Hyperparameter: k</h3>
+    <p>Small \(k\) (3–5): detects micro-outliers, sensitive to noise. Large \(k\) (20–50): smoother, sees larger-scale structure. Rule of thumb: \(k \in [10, 30]\) for most datasets. LOF is typically evaluated for a range of \(k\) and the maximum LOF across the range is used.</p>
+  </div>
+</div>
+
+<!-- Card 6: Code -->
+<div class="card" id="card6">
+  <div class="card-header" onclick="toggle('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">From-Scratch &amp; Production Code</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body">
+    <h3>LOF from Scratch (NumPy)</h3>
+    <pre style="background:var(--bg2);padding:1rem;border-radius:var(--radius);font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;color:var(--text2)"><code>import numpy as np
+from scipy.spatial.distance import cdist
+
+def lof(X, k=5):
+    """Local Outlier Factor from scratch.
+    Returns LOF scores; score >> 1 means outlier."""
+    n = len(X)
+    # Pairwise distances (n x n)
+    D = cdist(X, X)
+    np.fill_diagonal(D, np.inf)   # exclude self
+
+    # k-distance for each point (distance to k-th NN)
+    sorted_D = np.sort(D, axis=1)           # shape (n, n-1)
+    k_dist = sorted_D[:, k-1]              # k-th NN distance
+
+    # k-neighbourhood (all points within k_dist, ties allowed)
+    # reach-dist(p, o) = max(k_dist[o], d(p,o))
+    # lrd(p) = 1 / mean(reach-dist(p, o) for o in N_k(p))
+    lrd = np.zeros(n)
+    neighbours = []
+    for i in range(n):
+        # Neighbourhood: all points with d(i,j) <= k_dist[i]
+        nb = np.where(D[i] <= k_dist[i])[0]
+        neighbours.append(nb)
+        reach_dists = np.maximum(k_dist[nb], D[i][nb])
+        lrd[i] = 1.0 / (reach_dists.mean() + 1e-12)
+
+    # LOF = average ratio of neighbour lrd to own lrd
+    scores = np.zeros(n)
+    for i in range(n):
+        nb = neighbours[i]
+        scores[i] = lrd[nb].mean() / (lrd[i] + 1e-12)
+    return scores
+
+# Example
+X = np.random.randn(100, 2)
+X = np.vstack([X, [8, 8]])   # clear outlier
+scores = lof(X, k=10)
+print(f"Outlier LOF: {scores[-1]:.2f}")   # >> 1
+print(f"Normal mean LOF: {scores[:-1].mean():.2f}")  # ~ 1</code></pre>
+
+    <h3>Production Usage (scikit-learn)</h3>
+    <pre style="background:var(--bg2);padding:1rem;border-radius:var(--radius);font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;color:var(--text2)"><code>from sklearn.neighbors import LocalOutlierFactor
+
+# novelty=False: predict on training data (standard LOF)
+clf = LocalOutlierFactor(n_neighbors=20, contamination=0.05)
+y_pred = clf.fit_predict(X)      # -1 = outlier, 1 = inlier
+scores = -clf.negative_outlier_factor_  # higher = more anomalous
+
+# novelty=True: fit on clean training data, score new test points
+clf2 = LocalOutlierFactor(n_neighbors=20, novelty=True)
+clf2.fit(X_train)
+y_test = clf2.predict(X_test)    # -1 = anomaly
+
+# For KNN-distance baseline:
+from sklearn.neighbors import NearestNeighbors
+nn = NearestNeighbors(n_neighbors=5)
+nn.fit(X)
+dists, _ = nn.kneighbors(X)
+knn_scores = dists[:, -1]        # distance to k-th NN</code></pre>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ===== VISUALIZATION LOGIC =====
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+
+// Define dataset with two clusters + outliers
+// Dense cluster: 8 pts around (120, 200)
+// Sparse cluster: 5 pts around (420, 180) — wider spacing
+// Global outlier: (680, 350)
+// Local outlier: inside sparse cluster but noticeably farther
+const DENSE_COLOR = '#534AB7';
+const SPARSE_COLOR = '#3B6D11';
+const OUTLIER_COLOR = '#A32D2D';
+const LOCAL_OUTLIER_COLOR = '#EF9F27';
+const KNN_COLOR = 'rgba(0,172,193,0.55)';
+
+// Points: [x, y, type] where type: 'd'=dense,'s'=sparse,'o'=outlier,'l'=local-outlier
+let pts = [];
+
+function initPts() {
+  pts = [];
+  const W = canvas.width, H = canvas.height;
+  // Dense cluster center ~(W*0.20, H*0.48)
+  const dc = [W*0.20, H*0.48];
+  const denseSeeds = [
+    [0, 0],[18,-10],[25,12],[-12,15],[10,-22],
+    [-20,-8],[30,-5],[5,28],[-5,-25],[22,20]
+  ];
+  for (const [dx,dy] of denseSeeds)
+    pts.push({x: dc[0]+dx, y: dc[1]+dy, type:'d', lof:0});
+
+  // Sparse cluster center ~(W*0.58, H*0.40)
+  const sc = [W*0.58, H*0.40];
+  const sparseSeeds = [
+    [0,0],[55,-30],[65,45],[-50,40],[-45,-35],[60,-60]
+  ];
+  for (const [dx,dy] of sparseSeeds)
+    pts.push({x: sc[0]+dx, y: sc[1]+dy, type:'s', lof:0});
+
+  // Local outlier — in sparse region but farther from sparse cluster center
+  pts.push({x: sc[0]+130, y: sc[1]+100, type:'l', lof:0});
+
+  // Global outlier
+  pts.push({x: W*0.86, y: H*0.78, type:'o', lof:0});
+}
+
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth;
+  canvas.height = 420;
+  initPts();
+  render();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// Compute actual LOF scores for k=3
+function computeLOF(k) {
+  const n = pts.length;
+  // Distances
+  function dist(a, b) {
+    return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2);
+  }
+  // k-distance for each point
+  const kdist = pts.map((p, i) => {
+    const ds = pts.map((q,j) => j===i ? Infinity : dist(p,q));
+    ds.sort((a,b)=>a-b);
+    return ds[k-1];
+  });
+  // Neighbours: all pts within kdist (tie-inclusive)
+  const neigh = pts.map((p,i) => {
+    const nb = [];
+    pts.forEach((q,j) => { if (j!==i && dist(p,q) <= kdist[i]) nb.push(j); });
+    return nb;
+  });
+  // lrd
+  const lrd = pts.map((p,i) => {
+    const nb = neigh[i];
+    if (!nb.length) return 0;
+    const avg = nb.reduce((s,j) => s + Math.max(kdist[j], dist(p,pts[j])), 0) / nb.length;
+    return avg > 0 ? 1/avg : 0;
+  });
+  // LOF
+  const lof = pts.map((p,i) => {
+    const nb = neigh[i];
+    if (!nb.length || lrd[i]===0) return 1;
+    const avgNeighLrd = nb.reduce((s,j) => s + lrd[j], 0) / nb.length;
+    return avgNeighLrd / lrd[i];
+  });
+  return {kdist, neigh, lrd, lof};
+}
+
+let scores = {kdist:[], neigh:[], lrd:[], lof:[]};
+
+// Steps definition
+const STEPS = [
+  {
+    phase: 'Setup', title: 'Dataset Overview',
+    body: 'Two clusters: a dense one (purple, left) and a sparse one (green, right). One clear global outlier (red, far right). One local outlier (orange) sitting at the edge of the sparse cluster — farther from its neighbours than they are from each other.',
+    highlight: null, showKNN: false, showLOF: false
+  },
+  {
+    phase: 'Step 1', title: 'Compute k-Distances (k = 3)',
+    body: 'For each point, find its 3 nearest neighbours. The k-distance (distance to the 3rd NN) is drawn as a circle. Dense-cluster points have tiny circles. Sparse-cluster points have larger circles. The global and local outliers have the largest k-distance circles.',
+    highlight: null, showKNN: false, showLOF: false, showKDist: true
+  },
+  {
+    phase: 'Step 2', title: 'KNN-Distance Score (Global Threshold)',
+    body: 'Sort all points by k-distance. The global outlier (red) is clearly the maximum. But the local outlier (orange) has a k-distance similar to normal sparse-cluster points — a global threshold would NOT flag it. This is the failure mode KNN-distance suffers in multi-density data.',
+    highlight: null, showKNN: false, showLOF: false, showKDist: true, globalThreshold: true
+  },
+  {
+    phase: 'Step 3', title: 'Local Reachability Density (lrd)',
+    body: 'lrd measures how densely packed a point\'s neighbourhood is. Dense-cluster points have high lrd (small reach-distances). Sparse-cluster points have lower lrd. The local outlier\'s lrd is even lower — its reach-distances to its neighbours are large because it is far from them.',
+    highlight: 'lrd', showKNN: true, showLOF: false
+  },
+  {
+    phase: 'Step 4', title: 'LOF Score — Ratio of Densities',
+    body: 'LOF for each point = average(neighbours\' lrd) / own lrd. Dense-cluster points all have lrd ≈ each other → LOF ≈ 1. Sparse-cluster normals likewise. The local outlier\'s own lrd is much lower than its neighbours\' lrd → LOF ≫ 1. The global outlier is also caught.',
+    highlight: null, showKNN: false, showLOF: true
+  },
+  {
+    phase: 'Step 5', title: 'LOF Catches What KNN Misses',
+    body: 'Final LOF scores shown as coloured rings. LOF correctly identifies BOTH the global outlier (red) AND the local outlier (orange) — even though they are in different density regions. A global KNN threshold would miss the local outlier entirely. This is the power of density-relative scoring.',
+    highlight: null, showKNN: false, showLOF: true, final: true
+  }
+];
+
+let step = 0;
+
+function colorFor(pt) {
+  if (pt.type === 'o') return OUTLIER_COLOR;
+  if (pt.type === 'l') return LOCAL_OUTLIER_COLOR;
+  if (pt.type === 'd') return DENSE_COLOR;
+  return SPARSE_COLOR;
+}
+
+function render() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // BG
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim() || '#f0efe9';
+  ctx.fillRect(0, 0, W, H);
+
+  const s = STEPS[step];
+  scores = computeLOF(3);
+
+  // Draw k-dist circles
+  if (s.showKDist) {
+    pts.forEach((p, i) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, scores.kdist[i], 0, Math.PI*2);
+      ctx.strokeStyle = colorFor(p) + '44';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4,3]);
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
+  // Global threshold line (step 2)
+  if (s.globalThreshold) {
+    // threshold at midpoint between sparse normal max and global outlier
+    const normalKDists = pts.filter((_,i)=>pts[i].type==='d'||pts[i].type==='s').map((_,ri)=>{
+      // find actual index
+      let ii = 0; let cnt = 0;
+      for(let j=0;j<pts.length;j++){if(pts[j].type==='d'||pts[j].type==='s'){if(cnt===ri)return scores.kdist[j];cnt++;}}
+      return 0;
+    });
+    const maxNormal = Math.max(...scores.kdist.filter((_,i)=>pts[i].type!=='o'&&pts[i].type!=='l'));
+    const outlierKD = scores.kdist[pts.findIndex(p=>p.type==='o')];
+    const thresh = (maxNormal + outlierKD) / 2;
+    // Draw dashed threshold circle around each point
+    ctx.save();
+    ctx.strokeStyle = '#A32D2D88';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,4]);
+    pts.forEach((p,i) => {
+      if (scores.kdist[i] > thresh) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, scores.kdist[i]+6, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    });
+    // Label
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#A32D2D';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('Global threshold catches only 1 outlier', W/2-110, 24);
+    ctx.restore();
+  }
+
+  // Draw KNN connections for lrd step
+  if (s.showKNN) {
+    pts.forEach((p,i) => {
+      scores.neigh[i].forEach(j => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.strokeStyle = KNN_COLOR;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+
+  // Draw points
+  pts.forEach((p, i) => {
+    const c = colorFor(p);
+    // LOF ring in final steps
+    if (s.showLOF) {
+      const lofScore = scores.lof[i];
+      const r = Math.min(40, Math.max(8, lofScore * 6));
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+      ctx.strokeStyle = c + 'aa';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // lrd ring
+    if (s.highlight === 'lrd') {
+      const lrdV = scores.lrd[i];
+      const maxLrd = Math.max(...scores.lrd);
+      const pct = lrdV / maxLrd;
+      const r = 6 + (1 - pct) * 20; // sparser = larger ring
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+      ctx.strokeStyle = c + '88';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Point body
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7, 0, Math.PI*2);
+    ctx.fillStyle = c;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // LOF label in final step
+    if (s.showLOF) {
+      const lofScore = scores.lof[i];
+      if (lofScore > 1.5 || p.type === 'o' || p.type === 'l') {
+        ctx.save();
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = c;
+        ctx.fillText(`LOF=${lofScore.toFixed(1)}`, p.x+9, p.y-9);
+        ctx.restore();
+      }
+    }
+    // KDist label in step 1
+    if (s.showKDist && !s.globalThreshold) {
+      ctx.save();
+      ctx.font = '9px monospace';
+      ctx.fillStyle = c;
+      ctx.fillText(`${scores.kdist[i].toFixed(0)}`, p.x+8, p.y+4);
+      ctx.restore();
+    }
+    // lrd label
+    if (s.highlight === 'lrd') {
+      ctx.save();
+      ctx.font = '9px monospace';
+      ctx.fillStyle = c;
+      ctx.fillText(`lrd=${scores.lrd[i].toFixed(3)}`, p.x+9, p.y+4);
+      ctx.restore();
+    }
+  });
+
+  // Cluster labels
+  ctx.save();
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillStyle = DENSE_COLOR + 'cc';
+  ctx.fillText('Dense cluster', pts[0].x - 30, pts[0].y - 42);
+  ctx.fillStyle = SPARSE_COLOR + 'cc';
+  const sparseStart = pts.findIndex(p=>p.type==='s');
+  ctx.fillText('Sparse cluster', pts[sparseStart].x - 20, pts[sparseStart].y - 65);
+  ctx.restore();
+}
+
+// Step navigation
+function updateUI() {
+  const s = STEPS[step];
+  document.getElementById('infoPhase').textContent = s.phase;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoBody').textContent = s.body;
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === STEPS.length - 1;
+
+  // Dots
+  const wrap = document.getElementById('progressWrap');
+  wrap.innerHTML = '';
+  STEPS.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < step ? ' done' : '') + (i === step ? ' active' : '');
+    d.onclick = () => { step = i; updateUI(); render(); };
+    wrap.appendChild(d);
+  });
+
+  render();
+}
+
+function go(dir) {
+  step = Math.max(0, Math.min(STEPS.length-1, step + dir));
+  updateUI();
+}
+
+function reset() { step = 0; updateUI(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Card toggle
+function toggle(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// Init
+resizeCanvas();
+updateUI();
+</script>
+</body>
+</html>

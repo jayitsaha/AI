@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DBSCAN-based Anomaly Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.65; padding: 0; }
+.page { max-width: 900px; margin: 0 auto; padding: 32px 24px 80px; }
+
+/* Header */
+.header { margin-bottom: 2rem; }
+.breadcrumb { font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+h1 { font-size: clamp(22px,4vw,34px); font-weight: 800; color: var(--text); line-height: 1.2; }
+.subtitle { font-size: 15px; color: var(--text2); margin-top: 8px; max-width: 640px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.card-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 12px; }
+.card-toggle:hover .section-title { color: var(--purple-mid); }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.chevron { margin-left: auto; color: var(--text3); transition: transform 0.3s; font-size: 18px; }
+.chevron.open { transform: rotate(180deg); }
+.card-body { display: none; }
+.card-body.open { display: block; }
+
+p { margin-bottom: 0.85rem; color: var(--text2); font-size: 14.5px; }
+strong { color: var(--text); font-weight: 600; }
+
+/* Concept boxes */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.danger { background: var(--red-bg); border: 1px solid var(--red-border); }
+.concept-box.danger .concept-box-title { color: var(--red-mid); }
+.concept-box p { color: inherit; font-size: 13.5px; margin-bottom: 0; }
+.concept-box.insight p { color: var(--green-text); }
+.concept-box.key-concept p { color: var(--blue-text); }
+.concept-box.warning p { color: var(--amber-text); }
+.concept-box.danger p { color: var(--red-text); }
+
+/* Math display */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* Code panel */
+.code-panel { margin-top: 1rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* Two-column layout */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+@media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+/* Compare table */
+table.compare { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; }
+table.compare th { background: var(--blue-bg); color: var(--blue-mid); font-weight: 700; padding: 8px 12px; text-align: left; }
+table.compare td { padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
+table.compare tr:hover td { background: var(--bg2); }
+
+/* ─── VISUALIZATION ─── */
+#viz-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+#viz-section h2 { font-size: 20px; font-weight: 700; margin-bottom: 1rem; }
+
+.viz-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+#dbscan-canvas { border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface); width: 100%; max-width: 660px; height: 360px; display: block; }
+
+/* Info card */
+.info-card { width: 100%; max-width: 660px; background: var(--bg2); border-radius: var(--radius-lg); padding: 16px 20px; }
+.info-card-phase { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 8px; border-radius: 12px; margin-bottom: 8px; }
+.phase-init { background: var(--blue-bg); color: var(--blue-mid); }
+.phase-expand { background: var(--purple-bg); color: var(--purple-mid); }
+.phase-noise { background: var(--red-bg); color: var(--red-mid); }
+.phase-done { background: var(--green-bg); color: var(--green-mid); }
+.info-card-step { font-size: 11px; color: var(--text3); margin-bottom: 4px; font-family: var(--mono); }
+.info-card-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.info-card-body { font-size: 13.5px; color: var(--text2); line-height: 1.6; }
+
+/* Legend */
+.legend { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--text2); }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.legend-ring { width: 12px; height: 12px; border-radius: 50%; border: 2px dashed; flex-shrink: 0; background: transparent; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 0.75rem; flex-wrap: wrap; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Param display */
+.param-strip { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; font-size: 12px; font-family: var(--mono); color: var(--text3); margin-bottom: 6px; }
+.param-val { color: var(--purple-mid); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="breadcrumb">Part III · Unsupervised Learning · Section 12 — Anomaly Detection</div>
+    <h1>Density-based Anomaly Detection: DBSCAN</h1>
+    <p class="subtitle">How sparse-neighborhood points become anomalies — automatically, without specifying cluster count.</p>
+    <div class="tags">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">Unsupervised Learning</span>
+      <span class="tag tag-category">Anomaly Detection</span>
+      <span class="tag tag-complexity">ε · minPts · NOISE</span>
+    </div>
+  </div>
+
+  <!-- CARD 1: Understanding -->
+  <div class="card">
+    <div class="card-toggle" onclick="toggleCard(this)">
+      <div class="section-number">1</div>
+      <div class="section-title">Understanding the Concept</div>
+      <div class="chevron">▼</div>
+    </div>
+    <div class="card-body open">
+      <p>
+        <strong>What is anomaly detection?</strong> The goal is to flag observations that deviate so strongly from the majority that they are likely produced by a different, rare process — fraud transactions, sensor malfunctions, network intrusions. Most anomaly detectors need a "normal" reference or must know how many clusters to expect. DBSCAN needs neither.
+      </p>
+      <p>
+        <strong>The DBSCAN insight:</strong> A point is <em>normal</em> if its local neighborhood is dense — i.e., at least \(\text{minPts}\) other points fall within radius \(\varepsilon\). A point whose neighborhood is sparse joins <strong>no cluster</strong> and is automatically labelled <strong>NOISE</strong>. Those NOISE points <em>are</em> the anomalies.
+      </p>
+      <div class="concept-box insight">
+        <div class="concept-box-title">Key Insight</div>
+        <p>You never need to say "there are <em>k</em> anomalies." DBSCAN discovers dense regions organically; anything left over is an anomaly by definition. The decision emerges from the data's own geometry.</p>
+      </div>
+      <p>
+        <strong>Analogy:</strong> Imagine a city map with dots for people. Clusters are neighbourhoods — many people close together. An anomaly is a lone hiker miles from the nearest town: no dense neighbourhood, no cluster, flagged as NOISE.
+      </p>
+      <p>
+        <strong>Versus distance-only methods</strong> (e.g., k-NN distance score, isolation forest): those assign a continuous score and pick a threshold. DBSCAN produces a hard binary NOISE label as a by-product of clustering — no additional thresholding step required.
+      </p>
+    </div>
+  </div>
+
+  <!-- CARD 2: How It Works -->
+  <div class="card">
+    <div class="card-toggle" onclick="toggleCard(this)">
+      <div class="section-number">2</div>
+      <div class="section-title">How DBSCAN Works Internally</div>
+      <div class="chevron">▼</div>
+    </div>
+    <div class="card-body open">
+      <p>
+        DBSCAN classifies every point into one of three roles before labelling anomalies:
+      </p>
+      <ul style="list-style:none;padding:0;margin:0 0 0.85rem 0;display:flex;flex-direction:column;gap:6px">
+        <li style="display:flex;gap:10px"><span style="background:var(--blue-bg);color:var(--blue-mid);border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;flex-shrink:0">Core</span><span style="font-size:14px;color:var(--text2)">Has ≥ minPts neighbours within ε. Can seed or expand a cluster.</span></li>
+        <li style="display:flex;gap:10px"><span style="background:var(--amber-bg);color:var(--amber-mid);border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;flex-shrink:0">Border</span><span style="font-size:14px;color:var(--text2)">Within ε of a core point but has < minPts own neighbours. Assigned to core's cluster.</span></li>
+        <li style="display:flex;gap:10px"><span style="background:var(--red-bg);color:var(--red-mid);border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;flex-shrink:0">NOISE</span><span style="font-size:14px;color:var(--text2)">Not within ε of any core point. → <strong>Anomaly</strong>.</span></li>
+      </ul>
+      <p><strong>Algorithm (pseudocode):</strong></p>
+      <div class="code-panel">
+        <div class="code-line" id="cl0">for each unvisited point p:</div>
+        <div class="code-line" id="cl1">  mark p as visited</div>
+        <div class="code-line" id="cl2">  N = RangeQuery(p, ε)  # all points within distance ε</div>
+        <div class="code-line" id="cl3">  if |N| &lt; minPts:</div>
+        <div class="code-line" id="cl4">    label p = NOISE  # ← anomaly candidate</div>
+        <div class="code-line" id="cl5">  else:</div>
+        <div class="code-line" id="cl6">    C = new cluster</div>
+        <div class="code-line" id="cl7">    expand(p, N, C, ε, minPts)  # BFS/DFS flood-fill</div>
+        <div class="code-line" id="cl8">      for each q in N:</div>
+        <div class="code-line" id="cl9">        N_q = RangeQuery(q, ε)</div>
+        <div class="code-line" id="cl10">        if |N_q| ≥ minPts: N += N_q  # grow the frontier</div>
+        <div class="code-line" id="cl11">        if q not yet in a cluster: assign q → C</div>
+      </div>
+      <div class="concept-box key-concept">
+        <div class="concept-box-title">Complexity</div>
+        <p>With a spatial index (k-d tree / ball tree) RangeQuery runs in \(\mathcal{O}(\log n)\), giving overall \(\mathcal{O}(n \log n)\). Without indexing: \(\mathcal{O}(n^2)\).</p>
+      </div>
+      <p>
+        <strong>Why ε and minPts matter for anomaly detection:</strong> Small ε (tight balls) → more NOISE points flagged. Large minPts → stricter density requirement → more points labelled NOISE. Together they encode the analyst's definition of "normal density."
+      </p>
+      <div class="concept-box warning">
+        <div class="concept-box-title">Design Decision — No Cluster Count</div>
+        <p>Unlike k-means which needs <em>k</em>, DBSCAN finds clusters implicitly. This is a fundamental advantage for anomaly detection: you don't need to guess how many "normal" modes exist.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 3: The Math -->
+  <div class="card">
+    <div class="card-toggle" onclick="toggleCard(this)">
+      <div class="section-number">3</div>
+      <div class="section-title">The Math Behind It</div>
+      <div class="chevron">▼</div>
+    </div>
+    <div class="card-body">
+      <p>Let \(\mathcal{X} = \{x_1, \dots, x_n\} \subset \mathbb{R}^d\) be the dataset and \(d(\cdot,\cdot)\) a metric (typically Euclidean).</p>
+
+      <p><strong>ε-neighbourhood</strong> of point \(x_i\):</p>
+      <div class="eq">$$N_\varepsilon(x_i) = \{x_j \in \mathcal{X} : d(x_i, x_j) \le \varepsilon\}$$</div>
+
+      <p><strong>Core point condition:</strong> \(x_i\) is a core point iff</p>
+      <div class="eq">$$|N_\varepsilon(x_i)| \ge \text{minPts}$$</div>
+
+      <p><strong>Direct density-reachability:</strong> \(x_j\) is directly density-reachable from \(x_i\) iff \(x_i\) is a core point and \(x_j \in N_\varepsilon(x_i)\).</p>
+      <p><strong>Density-reachability</strong> (transitive closure): \(x_k\) is density-reachable from \(x_i\) if there exists a chain \(x_i = p_1, p_2, \dots, p_m = x_k\) where each \(p_{t+1}\) is directly density-reachable from \(p_t\).</p>
+      <p><strong>Density-connectivity:</strong> \(x_i\) and \(x_j\) are density-connected if there exists a core point \(o\) from which both are density-reachable. A cluster \(C\) is the maximal set of mutually density-connected points.</p>
+
+      <p><strong>Anomaly label:</strong></p>
+      <div class="eq">$$\text{label}(x_i) = \begin{cases} \text{NOISE} & \text{if } x_i \notin \text{any cluster} \\ C_k & \text{otherwise} \end{cases}$$</div>
+
+      <p><strong>Choosing ε via the k-distance plot:</strong> Compute \(d_k(x_i)\), the distance from \(x_i\) to its \(k\)-th nearest neighbour where \(k = \text{minPts}-1\). Sort values in descending order and look for the "elbow" — the sharp rise indicates the natural scale of dense clusters:</p>
+      <div class="eq">$$\varepsilon^* = \arg\max_\varepsilon \; \Delta\bigl(\text{sorted } d_k\bigr)$$</div>
+
+      <div class="concept-box warning">
+        <div class="concept-box-title">Common Misconception</div>
+        <p>DBSCAN NOISE ≠ statistical noise. A NOISE point is simply one that fails the density criterion. In low-density but legitimate sub-groups it will be mislabelled as anomalous — ε and minPts must match the data's density scale.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 4: Visualization (inline anchor) -->
+  <div id="viz-section">
+    <h2>🎬 Interactive Visualization — ε-Balls &amp; NOISE Labelling</h2>
+    <div class="viz-wrap">
+      <div class="param-strip">
+        <span>ε = <span class="param-val" id="eps-label">—</span></span>
+        <span>minPts = <span class="param-val" id="mp-label">—</span></span>
+        <span>Clusters found: <span class="param-val" id="nc-label">—</span></span>
+        <span>Anomalies: <span class="param-val" id="an-label">—</span></span>
+      </div>
+      <canvas id="dbscan-canvas" width="660" height="360"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div> Core point</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#EF9F27"></div> Border point</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#A32D2D"></div> NOISE (anomaly)</div>
+        <div class="legend-item"><div class="legend-ring" style="border-color:#534AB7;opacity:0.35"></div> ε-ball</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#97C459;border-radius:0;width:14px;height:4px;border-radius:3px"></div> Cluster fill</div>
+      </div>
+      <div class="info-card" id="info-card">
+        <div class="info-card-phase phase-init" id="info-phase">Initialise</div>
+        <div class="info-card-step" id="info-step">Step 0 of 7</div>
+        <div class="info-card-title" id="info-title">Dataset Overview</div>
+        <div class="info-card-body" id="info-body">30 points in three density clusters plus 4 isolated outliers. DBSCAN will label them using ε = 42 px, minPts = 3. Watch the ε-balls expand and dense groups merge into clusters, while isolated points are stamped NOISE.</div>
+      </div>
+      <div class="progress-wrap" id="dots"></div>
+      <div class="controls">
+        <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+
+  <!-- CARD 5: Key Takeaways -->
+  <div class="card">
+    <div class="card-toggle" onclick="toggleCard(this)">
+      <div class="section-number">5</div>
+      <div class="section-title">Key Takeaways &amp; When to Use</div>
+      <div class="chevron">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="two-col">
+        <div>
+          <strong style="font-size:13px;color:var(--green-mid)">✓ USE when:</strong>
+          <ul style="margin-top:6px;padding-left:18px;color:var(--text2);font-size:13.5px;display:flex;flex-direction:column;gap:4px">
+            <li>Clusters are irregularly shaped</li>
+            <li>You don't know k in advance</li>
+            <li>Anomalies are genuinely sparse outliers</li>
+            <li>Data has meaningful spatial structure</li>
+          </ul>
+        </div>
+        <div>
+          <strong style="font-size:13px;color:var(--red-mid)">✗ AVOID when:</strong>
+          <ul style="margin-top:6px;padding-left:18px;color:var(--text2);font-size:13.5px;display:flex;flex-direction:column;gap:4px">
+            <li>Density varies wildly (HDBSCAN preferred)</li>
+            <li>High-dimensional data (curse of dimensionality)</li>
+            <li>You need calibrated anomaly scores, not labels</li>
+          </ul>
+        </div>
+      </div>
+
+      <table class="compare" style="margin-top:1rem">
+        <tr><th>Method</th><th>Needs k?</th><th>Shape agnostic?</th><th>Output</th><th>Anomaly strategy</th></tr>
+        <tr><td>k-Means</td><td>Yes</td><td>No (convex)</td><td>Cluster ID</td><td>Distance to centroid</td></tr>
+        <tr><td>DBSCAN</td><td>No</td><td>Yes</td><td>Cluster/NOISE</td><td>Direct NOISE label</td></tr>
+        <tr><td>HDBSCAN</td><td>No</td><td>Yes</td><td>Cluster/soft score</td><td>Soft membership ≈ 0</td></tr>
+        <tr><td>Isolation Forest</td><td>No</td><td>Yes</td><td>Anomaly score</td><td>Short path length</td></tr>
+        <tr><td>LOF</td><td>No</td><td>Yes</td><td>Local density ratio</td><td>Score > threshold</td></tr>
+      </table>
+
+      <div class="concept-box insight" style="margin-top:1rem">
+        <div class="concept-box-title">Remember One Thing</div>
+        <p>DBSCAN anomaly detection = points that can't join any dense neighbourhood. ε controls the radius of that neighbourhood; minPts controls what "dense" means. Tune both on a k-distance elbow plot.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 6: Code -->
+  <div class="card">
+    <div class="card-toggle" onclick="toggleCard(this)">
+      <div class="section-number">6</div>
+      <div class="section-title">Code — From Scratch &amp; Production</div>
+      <div class="chevron">▼</div>
+    </div>
+    <div class="card-body">
+      <p><strong>From scratch (NumPy):</strong></p>
+      <div class="code-panel" style="font-size:11.5px">
+        <div class="code-line">import numpy as np</div>
+        <div class="code-line"></div>
+        <div class="code-line">def dbscan(X, eps, min_pts):</div>
+        <div class="code-line">    """Returns array of labels: -1 = NOISE (anomaly), 0,1,... = cluster id."""</div>
+        <div class="code-line">    n = len(X)</div>
+        <div class="code-line">    labels = np.full(n, -2)  # -2 = unvisited</div>
+        <div class="code-line">    cluster_id = -1</div>
+        <div class="code-line"></div>
+        <div class="code-line">    def range_query(idx):</div>
+        <div class="code-line">        # Euclidean distance to all other points</div>
+        <div class="code-line">        dists = np.linalg.norm(X - X[idx], axis=1)</div>
+        <div class="code-line">        return np.where(dists &lt;= eps)[0].tolist()</div>
+        <div class="code-line"></div>
+        <div class="code-line">    for i in range(n):</div>
+        <div class="code-line">        if labels[i] != -2: continue  # already visited</div>
+        <div class="code-line">        neighbours = range_query(i)</div>
+        <div class="code-line">        if len(neighbours) &lt; min_pts:</div>
+        <div class="code-line">            labels[i] = -1  # NOISE → anomaly</div>
+        <div class="code-line">            continue</div>
+        <div class="code-line">        cluster_id += 1</div>
+        <div class="code-line">        labels[i] = cluster_id</div>
+        <div class="code-line">        seed_set = list(neighbours)</div>
+        <div class="code-line">        while seed_set:</div>
+        <div class="code-line">            q = seed_set.pop()</div>
+        <div class="code-line">            if labels[q] == -1: labels[q] = cluster_id  # rescue border</div>
+        <div class="code-line">            if labels[q] != -2: continue</div>
+        <div class="code-line">            labels[q] = cluster_id</div>
+        <div class="code-line">            q_nbrs = range_query(q)</div>
+        <div class="code-line">            if len(q_nbrs) >= min_pts: seed_set.extend(q_nbrs)</div>
+        <div class="code-line">    return labels  # labels == -1 are anomalies</div>
+      </div>
+      <p style="margin-top:1rem"><strong>Production (scikit-learn):</strong></p>
+      <div class="code-panel" style="font-size:11.5px">
+        <div class="code-line">from sklearn.cluster import DBSCAN</div>
+        <div class="code-line">from sklearn.neighbors import NearestNeighbors</div>
+        <div class="code-line">import numpy as np</div>
+        <div class="code-line"></div>
+        <div class="code-line"># Step 1: choose ε via k-distance elbow (k = minPts - 1)</div>
+        <div class="code-line">k = 4</div>
+        <div class="code-line">nbrs = NearestNeighbors(n_neighbors=k).fit(X)</div>
+        <div class="code-line">dists, _ = nbrs.kneighbors(X)</div>
+        <div class="code-line">k_dist = np.sort(dists[:, -1])[::-1]  # descending k-dist</div>
+        <div class="code-line"># Plot k_dist → pick ε at the elbow</div>
+        <div class="code-line"></div>
+        <div class="code-line"># Step 2: fit DBSCAN</div>
+        <div class="code-line">db = DBSCAN(eps=0.5, min_samples=5, algorithm='ball_tree', metric='euclidean')</div>
+        <div class="code-line">labels = db.fit_predict(X)</div>
+        <div class="code-line"></div>
+        <div class="code-line">anomalies = X[labels == -1]  # NOISE = anomalies</div>
+        <div class="code-line">print(f"Anomaly rate: {(labels==-1).mean():.2%}")</div>
+        <div class="code-line"></div>
+        <div class="code-line"># ⚠️ Gotcha: DBSCAN does not scale to millions of rows without approximation.</div>
+        <div class="code-line"># Use HDBSCAN (faster, variable density) for large datasets.</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ───────────── DATASET ─────────────
+// Pre-computed points in canvas coords (660×360)
+// Three clusters + 4 anomalies
+const EPS   = 42;   // pixels
+const MINPTS = 3;
+
+const rawPts = [
+  // Cluster A (bottom-left blob, ~10 points)
+  [100,280],[118,260],[130,290],[145,270],[108,298],[135,305],[150,285],[160,270],[120,315],[145,310],
+  // Cluster B (top-center blob, ~10 points)
+  [310,80],[325,65],[340,85],[320,100],[355,75],[300,95],[330,110],[345,95],[310,120],[360,60],
+  // Cluster C (right-mid blob, ~10 points)
+  [530,210],[545,195],[560,215],[540,230],[555,245],[575,205],[525,225],[550,260],[580,230],[565,190],
+  // ANOMALIES (isolated)
+  [60,50],[600,310],[430,290],[240,185]
+];
+
+// ── DBSCAN (in pixel space) ──
+function dist(a,b){ return Math.hypot(a[0]-b[0],a[1]-b[1]); }
+function rangeQuery(idx){
+  return rawPts.reduce((acc,p,j)=>{ if(dist(rawPts[idx],p)<=EPS) acc.push(j); return acc; },[]);
+}
+function runDBSCAN(){
+  const n=rawPts.length, labels=new Array(n).fill(-2);
+  let cid=-1;
+  for(let i=0;i<n;i++){
+    if(labels[i]!==-2) continue;
+    const nbrs=rangeQuery(i);
+    if(nbrs.length<MINPTS){ labels[i]=-1; continue; }
+    cid++; labels[i]=cid;
+    const seeds=[...nbrs];
+    while(seeds.length){
+      const q=seeds.pop();
+      if(labels[q]===-1) labels[q]=cid;
+      if(labels[q]!==-2) continue;
+      labels[q]=cid;
+      const qn=rangeQuery(q);
+      if(qn.length>=MINPTS) seeds.push(...qn);
+    }
+  }
+  return labels;
+}
+const labels=runDBSCAN();
+
+// ── CLUSTER COLOURS ──
+const CLUSTER_COLORS=['#534AB7','#3B6D11','#185FA5','#854F0B'];
+const CLUSTER_FILLS =['rgba(83,74,183,0.12)','rgba(59,109,17,0.12)','rgba(24,95,165,0.12)','rgba(133,79,11,0.12)'];
+
+// ── STEPS ──
+const STEPS=[
+  {
+    phase:'init', title:'Dataset Overview',
+    body:'30 points arranged in three dense clusters (blue, green, teal) plus 4 isolated outliers. DBSCAN will run with ε = 42 px and minPts = 3. Every ε-ball must contain ≥ 3 points for a core designation.',
+    showPts:true, showBalls:false, highlightCore:[], highlightBorder:[], highlightNoise:[], showFill:false, step:0
+  },
+  {
+    phase:'expand', title:'ε-Ball Expansion — Core Points Identified',
+    body:'For each point we draw its ε-ball (dashed circle). Points whose ball contains ≥ 3 neighbours are CORE points (solid purple). They anchor cluster growth. Notice the dense blobs have many overlapping ε-balls — this is what density-connectivity exploits.',
+    showPts:true, showBalls:true, highlightCore:[], highlightBorder:[], highlightNoise:[], showFill:false, step:1
+  },
+  {
+    phase:'expand', title:'Cluster A — Bottom-Left Blob',
+    body:'All 10 points in the bottom-left region are mutually density-connected: each core point's ε-ball overlaps with its neighbours' balls, creating a transitive chain. They all join Cluster A (purple). Their shared ε-region is filled.',
+    showPts:true, showBalls:true, highlightCore:[0,1,2,3,4,5,6,7,8,9], highlightBorder:[], highlightNoise:[], showFill:true, fillCluster:0, step:2
+  },
+  {
+    phase:'expand', title:'Cluster B — Top-Center Blob',
+    body:'The 10 top-center points form Cluster B (green). Their ε-balls are far from Cluster A — no bridge of core points spans the gap, so they form a separate cluster. DBSCAN handles arbitrary shapes and multiple clusters without needing to specify k.',
+    showPts:true, showBalls:true, highlightCore:[10,11,12,13,14,15,16,17,18,19], highlightBorder:[], highlightNoise:[], showFill:true, fillCluster:1, step:3
+  },
+  {
+    phase:'expand', title:'Cluster C — Right-Mid Blob',
+    body:'The right-side blob forms Cluster C (teal). Three distinct clusters found, zero parameters about cluster count — DBSCAN derived them purely from density. Each cluster can be non-convex and variable-size.',
+    showPts:true, showBalls:true, highlightCore:[20,21,22,23,24,25,26,27,28,29], highlightBorder:[], highlightNoise:[], showFill:true, fillCluster:2, step:4
+  },
+  {
+    phase:'noise', title:'NOISE = Anomalies Flagged',
+    body:'The 4 isolated outliers (indices 30–33) have ε-balls containing fewer than 3 points — they fail the core condition and are unreachable from any core point. DBSCAN stamps them NOISE (red). No threshold tuning needed: the geometry decides.',
+    showPts:true, showBalls:true, highlightCore:[], highlightBorder:[], highlightNoise:[30,31,32,33], showFill:true, fillCluster:'all', step:5
+  },
+  {
+    phase:'done', title:'Final Result',
+    body:'3 clusters found, 4 NOISE/anomaly points (13.3% anomaly rate). The key advantage over distance-only methods: anomalies emerge naturally as a by-product of clustering — no separate anomaly model or threshold is needed. Adjust ε/minPts via the k-distance elbow plot to calibrate sensitivity.',
+    showPts:true, showBalls:false, highlightCore:[], highlightBorder:[], highlightNoise:[30,31,32,33], showFill:true, fillCluster:'all', step:6
+  }
+];
+
+let step=0;
+const canvas=document.getElementById('dbscan-canvas');
+const ctx=canvas.getContext('2d');
+
+// Scale canvas to devicePixelRatio for crisp rendering
+const DPR=window.devicePixelRatio||1;
+canvas.width=660*DPR; canvas.height=360*DPR;
+canvas.style.width='100%'; canvas.style.maxWidth='660px'; canvas.style.height='auto';
+ctx.scale(DPR,DPR);
+
+function getColor(i){
+  if(labels[i]===-1) return {fill:'#A32D2D',stroke:'#501313'};
+  const c=labels[i]%CLUSTER_COLORS.length;
+  return {fill:CLUSTER_COLORS[c],stroke:CLUSTER_COLORS[c]};
+}
+
+function draw(s){
+  ctx.clearRect(0,0,660,360);
+  const st=STEPS[s];
+
+  // Cluster fills
+  if(st.showFill){
+    const fillClusters= st.fillCluster==='all' ? [0,1,2] : (st.fillCluster!==undefined?[st.fillCluster]:[]);
+    for(const fc of fillClusters){
+      const pts=rawPts.filter((_,i)=>labels[i]===fc);
+      if(pts.length===0) continue;
+      ctx.save();
+      ctx.globalAlpha=0.18;
+      ctx.fillStyle=CLUSTER_COLORS[fc];
+      // Convex-hull approximation: just draw circles around each point
+      for(const p of pts){
+        ctx.beginPath();
+        ctx.arc(p[0],p[1],EPS*0.7,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  // ε-balls
+  if(st.showBalls){
+    ctx.save();
+    ctx.setLineDash([4,3]);
+    for(let i=0;i<rawPts.length;i++){
+      const isCore=labels[i]>=0 && rangeQuery(i).length>=MINPTS;
+      if(!isCore) continue;
+      const clr=labels[i]>=0?CLUSTER_COLORS[labels[i]%CLUSTER_COLORS.length]:'#9c9a92';
+      ctx.strokeStyle=clr;
+      ctx.globalAlpha=0.25;
+      ctx.lineWidth=1.2;
+      ctx.beginPath();
+      ctx.arc(rawPts[i][0],rawPts[i][1],EPS,0,Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+
+  // Points
+  if(st.showPts){
+    for(let i=0;i<rawPts.length;i++){
+      const [x,y]=rawPts[i];
+      const noise=labels[i]===-1;
+      const highlighted= st.highlightNoise.includes(i)||st.highlightCore.includes(i);
+      const isCore=labels[i]>=0 && rangeQuery(i).length>=MINPTS;
+
+      ctx.save();
+      if(noise){
+        ctx.fillStyle='#A32D2D';
+        ctx.strokeStyle='#501313';
+        ctx.lineWidth=1.5;
+        // draw X
+        ctx.beginPath();
+        ctx.moveTo(x-6,y-6); ctx.lineTo(x+6,y+6);
+        ctx.moveTo(x+6,y-6); ctx.lineTo(x-6,y+6);
+        ctx.strokeStyle='#A32D2D';
+        ctx.lineWidth=2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x,y,7,0,Math.PI*2);
+        ctx.fillStyle='rgba(163,45,45,0.15)';
+        ctx.fill();
+        ctx.strokeStyle='#A32D2D';
+        ctx.lineWidth=1.5;
+        ctx.stroke();
+      } else {
+        const c=labels[i]>=0?CLUSTER_COLORS[labels[i]%CLUSTER_COLORS.length]:'#9c9a92';
+        const r=isCore?6:4.5;
+        ctx.beginPath();
+        ctx.arc(x,y,r,0,Math.PI*2);
+        ctx.fillStyle=c;
+        ctx.globalAlpha= isCore?1:0.6;
+        ctx.fill();
+        if(isCore){
+          ctx.strokeStyle='white';
+          ctx.lineWidth=1.5;
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  // Highlight noise balls
+  if(st.highlightNoise.length>0){
+    ctx.save();
+    ctx.setLineDash([3,3]);
+    ctx.strokeStyle='#A32D2D';
+    ctx.lineWidth=1.2;
+    ctx.globalAlpha=0.4;
+    for(const i of st.highlightNoise){
+      ctx.beginPath();
+      ctx.arc(rawPts[i][0],rawPts[i][1],EPS,0,Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Update param strip
+  const clusterCount=new Set(labels.filter(l=>l>=0)).size;
+  const anomalyCount=labels.filter(l=>l===-1).length;
+  document.getElementById('eps-label').textContent=EPS+' px';
+  document.getElementById('mp-label').textContent=MINPTS;
+  document.getElementById('nc-label').textContent=st.step>=2?clusterCount:'—';
+  document.getElementById('an-label').textContent=st.step>=5?anomalyCount:'—';
+}
+
+function updateInfo(s){
+  const st=STEPS[s];
+  const phaseMap={init:'phase-init',expand:'phase-expand',noise:'phase-noise',done:'phase-done'};
+  const phaseLabel={init:'Initialise',expand:'Expand',noise:'NOISE',done:'Complete'};
+  document.getElementById('info-phase').className='info-card-phase '+phaseMap[st.phase];
+  document.getElementById('info-phase').textContent=phaseLabel[st.phase];
+  document.getElementById('info-step').textContent=`Step ${s} of ${STEPS.length-1}`;
+  document.getElementById('info-title').textContent=st.title;
+  document.getElementById('info-body').textContent=st.body;
+}
+
+function updateDots(s){
+  const wrap=document.getElementById('dots');
+  wrap.innerHTML='';
+  STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===s?' active':i<s?' done':'');
+    d.onclick=()=>{step=i;render();};
+    wrap.appendChild(d);
+  });
+}
+
+function render(){
+  draw(step);
+  updateInfo(step);
+  updateDots(step);
+  document.getElementById('btn-prev').disabled=step===0;
+  document.getElementById('btn-next').disabled=step===STEPS.length-1;
+}
+
+function go(dir){
+  step=Math.max(0,Math.min(STEPS.length-1,step+dir));
+  render();
+}
+function reset(){ step=0; render(); }
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft')  go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+render();
+</script>
+</body>
+</html>

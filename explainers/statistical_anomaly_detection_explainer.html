@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Statistical Anomaly Detection — Z-Score, Grubbs' Test, IQR</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:980px;margin:0 auto;}
+
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Viz container */
+.viz-wrapper{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.viz-title{font-size:16px;font-weight:700;margin-bottom:1rem;color:var(--text);}
+
+canvas#distCanvas{width:100%;height:260px;display:block;border-radius:var(--radius);background:var(--bg2);cursor:crosshair;}
+
+.legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:0.75rem;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.legend-line{width:22px;height:3px;border-radius:2px;flex-shrink:0;}
+
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:90px;}
+.info-phase{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text);}
+.info-text{font-size:13px;color:var(--text2);line-height:1.6;}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+table.cmp th{background:var(--blue-bg);color:var(--blue-mid);font-weight:700;padding:8px 10px;text-align:left;border:1px solid var(--blue-border);}
+table.cmp td{padding:7px 10px;border:1px solid var(--border);vertical-align:top;}
+table.cmp tr:nth-child(even) td{background:var(--bg2);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Statistical Anomaly Detection</h1>
+  <p class="subtitle">Z-Score, Grubbs' Test &amp; IQR/Tukey Fences — univariate outlier flagging with classical statistical tests</p>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Anomaly Detection</span>
+    <span class="tag tag-category">Statistics</span>
+    <span class="tag tag-complexity">O(n log n)</span>
+  </div>
+</div>
+
+<!-- Card 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggle(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body" style="max-height:1200px">
+    <p>An <strong>outlier</strong> is a data point that deviates so far from the rest of the data that it is unlikely to have been generated by the same process. Detecting outliers matters: a single bad sensor reading, a fraudulent transaction, or a mislabeled training example can silently corrupt downstream analysis.</p>
+    <p>Three classical <em>univariate</em> tests dominate in practice — they all ask the same question ("is this point suspiciously far from the bulk?") but answer it in different ways:</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">The Three Methods at a Glance</div>
+      <p style="font-size:13px;margin:0">
+        <strong>Z-score</strong> — measures how many standard deviations a point lies from the mean: \(z = |x - \mu| / \sigma\). Flag if \(z > \tau\) (typically 2.5–3).<br><br>
+        <strong>Grubbs' test</strong> — formally tests whether the most extreme point in a sample is a statistically significant outlier. Uses a critical value derived from the \(t\)-distribution.<br><br>
+        <strong>IQR / Tukey fences</strong> — uses the interquartile range as a spread measure that ignores tails. Any point outside \([Q_1 - 1.5\cdot\text{IQR},\; Q_3 + 1.5\cdot\text{IQR}]\) is an outlier.
+      </p>
+    </div>
+
+    <p>The real-world analogy: imagine weighing students in a class. Z-score says "flag anyone more than 3 standard deviations from the average weight." Grubbs says "run a formal hypothesis test on the heaviest student." IQR says "ignore the top and bottom 25% to define 'normal', then flag anyone double that range away from the middle."</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">If You Remember One Thing</div>
+      <p style="font-size:13px;margin:0">Z-score and Grubbs are parametric (assume Gaussianity); IQR is non-parametric and <em>robust</em> — it does not break down when outliers inflate the standard deviation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggle(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Each Method Works Internally</div>
+    <div class="section-toggle">▾</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0">
+    <h4>Z-Score Method</h4>
+    <p>Given a dataset \(\{x_1, \dots, x_n\}\), compute the sample mean \(\bar{x}\) and sample standard deviation \(s\). For each point \(x_i\), compute \(z_i = |x_i - \bar{x}| / s\). Flag \(x_i\) as an outlier if \(z_i > \tau\), where \(\tau \in \{2.5, 3, 3.5\}\) is a user-chosen threshold. A threshold of 3 corresponds, under Gaussianity, to a two-tailed probability of about 0.27% per point.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Masking Problem</div>
+      <p style="font-size:13px;margin:0">When genuine outliers are present, they <em>inflate</em> both \(\bar{x}\) and \(s\), which inflates the denominator and <em>shrinks</em> the z-score of the outlier — possibly hiding it. This is called <strong>masking</strong>. Grubbs' test is affected too, but robust alternatives like the modified z-score (using median and MAD) mitigate it.</p>
+    </div>
+
+    <h4>Grubbs' Test (Maximum Normed Residual Test)</h4>
+    <p>Grubbs tests whether the single most extreme point is an outlier. The test statistic is:</p>
+    <div class="eq">$$G = \frac{\max_i |x_i - \bar{x}|}{s}$$</div>
+    <p>Under \(H_0\) (all points from the same normal distribution), the critical value at significance level \(\alpha\) is derived from Student's \(t\)-distribution with \(n-2\) degrees of freedom:</p>
+    <div class="eq">$$G_{\text{crit}}(\alpha, n) = \frac{n-1}{\sqrt{n}} \sqrt{\frac{t^2_{\alpha/(2n),\, n-2}}{n - 2 + t^2_{\alpha/(2n),\, n-2}}}$$</div>
+    <p>Reject \(H_0\) (declare the extreme point an outlier) when \(G > G_{\text{crit}}\). Grubbs must be applied <em>iteratively</em> if multiple outliers are suspected — remove the flagged point and repeat.</p>
+
+    <h4>IQR / Tukey Fences</h4>
+    <p>Sort the data. Compute the first quartile \(Q_1\) (25th percentile) and third quartile \(Q_3\) (75th percentile). The interquartile range is \(\text{IQR} = Q_3 - Q_1\). Tukey's inner fences are:</p>
+    <div class="eq">$$\text{Lower fence} = Q_1 - 1.5 \cdot \text{IQR}, \quad \text{Upper fence} = Q_3 + 1.5 \cdot \text{IQR}$$</div>
+    <p>Any point outside \([\text{LF}, \text{UF}]\) is a mild outlier; outside \(Q_1 \pm 3\cdot\text{IQR}\) is an extreme outlier. For a perfect Gaussian, the 1.5×IQR rule flags approximately 0.7% of points by chance.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Why 1.5?</div>
+      <p style="font-size:13px;margin:0">John Tukey chose 1.5 empirically so that for Gaussian data the fence sits at roughly \(\mu \pm 2.7\sigma\) — comparable to a z-score threshold of 2.7, but computed without using the potentially contaminated \(\sigma\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggle(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math — Derivations &amp; Guarantees</div>
+    <div class="section-toggle">▾</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0">
+    <h4>Z-Score: Chebyshev vs Gaussian Interpretation</h4>
+    <p>Without distributional assumptions, Chebyshev's inequality gives a distribution-free bound: \(P(|X - \mu| \geq k\sigma) \leq 1/k^2\). For \(k=3\), at most ~11% of points can lie beyond 3σ from any distribution. Under Gaussianity the bound tightens to 0.27%.</p>
+    <div class="eq">$$P(|Z| > 3) = 2\Phi(-3) \approx 0.0027 \quad \text{(Gaussian)}$$</div>
+
+    <h4>Grubbs Statistic Distribution Under H₀</h4>
+    <p>The maximum absolute deviation \(\max_i |x_i - \bar{x}|\) follows the distribution of the maximum of \(n\) correlated normal random variables (since they share the sample mean). The exact distribution is complex; Grubbs (1950) derived the relationship with the \(t\)-distribution shown above. The \(p\)-value is obtained via:</p>
+    <div class="eq">$$p = n \cdot P\!\left(t_{n-2} \geq t_0\right), \quad t_0 = G\sqrt{\frac{n(n-2)}{n-1-G^2(n-1)}}$$</div>
+    <p>The factor \(n\) is a Bonferroni correction for testing \(n\) candidates simultaneously.</p>
+
+    <h4>IQR Robustness: Breakdown Point</h4>
+    <p>The <strong>breakdown point</strong> of an estimator is the fraction of data that can be arbitrarily corrupted before the estimator becomes arbitrarily bad. The sample mean has breakdown point 0 (one extreme point can move it anywhere). The median has breakdown point 50%. The IQR has breakdown point 25% — you need to corrupt more than 25% of the data before it explodes. This is why IQR fences are preferred in practice when contamination rates are unknown.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Key Formulas Summary</div>
+      <p style="font-size:13px;margin:0">
+        Z-score: \(z_i = |x_i - \bar{x}| / s\); flag if \(z_i > 3\)<br>
+        Grubbs: \(G = \max_i |x_i - \bar{x}| / s\); compare to \(G_{\text{crit}}(\alpha, n)\)<br>
+        IQR fences: \([Q_1 - 1.5\cdot\text{IQR},\; Q_3 + 1.5\cdot\text{IQR}]\)
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 4: Interactive Visualization -->
+<div class="viz-wrapper" id="vizCard">
+  <div class="viz-title">🎯 Interactive Walkthrough — Live Outlier Detection</div>
+  <canvas id="distCanvas" width="900" height="260"></canvas>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#185FA5"></div>Normal points</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#A32D2D"></div>Flagged by active method</div>
+    <div class="legend-item"><div class="legend-line" style="background:#185FA5"></div>Distribution curve</div>
+    <div class="legend-item"><div class="legend-line" style="background:#854F0B;border-top:2px dashed #854F0B;height:0"></div>Threshold fence</div>
+  </div>
+
+  <div class="info-card" id="infoCard">
+    <div class="info-phase" id="infoPhase"></div>
+    <div class="info-step" id="infoStep"></div>
+    <div class="info-title" id="infoTitle"></div>
+    <div class="info-text" id="infoText"></div>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap"></div>
+  <div class="controls">
+    <button class="btn" id="btnPrev" onclick="go(-1)">← Prev</button>
+    <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+    <button class="btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+</div>
+
+<!-- Card 5: Comparison -->
+<div class="card">
+  <div class="section-header" onclick="toggle(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison &amp; When to Use Each</div>
+    <div class="section-toggle">▾</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0">
+    <table class="cmp">
+      <tr>
+        <th>Dimension</th><th>Z-Score</th><th>Grubbs' Test</th><th>IQR / Tukey</th>
+      </tr>
+      <tr><td>Distributional assumption</td><td>Gaussian</td><td>Gaussian</td><td>None (non-parametric)</td></tr>
+      <tr><td>Handles multiple outliers</td><td>Naively (all at once)</td><td>Iterative only</td><td>Yes</td></tr>
+      <tr><td>Breakdown point</td><td>~0% (mean/std inflate)</td><td>~0% (same reason)</td><td>25%</td></tr>
+      <tr><td>Returns p-value</td><td>No (threshold-based)</td><td>Yes (formal test)</td><td>No</td></tr>
+      <tr><td>Small samples (n&lt;30)</td><td>Unreliable</td><td>Designed for this</td><td>Reasonable</td></tr>
+      <tr><td>Typical use</td><td>Quick univariate scan</td><td>Lab data, QC pipelines</td><td>EDA, boxplots, pipelines</td></tr>
+      <tr><td>Complexity</td><td>O(n)</td><td>O(n) per iteration</td><td>O(n log n)</td></tr>
+    </table>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">Decision Guide</div>
+      <p style="font-size:13px;margin:0">
+        <strong>Use Z-score</strong> when data is approximately Gaussian and n is large (n &gt; 200); apply a threshold of 3 for conservative detection.<br>
+        <strong>Use Grubbs</strong> when you need a statistically rigorous single-outlier test with a p-value (e.g., lab measurements, clinical data).<br>
+        <strong>Use IQR</strong> as your default for exploratory analysis, skewed distributions, or when outliers may contaminate mean/std estimates.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Card 6: Code -->
+<div class="card">
+  <div class="section-header" onclick="toggle(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways &amp; Code</div>
+    <div class="section-toggle">▾</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0">
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Core Insight</div>
+      <p style="font-size:13px;margin:0">All three methods measure "distance from the bulk." They differ in how they estimate the bulk (mean±std vs quartiles) and whether they attach a formal probability to the deviation.</p>
+    </div>
+    <h4>From-Scratch Python Implementation</h4>
+    <div class="code-panel">
+<div class="code-line" id="cl0">import numpy as np</div>
+<div class="code-line" id="cl1">from scipy import stats</div>
+<div class="code-line" id="cl2"></div>
+<div class="code-line" id="cl3">def zscore_outliers(x, threshold=3.0):</div>
+<div class="code-line" id="cl4">    mu, s = np.mean(x), np.std(x, ddof=1)</div>
+<div class="code-line" id="cl5">    z = np.abs(x - mu) / s            # z_i = |x_i - mu| / s</div>
+<div class="code-line" id="cl6">    return z > threshold               # True where outlier</div>
+<div class="code-line" id="cl7"></div>
+<div class="code-line" id="cl8">def grubbs_test(x, alpha=0.05):</div>
+<div class="code-line" id="cl9">    n = len(x); mu, s = np.mean(x), np.std(x, ddof=1)</div>
+<div class="code-line" id="cl10">    G = np.max(np.abs(x - mu)) / s    # test statistic</div>
+<div class="code-line" id="cl11">    t_crit = stats.t.ppf(1 - alpha / (2*n), df=n-2)</div>
+<div class="code-line" id="cl12">    G_crit = ((n-1)/np.sqrt(n)) * np.sqrt(t_crit**2 / (n-2+t_crit**2))</div>
+<div class="code-line" id="cl13">    return G, G_crit, G > G_crit      # stat, critical, is_outlier</div>
+<div class="code-line" id="cl14"></div>
+<div class="code-line" id="cl15">def iqr_outliers(x, k=1.5):</div>
+<div class="code-line" id="cl16">    Q1, Q3 = np.percentile(x, [25, 75])</div>
+<div class="code-line" id="cl17">    IQR = Q3 - Q1</div>
+<div class="code-line" id="cl18">    lower, upper = Q1 - k*IQR, Q3 + k*IQR</div>
+<div class="code-line" id="cl19">    return (x < lower) | (x > upper)  # True where outlier</div>
+    </div>
+
+    <h4>Production Usage (scikit-learn)</h4>
+    <div class="code-panel">
+<div class="code-line"># sklearn's LocalOutlierFactor or EllipticEnvelope for multivariate</div>
+<div class="code-line">from sklearn.covariance import EllipticEnvelope</div>
+<div class="code-line">clf = EllipticEnvelope(contamination=0.05).fit(X)</div>
+<div class="code-line">labels = clf.predict(X)  # -1 = outlier, +1 = inlier</div>
+<div class="code-line"># For univariate pandas quick check:</div>
+<div class="code-line">import pandas as pd</div>
+<div class="code-line">Q1, Q3 = df['col'].quantile([0.25, 0.75])</div>
+<div class="code-line">IQR = Q3 - Q1</div>
+<div class="code-line">outliers = df[(df['col'] < Q1-1.5*IQR) | (df['col'] > Q3+1.5*IQR)]</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────────────────────
+//  DATA + METHODS
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Fixed dataset: 30 points drawn from N(50, 10) + 3 injected outliers
+const seed = (function() {
+  let s = 42;
+  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
+})();
+
+function randn() {
+  // Box-Muller
+  let u = seed(), v = seed();
+  return Math.sqrt(-2 * Math.log(u + 1e-10)) * Math.cos(2 * Math.PI * v);
+}
+
+const MU = 50, SIGMA = 10;
+const normalPts = Array.from({length: 28}, () => MU + SIGMA * randn());
+const rawData = [...normalPts, 88, -5, 95]; // 3 injected outliers
+const N = rawData.length;
+
+function mean(a) { return a.reduce((s,v)=>s+v,0)/a.length; }
+function std(a, mu) { return Math.sqrt(a.reduce((s,v)=>s+(v-mu)**2,0)/(a.length-1)); }
+
+const mu = mean(rawData);
+const s  = std(rawData, mu);
+const sorted = [...rawData].sort((a,b)=>a-b);
+const Q1  = sorted[Math.floor(0.25 * N)];
+const Q3  = sorted[Math.floor(0.75 * N)];
+const IQR = Q3 - Q1;
+const LF  = Q1 - 1.5 * IQR;
+const UF  = Q3 + 1.5 * IQR;
+const zScores = rawData.map(x => Math.abs(x - mu) / s);
+const ZTHR = 2.5;
+const GRUBBS_G = Math.max(...rawData.map(x => Math.abs(x - mu))) / s;
+// G_crit for alpha=0.05, n=31: ~2.74 (approximation)
+const GRUBBS_CRIT = 2.74;
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  STEPS
+// ──────────────────────────────────────────────────────────────────────────────
+const steps = [
+  {
+    phase: "Overview", title: "The Dataset",
+    text: "31 data points: 28 sampled from N(50, 10) and 3 injected outliers at −5, 88, 95. The Gaussian bell curve is shown in blue. In subsequent steps each method independently flags outliers.",
+    method: "none",
+    color: "#185FA5"
+  },
+  {
+    phase: "Z-Score", title: "Z-Score Threshold (τ = 2.5)",
+    text: "For each point, z = |x − μ̄| / s. With μ̄ = " + mu.toFixed(1) + " and s = " + s.toFixed(1) + ", the threshold z > 2.5 corresponds to x outside [" + (mu - 2.5*s).toFixed(1) + ", " + (mu + 2.5*s).toFixed(1) + "]. Dashed amber lines show the ±2.5σ fences.",
+    method: "zscore",
+    color: "#854F0B"
+  },
+  {
+    phase: "Z-Score", title: "Z-Score Flagged Points",
+    text: "Points with z > 2.5 are highlighted in red. The outliers at −5 (z = " + zScores[28].toFixed(2) + "), 88 (z = " + zScores[29].toFixed(2) + "), and 95 (z = " + zScores[30].toFixed(2) + ") are all detected. Note: the inflated s from outliers slightly suppresses z-scores — the masking problem.",
+    method: "zscore_flag",
+    color: "#A32D2D"
+  },
+  {
+    phase: "Grubbs Test", title: "Grubbs Statistic G",
+    text: "Grubbs checks only the single most extreme point. G = max|x − μ̄| / s = " + GRUBBS_G.toFixed(3) + ". The critical value G_crit at α = 0.05, n = 31 is ≈ " + GRUBBS_CRIT + ". Since G > G_crit, the most extreme point (95) is rejected as a statistically significant outlier.",
+    method: "grubbs",
+    color: "#534AB7"
+  },
+  {
+    phase: "IQR Fences", title: "Tukey Fences [Q1 − 1.5·IQR, Q3 + 1.5·IQR]",
+    text: "Q1 = " + Q1.toFixed(1) + ", Q3 = " + Q3.toFixed(1) + ", IQR = " + IQR.toFixed(1) + ". Fences: lower = " + LF.toFixed(1) + ", upper = " + UF.toFixed(1) + ". These are shown as green dashed lines. IQR uses no mean or std — completely robust to the outliers themselves.",
+    method: "iqr",
+    color: "#3B6D11"
+  },
+  {
+    phase: "IQR Fences", title: "IQR Flagged Points",
+    text: "Points outside [" + LF.toFixed(1) + ", " + UF.toFixed(1) + "] are flagged red. All three injected outliers are detected. Unlike z-score, the fence positions were computed without the outliers inflating anything — true robustness.",
+    method: "iqr_flag",
+    color: "#A32D2D"
+  },
+  {
+    phase: "Summary", title: "All Three Methods Compared",
+    text: "All three methods flag the same three outliers on this dataset. In practice they disagree when: (1) the distribution is skewed (IQR is safer); (2) only one outlier is of interest (Grubbs is rigorous); (3) the sample is large and approximately Gaussian (z-score is sufficient).",
+    method: "all",
+    color: "#534AB7"
+  }
+];
+
+let current = 0;
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  DRAW
+// ──────────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('distCanvas');
+const ctx = canvas.getContext('2d');
+
+function gaussianY(x, mu, sigma) {
+  return Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
+}
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // x range: min(data)-5 to max(data)+5
+  const xMin = -20, xMax = 110;
+  const xRange = xMax - xMin;
+  const toCanvasX = x => (x - xMin) / xRange * W;
+  const toCanvasY = y => H - 20 - y * (H - 40) / 0.055; // scale peak to ~80% height
+
+  const step = steps[current];
+
+  // Draw Gaussian curve
+  ctx.beginPath();
+  ctx.strokeStyle = '#185FA5';
+  ctx.lineWidth = 2.5;
+  for (let px = 0; px <= W; px++) {
+    const xVal = xMin + (px / W) * xRange;
+    const py = toCanvasY(gaussianY(xVal, MU, SIGMA));
+    if (px === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Draw threshold lines
+  function drawFence(x, color, label) {
+    const cx = toCanvasX(x);
+    ctx.beginPath();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.8;
+    ctx.moveTo(cx, 10);
+    ctx.lineTo(cx, H - 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    ctx.font = '10px var(--sans, sans-serif)';
+    ctx.fillText(label, cx + 3, 18);
+  }
+
+  if (step.method === 'zscore' || step.method === 'zscore_flag') {
+    drawFence(mu - 2.5 * s, '#854F0B', '−2.5σ');
+    drawFence(mu + 2.5 * s, '#854F0B', '+2.5σ');
+  }
+  if (step.method === 'iqr' || step.method === 'iqr_flag') {
+    drawFence(LF, '#3B6D11', 'LF');
+    drawFence(UF, '#3B6D11', 'UF');
+  }
+  if (step.method === 'grubbs') {
+    // Highlight the most extreme point region
+    const extreme = 95;
+    const cx = toCanvasX(extreme);
+    ctx.beginPath();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = '#534AB7';
+    ctx.lineWidth = 1.8;
+    ctx.moveTo(cx, 10);
+    ctx.lineTo(cx, H - 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (step.method === 'all') {
+    drawFence(mu - 2.5 * s, '#854F0B', '');
+    drawFence(mu + 2.5 * s, '#854F0B', '+2.5σ');
+    drawFence(LF, '#3B6D11', 'LF');
+    drawFence(UF, '#3B6D11', 'UF');
+  }
+
+  // Draw x-axis
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  ctx.moveTo(0, H - 20);
+  ctx.lineTo(W, H - 20);
+  ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = '#9c9a92';
+  ctx.font = '10px var(--sans, sans-serif)';
+  for (let v = -20; v <= 110; v += 20) {
+    const cx = toCanvasX(v);
+    ctx.fillText(v, cx - 6, H - 5);
+  }
+
+  // Draw data points as circles on x-axis
+  rawData.forEach((x, i) => {
+    const cx = toCanvasX(x);
+    const cy = H - 20;
+    const r = 6;
+
+    let isOutlier = false;
+    if (step.method === 'zscore_flag') isOutlier = zScores[i] > ZTHR;
+    if (step.method === 'grubbs') isOutlier = (x === 95);
+    if (step.method === 'iqr_flag') isOutlier = (x < LF || x > UF);
+    if (step.method === 'all') isOutlier = (zScores[i] > ZTHR || x < LF || x > UF);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy - 5, r, 0, Math.PI * 2);
+    ctx.fillStyle = isOutlier ? '#A32D2D' : (step.method === 'none' ? '#185FA5' : '#185FA580');
+    ctx.strokeStyle = isOutlier ? '#F09595' : '#85B7EB';
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+
+    if (isOutlier) {
+      // Draw a small vertical tick above the point
+      ctx.beginPath();
+      ctx.strokeStyle = '#A32D2D';
+      ctx.lineWidth = 1.5;
+      ctx.moveTo(cx, cy - 12);
+      ctx.lineTo(cx, cy - 35);
+      ctx.stroke();
+      ctx.fillStyle = '#501313';
+      ctx.font = 'bold 9px var(--sans, sans-serif)';
+      ctx.fillText(x.toFixed(0), cx - 8, cy - 38);
+    }
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  NAV
+// ──────────────────────────────────────────────────────────────────────────────
+function render() {
+  const st = steps[current];
+  document.getElementById('infoPhase').textContent = st.phase;
+  document.getElementById('infoPhase').style.color = st.color;
+  document.getElementById('infoStep').textContent = `Step ${current + 1} of ${steps.length}`;
+  document.getElementById('infoTitle').textContent = st.title;
+  document.getElementById('infoText').textContent = st.text;
+
+  document.getElementById('btnPrev').disabled = current === 0;
+  document.getElementById('btnNext').disabled = current === steps.length - 1;
+
+  const wrap = document.getElementById('progressWrap');
+  wrap.innerHTML = '';
+  steps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === current ? ' active' : (i < current ? ' done' : ''));
+    d.onclick = () => { current = i; render(); };
+    wrap.appendChild(d);
+  });
+
+  draw();
+}
+
+function go(dir) {
+  const nx = current + dir;
+  if (nx >= 0 && nx < steps.length) { current = nx; render(); }
+}
+
+function reset() { current = 0; render(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Resize canvas for high DPI
+(function() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = (rect.width || 900) * dpr;
+  canvas.height = 260 * dpr;
+  ctx.scale(dpr, dpr);
+  canvas.style.width = '100%';
+  canvas.style.height = '260px';
+})();
+
+// Card toggle
+function toggle(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.section-toggle');
+  const isOpen = body.style.maxHeight && body.style.maxHeight !== '0px' && !body.classList.contains('collapsed');
+  if (isOpen) {
+    body.classList.add('collapsed');
+    body.style.maxHeight = '0';
+    arrow.classList.remove('open');
+  } else {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = '2000px';
+    arrow.classList.add('open');
+  }
+}
+
+render();
+</script>
+</body>
+</html>
