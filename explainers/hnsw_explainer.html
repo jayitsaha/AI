@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HNSW — Hierarchical Navigable Small World Graphs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9;
+  --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;font-size:15px;}
+.page{max-width:900px;margin:0 auto;padding:2rem 1.25rem 4rem;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:clamp(1.6rem,4vw,2.4rem);font-weight:700;line-height:1.2;margin-bottom:0.4rem;}
+.header .subtitle{font-size:1rem;color:var(--text2);margin-bottom:0.75rem;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:1rem;overflow:hidden;}
+.card-header{display:flex;align-items:center;gap:12px;padding:1.1rem 1.5rem;cursor:pointer;user-select:none;}
+.card-header:hover{background:var(--bg2);}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:17px;font-weight:700;color:var(--text);flex:1;}
+.chevron{color:var(--text3);transition:transform 0.3s;font-size:18px;}
+.card.open .chevron{transform:rotate(180deg);}
+.card-body{padding:0 1.5rem 1.5rem;display:none;}
+.card.open .card-body{display:block;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation display */
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+
+/* Table */
+.comp-table{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+.comp-table th{background:var(--blue-bg);color:var(--blue-mid);padding:8px 12px;text-align:left;font-weight:600;}
+.comp-table td{padding:7px 12px;border-bottom:1px solid var(--border);}
+.comp-table tr:last-child td{border-bottom:none;}
+.comp-table tr:hover td{background:var(--bg2);}
+
+/* Code */
+.code-block{background:var(--bg2);border-radius:var(--radius);padding:14px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;margin:1rem 0;color:var(--text2);}
+
+/* ── Visualization ─────────────────────────────────────────── */
+.viz-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;}
+.viz-title{font-size:15px;font-weight:700;margin-bottom:1rem;color:var(--text);}
+#hnsw-canvas{width:100%;border-radius:var(--radius);background:var(--bg2);display:block;cursor:pointer;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius-lg);padding:1.25rem 1.5rem;margin-top:1rem;min-height:120px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:20px;background:var(--purple-bg);color:var(--purple-mid);margin-bottom:0.5rem;}
+.info-step{font-size:11px;color:var(--text3);float:right;margin-top:3px;}
+.info-title{font-size:16px;font-weight:700;margin:0.3rem 0;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Progress & controls */
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:1rem;justify-content:center;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.legend-line{width:28px;height:3px;border-radius:2px;flex-shrink:0;}
+
+p{margin-bottom:0.75rem;}
+ul,ol{margin:0.5rem 0 0.75rem 1.5rem;}
+li{margin-bottom:0.3rem;}
+strong{font-weight:600;}
+h4{margin:0.75rem 0 0.4rem;font-size:15px;}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Header -->
+<div class="header">
+  <h1>HNSW</h1>
+  <div class="subtitle">Hierarchical Navigable Small World Graphs — the state-of-the-art vector index for approximate nearest-neighbor search</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML · ANN</span>
+    <span class="tag tag-complexity">O(log n) search</span>
+  </div>
+</div>
+
+<!-- Card 1: Understanding -->
+<div class="card open" id="card1">
+  <div class="card-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding HNSW</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card1-body"></div>
+</div>
+
+<!-- Card 2: How It Works -->
+<div class="card" id="card2">
+  <div class="card-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How HNSW Works Internally</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card2-body"></div>
+</div>
+
+<!-- Card 3: The Math -->
+<div class="card" id="card3">
+  <div class="card-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math Behind HNSW</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card3-body"></div>
+</div>
+
+<!-- Card 4: Interactive Visualization -->
+<div class="card open" id="card4">
+  <div class="card-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Greedy Search Walkthrough</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card4-body"></div>
+</div>
+
+<!-- Card 5: Code -->
+<div class="card" id="card5">
+  <div class="card-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Code: From Scratch &amp; Production</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card5-body"></div>
+</div>
+
+<!-- Card 6: Takeaways & Comparison -->
+<div class="card" id="card6">
+  <div class="card-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways &amp; Comparisons</div>
+    <div class="chevron">▾</div>
+  </div>
+  <div class="card-body" id="card6-body"></div>
+</div>
+
+</div><!-- /page -->
+<script>
+// ── Card toggle ──────────────────────────────────────────────
+function toggleCard(id){
+  const c=document.getElementById(id);
+  c.classList.toggle('open');
+}
+
+// ── Populate card bodies ──────────────────────────────────────
+document.getElementById('card1-body').innerHTML=`
+<p><strong>What is HNSW?</strong> Imagine you need to find the most similar song in a library of 100 million tracks — comparing against every song would take forever. HNSW is a clever shortcut: it organises songs into a multi-floor index where the top floors hold only a few "landmark" representatives. You start at the top, hop to the closest landmark, then descend a floor and repeat — zooming in on the answer in logarithmic time without ever scanning the full library.</p>
+
+<p><strong>Real-world analogy:</strong> Think of navigating a city. You first consult a <em>country</em> map to pick the right region, then a <em>city</em> map to reach the neighbourhood, then a <em>street</em> map for the exact address. Each layer is progressively denser. HNSW does the same with vectors: sparse upper layers for long coarse hops, dense lower layers for fine-grained local search.</p>
+
+<div class="concept-box insight">
+  <div class="concept-box-title">💡 If you remember one thing</div>
+  HNSW is a probabilistic skip-list built on top of Navigable Small World graphs. Insert each node with a random maximum layer drawn from a geometric distribution; search descends greedily from the sparse top layer to the dense bottom layer, achieving <strong>O(log n)</strong> average query time with <strong>sub-linear</strong> recall degradation.
+</div>
+
+<p><strong>One-sentence summary:</strong> HNSW builds a layered graph index over high-dimensional vectors where greedy search descends from a sparse entry-point layer to a dense proximity graph, finding approximate nearest neighbours in O(log n) hops.</p>
+`;
+
+document.getElementById('card2-body').innerHTML=`
+<h4>The Two Big Ideas HNSW Combines</h4>
+<ol>
+  <li><strong>Navigable Small World (NSW) graphs</strong> — A proximity graph where every node links to its <em>ef_construction</em> closest neighbours found during insertion. The "small world" property means any node is reachable from any other in O(log n) hops because long-range "highway" edges coexist with short local edges.</li>
+  <li><strong>Skip-list hierarchy</strong> — Rather than one flat NSW graph, HNSW stacks multiple layers. Layer 0 is the full dense graph. Each higher layer is a random subset: node \\(v\\) appears in layer \\(l \\le \\lfloor -\\ln(\\text{uniform}(0,1)) \\cdot m_L \\rfloor\\). This geometrically decays so higher layers become exponentially sparse.</li>
+</ol>
+
+<h4>Insertion Algorithm (step by step)</h4>
+<ol>
+  <li>Draw maximum layer \\(l\\) for the new point \\(q\\) from the geometric distribution.</li>
+  <li>Start at the <em>entry point</em> at the top layer \\(L\\).</li>
+  <li>For layers \\(L \\to l+1\\): greedy descent with <em>ef = 1</em> (single best neighbour), updating entry point each layer.</li>
+  <li>For layers \\(l \\to 0\\): greedy descent with <em>ef = ef_construction</em> (beam search), collecting candidate sets \\(W\\).</li>
+  <li>At each of these layers, connect \\(q\\) to the best \\(M\\) neighbours from \\(W\\) (bidirectional edges); prune existing neighbour lists if they exceed \\(M_{max}\\).</li>
+</ol>
+
+<h4>Search Algorithm</h4>
+<ol>
+  <li>Enter at the global entry point on the top layer.</li>
+  <li>Greedily hop to the closest neighbour to query \\(q\\) until no improvement (ef = 1).</li>
+  <li>Descend to the next layer; repeat with ef = <em>ef_search</em> (user-controlled beam width).</li>
+  <li>At layer 0, return the top-<em>k</em> from the candidate set.</li>
+</ol>
+
+<div class="concept-box key-concept">
+  <div class="concept-box-title">Key Invariant</div>
+  The entry point is always the node at the top layer with highest layer number. This globally connects the graph and guarantees the greedy descent never gets trapped in a disconnected component — as long as the entry point is updated on each insertion to the node with the highest layer.
+</div>
+
+<div class="concept-box warning">
+  <div class="concept-box-title">⚠️ Common Confusion: ef vs M</div>
+  <strong>M</strong> controls <em>graph connectivity</em> (edges per node at insertion, affects index size &amp; recall). <strong>ef_construction</strong> controls <em>search quality during build</em>. <strong>ef_search</strong> controls <em>query-time quality</em>. Larger ef_search = higher recall, higher latency. M and ef_construction are build-time, ef_search is query-time.
+</div>
+
+<h4>Numerical Trace (5 vectors, 2D)</h4>
+<p>Consider inserting vectors into a 2-layer HNSW with M=2. Suppose vectors A=(0,0), B=(1,0), C=(0.5,0.5), D=(2,1), E=(0.1,0.9):</p>
+<ul>
+  <li>Insert A: becomes entry point at layer 1 and layer 0.</li>
+  <li>Insert B (drawn layer=0): search from A at layer 1 (ef=1) → descend → at layer 0 connect B↔A (dist 1.0). Layer 0 neighbours of A={B}.</li>
+  <li>Insert C (drawn layer=1): at layer 1 only A exists, dist(C,A)=0.707. Descend to layer 0 with ef=2: candidates {A, B}. dist(C,A)=0.707, dist(C,B)=0.707. Connect C↔A, C↔B (both tied at 0.707).</li>
+  <li>Query q=(0.2, 0.8): enter at A (layer 1). Neighbours of A at layer 1: {C}. dist(q,C)=sqrt(0.09+0.1)=0.436 &lt; dist(q,A)=sqrt(0.04+0.64)=0.825 → hop to C. Descend to layer 0 from C. Neighbours of C={A,B}. Check: dist(q,E)=? E=(0.1,0.9): dist=sqrt(0.01+0.01)=0.141 → E is the nearest neighbour.</li>
+</ul>
+<p>The greedy search correctly narrows from A → C → E in just 3 hops over 5 nodes.</p>
+`;
+
+document.getElementById('card3-body').innerHTML=`
+<h4>Layer Assignment Distribution</h4>
+<p>The maximum layer \\(l\\) for a newly inserted node is drawn as:</p>
+<div class="eq">$$l = \\lfloor -\\ln(\\text{Uniform}(0,1)) \\cdot m_L \\rfloor$$</div>
+<p>where \\(m_L = 1 / \\ln(M)\\) is chosen so the expected number of nodes at each layer decreases geometrically by factor \\(e\\approx 2.718\\). This mirrors a skip-list's \\(p=1/e\\) coin flip for each level.</p>
+
+<h4>Expected Layer Count</h4>
+<p>The probability a node reaches layer \\(l\\) is \\((1/e)^l\\). For \\(n\\) nodes the expected number at layer \\(l\\) is \\(n/e^l\\). The top layer therefore has \\(\\approx 1\\) node when \\(n/e^{L_{max}}\\approx 1\\), giving \\(L_{max}\\approx \\ln n\\). This is the key to the log-time guarantee.</p>
+
+<h4>Search Complexity</h4>
+<p>Let \\(f(k)\\) be the fraction of the dataset a greedy walk visits to find the \\(k\\)-NN in a navigable small world graph on \\(n\\) points. Empirically and by the NSW analysis of Malkov &amp; Yashunin (2016):</p>
+<div class="eq">$$T_{search} = O(\\log n)$$</div>
+<p>More precisely, the number of distance computations scales as \\(O(\\log n)\\) per layer traversal times \\(O(\\log n)\\) layers, so:</p>
+<div class="eq">$$T_{total} = O(\\log^2 n) \\text{ in the worst case, } O(\\log n) \\text{ in practice}$$</div>
+
+<h4>Recall-Latency Trade-off</h4>
+<p>Increasing \\(ef_{search}\\) expands the beam width at layer 0. If the true \\(k\\)-NN lies within the beam, it is found. The recall at ef is empirically:</p>
+<div class="eq">$$\\text{Recall}@k(ef) \\approx 1 - \\exp\\!\\left(-\\frac{ef}{k} \\cdot c\\right)$$</div>
+<p>for some dataset-dependent constant \\(c\\). Latency scales roughly linearly in ef at layer 0.</p>
+
+<h4>Space Complexity</h4>
+<p>Each node stores at most \\(M_{max0}=2M\\) edges at layer 0 and \\(M_{max}=M\\) at higher layers. Total edges:</p>
+<div class="eq">$$\\text{Space} = O(n \\cdot M)$$</div>
+<p>For typical M=16, a 1M-vector float32 512-dim index uses ~2 GB for vectors + ~64 MB for the graph — very memory-efficient.</p>
+
+<div class="concept-box math">
+  <div class="concept-box-title">Core Formula Summary</div>
+  <p>Layer draw: \\(l = \\lfloor -\\ln U \\cdot m_L \\rfloor,\\ m_L = 1/\\ln M\\)</p>
+  <p>Search hops: \\(O(\\log n)\\) distance computations per layer</p>
+  <p>Space: \\(O(nM)\\) edges total</p>
+  <p>Recall can be tuned at query time via \\(ef_{search}\\) with no index rebuild</p>
+</div>
+`;
+document.getElementById('card2-body').innerHTML=``;
+document.getElementById('card3-body').innerHTML=``;
+document.getElementById('card4-body').innerHTML=`
+<div class="viz-wrap">
+  <div class="viz-title">HNSW Greedy Search: Descending from Sparse Top Layer to Dense Layer 0</div>
+  <canvas id="hnsw-canvas" height="420"></canvas>
+  <div class="legend" id="viz-legend">
+    <div class="legend-item"><span class="legend-dot" style="background:#534AB7;"></span> Query point</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#00ACC1;"></span> Layer 2 node (sparse)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#3B6D11;"></span> Layer 1 node</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#185FA5;"></span> Layer 0 node (all)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#EF9F27;border:2px solid #854F0B;"></span> Current search position</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#A32D2D;"></span> Nearest neighbour found</div>
+  </div>
+  <div class="info-card" id="viz-info">
+    <span class="info-phase">Layer 2</span>
+    <span class="info-step" id="viz-step-counter">Step 1 / 8</span>
+    <div class="info-title" id="viz-title-text">Enter at Entry Point (Layer 2)</div>
+    <div class="info-desc" id="viz-desc-text">Search begins at the single entry point on the topmost sparse layer. Only 3 nodes exist at this level — long-range "highway" edges allow fast coarse navigation.</div>
+  </div>
+  <div class="progress-wrap" id="viz-dots"></div>
+  <div class="controls">
+    <button class="btn" id="btn-prev" onclick="vizGo(-1)" disabled>← Prev</button>
+    <button class="btn btn-primary" id="btn-next" onclick="vizGo(1)">Next →</button>
+    <button class="btn" onclick="vizReset()">↺ Reset</button>
+  </div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate · Click canvas to advance</div>
+</div>
+`;
+document.getElementById('card5-body').innerHTML=`
+<h4>From Scratch — HNSW Core in Python</h4>
+<div class="code-block"><pre>import numpy as np, heapq, math, random
+
+class HNSWIndex:
+    def __init__(self, M=16, ef_construction=200, m_L=None):
+        self.M = M                      # max edges per node (layers > 0)
+        self.M0 = 2 * M                 # max edges at layer 0
+        self.ef_construction = ef_construction
+        self.m_L = m_L or 1.0/math.log(M)  # layer multiplier
+        self.nodes = []                 # list of numpy vectors
+        self.graph = []                 # graph[layer][node_id] = set of neighbour ids
+        self.entry_point = None
+        self.max_layer = -1
+
+    def _level(self):
+        """Draw random maximum layer from geometric distribution."""
+        return int(-math.log(random.random()) * self.m_L)
+
+    def _dist(self, a, b):
+        """Euclidean distance (swap for cosine if needed)."""
+        d = self.nodes[a] - self.nodes[b]
+        return float(np.dot(d, d) ** 0.5)
+
+    def _search_layer(self, q_id, entry, ef, layer):
+        """Greedy beam search on one layer. Returns ef closest candidates."""
+        visited = {entry}
+        # max-heap of (-dist, id) for candidates; min-heap for result
+        candidates = [(-self._dist(q_id, entry), entry)]  # neg = max-heap trick
+        W = [(self._dist(q_id, entry), entry)]             # result min-heap
+        while candidates:
+            neg_d, cur = heapq.heappop(candidates)
+            # If closest candidate is farther than worst in W, stop
+            if -neg_d > W[0][0] and len(W) >= ef:
+                break
+            for nb in self.graph[layer].get(cur, set()):
+                if nb not in visited:
+                    visited.add(nb)
+                    d = self._dist(q_id, nb)
+                    if d < W[0][0] or len(W) < ef:
+                        heapq.heappush(W, (d, nb))
+                        heapq.heappush(candidates, (-d, nb))
+                        if len(W) > ef:
+                            heapq.heappop(W)  # remove farthest
+        return [x[1] for x in W]
+
+    def insert(self, vec):
+        """Insert a new vector into the index."""
+        node_id = len(self.nodes)
+        self.nodes.append(np.array(vec, dtype=np.float32))
+        l = self._level()
+
+        # Extend graph layers if needed
+        while len(self.graph) <= l:
+            self.graph.append({})
+
+        if self.entry_point is None:
+            self.entry_point = node_id
+            self.max_layer = l
+            return node_id
+
+        ep = self.entry_point
+        # Phase 1: descend from max_layer to l+1 with ef=1
+        for layer in range(self.max_layer, l, -1):
+            W = self._search_layer(node_id, ep, ef=1, layer=layer)
+            ep = W[0]
+
+        # Phase 2: from layer l down to 0, connect with ef=ef_construction
+        for layer in range(min(l, self.max_layer), -1, -1):
+            W = self._search_layer(node_id, ep, self.ef_construction, layer)
+            M_max = self.M0 if layer == 0 else self.M
+            # Select best M_max neighbours
+            neighbours = sorted(W, key=lambda nb: self._dist(node_id, nb))[:M_max]
+            self.graph[layer][node_id] = set(neighbours)
+            for nb in neighbours:
+                self.graph[layer].setdefault(nb, set()).add(node_id)
+                if len(self.graph[layer][nb]) > M_max:
+                    # Prune: keep closest M_max neighbours of nb
+                    self.graph[layer][nb] = set(
+                        sorted(self.graph[layer][nb],
+                               key=lambda x: self._dist(nb, x))[:M_max])
+            ep = W[0]
+
+        if l > self.max_layer:
+            self.entry_point = node_id
+            self.max_layer = l
+        return node_id
+
+    def search(self, query_vec, k=1, ef=50):
+        """Return k approximate nearest neighbours as (distance, id) pairs."""
+        q_id = len(self.nodes)
+        self.nodes.append(np.array(query_vec, dtype=np.float32))
+        ep = self.entry_point
+        for layer in range(self.max_layer, 0, -1):
+            W = self._search_layer(q_id, ep, ef=1, layer=layer)
+            ep = W[0]
+        W = self._search_layer(q_id, ep, ef=ef, layer=0)
+        self.nodes.pop()  # remove temporary query node
+        return sorted([(self._dist(q_id, nb), nb) for nb in W])[:k]
+
+# Usage
+idx = HNSWIndex(M=16, ef_construction=200)
+rng = np.random.default_rng(42)
+for _ in range(1000):
+    idx.insert(rng.normal(size=64))
+
+results = idx.search(rng.normal(size=64), k=5, ef=50)
+print(results)  # [(dist, node_id), ...]</pre></div>
+
+<h4>Production Usage — hnswlib &amp; FAISS</h4>
+<div class="code-block"><pre>## ---- Option A: hnswlib (pure HNSW, easiest) ----
+import hnswlib, numpy as np
+
+dim = 512
+n = 1_000_000
+data = np.random.rand(n, dim).astype('float32')
+
+index = hnswlib.Index(space='l2', dim=dim)
+index.init_index(max_elements=n, ef_construction=200, M=16)
+index.add_items(data, num_threads=8)    # parallel insert
+index.set_ef(50)                        # ef_search (query-time, no rebuild!)
+
+labels, distances = index.knn_query(data[:10], k=5)
+index.save_index('my_index.bin')
+
+## ---- Option B: FAISS IndexHNSWFlat ----
+import faiss
+
+index = faiss.IndexHNSWFlat(dim, 32)   # M=32
+index.hnsw.efConstruction = 200
+index.add(data)
+index.hnsw.efSearch = 64
+D, I = index.search(data[:10], 5)
+
+# ⚠️ Gotcha 1: hnswlib does NOT support deletion — rebuild or mark+filter
+# ⚠️ Gotcha 2: cosine similarity → normalise vectors first, use 'ip' space
+# ⚠️ Gotcha 3: ef_search < k causes silently wrong results
+# ⚠️ Gotcha 4: FAISS HNSW doesn't support GPU; use IVF-PQ for GPU scale</pre></div>
+`;
+document.getElementById('card6-body').innerHTML=`
+<h4>HNSW vs Other ANN Methods</h4>
+<table class="comp-table">
+<thead><tr><th>Method</th><th>Query Time</th><th>Build Time</th><th>Recall@10</th><th>Memory</th><th>Best For</th></tr></thead>
+<tbody>
+  <tr><td><strong>HNSW</strong></td><td>O(log n)</td><td>O(n log n)</td><td>95–99%</td><td>O(nM)</td><td>Low latency, high recall, static data</td></tr>
+  <tr><td>Flat (Exact)</td><td>O(n·d)</td><td>O(1)</td><td>100%</td><td>O(nd)</td><td>Small datasets, ground-truth</td></tr>
+  <tr><td>IVF-PQ (FAISS)</td><td>O(√n·d)</td><td>O(n)</td><td>70–90%</td><td>O(n/4)</td><td>GPU, RAM-constrained, billion-scale</td></tr>
+  <tr><td>Annoy</td><td>O(log n)</td><td>O(n log n)</td><td>80–95%</td><td>O(n)</td><td>Read-only indices, simple deployment</td></tr>
+  <tr><td>LSH</td><td>O(d)</td><td>O(nd)</td><td>50–80%</td><td>O(n·L)</td><td>Streaming, hash-based filters</td></tr>
+  <tr><td>DiskANN</td><td>O(log n) (SSD)</td><td>O(n log n)</td><td>95–99%</td><td>SSD</td><td>Billion-scale with limited RAM</td></tr>
+</tbody>
+</table>
+
+<div class="concept-box insight">
+  <div class="concept-box-title">When to Use HNSW</div>
+  <ul>
+    <li>Dataset size: 10K–100M vectors in RAM</li>
+    <li>Latency-critical: &lt;5ms p99 single-query</li>
+    <li>High recall required: RAG pipelines, semantic search, recommendation</li>
+    <li>Static or append-only data (no deletions)</li>
+    <li>Vectors already in RAM (or mapped)</li>
+  </ul>
+</div>
+
+<div class="concept-box warning">
+  <div class="concept-box-title">When NOT to Use HNSW</div>
+  <ul>
+    <li>Billion-scale with limited RAM → DiskANN or IVF-PQ</li>
+    <li>Frequent deletes → IVF-Flat or rebuild</li>
+    <li>GPU batched search → FAISS IVF-PQ on GPU</li>
+    <li>Exact answers required (legal, medical) → Flat index</li>
+    <li>Streaming inserts at very high velocity → consider LSH or IVF</li>
+  </ul>
+</div>
+
+<h4>Key Hyperparameter Guide</h4>
+<ul>
+  <li><strong>M</strong> (4–64, default 16): More edges → higher recall, more memory. M=16 is a solid default; M=32–64 for high-recall production.</li>
+  <li><strong>ef_construction</strong> (100–500, default 200): Higher → better graph quality at build time, slower insertion. Don't go below 100.</li>
+  <li><strong>ef_search</strong> (k–500): Must be ≥ k. Increase to trade latency for recall. For 99%+ recall, ef_search ≈ 10×k is typical.</li>
+</ul>
+
+<h4>Related Topics</h4>
+<ul>
+  <li>NSW (Navigable Small World) — the flat predecessor</li>
+  <li>Skip Lists — the data structure whose hierarchy HNSW mirrors</li>
+  <li>FAISS IVF-PQ — complementary approach for billion-scale, GPU, compressed memory</li>
+  <li>Product Quantization — often combined with HNSW (HNSWPQ) for memory reduction</li>
+  <li>DiskANN — extends HNSW ideas to SSD-based indices for trillion-scale</li>
+  <li>Vector Databases (Pinecone, Weaviate, Qdrant, Milvus) — production HNSW deployments</li>
+</ul>
+`;
+
+// ── HNSW Visualization ────────────────────────────────────────
+// Keyboard nav
+document.addEventListener('keydown', e => {
+  if(e.key==='ArrowRight') vizGo(1);
+  if(e.key==='ArrowLeft') vizGo(-1);
+  if(e.key==='r'||e.key==='R') vizReset();
+});
+
+// ── Graph data (fixed, numerically computed) ──
+// 20 nodes, 3 layers: layer2 (3 nodes), layer1 (8 nodes), layer0 (all 20)
+// Coordinates in [0,1] space
+const NODES = [
+  // id, x,      y,     maxLayer
+  {id:0,  x:0.12, y:0.20, L:2},  // entry point
+  {id:1,  x:0.55, y:0.15, L:2},
+  {id:2,  x:0.85, y:0.70, L:2},
+  {id:3,  x:0.25, y:0.50, L:1},
+  {id:4,  x:0.45, y:0.35, L:1},
+  {id:5,  x:0.70, y:0.25, L:1},
+  {id:6,  x:0.60, y:0.60, L:1},
+  {id:7,  x:0.80, y:0.45, L:1},
+  {id:8,  x:0.30, y:0.78, L:1},
+  {id:9,  x:0.50, y:0.80, L:1},
+  {id:10, x:0.10, y:0.88, L:0},
+  {id:11, x:0.20, y:0.35, L:0},
+  {id:12, x:0.35, y:0.15, L:0},
+  {id:13, x:0.65, y:0.80, L:0},
+  {id:14, x:0.75, y:0.90, L:0},
+  {id:15, x:0.90, y:0.30, L:0},
+  {id:16, x:0.92, y:0.85, L:0},
+  {id:17, x:0.15, y:0.62, L:0},
+  {id:18, x:0.40, y:0.60, L:0},
+  {id:19, x:0.55, y:0.50, L:0},  // nearest neighbour to query
+];
+
+// Edges per layer (approximate nearest-neighbour connections, M=2 for clarity)
+const EDGES = {
+  2: [[0,1],[1,2],[0,2]],
+  1: [[0,3],[0,4],[1,4],[1,5],[2,5],[2,6],[2,7],[3,8],[4,6],[5,7],[6,9],[8,9]],
+  0: [[0,11],[0,17],[1,4],[1,12],[2,6],[2,15],[2,16],[3,11],[3,17],[3,18],
+      [4,12],[4,18],[4,19],[5,15],[6,9],[6,13],[6,18],[6,19],[7,15],[7,16],
+      [8,9],[8,10],[8,17],[8,18],[9,13],[9,18],[10,17],[11,12],[11,17],[13,14],
+      [13,16],[14,16],[15,16],[17,18],[18,19]]
+};
+
+// Query point
+const QUERY = {x:0.52, y:0.52};
+
+// Search steps: {layer, position (node id), candidates examined, highlight edges, phase, title, desc}
+const STEPS = [
+  {layer:2, pos:0, visited:[], active_edges:[], title:"Enter at Entry Point (Layer 2)",
+   phase:"Layer 2", desc:"Search begins at node 0, the global entry point on the topmost sparse layer. Only 3 nodes exist here — these are the 'highway' nodes enabling fast long-range navigation. The query q=(0.52,0.52) is marked in purple."},
+  {layer:2, pos:0, visited:[0], active_edges:[[0,1],[0,2]], title:"Probe Layer-2 Neighbours of Node 0",
+   phase:"Layer 2", desc:"From node 0 (x=0.12, y=0.20), we probe its layer-2 neighbours: node 1 (x=0.55, y=0.15) and node 2 (x=0.85, y=0.70). Distances to query: d(0,q)=0.566, d(1,q)=0.373, d(2,q)=0.373. Best = node 1 (or 2, tied)."},
+  {layer:2, pos:1, visited:[0,1,2], active_edges:[], title:"Greedy Hop to Node 1 (Closest at Layer 2)",
+   phase:"Layer 2", desc:"Node 1 (x=0.55, y=0.15) is closest to q=(0.52,0.52) with d=0.373. We hop there. From node 1's neighbours {0,2}: d(2,q)=0.373 — not better than current. No improvement → stop at layer 2. Current best: node 1."},
+  {layer:1, pos:1, visited:[1], active_edges:[], title:"Descend to Layer 1 — Denser Neighbourhood",
+   phase:"Layer 1", desc:"We descend from node 1 into layer 1, which contains 8 nodes. Here the graph is denser: long-range edges still exist but local structure is richer. We resume greedy search from node 1's position in layer 1."},
+  {layer:1, pos:4, visited:[1,4,5,6,7], active_edges:[[1,4],[4,6],[4,18]], title:"Layer 1 Greedy Hops: 1→4→6",
+   phase:"Layer 1", desc:"From node 1 at layer 1, neighbours include 4 (d=0.200) and 5 (d=0.312). Hop to node 4. From 4: check 6 (d=0.204) < 0.200? No, very similar — but node 19 visible via layer-0 edges is closest. Continue: node 6 (x=0.60, y=0.60) at d=0.113. Greedy improvement found!"},
+  {layer:1, pos:6, visited:[1,4,5,6,9,19], active_edges:[[6,9],[6,18],[6,19]], title:"Layer 1 Converges Near Query",
+   phase:"Layer 1", desc:"From node 6 (x=0.60, y=0.60), we check neighbours: node 9 (d=0.146), node 18 (d=0.114), node 19 (x=0.55,y=0.50, d=0.071). Node 19 is closest candidate seen so far! No layer-1 node is closer → stop. Descend to layer 0 from node 6."},
+  {layer:0, pos:19, visited:[6,18,19,9,13], active_edges:[[18,19],[6,19],[4,19],[6,18]], title:"Layer 0 — Full Graph, ef_search=5 Beam",
+   phase:"Layer 0", desc:"At layer 0 all 20 nodes exist. We run beam search with ef=5 from node 6. Candidates: {18 d=0.114, 19 d=0.071, 9 d=0.146, 13 d=0.190}. Node 19 (x=0.55,y=0.50) remains closest at d=0.071. All its neighbours (4,6,18) are farther or already visited."},
+  {layer:0, pos:19, visited:'all', active_edges:[], title:"Answer Found: Node 19 is the 1-NN",
+   phase:"Result", desc:"Greedy search terminates at node 19 (x=0.55, y=0.50) — the nearest neighbour to q=(0.52,0.52) with distance 0.071. Total hops: 5 across 3 layers vs a brute-force scan of all 20 nodes. At n=1M this savings is logarithmic: ~40 hops vs 1,000,000 comparisons."},
+];
+
+let vizStep = 0;
+let canvas, ctx, W, H;
+let dotsEl, prevBtn, nextBtn;
+
+function initViz(){
+  canvas = document.getElementById('hnsw-canvas');
+  if(!canvas) return;
+  dotsEl = document.getElementById('viz-dots');
+  prevBtn = document.getElementById('btn-prev');
+  nextBtn = document.getElementById('btn-next');
+  // Build dots
+  dotsEl.innerHTML='';
+  STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.onclick=()=>{vizStep=i;renderViz();};
+    dotsEl.appendChild(d);
+  });
+  canvas.addEventListener('click',()=>vizGo(1));
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  renderViz();
+}
+
+function resizeCanvas(){
+  if(!canvas) return;
+  const w = canvas.parentElement.clientWidth - 48;
+  canvas.width = w; canvas.height = Math.min(420, w*0.56);
+  W = canvas.width; H = canvas.height;
+  renderViz();
+}
+
+function nx(x){return x*W*0.9 + W*0.05;}
+function ny(y){return y*H*0.85 + H*0.07;}
+
+function getCSSVar(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+
+function drawEdges(layer, highlight=[], alpha=1){
+  const edges = EDGES[layer]||[];
+  edges.forEach(([a,b])=>{
+    const isHi = highlight.some(([x,y])=>(x===a&&y===b)||(x===b&&y===a));
+    ctx.beginPath();
+    ctx.moveTo(nx(NODES[a].x), ny(NODES[a].y));
+    ctx.lineTo(nx(NODES[b].x), ny(NODES[b].y));
+    ctx.globalAlpha = isHi ? 0.9 : alpha*0.25;
+    ctx.strokeStyle = isHi ? '#534AB7' : (layer===2?'#00ACC1':layer===1?'#3B6D11':'#185FA5');
+    ctx.lineWidth = isHi ? 2.5 : 1;
+    ctx.stroke();
+  });
+  ctx.globalAlpha=1;
+}
+
+function drawNode(node, color, size, stroke){
+  ctx.beginPath();
+  ctx.arc(nx(node.x), ny(node.y), size, 0, Math.PI*2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2.5;ctx.stroke();}
+  ctx.globalAlpha=1;
+}
+
+function renderViz(){
+  if(!canvas||!ctx) {ctx=canvas.getContext('2d'); if(!ctx)return;}
+  ctx.clearRect(0,0,W,H);
+
+  const step = STEPS[vizStep];
+  const layer = step.layer;
+
+  // Background label
+  ctx.font=`bold 11px ${getCSSVar('--mono')||'monospace'}`;
+  ctx.fillStyle=getCSSVar('--text3')||'#9c9a92';
+  ['Layer 2','Layer 1','Layer 0'].forEach((lbl,i)=>{
+    ctx.fillText(lbl, 8, H - (i*18+8));
+  });
+
+  // Draw all edges for visible layers
+  [0,1,2].forEach(l=>{
+    if(l<=layer){
+      const hi = (l===layer)?step.active_edges:[];
+      const alpha = l<layer?0.4:1;
+      drawEdges(l, hi, alpha);
+    }
+  });
+
+  // Draw all nodes for visible layers
+  NODES.forEach(n=>{
+    if(n.L > layer) return; // not visible yet in upper layers
+    const onLayer = n.L===layer || layer===0;
+    const color = n.L===2?'#00ACC1': n.L===1?'#3B6D11':'#185FA5';
+    const isPos = n.id===step.pos;
+    const isResult = vizStep===STEPS.length-1 && n.id===19;
+    const wasVisited = Array.isArray(step.visited) && step.visited.includes(n.id);
+    const size = isPos?9:wasVisited?7:5.5;
+    const strokeC = isResult?'#A32D2D': isPos?'#EF9F27': wasVisited?'#534AB7': null;
+    const fillC = isResult?'#FCEBEB': isPos?'#EF9F27': wasVisited?'#EEEDFE': onLayer?color:'rgba(150,150,150,0.4)';
+    drawNode(n, fillC, size, strokeC);
+    // Node id label
+    ctx.font=`10px ${getCSSVar('--mono')||'monospace'}`;
+    ctx.fillStyle=getCSSVar('--text2')||'#6b6b65';
+    ctx.fillText(n.id, nx(n.x)+10, ny(n.y)+3);
+  });
+
+  // Draw query point
+  ctx.beginPath();
+  ctx.arc(nx(QUERY.x), ny(QUERY.y), 10, 0, Math.PI*2);
+  ctx.fillStyle='rgba(83,74,183,0.18)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(nx(QUERY.x), ny(QUERY.y), 6, 0, Math.PI*2);
+  ctx.fillStyle='#534AB7';
+  ctx.fill();
+  ctx.font=`bold 11px ${getCSSVar('--sans')||'sans-serif'}`;
+  ctx.fillStyle='#534AB7';
+  ctx.fillText('q', nx(QUERY.x)+10, ny(QUERY.y)+4);
+
+  // Update info card
+  document.getElementById('viz-step-counter').textContent=`Step ${vizStep+1} / ${STEPS.length}`;
+  document.getElementById('viz-title-text').textContent=step.title;
+  document.getElementById('viz-desc-text').textContent=step.desc;
+  document.querySelector('#viz-info .info-phase').textContent=step.phase;
+
+  // Update dots
+  Array.from(dotsEl.children).forEach((d,i)=>{
+    d.className='dot'+(i===vizStep?' active':i<vizStep?' done':'');
+  });
+  prevBtn.disabled = vizStep===0;
+  nextBtn.disabled = vizStep===STEPS.length-1;
+}
+
+function vizGo(dir){
+  vizStep = Math.max(0, Math.min(STEPS.length-1, vizStep+dir));
+  renderViz();
+}
+function vizReset(){vizStep=0;renderViz();}
+
+// Init after DOM ready
+setTimeout(initViz, 200);
+</script>
+</body>
+</html>

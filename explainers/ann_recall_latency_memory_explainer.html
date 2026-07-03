@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANN Trade-off: Recall vs Latency vs Memory</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono','Fira Code',monospace;
+  --sans: 'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+    --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+    --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+    --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+    --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+    --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+.container{max-width:860px;margin:0 auto;padding:2rem 1.25rem 4rem}
+/* Header */
+.header{margin-bottom:2rem}
+.header h1{font-size:clamp(1.5rem,4vw,2.2rem);font-weight:800;line-height:1.2;letter-spacing:-0.5px;color:var(--text)}
+.header p{font-size:15px;color:var(--text2);margin-top:0.5rem}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+/* Card */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.section-title{font-size:18px;font-weight:700;color:var(--text)}
+.chevron{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.2s}
+.card.collapsed .chevron{transform:rotate(-90deg)}
+.card.collapsed .card-body{display:none}
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border)}
+.concept-box.danger .concept-box-title{color:var(--red-mid)}
+/* Eq display block */
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0}
+.tbl th{background:var(--bg2);text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--border2);color:var(--text)}
+.tbl td{padding:7px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+.tbl tr:hover td{background:var(--bg2)}
+/* Visualization */
+.viz-wrap{background:var(--bg2);border-radius:var(--radius-lg);padding:1.25rem;margin-top:1rem}
+.viz-tabs{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
+.viz-tab{padding:6px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);transition:all 0.2s}
+.viz-tab.active{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+canvas{display:block;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border)}
+.slider-panel{display:flex;flex-direction:column;gap:12px;margin:1rem 0}
+.slider-group{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.slider-label{font-size:13px;font-weight:600;min-width:100px;color:var(--text)}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:600;min-width:55px;color:var(--purple-mid)}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:100px;height:6px;border-radius:3px;background:var(--border2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer}
+/* Info card */
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.25rem;margin-top:1rem}
+.info-phase{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;display:inline-block;margin-bottom:0.5rem}
+.info-title{font-weight:700;font-size:15px;margin-bottom:0.4rem}
+.info-text{font-size:13px;color:var(--text2);line-height:1.6}
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;flex-wrap:wrap}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:white}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:0.75rem;justify-content:center;font-size:12px}
+.legend-item{display:flex;align-items:center;gap:5px;color:var(--text2)}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+p{margin-bottom:0.75rem;font-size:14px;color:var(--text2)}
+ul,ol{margin:0.5rem 0 0.75rem 1.5rem;font-size:14px;color:var(--text2)}
+li{margin-bottom:0.3rem}
+strong{color:var(--text);font-weight:600}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>ANN Trade-off: Recall vs Latency vs Memory</h1>
+  <p>How index parameters move along the Pareto frontier — and why you can't have all three</p>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML · ANN</span>
+    <span class="tag tag-complexity">Part III — Classical ML</span>
+  </div>
+</div>
+
+<!-- Card 1: Understanding -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Triangle</div>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p>
+      Approximate Nearest Neighbor (ANN) search finds vectors close to a query — not necessarily the
+      exact nearest neighbor, but close enough, fast enough. The <strong>core tension</strong> is that
+      every ANN index must balance three resources simultaneously:
+    </p>
+    <ul>
+      <li><strong>Recall</strong> — fraction of true nearest neighbors returned (0–1, higher is better)</li>
+      <li><strong>Latency</strong> — wall-clock time per query (lower is better)</li>
+      <li><strong>Memory</strong> — RAM consumed by the index structure (lower is better)</li>
+    </ul>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">The Impossible Triangle</div>
+      Improving recall almost always costs either more latency or more memory (or both).
+      No single set of parameters dominates on all three axes — this is a fundamental Pareto trade-off,
+      not an implementation detail.
+    </div>
+    <p>
+      The <strong>real-world analogy</strong>: imagine a library with millions of books (vectors). You want
+      the 10 most relevant books to your topic (query). You can:
+      <br>• Read every book exactly — perfect recall, enormous time (brute-force, O(Nd) latency)
+      <br>• Use a card index to narrow candidates — fast but you might miss some books (ANN with low recall)
+      <br>• Keep a giant cross-reference in RAM — faster lookup, but expensive to store
+    </p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">If You Remember One Thing</div>
+      Higher recall requires visiting more candidates. More candidates costs more time
+      and/or more memory to store the graph/partition structure. Every index parameter
+      (nprobe, efSearch, PQ bits) is a dial that moves you along this Pareto curve.
+    </div>
+  </div>
+</div>
+
+<!-- Card 2: How It Works -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How Index Parameters Move the Frontier</div>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p>
+      Three major index families dominate production ANN and each has distinct parameters
+      that trade off the triangle differently:
+    </p>
+    <p><strong>IVF (Inverted File Index) — nprobe</strong></p>
+    <p>
+      The index partitions \(N\) vectors into \(K\) Voronoi cells via k-means. At query time,
+      the query is assigned to its nearest centroid, then <code>nprobe</code> cells are searched exhaustively.
+    </p>
+    <ul>
+      <li><code>nprobe=1</code>: ~50–70% recall, 1× latency baseline — only the nearest cell searched</li>
+      <li><code>nprobe=8</code>: ~85–90% recall, ~8× more vectors scanned</li>
+      <li><code>nprobe=K</code>: 100% recall (degenerates to brute-force)</li>
+    </ul>
+    <p>
+      Latency scales roughly linearly with nprobe (assuming flat storage). Memory is fixed by
+      \(K\) centroids plus the stored vectors.
+    </p>
+    <p><strong>HNSW (Hierarchical Navigable Small World) — efSearch</strong></p>
+    <p>
+      HNSW builds a multi-layer proximity graph. At query time a greedy beam search uses a
+      candidate heap of size <code>efSearch</code>. Larger efSearch → more nodes visited → higher recall,
+      higher latency. Memory cost is dominated by the graph edges: each vector stores
+      up to \(M\) neighbors per layer (~\(4M\) bytes per vector for M=16).
+    </p>
+    <ul>
+      <li><code>efSearch=16</code>: recall ≈ 0.85, ~0.3 ms/query (typical 1M dataset, 128-d)</li>
+      <li><code>efSearch=64</code>: recall ≈ 0.96, ~0.9 ms/query</li>
+      <li><code>efSearch=256</code>: recall ≈ 0.99, ~3 ms/query</li>
+    </ul>
+    <p><strong>PQ (Product Quantization) — num_bits / m subspaces</strong></p>
+    <p>
+      PQ compresses vectors from \(d\) float32 dimensions into \(m\) codes of \(b\) bits each.
+      This reduces per-vector memory from \(4d\) bytes to \(m \cdot b/8\) bytes — a 32× compression
+      for \(b=8\) bits.
+    </p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">The PQ Accuracy Cost</div>
+      Compression is lossy. Fewer bits per subspace → lower precision distances → lower recall.
+      PQ with 4 bits (16 centroids per subspace) typically loses 5–15% recall vs exact distances.
+      PQ is almost always combined with IVF or HNSW as a re-ranking step.
+    </div>
+    <div class="concept-box math">
+      <div class="concept-box-title">Key Formulas</div>
+      IVF scan fraction: \(\text{fraction scanned} = \text{nprobe}/K\)<br>
+      HNSW per-query complexity: \(O(\log N \cdot \text{efSearch})\)<br>
+      PQ memory per vector: \(m \cdot b / 8\) bytes vs \(4d\) bytes exact
+    </div>
+  </div>
+</div>
+
+<!-- Card 3: The Math -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Pareto Frontier — Formal Treatment</div>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p>
+      Define the Pareto frontier as the set of parameter configurations where no single parameter change
+      improves one metric without harming another. Formally:
+    </p>
+    <div class="eq">
+      $$\mathcal{P} = \{(\text{recall}, \text{QPS}, \text{mem}) : \nexists \text{ config } c' \text{ s.t. } c' \succ c \text{ on all three}\}$$
+    </div>
+    <p>where \(\succ\) denotes strict Pareto dominance.</p>
+    <p>
+      For IVF, the expected recall when searching <code>nprobe</code> of \(K\) cells is:
+    </p>
+    <div class="eq">
+      $$\text{Recall@k}(\text{nprobe}) = \mathbb{E}\!\left[\frac{|\text{true top-}k \cap \text{candidates}(\text{nprobe})|}{k}\right]$$
+    </div>
+    <p>
+      Under the idealized model where each true neighbor falls in the nearest-centroid cell independently
+      with probability \(p\), recall follows a binomial law:
+    </p>
+    <div class="eq">
+      $$\text{Recall}(n) \approx 1 - (1-p_1)^{n} \quad \text{where } p_1 = P(\text{true NN in searched cell})$$
+    </div>
+    <p>
+      Queries Per Second (QPS) decays inversely with nprobe (linear scan dominates):
+    </p>
+    <div class="eq">
+      $$\text{QPS}(\text{nprobe}) \approx \frac{\text{QPS}_{\text{base}}}{\text{nprobe}} \cdot \frac{K}{\text{nprobe}}$$
+    </div>
+    <p>
+      For HNSW with beam width efSearch, empirically the recall–latency curve follows:
+    </p>
+    <div class="eq">
+      $$\text{Recall}(\text{ef}) \approx 1 - e^{-\alpha \cdot \text{ef}} \quad \text{(empirical, } \alpha \approx 0.05 \text{ for typical configs)}$$
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">Common Misconception</div>
+      "Recall@10 = 0.9 means 90% of queries are perfect." Wrong — it means on average 9 of the 10
+      returned neighbors are true neighbors. Individual queries may return 10/10 or 5/10.
+      Tail latency (p99) often matters more than mean in production SLAs.
+    </div>
+    <p>
+      The QPS–Recall Pareto curve is typically plotted on recall (x-axis) vs QPS (y-axis),
+      with each point representing a different parameter value. The curve is <strong>concave</strong>:
+      the first gains in recall are cheap; the last few percent of recall are exponentially expensive.
+    </p>
+  </div>
+</div>
+
+<!-- Card 4: Interactive Visualization -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive: The ANN Tuning Triangle</div>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <div class="viz-wrap">
+      <div class="viz-tabs">
+        <button class="viz-tab active" onclick="showViz('triangle')">Tuning Triangle</button>
+        <button class="viz-tab" onclick="showViz('pareto')">Recall–QPS Pareto</button>
+        <button class="viz-tab" onclick="showViz('params')">Parameter Sliders</button>
+      </div>
+
+      <!-- Triangle View -->
+      <div id="viz-triangle">
+        <canvas id="triangleCanvas" width="580" height="340" style="width:100%;max-width:580px;margin:0 auto"></canvas>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div>HNSW (efSearch)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div>IVF (nprobe)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#854F0B"></div>IVF+PQ (nprobe, bits)</div>
+        </div>
+        <div class="controls">
+          <button class="btn" onclick="prevStep()" id="btnPrev" disabled>← Prev</button>
+          <button class="btn btn-primary" onclick="nextStep()" id="btnNext">Next →</button>
+          <button class="btn" onclick="resetViz()">Reset</button>
+        </div>
+        <div class="progress-wrap" id="progressDots"></div>
+        <div class="info-card">
+          <span class="info-phase" id="infoPhase" style="background:var(--purple-bg);color:var(--purple-mid)">Step 1</span>
+          <div class="info-title" id="infoTitle">Start: The Recall–Latency–Memory Triangle</div>
+          <div class="info-text" id="infoText">Every ANN index lives somewhere in this triangle. The three corners represent optimizing for one resource at the expense of the others. No configuration sits at the center — every real system trades off.</div>
+        </div>
+        <div class="kbd-hint">Use ← → arrow keys · R to reset</div>
+      </div>
+
+      <!-- Pareto View -->
+      <div id="viz-pareto" style="display:none">
+        <canvas id="paretoCanvas" width="580" height="340" style="width:100%;max-width:580px;margin:0 auto"></canvas>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div>HNSW</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div>IVF flat</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#854F0B"></div>IVF+PQ</div>
+        </div>
+        <div class="info-card">
+          <div class="info-title">Recall vs QPS Pareto Frontier</div>
+          <div class="info-text">Each curve shows how QPS drops as recall increases. HNSW dominates IVF at high recall. IVF+PQ dominates at lower recall targets (compressed vectors → faster scan). Hover/tap a curve to see parameter values.</div>
+        </div>
+      </div>
+
+      <!-- Slider View -->
+      <div id="viz-params" style="display:none">
+        <div class="slider-panel">
+          <div class="slider-group">
+            <span class="slider-label">Index Type</span>
+            <select id="idxType" style="padding:6px 10px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:var(--sans);font-size:13px" onchange="updateSliders()">
+              <option value="ivf">IVF (nprobe)</option>
+              <option value="hnsw">HNSW (efSearch)</option>
+              <option value="pq">IVF+PQ (nprobe + bits)</option>
+            </select>
+          </div>
+          <div id="sliderA" class="slider-group">
+            <span class="slider-label" id="sliderALabel">nprobe</span>
+            <input type="range" id="sliderAVal" min="1" max="64" value="8" oninput="updateMetrics()">
+            <span class="slider-value" id="sliderADisplay">8</span>
+          </div>
+          <div id="sliderB" class="slider-group" style="display:none">
+            <span class="slider-label" id="sliderBLabel">PQ bits</span>
+            <input type="range" id="sliderBVal" min="4" max="16" step="4" value="8" oninput="updateMetrics()">
+            <span class="slider-value" id="sliderBDisplay">8</span>
+          </div>
+        </div>
+        <canvas id="metricsCanvas" width="580" height="200" style="width:100%;max-width:580px;margin:0 auto"></canvas>
+        <div class="info-card" id="metricsInfo">
+          <div class="info-title">Computed Metrics</div>
+          <div class="info-text" id="metricsText">Adjust sliders to see how recall, QPS, and memory change.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Card 5: Takeaways -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways & Decision Guide</div>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p><strong>When to use which index:</strong></p>
+    <table class="tbl">
+      <thead><tr><th>Constraint</th><th>Best Choice</th><th>Key Param</th></tr></thead>
+      <tbody>
+        <tr><td>Recall ≥ 0.99, latency budget is loose</td><td>HNSW, high efSearch</td><td>efSearch=256+</td></tr>
+        <tr><td>High QPS, moderate recall (0.85–0.95)</td><td>IVF flat, nprobe=8–16</td><td>nprobe, K=4096</td></tr>
+        <tr><td>Memory constrained, recall ≥ 0.80</td><td>IVF+PQ</td><td>PQ bits=8, nprobe=32</td></tr>
+        <tr><td>Massive scale (1B+ vectors), GPU available</td><td>IVF-PQ on GPU</td><td>nprobe, bits tuned by GPU SRAM</td></tr>
+        <tr><td>Dynamic index (frequent inserts)</td><td>HNSW (graph insert is O(log N))</td><td>M, efConstruct</td></tr>
+      </tbody>
+    </table>
+    <div class="concept-box insight">
+      <div class="concept-box-title">The Practitioner's Rule</div>
+      Start by fixing your recall target (e.g. 0.95). Then sweep the relevant parameter
+      (nprobe or efSearch) to find the lowest-latency config that meets the recall floor.
+      Only apply PQ if memory is a hard constraint — it always costs recall.
+    </div>
+    <ul>
+      <li>The Pareto curve is <em>concave</em>: the final 1% of recall is expensive — don't over-optimize</li>
+      <li>Re-ranking with exact distances on the ANN candidate set is a powerful recall recovery trick</li>
+      <li>Measure recall@k with your <em>actual</em> query distribution, not synthetic benchmarks (ANN-Benchmarks)</li>
+      <li>efConstruct (HNSW build param) and nlist (IVF cluster count) set the ceiling on achievable recall — tuning at query time can't exceed the build-time ceiling</li>
+    </ul>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+/* ── Triangle visualization ─────────────────────────────────── */
+const steps = [
+  {
+    phase:"Triangle",phaseBg:"var(--purple-bg)",phaseColor:"var(--purple-mid)",
+    title:"The ANN Tuning Triangle",
+    text:"Every ANN index config sits somewhere in this triangle. The three vertices are: perfect recall (top), lowest latency (bottom-right), minimum memory (bottom-left). No config occupies all three corners simultaneously.",
+    highlights:[]
+  },
+  {
+    phase:"HNSW",phaseBg:"var(--blue-bg)",phaseColor:"var(--blue-mid)",
+    title:"HNSW: efSearch=16 → efSearch=256",
+    text:"HNSW configs sweep from bottom-right (low efSearch: fast, low recall, low memory) toward top (high efSearch: slower, high recall, still high memory — the graph always stores all edges). Memory is dominated by the graph structure, not efSearch.",
+    highlights:["hnsw"]
+  },
+  {
+    phase:"IVF",phaseBg:"var(--green-bg)",phaseColor:"var(--green-mid)",
+    title:"IVF Flat: nprobe=1 → nprobe=K",
+    text:"IVF sweeps from bottom-right (nprobe=1: fast but low recall) toward the top (nprobe=K: brute-force). Memory is fixed (stores vectors + centroids). Latency grows linearly with nprobe.",
+    highlights:["ivf"]
+  },
+  {
+    phase:"IVF+PQ",phaseBg:"var(--amber-bg)",phaseColor:"var(--amber-mid)",
+    title:"IVF+PQ: Compressed — Lower Memory Corner",
+    text:"Adding Product Quantization compresses vectors, pushing configs toward the bottom-left (low memory). This sacrifices recall but allows larger datasets in RAM. PQ bits control how far left configs move.",
+    highlights:["pq"]
+  },
+  {
+    phase:"Pareto",phaseBg:"var(--red-bg)",phaseColor:"var(--red-mid)",
+    title:"The Frontier: No Free Lunch",
+    text:"The colored curves show the Pareto frontier for each index family. Moving along a curve means trading recall for speed (or vice versa). Moving across curves means switching index type — HNSW dominates at high recall, IVF+PQ dominates when memory is the binding constraint.",
+    highlights:["all"]
+  }
+];
+
+let step = 0;
+
+function buildDots(){
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML='';
+  steps.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.onclick=()=>goStep(i);
+    wrap.appendChild(d);
+  });
+}
+
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.className='dot'+(i<step?'done':i===step?'active':'');
+  });
+}
+
+function updateInfo(){
+  const s=steps[step];
+  const ph=document.getElementById('infoPhase');
+  ph.textContent=s.phase;
+  ph.style.background=s.phaseBg;
+  ph.style.color=s.phaseColor;
+  document.getElementById('infoTitle').textContent=s.title;
+  document.getElementById('infoText').textContent=s.text;
+  document.getElementById('btnPrev').disabled=step===0;
+  document.getElementById('btnNext').disabled=step===steps.length-1;
+}
+
+function nextStep(){if(step<steps.length-1){step++;renderTriangle();updateDots();updateInfo();}}
+function prevStep(){if(step>0){step--;renderTriangle();updateDots();updateInfo();}}
+function resetViz(){step=0;renderTriangle();updateDots();updateInfo();}
+function goStep(i){step=i;renderTriangle();updateDots();updateInfo();}
+
+// Triangle canvas
+function renderTriangle(){
+  const canvas=document.getElementById('triangleCanvas');
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.clientWidth*dpr, H=340*dpr;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const cw=canvas.clientWidth, ch=340;
+  ctx.clearRect(0,0,cw,ch);
+
+  // Triangle vertices
+  const top={x:cw/2,y:32};
+  const bl={x:52,y:ch-32};
+  const br={x:cw-52,y:ch-32};
+
+  // Gradient bg
+  const grad=ctx.createLinearGradient(0,0,cw,ch);
+  grad.addColorStop(0,'rgba(83,74,183,0.04)');
+  grad.addColorStop(1,'rgba(59,109,17,0.04)');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,cw,ch);
+
+  // Draw triangle
+  ctx.beginPath();
+  ctx.moveTo(top.x,top.y);
+  ctx.lineTo(bl.x,bl.y);
+  ctx.lineTo(br.x,br.y);
+  ctx.closePath();
+  ctx.strokeStyle='rgba(83,74,183,0.25)';
+  ctx.lineWidth=2;
+  ctx.setLineDash([6,4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Corner labels
+  ctx.font='bold 13px DM Sans,system-ui';
+  ctx.textAlign='center';
+  ctx.fillStyle='#534AB7';
+  ctx.fillText('High Recall',top.x,top.y-10);
+  ctx.fillStyle='#3B6D11';
+  ctx.fillText('Low Memory',bl.x,bl.y+18);
+  ctx.fillStyle='#A32D2D';
+  ctx.fillText('Low Latency',br.x,br.y+18);
+  ctx.fillStyle='#854F0B';
+  ctx.font='11px DM Sans,system-ui';
+  ctx.fillText('(fast, approximate)',br.x,br.y+30);
+
+  // HNSW configs - arc from bottom-right toward top
+  const hnsw=[
+    {ef:16,  x:br.x-55, y:br.y-55, recall:0.83},
+    {ef:32,  x:br.x-90, y:br.y-90, recall:0.90},
+    {ef:64,  x:cw/2+40, y:top.y+80, recall:0.95},
+    {ef:128, x:cw/2+10, y:top.y+48, recall:0.98},
+    {ef:256, x:cw/2-10, y:top.y+22, recall:0.99},
+  ];
+  const ivf=[
+    {np:1,  x:br.x-40, y:br.y-35, recall:0.68},
+    {np:4,  x:br.x-70, y:br.y-65, recall:0.82},
+    {np:8,  x:br.x-100,y:br.y-100,recall:0.88},
+    {np:16, x:cw/2+50, y:top.y+95,recall:0.92},
+    {np:32, x:cw/2+20, y:top.y+55,recall:0.96},
+  ];
+  const pq=[
+    {np:4, bits:4,  x:bl.x+60, y:bl.y-50,  recall:0.72},
+    {np:8, bits:8,  x:bl.x+100,y:bl.y-90,  recall:0.80},
+    {np:16,bits:8,  x:cw/2-40, y:top.y+100,recall:0.87},
+    {np:32,bits:16, x:cw/2-10, y:top.y+60, recall:0.92},
+  ];
+
+  function drawCurve(pts,color,label){
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+    ctx.strokeStyle=color;
+    ctx.lineWidth=2.5;
+    ctx.stroke();
+    pts.forEach((p,i)=>{
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,5.5,0,Math.PI*2);
+      ctx.fillStyle=color;
+      ctx.fill();
+      ctx.strokeStyle='white';
+      ctx.lineWidth=1.5;
+      ctx.stroke();
+    });
+  }
+
+  const s=steps[step];
+  const showHnsw=s.highlights.includes('hnsw')||s.highlights.includes('all');
+  const showIvf=s.highlights.includes('ivf')||s.highlights.includes('all');
+  const showPq=s.highlights.includes('pq')||s.highlights.includes('all');
+
+  if(showHnsw||step===0) drawCurve(hnsw,'#534AB7','HNSW');
+  if(showIvf||step===0) drawCurve(ivf,'#3B6D11','IVF');
+  if(showPq||step===0) drawCurve(pq,'#854F0B','PQ');
+
+  // Labels on active curve
+  if(showHnsw&&step>0){
+    hnsw.forEach(p=>{
+      ctx.fillStyle='#534AB7';
+      ctx.font='10px JetBrains Mono,monospace';
+      ctx.textAlign='left';
+      ctx.fillText(`ef=${p.ef}`,p.x+8,p.y-4);
+    });
+  }
+  if(showIvf&&step>0){
+    ivf.forEach(p=>{
+      ctx.fillStyle='#3B6D11';
+      ctx.font='10px JetBrains Mono,monospace';
+      ctx.textAlign='right';
+      ctx.fillText(`np=${p.np}`,p.x-8,p.y-4);
+    });
+  }
+  if(showPq&&step>0){
+    pq.forEach(p=>{
+      ctx.fillStyle='#854F0B';
+      ctx.font='10px JetBrains Mono,monospace';
+      ctx.textAlign='left';
+      ctx.fillText(`np=${p.np} b=${p.bits}`,p.x+8,p.y+4);
+    });
+  }
+}
+
+/* ── Pareto Frontier Canvas ─────────────────────────────── */
+function renderPareto(){
+  const canvas=document.getElementById('paretoCanvas');
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=canvas.clientWidth*dpr;
+  canvas.height=340*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const W=canvas.clientWidth,H=340;
+  const pad={l:55,r:20,t:20,b:45};
+  const iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
+
+  ctx.clearRect(0,0,W,H);
+
+  // Axes
+  ctx.strokeStyle='var(--border2)';ctx.lineWidth=1.5;
+  ctx.beginPath();
+  ctx.moveTo(pad.l,pad.t);ctx.lineTo(pad.l,pad.t+ih);ctx.lineTo(pad.l+iw,pad.t+ih);
+  ctx.stroke();
+
+  // Axis labels
+  ctx.font='12px DM Sans,system-ui';
+  ctx.fillStyle='#6b6b65';
+  ctx.textAlign='center';
+  ctx.fillText('Recall@10',pad.l+iw/2,H-8);
+  ctx.save();ctx.translate(14,pad.t+ih/2);ctx.rotate(-Math.PI/2);
+  ctx.fillText('QPS (queries/sec)',0,0);ctx.restore();
+
+  // Grid
+  ctx.setLineDash([3,4]);ctx.strokeStyle='rgba(0,0,0,0.08)';ctx.lineWidth=1;
+  for(let i=0;i<=5;i++){
+    const x=pad.l+iw*i/5, y=pad.t+ih*i/5;
+    ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,pad.t+ih);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+iw,y);ctx.stroke();
+    ctx.fillStyle='#9c9a92';ctx.font='10px DM Sans,system-ui';
+    ctx.textAlign='center';
+    ctx.fillText((0.6+0.08*i).toFixed(2),x,pad.t+ih+14);
+    ctx.textAlign='right';
+    const qps=Math.round(10000-2000*i);
+    ctx.fillText(qps,pad.l-5,y+4);
+  }
+  ctx.setLineDash([]);
+
+  // Data curves — numerically computed
+  // HNSW: QPS ~ 3500 * (16/efSearch) * log(16)/log(efSearch), recall ~ 1-exp(-0.065*ef)
+  function hnswPt(ef){
+    const recall=1-Math.exp(-0.065*ef);
+    const qps=Math.max(200, 5500/(1+0.012*ef));
+    return {recall,qps,ef};
+  }
+  const hnswPts=[16,24,32,48,64,96,128,192,256,384].map(hnswPt);
+
+  // IVF: QPS ~ 8000/nprobe (K=1024), recall ~ 1-(1-0.85)^(nprobe/16)
+  function ivfPt(np){
+    const recall=1-Math.pow(0.15,np/16);
+    const qps=Math.max(100,7500/np);
+    return {recall,qps,np};
+  }
+  const ivfPts=[1,2,4,8,16,24,32,48,64].map(ivfPt);
+
+  // IVF+PQ: lower recall ceiling (PQ distortion ~0.85x), but much higher base QPS
+  function pqPt(np){
+    const recall=0.85*(1-Math.pow(0.15,np/16));
+    const qps=Math.max(200,22000/np);
+    return {recall,qps,np};
+  }
+  const pqPts=[1,2,4,8,16,24,32].map(pqPt);
+
+  function toCanvas(r,q){
+    const x=pad.l+iw*(r-0.6)/0.4;
+    const y=pad.t+ih*(1-(q)/10000);
+    return {x,y};
+  }
+
+  function drawLine(pts,color,label,dotR){
+    ctx.beginPath();
+    pts.forEach((p,i)=>{
+      const c=toCanvas(p.recall,p.qps);
+      i===0?ctx.moveTo(c.x,c.y):ctx.lineTo(c.x,c.y);
+    });
+    ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.stroke();
+    pts.forEach(p=>{
+      const c=toCanvas(p.recall,p.qps);
+      ctx.beginPath();ctx.arc(c.x,c.y,dotR||4,0,Math.PI*2);
+      ctx.fillStyle=color;ctx.fill();
+      ctx.strokeStyle='white';ctx.lineWidth=1;ctx.stroke();
+    });
+    // Label last point
+    const lp=pts[pts.length-1], lc=toCanvas(lp.recall,lp.qps);
+    ctx.fillStyle=color;ctx.font='bold 11px DM Sans,system-ui';
+    ctx.textAlign='left';ctx.fillText(label,lc.x+6,lc.y-4);
+  }
+
+  drawLine(hnswPts,'#534AB7','HNSW',4.5);
+  drawLine(ivfPts,'#3B6D11','IVF',4);
+  drawLine(pqPts,'#854F0B','IVF+PQ',4);
+
+  // Annotation: "Higher recall → lower QPS"
+  ctx.fillStyle='#9c9a92';ctx.font='11px DM Sans,system-ui';
+  ctx.textAlign='right';
+  ctx.fillText('← Higher recall costs QPS',pad.l+iw,pad.t+16);
+}
+
+/* ── Metrics Sliders ─────────────────────────────────────── */
+function updateSliders(){
+  const t=document.getElementById('idxType').value;
+  const la=document.getElementById('sliderALabel');
+  const lb=document.getElementById('sliderBLabel');
+  const sa=document.getElementById('sliderAVal');
+  const sb=document.getElementById('sliderB');
+  if(t==='ivf'){la.textContent='nprobe';sa.min=1;sa.max=64;sa.value=8;sb.style.display='none';}
+  else if(t==='hnsw'){la.textContent='efSearch';sa.min=16;sa.max=256;sa.value=64;sb.style.display='none';}
+  else{la.textContent='nprobe';sa.min=1;sa.max=32;sa.value=8;sb.style.display='flex';lb.textContent='PQ bits';}
+  updateMetrics();
+}
+
+function updateMetrics(){
+  const t=document.getElementById('idxType').value;
+  const av=parseInt(document.getElementById('sliderAVal').value);
+  const bv=parseInt(document.getElementById('sliderBVal').value);
+  document.getElementById('sliderADisplay').textContent=av;
+  document.getElementById('sliderBDisplay').textContent=bv;
+
+  let recall,qps,mem,details;
+  if(t==='ivf'){
+    recall=(1-Math.pow(0.15,av/16)).toFixed(3);
+    qps=Math.round(7500/av);
+    mem=100; // baseline %
+    details=`IVF flat: nprobe=${av}\nRecall@10 ≈ ${recall} | QPS ≈ ${qps} | Memory = 100% (exact vectors)`;
+  } else if(t==='hnsw'){
+    recall=(1-Math.exp(-0.065*av)).toFixed(3);
+    qps=Math.round(5500/(1+0.012*av));
+    mem=160; // graph overhead ~60% more than flat
+    details=`HNSW: efSearch=${av}\nRecall@10 ≈ ${recall} | QPS ≈ ${qps} | Memory ≈ 160% (graph edges overhead)`;
+  } else {
+    recall=(0.85*(1-Math.pow(0.15,av/16))).toFixed(3);
+    qps=Math.round(22000/av);
+    const compression=128*4/(16*bv/8); // d=128, m=16 subspaces
+    mem=Math.round(100/compression);
+    details=`IVF+PQ: nprobe=${av}, bits=${bv}\nRecall@10 ≈ ${recall} | QPS ≈ ${qps} | Memory ≈ ${mem}% (${compression.toFixed(1)}× compression)`;
+  }
+
+  document.getElementById('metricsText').textContent=details;
+  drawMetricsBar(parseFloat(recall),qps,mem);
+}
+
+function drawMetricsBar(recall,qps,mem){
+  const canvas=document.getElementById('metricsCanvas');
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=canvas.clientWidth*dpr;
+  canvas.height=200*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const W=canvas.clientWidth,H=200;
+  ctx.clearRect(0,0,W,H);
+
+  const metrics=[
+    {label:'Recall@10',val:recall,max:1,color:'#534AB7',fmt:v=>v.toFixed(3)},
+    {label:'QPS (×100)',val:qps/100,max:220,color:'#3B6D11',fmt:v=>`${Math.round(v*100)}`},
+    {label:'Memory %',val:mem,max:200,color:'#854F0B',fmt:v=>`${Math.round(v)}%`},
+  ];
+
+  const barH=36,gap=22,startY=20;
+  metrics.forEach((m,i)=>{
+    const y=startY+i*(barH+gap);
+    const bw=(W-140)*Math.min(m.val/m.max,1);
+    ctx.fillStyle='rgba(0,0,0,0.06)';
+    ctx.beginPath();ctx.roundRect(110,y,W-140,barH,6);ctx.fill();
+    ctx.fillStyle=m.color;
+    ctx.beginPath();ctx.roundRect(110,y,bw,barH,6);ctx.fill();
+    ctx.fillStyle='var(--text)';ctx.font='bold 12px DM Sans,system-ui';
+    ctx.textAlign='right';ctx.fillText(m.label,104,y+barH/2+5);
+    ctx.fillStyle='white';ctx.font='bold 13px DM Sans,system-ui';
+    ctx.textAlign='left';
+    if(bw>40) ctx.fillText(m.fmt(m.val),118,y+barH/2+5);
+    else{ctx.fillStyle=m.color;ctx.textAlign='left';ctx.fillText(m.fmt(m.val),110+bw+6,y+barH/2+5);}
+  });
+}
+
+/* ── Viz switcher ──────────────────────────────────────── */
+function showViz(id){
+  ['triangle','pareto','params'].forEach(v=>{
+    document.getElementById('viz-'+v).style.display=v===id?'block':'none';
+  });
+  document.querySelectorAll('.viz-tab').forEach((t,i)=>{
+    const ids=['triangle','pareto','params'];
+    t.classList.toggle('active',ids[i]===id);
+  });
+  if(id==='pareto') renderPareto();
+  if(id==='params'){updateSliders();}
+  if(id==='triangle') renderTriangle();
+}
+
+/* ── Card toggle ───────────────────────────────────────── */
+function toggleCard(id){
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+/* ── Keyboard ──────────────────────────────────────────── */
+document.addEventListener('keydown',e=>{
+  const active=document.getElementById('viz-triangle').style.display!=='none';
+  if(!active) return;
+  if(e.key==='ArrowRight') nextStep();
+  if(e.key==='ArrowLeft') prevStep();
+  if(e.key==='r'||e.key==='R') resetViz();
+});
+
+/* ── Init ──────────────────────────────────────────────── */
+window.addEventListener('DOMContentLoaded',()=>{
+  buildDots();
+  updateInfo();
+  renderTriangle();
+  updateSliders();
+  if(!window.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.lineTo(x+w-r,y);this.quadraticCurveTo(x+w,y,x+w,y+r);
+      this.lineTo(x+w,y+h-r);this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+      this.lineTo(x+r,y+h);this.quadraticCurveTo(x,y+h,x,y+h-r);
+      this.lineTo(x,y+r);this.quadraticCurveTo(x,y,x+r,y);
+      this.closePath();
+    };
+  }
+});
+window.addEventListener('resize',()=>{
+  const t=document.getElementById('viz-triangle').style.display;
+  if(t!=='none') renderTriangle();
+  const p=document.getElementById('viz-pareto').style.display;
+  if(p!=='none') renderPareto();
+  const m=document.getElementById('viz-params').style.display;
+  if(m!=='none') updateMetrics();
+});
+</script>
+</body>
+</html>

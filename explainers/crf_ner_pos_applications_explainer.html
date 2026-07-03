@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NER & POS Tagging — CRF & BiLSTM-CRF Visual Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+.page-wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* ── Header ── */
+.header { margin-bottom: 2rem; }
+.header h1 { font-size: 2rem; font-weight: 800; line-height: 1.2; }
+.header .subtitle { font-size: 1rem; color: var(--text2); margin-top: 6px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+p { margin-bottom: 0.75rem; color: var(--text2); font-size: 0.93rem; }
+p:last-child { margin-bottom: 0; }
+
+/* ── Concept Boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+/* ── Equation display ── */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* ── Comparison table ── */
+.comp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 1rem 0; }
+.comp-table th { background: var(--blue-bg); color: var(--blue-mid); padding: 8px 12px; text-align: left; font-weight: 700; border: 1px solid var(--blue-border); }
+.comp-table td { padding: 7px 12px; border: 1px solid var(--border); vertical-align: top; }
+.comp-table tr:nth-child(even) td { background: var(--bg2); }
+
+/* ── Code panel ── */
+.code-panel { background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; margin: 1rem 0; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 600; }
+
+/* ── Visualization ── */
+.viz-container { background: var(--bg2); border-radius: var(--radius-lg); padding: 1.5rem; margin: 1rem 0; }
+.sentence-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; justify-content: center; margin: 1rem 0; }
+.token-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.token-word { padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 15px; background: var(--surface); border: 2px solid var(--border2); transition: all 0.4s; min-width: 60px; text-align: center; }
+.token-word.active { border-color: var(--purple-mid); background: var(--purple-bg); color: var(--purple-text); transform: translateY(-4px); }
+.token-bio { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-align: center; transition: all 0.4s; }
+.token-pos { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 4px; text-align: center; transition: all 0.4s; opacity: 0.85; }
+
+/* BIO tag colours */
+.bio-o { background: var(--bg2); color: var(--text3); border: 1px solid var(--border2); }
+.bio-b-per { background: var(--purple-bg); color: var(--purple-mid); border: 1px solid var(--purple-border); }
+.bio-i-per { background: #e0d9fd; color: var(--purple-mid); border: 1px solid var(--purple-border); }
+.bio-b-org { background: var(--blue-bg); color: var(--blue-mid); border: 1px solid var(--blue-border); }
+.bio-i-org { background: #c8dff7; color: var(--blue-mid); border: 1px solid var(--blue-border); }
+.bio-b-loc { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+
+/* POS tag colours */
+.pos-nnp { background: var(--amber-bg); color: var(--amber-mid); border: 1px solid var(--amber-border); }
+.pos-vbz { background: var(--red-bg); color: var(--red-mid); border: 1px solid var(--red-border); }
+.pos-nn  { background: var(--cyan-bg); color: var(--cyan-mid); border: 1px solid var(--cyan-border); }
+.pos-in  { background: var(--bg2); color: var(--text2); border: 1px solid var(--border2); }
+.pos-dt  { background: var(--bg2); color: var(--text2); border: 1px solid var(--border2); }
+.pos-jj  { background: var(--green-bg); color: var(--green-mid); border: 1px solid var(--green-border); }
+
+/* Pipeline diagram */
+.pipeline-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 1rem 0; }
+.pipe-block { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 12px 16px; border-radius: var(--radius); border: 2px solid var(--border2); background: var(--surface); min-width: 90px; transition: all 0.4s; }
+.pipe-block.active { border-color: var(--purple-mid); background: var(--purple-bg); }
+.pipe-block.done { border-color: var(--green-mid); background: var(--green-bg); }
+.pipe-block .pipe-icon { font-size: 22px; margin-bottom: 4px; }
+.pipe-block .pipe-name { font-size: 12px; font-weight: 700; color: var(--text); }
+.pipe-block .pipe-sub  { font-size: 10px; color: var(--text3); margin-top: 2px; }
+.pipe-arrow { color: var(--text3); font-size: 20px; }
+
+/* Info card */
+.info-card { background: var(--surface); border: 2px solid var(--purple-border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-top: 1rem; min-height: 120px; }
+.phase-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; background: var(--purple-bg); color: var(--purple-mid); }
+.step-counter { float: right; font-size: 12px; color: var(--text3); font-family: var(--mono); }
+.info-title { font-size: 16px; font-weight: 700; margin: 4px 0 8px; }
+.info-body { font-size: 13px; color: var(--text2); line-height: 1.6; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+/* Progress */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 1rem 0; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; }
+.legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+/* Feature template table */
+.feat-table { font-family: var(--mono); font-size: 11px; width: 100%; margin: 0.75rem 0; border-collapse: collapse; }
+.feat-table td, .feat-table th { padding: 5px 10px; border: 1px solid var(--border); }
+.feat-table th { background: var(--bg2); font-weight: 700; }
+.feat-table .feat-fire { background: var(--green-bg); color: var(--green-text); font-weight: 600; }
+
+/* CRF formula box */
+.crf-box { background: var(--purple-bg); border: 1px solid var(--purple-border); border-radius: var(--radius); padding: 1rem 1.25rem; margin: 0.75rem 0; }
+.crf-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--purple-mid); margin-bottom: 6px; letter-spacing: 0.4px; }
+
+ul.bullet-list { margin-left: 1.25rem; color: var(--text2); font-size: 0.9rem; }
+ul.bullet-list li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- ── HEADER ── -->
+  <div class="header">
+    <h1>NER & POS Tagging</h1>
+    <div class="subtitle">Sequence Labeling with Feature Templates, CRF & BiLSTM-CRF</div>
+    <div class="tags">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">Classical ML · NLP</span>
+      <span class="tag tag-category">Part III: Classical ML</span>
+      <span class="tag tag-complexity">Sequence Labeling</span>
+    </div>
+  </div>
+
+  <!-- ── CARD 1: Understanding ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <div class="section-title">Understanding the Concept</div>
+    </div>
+
+    <p><strong>Named Entity Recognition (NER)</strong> finds "who, what, and where" in text — spotting that <em>Barack Obama</em> is a person, <em>Google</em> is an organization, <em>London</em> is a location. <strong>Part-of-Speech (POS) tagging</strong> labels every word with its grammatical role: noun, verb, adjective, preposition, and so on.</p>
+
+    <p>Both tasks are instances of <strong>sequence labeling</strong>: given a sequence of words \(w_1, w_2, \ldots, w_n\), assign a label \(y_i\) to every word \(w_i\). What makes this hard is that the best label for word \(i\) depends on its neighbors — the tag assigned to word \(i{-}1\) strongly constrains word \(i\).</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Core Insight</div>
+      <p style="margin:0;color:var(--green-text);font-size:0.9rem;">Labels are <em>not</em> chosen independently per word. A CRF models the whole output sequence jointly, capturing that <strong>B-PER → I-PER</strong> is valid but <strong>B-PER → I-ORG</strong> is not.</p>
+    </div>
+
+    <p>The standard label encoding for NER is the <strong>BIO scheme</strong>: <strong>B</strong>eginning of entity, <strong>I</strong>nside entity, <strong>O</strong>utside. For POS, labels come from the Penn Treebank tagset (NNP, VBZ, DT, IN, …).</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 BIO Tagging Contract</div>
+      <p style="margin:0;color:var(--blue-text);font-size:0.9rem;"><strong>B-TYPE</strong> starts an entity of TYPE. <strong>I-TYPE</strong> continues an entity of TYPE — and <em>must</em> follow a B-TYPE or I-TYPE of the same type. <strong>O</strong> marks non-entity tokens.</p>
+    </div>
+  </div>
+
+  <!-- ── CARD 2: How It Works ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <div class="section-title">How It Works — Feature Templates & the CRF</div>
+    </div>
+
+    <p>A <strong>linear-chain CRF</strong> defines a log-linear model over the entire output sequence given the input. Its score for a labeling \(\mathbf{y} = (y_1, \ldots, y_n)\) given words \(\mathbf{x}\) is:</p>
+
+    <div class="eq">$$\log P(\mathbf{y}\mid\mathbf{x}) = \sum_{t=1}^{n} \sum_k \lambda_k f_k(y_{t-1}, y_t, \mathbf{x}, t) - \log Z(\mathbf{x})$$</div>
+
+    <p>where \(f_k\) are <strong>feature functions</strong>, \(\lambda_k\) are learned weights, and \(Z(\mathbf{x})\) is the partition function (sum over all possible labelings — computed efficiently via the forward algorithm in \(O(n|\mathcal{Y}|^2)\)).</p>
+
+    <p><strong>Feature templates</strong> are patterns that fire on the input context. Classic examples for position \(t\):</p>
+
+    <table class="feat-table">
+      <tr><th>Template</th><th>Example value (word = "Obama")</th><th>Fired feature</th></tr>
+      <tr><td>word[t]</td><td>"Obama"</td><td class="feat-fire">word=Obama</td></tr>
+      <tr><td>word[t-1]</td><td>"Barack"</td><td class="feat-fire">prev_word=Barack</td></tr>
+      <tr><td>prefix-3[t]</td><td>"Oba"</td><td class="feat-fire">prefix3=Oba</td></tr>
+      <tr><td>suffix-3[t]</td><td>"ama"</td><td class="feat-fire">suffix3=ama</td></tr>
+      <tr><td>is_capitalized[t]</td><td>True</td><td class="feat-fire">capital=True</td></tr>
+      <tr><td>contains_digit[t]</td><td>False</td><td>digit=False</td></tr>
+      <tr><td>(y_{t-1}, y_t)</td><td>(B-PER, I-PER)</td><td class="feat-fire">transition=B-PER→I-PER</td></tr>
+    </table>
+
+    <p>At inference time, the CRF uses the <strong>Viterbi algorithm</strong> to find the highest-scoring label sequence exactly:</p>
+
+    <div class="eq">$$\mathbf{y}^* = \underset{\mathbf{y}}{\arg\max} \sum_{t=1}^{n} \sum_k \lambda_k f_k(y_{t-1}, y_t, \mathbf{x}, t)$$</div>
+
+    <p>The <strong>BiLSTM-CRF</strong> replaces hand-crafted features with a bidirectional LSTM that reads the full sentence in both directions and produces per-position emission scores (one per label), which feed into the CRF layer as potentials. This removes the need for feature engineering while keeping the globally optimal label sequence.</p>
+
+    <div class="crf-box">
+      <div class="crf-box-title">📐 BiLSTM-CRF Pipeline</div>
+      <p style="margin:0;color:var(--purple-text);font-size:0.88rem;"><strong>Characters → CharCNN → Word Embedding + CharEmb → BiLSTM → Emission scores (n × |Y|) → CRF → Viterbi → Label sequence</strong></p>
+    </div>
+  </div>
+
+  <!-- ── CARD 3: The Math ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">3</div>
+      <div class="section-title">The Math — CRF Training & Viterbi Decoding</div>
+    </div>
+
+    <p><strong>Training</strong> maximizes the conditional log-likelihood over the training set. The partition function \(Z(\mathbf{x})\) is computed via the forward algorithm. Let \(\phi(y_{t-1}, y_t, \mathbf{x}, t) = \sum_k \lambda_k f_k(\cdot)\) be the total score for a transition.</p>
+
+    <div class="eq">$$Z(\mathbf{x}) = \sum_{\mathbf{y}'} \exp\!\left(\sum_{t=1}^n \phi(y'_{t-1}, y'_t, \mathbf{x}, t)\right)$$</div>
+
+    <p><strong>Forward variable</strong> \(\alpha_t(j)\) = total score of all partial sequences ending in label \(j\) at position \(t\):</p>
+
+    <div class="eq">$$\alpha_t(j) = \log\sum_{i} \exp\!\bigl(\alpha_{t-1}(i) + \phi(i, j, \mathbf{x}, t)\bigr)$$</div>
+
+    <p>Computed in \(O(n|\mathcal{Y}|^2)\). The partition function is \(\log Z = \log\sum_j \exp(\alpha_n(j))\).</p>
+
+    <p><strong>Viterbi</strong> replaces log-sum-exp with max:</p>
+
+    <div class="eq">$$\delta_t(j) = \max_i \bigl(\delta_{t-1}(i) + \phi(i, j, \mathbf{x}, t)\bigr)$$</div>
+
+    <p>Back-pointers \(\psi_t(j) = \arg\max_i(\cdot)\) reconstruct the optimal path.</p>
+
+    <p><strong>Numerical example</strong> (3 tokens, 3 labels O / B-PER / I-PER). Emission scores from BiLSTM (log-scale):</p>
+
+    <table class="feat-table">
+      <tr><th>Token</th><th>e(O)</th><th>e(B-PER)</th><th>e(I-PER)</th></tr>
+      <tr><td>Barack</td><td>-2.1</td><td class="feat-fire">1.8</td><td>0.2</td></tr>
+      <tr><td>Obama</td><td>-1.5</td><td>0.4</td><td class="feat-fire">2.1</td></tr>
+      <tr><td>speaks</td><td class="feat-fire">2.3</td><td>-0.9</td><td>-1.8</td></tr>
+    </table>
+
+    <p>Transition scores (learned): \(T(B\text{-}PER \to I\text{-}PER) = 2.5\), \(T(I\text{-}PER \to O) = 1.0\), \(T(O \to B\text{-}PER) = 0.5\), all others ≈ −5 (forbidden). Viterbi at \(t=2\) for I-PER: \(\delta_2(I) = \delta_1(B) + T(B\to I) + e_2(I) = 1.8 + 2.5 + 2.1 = 6.4\) — dominant path → <strong>B-PER, I-PER, O</strong>.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Mistake</div>
+      <p style="margin:0;color:var(--amber-text);font-size:0.9rem;">Treating NER as independent per-token classification ignores label constraints (I-PER cannot start a sequence). The CRF's transition matrix encodes these hard constraints via very negative weights, making them effectively impossible.</p>
+    </div>
+  </div>
+
+  <!-- ── CARD 4: Interactive Walkthrough ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">4</div>
+      <div class="section-title">Interactive Walkthrough — Tagging "Barack Obama leads Apple in London"</div>
+    </div>
+
+    <!-- Pipeline diagram -->
+    <div class="pipeline-row" id="pipe-row">
+      <div class="pipe-block" id="pipe-embed"><div class="pipe-icon">📝</div><div class="pipe-name">Token</div><div class="pipe-sub">Input words</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-block" id="pipe-feat"><div class="pipe-icon">⚙️</div><div class="pipe-name">Features</div><div class="pipe-sub">Templates / BiLSTM</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-block" id="pipe-emit"><div class="pipe-icon">📊</div><div class="pipe-name">Emissions</div><div class="pipe-sub">Score per label</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-block" id="pipe-crf"><div class="pipe-icon">🔗</div><div class="pipe-name">CRF</div><div class="pipe-sub">Global decode</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-block" id="pipe-out"><div class="pipe-icon">🏷️</div><div class="pipe-name">Labels</div><div class="pipe-sub">BIO + POS</div></div>
+    </div>
+
+    <!-- Sentence visualization -->
+    <div class="viz-container">
+      <div class="sentence-row" id="sentence-row">
+        <!-- populated by JS -->
+      </div>
+
+      <!-- Feature template display -->
+      <div id="feat-display" style="display:none; margin-top:0.75rem;">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Active Feature Templates</div>
+        <div id="feat-list" class="code-panel" style="font-size:11px;min-height:60px;"></div>
+      </div>
+    </div>
+
+    <!-- Info card -->
+    <div class="info-card">
+      <span class="phase-badge" id="phase-badge">Setup</span>
+      <span class="step-counter" id="step-counter">Step 0 / 11</span>
+      <div class="info-title" id="info-title">The Sentence</div>
+      <div class="info-body" id="info-body">We will tag "Barack Obama leads Apple in London." Step through to see BIO tags, POS tags, feature templates, and the CRF pipeline in action.</div>
+    </div>
+
+    <!-- Progress dots -->
+    <div class="progress-wrap" id="progress-wrap"></div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+      <button class="btn" onclick="reset()">↺ Reset</button>
+    </div>
+    <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+
+    <!-- Legend -->
+    <div class="legend" style="margin-top:1.25rem;">
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div><span>B-PER (person begin)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#a58fe6"></div><span>I-PER (person inside)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div><span>B-ORG (org begin)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div><span>B-LOC (location begin)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div><span>O (outside)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div><span>NNP (proper noun)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div><span>VBZ (verb, 3rd sing.)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div><span>IN (preposition)</span></div>
+    </div>
+  </div>
+
+  <!-- ── CARD 5: Key Takeaways ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <div class="section-title">Key Takeaways & When to Use What</div>
+    </div>
+
+    <table class="comp-table">
+      <tr><th>Approach</th><th>Features</th><th>Decoding</th><th>Best For</th></tr>
+      <tr><td>CRF + hand features</td><td>Sparse binary templates</td><td>Viterbi O(n|Y|²)</td><td>Low-resource, interpretable, fast</td></tr>
+      <tr><td>BiLSTM-CRF</td><td>Dense char+word embeddings</td><td>Viterbi O(n|Y|²)</td><td>Standard NER/POS — state of art pre-2018</td></tr>
+      <tr><td>BERT + CRF</td><td>Contextual transformer embs</td><td>Viterbi or greedy</td><td>High-resource NER, SOTA 2019+</td></tr>
+      <tr><td>BERT token classifier</td><td>Contextual transformer embs</td><td>Argmax per token</td><td>POS tagging (less label dependency)</td></tr>
+    </table>
+
+    <ul class="bullet-list">
+      <li><strong>BIO tagging</strong> turns span detection into token classification — but label transitions must be modeled.</li>
+      <li><strong>CRF</strong> adds a globally normalized layer on top of any emission scorer (hand features or neural).</li>
+      <li>The <strong>BiLSTM</strong> provides bidirectional context; the <strong>CRF</strong> provides valid label sequences.</li>
+      <li>For <strong>POS tagging</strong>, label dependency is weaker — a simple BiLSTM softmax often suffices.</li>
+      <li>Training objective: maximize \(\log P(\mathbf{y}^*|\mathbf{x})\) = emission score + transition score − log Z.</li>
+    </ul>
+
+    <div class="concept-box insight" style="margin-top:1rem;">
+      <div class="concept-box-title">🎯 Decision Rule</div>
+      <p style="margin:0;color:var(--green-text);font-size:0.9rem;"><strong>Label constraints matter?</strong> → Use CRF layer. <strong>Need interpretability?</strong> → Hand features + CRF. <strong>Have GPU + data?</strong> → BiLSTM-CRF or BERT+CRF.</p>
+    </div>
+  </div>
+
+</div><!-- end page-wrap -->
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────────────
+const WORDS  = ["Barack", "Obama",   "leads",  "Apple",  "in",  "London"];
+const BIO    = ["B-PER",  "I-PER",   "O",      "B-ORG",  "O",   "B-LOC"];
+const POS    = ["NNP",    "NNP",     "VBZ",    "NNP",    "IN",  "NNP"];
+const BIO_CSS= ["bio-b-per","bio-i-per","bio-o","bio-b-org","bio-o","bio-b-loc"];
+const POS_CSS= ["pos-nnp", "pos-nnp","pos-vbz","pos-nnp","pos-in","pos-nnp"];
+
+// Emission scores (log-scale, rounded for display)
+const EMIT = [
+  {"O":-2.1, "B-PER":1.8, "I-PER":0.2, "B-ORG":-1.2, "B-LOC":-1.5},  // Barack
+  {"O":-1.5, "B-PER":0.4, "I-PER":2.1, "B-ORG":-0.8, "B-LOC":-1.0},  // Obama
+  {"O": 2.3, "B-PER":-0.9,"I-PER":-1.8,"B-ORG":-1.1, "B-LOC":-2.0},  // leads
+  {"O":-1.8, "B-PER":-0.5,"I-PER":-1.2,"B-ORG":2.4,  "B-LOC":-0.6},  // Apple
+  {"O": 2.5, "B-PER":-1.5,"I-PER":-2.0,"B-ORG":-1.8, "B-LOC":-0.8},  // in
+  {"O":-2.0, "B-PER":-0.8,"I-PER":-1.4,"B-ORG":-0.5, "B-LOC":2.6},   // London
+];
+
+const FEATURES = [
+  ["word[0]=Barack", "capital=True", "prefix3=Bar", "suffix3=ack", "prev_word=<START>"],
+  ["word[1]=Obama",  "capital=True", "prefix3=Oba", "suffix3=ama", "prev_word=Barack", "transition: B-PER→I-PER (+2.5)"],
+  ["word[2]=leads",  "capital=False","suffix3=ads",  "prev_word=Obama",  "transition: I-PER→O (+1.0)"],
+  ["word[3]=Apple",  "capital=True", "prefix3=App", "suffix3=ple", "prev_word=leads", "transition: O→B-ORG (+0.8)"],
+  ["word[4]=in",     "capital=False","prefix3=in",   "prev_word=Apple",  "transition: B-ORG→O (+0.9)"],
+  ["word[5]=London", "capital=True", "prefix3=Lon", "suffix3=don", "prev_word=in", "transition: O→B-LOC (+1.2)"],
+];
+
+// ── Steps ─────────────────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    phase:"Overview", title:"The Sentence & Task",
+    body:`We will tag: <em>"Barack Obama leads Apple in London."</em><br><br>
+         Two tasks simultaneously:<br>
+         • <strong>NER</strong>: Barack Obama = PERSON, Apple = ORGANIZATION, London = LOCATION<br>
+         • <strong>POS</strong>: Barack/Obama = NNP (proper noun), leads = VBZ (verb 3rd-sg), in = IN (preposition)<br><br>
+         The label sequence must be globally consistent — the CRF enforces this.`,
+    active:[], showFeat:false, pipe:""
+  },
+  {
+    phase:"BIO Tagging", title:"Step 1 — Token Embedding & Feature Extraction",
+    body:`The input goes through tokenization. Each word is represented by:<br>
+         • Word embedding (e.g., GloVe 100-d) + Character CNN embedding (50-d)<br>
+         • Hand-crafted features: capitalization, prefix, suffix, shape<br><br>
+         "Barack" fires: <code>word=Barack</code>, <code>capital=True</code>, <code>prefix3=Bar</code>, <code>suffix3=ack</code>.
+         These 1000s of binary features become the inputs to the CRF (or BiLSTM).`,
+    active:[0], showFeat:true, featIdx:0, pipe:"pipe-embed"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 2 — BiLSTM Emission Scores (Barack)",
+    body:`The BiLSTM reads the sentence in both directions, producing a hidden state at each position.
+         A linear layer maps the hidden state to emission scores (one per label).<br><br>
+         Emission scores for "Barack" (log scale):<br>
+         O = −2.1 &nbsp;|&nbsp; <strong>B-PER = +1.8 ↑</strong> &nbsp;|&nbsp; I-PER = +0.2 &nbsp;|&nbsp; B-ORG = −1.2 &nbsp;|&nbsp; B-LOC = −1.5<br><br>
+         The model strongly prefers B-PER here — "Barack" is capitalized and appears at sentence start.`,
+    active:[0], showFeat:true, featIdx:0, pipe:"pipe-feat"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 3 — Viterbi: Position 2 (Obama) with Transition",
+    body:`At position 2, the CRF combines emission + best incoming transition:<br><br>
+         <code>δ₂(I-PER) = δ₁(B-PER) + T(B-PER→I-PER) + e₂(I-PER)</code><br>
+         <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= 1.8 + 2.5 + 2.1 = <strong>6.4</strong></code><br><br>
+         Compare: <code>δ₂(B-PER) = 1.8 + T(B-PER→B-PER) + 0.4 = 1.8 + (−5.0) + 0.4 = −2.8</code><br><br>
+         Transition B-PER→I-PER wins decisively. "Obama" is tagged <strong>I-PER</strong>.`,
+    active:[0,1], showFeat:true, featIdx:1, pipe:"pipe-emit"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 4 — Position 3 (leads) — Back to O",
+    body:`After the person entity, "leads" is a verb. Emission scores: <strong>O = +2.3</strong> dominates.<br><br>
+         Transition: <code>δ₃(O) = δ₂(I-PER) + T(I-PER→O) + e₃(O)</code><br>
+         <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= 6.4 + 1.0 + 2.3 = <strong>9.7</strong></code><br><br>
+         Note: <code>T(I-PER→B-ORG)</code> would require ending the person entity then immediately starting another — CRF's transition matrix has learned this is uncommon, giving it a low score.`,
+    active:[0,1,2], showFeat:true, featIdx:2, pipe:"pipe-crf"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 5 — Position 4 (Apple) — B-ORG",
+    body:`"Apple" is capitalized and appears after a verb — strong signal for a new entity.<br><br>
+         Emission: <strong>B-ORG = +2.4</strong> is dominant.<br>
+         Transition: O→B-ORG = +0.8 (valid, frequent pattern).<br><br>
+         <code>δ₄(B-ORG) = 9.7 + 0.8 + 2.4 = <strong>12.9</strong></code><br><br>
+         Tag = <strong>B-ORG</strong>. Note: "Apple" with no following I-ORG is a single-token entity — perfectly valid BIO.`,
+    active:[0,1,2,3], showFeat:true, featIdx:3, pipe:"pipe-crf"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 6 — Position 5 (in) — O",
+    body:`"in" is a preposition. All-lowercase, no entity signal.<br><br>
+         Emission: <strong>O = +2.5</strong> strongly dominant. Tag = <strong>O</strong>.<br><br>
+         POS tag = <strong>IN</strong> (preposition/conjunction). The POS tagger uses the same architecture but a different label set — emission scores are over {NNP, VBZ, DT, IN, JJ, NN, …} instead of BIO labels.`,
+    active:[0,1,2,3,4], showFeat:true, featIdx:4, pipe:"pipe-crf"
+  },
+  {
+    phase:"BIO Tagging", title:"Step 7 — Position 6 (London) — B-LOC",
+    body:`"London" is capitalized, appears after preposition "in" — classic location signal.<br><br>
+         Emission: <strong>B-LOC = +2.6</strong> dominates.<br>
+         Transition: O→B-LOC = +1.2 (very common: "in [LOCATION]").<br><br>
+         <code>δ₆(B-LOC) = ... + 1.2 + 2.6 = dominant path</code><br><br>
+         Tag = <strong>B-LOC</strong>. All 6 tokens tagged — proceed to final output.`,
+    active:[0,1,2,3,4,5], showFeat:true, featIdx:5, pipe:"pipe-out"
+  },
+  {
+    phase:"POS Tags", title:"Step 8 — POS Tags Revealed",
+    body:`POS tagging uses the same sequence-labeling framework but with the Penn Treebank tagset.<br><br>
+         • Barack → <strong>NNP</strong> (proper noun, singular)<br>
+         • Obama → <strong>NNP</strong><br>
+         • leads → <strong>VBZ</strong> (verb, 3rd person singular present)<br>
+         • Apple → <strong>NNP</strong><br>
+         • in → <strong>IN</strong> (preposition)<br>
+         • London → <strong>NNP</strong><br><br>
+         POS has less label dependency than NER (NNP→NNP→VBZ is fine), so a simple BiLSTM softmax often suffices without the CRF layer.`,
+    active:[0,1,2,3,4,5], showFeat:false, pipe:"pipe-out"
+  },
+  {
+    phase:"Full Labels", title:"Step 9 — Complete BIO + POS Labeling",
+    body:`Final output for both tasks:<br><br>
+         <table style="font-size:12px;font-family:var(--mono);border-collapse:collapse;width:100%">
+         <tr><th style="text-align:left;padding:4px 8px;border:1px solid var(--border)">Word</th>
+             <th style="text-align:left;padding:4px 8px;border:1px solid var(--border)">BIO (NER)</th>
+             <th style="text-align:left;padding:4px 8px;border:1px solid var(--border)">POS</th></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">Barack</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--purple-mid)">B-PER</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--amber-mid)">NNP</td></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">Obama</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--purple-mid)">I-PER</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--amber-mid)">NNP</td></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">leads</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--text3)">O</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--red-mid)">VBZ</td></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">Apple</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--blue-mid)">B-ORG</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--amber-mid)">NNP</td></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">in</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--text3)">O</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--cyan-mid)">IN</td></tr>
+         <tr><td style="padding:4px 8px;border:1px solid var(--border)">London</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--green-mid)">B-LOC</td><td style="padding:4px 8px;border:1px solid var(--border);color:var(--amber-mid)">NNP</td></tr>
+         </table>`,
+    active:[0,1,2,3,4,5], showFeat:false, pipe:"pipe-out"
+  },
+  {
+    phase:"Pipeline", title:"Step 10 — CRF → BiLSTM-CRF — The Evolution",
+    body:`<strong>Classic CRF</strong>: sparse hand features → linear CRF → Viterbi. Fast, interpretable, works with small data.<br><br>
+         <strong>BiLSTM-CRF</strong> (Lample et al. 2016): character CNN + word embedding → BiLSTM → dense emission scores → CRF → Viterbi. End-to-end trainable, no feature engineering, ~90+ F1 on CoNLL-2003.<br><br>
+         <strong>BERT+CRF</strong> (2019+): contextual subword embeddings → CRF head → SOTA. The CRF still helps by enforcing BIO constraints that the transformer alone might violate.<br><br>
+         The key insight: <em>the CRF layer is the same across all approaches</em>. Only the emission scorer changes.`,
+    active:[0,1,2,3,4,5], showFeat:false, pipe:"pipe-out"
+  },
+];
+
+let step = 0;
+const N = STEPS.length;
+
+// ── Build DOM ──────────────────────────────────────────────────────────────────
+function buildSentence() {
+  const row = document.getElementById("sentence-row");
+  row.innerHTML = "";
+  WORDS.forEach((w, i) => {
+    const stack = document.createElement("div");
+    stack.className = "token-stack";
+    stack.id = `stack-${i}`;
+    stack.innerHTML = `
+      <div class="token-bio bio-o" id="bio-${i}">—</div>
+      <div class="token-word" id="word-${i}">${w}</div>
+      <div class="token-pos pos-in" id="pos-${i}">—</div>
+    `;
+    row.appendChild(stack);
+  });
+}
+
+function buildDots() {
+  const wrap = document.getElementById("progress-wrap");
+  wrap.innerHTML = "";
+  for (let i = 0; i < N; i++) {
+    const d = document.createElement("div");
+    d.className = "dot";
+    d.title = `Step ${i}`;
+    d.onclick = () => { step = i; render(); };
+    wrap.appendChild(d);
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function render() {
+  const s = STEPS[step];
+
+  // Reset all tokens
+  WORDS.forEach((_, i) => {
+    document.getElementById(`word-${i}`).className = "token-word";
+    document.getElementById(`bio-${i}`).className = "token-bio bio-o";
+    document.getElementById(`bio-${i}`).textContent = "—";
+    document.getElementById(`pos-${i}`).className = "token-pos pos-in";
+    document.getElementById(`pos-${i}`).textContent = "—";
+  });
+
+  // Show active tokens with labels
+  s.active.forEach(i => {
+    document.getElementById(`word-${i}`).className = "token-word active";
+    // Show BIO from step 1 onward for active tokens
+    if (step >= 1) {
+      document.getElementById(`bio-${i}`).className = `token-bio ${BIO_CSS[i]}`;
+      document.getElementById(`bio-${i}`).textContent = BIO[i];
+    }
+    // Show POS from step 8 onward
+    if (step >= 8) {
+      document.getElementById(`pos-${i}`).className = `token-pos ${POS_CSS[i]}`;
+      document.getElementById(`pos-${i}`).textContent = POS[i];
+    }
+  });
+
+  // Feature display
+  const fd = document.getElementById("feat-display");
+  if (s.showFeat && s.featIdx !== undefined) {
+    fd.style.display = "block";
+    const fl = document.getElementById("feat-list");
+    const feats = FEATURES[s.featIdx];
+    const emits = EMIT[s.featIdx];
+    let html = feats.map(f => {
+      const isTransition = f.includes("transition");
+      return `<div class="code-line${isTransition ? ' active' : ''}">${f}</div>`;
+    }).join("");
+    html += `<div class="code-line" style="margin-top:6px;color:var(--text3)">── Emission scores ──</div>`;
+    Object.entries(emits).forEach(([label, score]) => {
+      const isBest = score === Math.max(...Object.values(emits));
+      html += `<div class="code-line${isBest?' active':''}">${label.padEnd(8)} ${score > 0 ? '+' : ''}${score.toFixed(1)}${isBest?' ← best':''}</div>`;
+    });
+    fl.innerHTML = html;
+  } else {
+    fd.style.display = "none";
+  }
+
+  // Pipeline highlight
+  document.querySelectorAll(".pipe-block").forEach(b => { b.className = "pipe-block"; });
+  if (s.pipe) {
+    const pb = document.getElementById(s.pipe);
+    if (pb) pb.className = "pipe-block active";
+    // Mark previous stages as done
+    const pipes = ["pipe-embed","pipe-feat","pipe-emit","pipe-crf","pipe-out"];
+    const idx = pipes.indexOf(s.pipe);
+    pipes.slice(0, idx).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.className = "pipe-block done";
+    });
+  }
+
+  // Info card
+  document.getElementById("phase-badge").textContent = s.phase;
+  document.getElementById("step-counter").textContent = `Step ${step} / ${N - 1}`;
+  document.getElementById("info-title").textContent = s.title;
+  document.getElementById("info-body").innerHTML = s.body;
+
+  // Dots
+  document.querySelectorAll(".dot").forEach((d, i) => {
+    d.className = "dot" + (i < step ? " done" : "") + (i === step ? " active" : "");
+  });
+
+  // Buttons
+  document.getElementById("btn-prev").disabled = step === 0;
+  document.getElementById("btn-next").disabled = step === N - 1;
+
+  // Re-render math
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("info-body"), {
+      delimiters: [
+        {left:"$$",right:"$$",display:true},
+        {left:"\\(",right:"\\)",display:false}
+      ]
+    });
+  }
+}
+
+function go(dir) {
+  step = Math.max(0, Math.min(N - 1, step + dir));
+  render();
+}
+
+function reset() {
+  step = 0;
+  render();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildSentence();
+buildDots();
+render();
+</script>
+</body>
+</html>

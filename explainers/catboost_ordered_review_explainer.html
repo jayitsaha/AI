@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CatBoost: Ordered Boosting & Native Categorical Support</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono','Fira Code',monospace;
+  --sans: 'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media (prefers-color-scheme:dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;font-size:15px}
+a{color:var(--blue-mid)}
+.container{max-width:900px;margin:0 auto;padding:2rem 1.25rem}
+.header{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2rem;margin-bottom:1.5rem}
+.header h1{font-size:26px;font-weight:800;letter-spacing:-0.5px;line-height:1.25}
+.header .subtitle{color:var(--text2);margin-top:6px;font-size:14px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid)}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid)}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.section-title{font-size:18px;font-weight:700;color:var(--text)}
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border)}
+.concept-box.insight .concept-box-title{color:var(--green-mid)}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border)}
+.concept-box.warning .concept-box-title{color:var(--amber-mid)}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border)}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid)}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border)}
+.concept-box.math .concept-box-title{color:var(--cyan-mid)}
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto}
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2)}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500}
+/* Vis */
+#viz-area{background:var(--bg2);border-radius:var(--radius-lg);border:1px solid var(--border);padding:1.5rem;margin:1rem 0;min-height:340px;position:relative}
+.permutation-row{display:flex;align-items:center;gap:4px;margin-bottom:6px;flex-wrap:nowrap;overflow-x:auto}
+.perm-label{font-family:var(--mono);font-size:11px;color:var(--text3);width:52px;flex-shrink:0;text-align:right;padding-right:6px}
+.perm-cell{width:44px;height:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:6px;border:1.5px solid var(--border2);background:var(--surface);font-family:var(--mono);font-size:11px;transition:all 0.35s;flex-shrink:0}
+.perm-cell .cell-y{font-size:9px;color:var(--text3);margin-top:1px}
+.perm-cell.used{background:var(--green-bg);border-color:var(--green-border);color:var(--green-text)}
+.perm-cell.current{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber-text);font-weight:700;transform:scale(1.08)}
+.perm-cell.future{background:var(--bg2);color:var(--text3);border-color:var(--border);opacity:0.5}
+.stat-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-family:var(--mono);font-size:11px;font-weight:600;background:var(--purple-bg);color:var(--purple-mid);border:1px solid var(--purple-border);margin-left:6px}
+/* Tree */
+.tree-container{display:flex;justify-content:center;margin:0.5rem 0}
+.tree-node{display:flex;flex-direction:column;align-items:center;gap:0}
+.tree-level{display:flex;gap:8px;justify-content:center;margin:4px 0}
+.t-node{width:110px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:2px solid var(--border2);background:var(--surface);font-size:11px;font-family:var(--mono);text-align:center;transition:all 0.35s;padding:0 4px}
+.t-node.leaf{background:var(--green-bg);border-color:var(--green-border);color:var(--green-text);font-weight:600}
+.t-node.active-node{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-text);font-weight:700}
+.t-connector{width:100%;display:flex;justify-content:center;gap:60px;position:relative;height:18px}
+.t-connector::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:68px;height:2px;background:var(--border2)}
+.t-connector span{font-size:9px;color:var(--text3);align-self:flex-end;margin-bottom:2px}
+/* Info card */
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem;margin-top:1rem}
+.phase-badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:20px;margin-bottom:8px}
+.phase-ordered{background:var(--amber-bg);color:var(--amber-mid)}
+.phase-tree{background:var(--purple-bg);color:var(--purple-mid)}
+.phase-cat{background:var(--blue-bg);color:var(--blue-mid)}
+.step-counter{font-size:11px;color:var(--text3);margin-bottom:4px}
+.step-title{font-size:16px;font-weight:700;margin-bottom:6px}
+.step-prose{font-size:13px;color:var(--text2);line-height:1.6}
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border)}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid)}
+.btn-primary:hover{background:var(--purple-border);color:#fff}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer}
+.dot:hover{transform:scale(1.2)}
+.dot.active{background:var(--purple-mid);transform:scale(1.3)}
+.dot.done{background:var(--green-mid)}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3)}
+/* Legend */
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:0.75rem;justify-content:center}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.legend-swatch{width:14px;height:14px;border-radius:3px;border:1.5px solid}
+/* Comparison table */
+table{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0}
+th{background:var(--bg2);font-weight:700;text-align:left;padding:8px 10px;border:1px solid var(--border)}
+td{padding:8px 10px;border:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--bg2)}
+p{margin-bottom:0.75rem}
+ul{margin-left:1.25rem;margin-bottom:0.75rem}
+li{margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HEADER -->
+<div class="header">
+  <h1>CatBoost: Ordered Boosting &amp; Native Categorical Support</h1>
+  <div class="subtitle">Part III · Classical ML — Gradient Boosting · Yandex 2017</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Gradient Boosting</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-complexity">Target Leakage Prevention</span>
+  </div>
+</div>
+
+<!-- CARD 1: UNDERSTANDING -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+  </div>
+
+  <p><strong>What is CatBoost?</strong> CatBoost is a gradient boosting library that solves two longstanding problems in boosted trees: (1) <em>target leakage</em> when encoding categorical features, and (2) subtle <em>prediction shift</em> bias that accumulates when the same data is used to fit trees and compute residuals. It does so without requiring manual feature engineering for categoricals.</p>
+
+  <div class="concept-box insight">
+    <div class="concept-box-title">Real-World Analogy</div>
+    <p>Imagine a teacher grading a student's essay with help from the student's own past scores. If the teacher already knows "Student A always scores 90," they introduce bias when assigning a grade. Ordered boosting solves this by saying: <em>when grading essay #k, only look at essays 1 through k−1 to form the context</em>. Each observation is evaluated using a model that has never seen that observation before.</p>
+  </div>
+
+  <div class="concept-box key-concept">
+    <div class="concept-box-title">If You Remember One Thing</div>
+    <p>CatBoost computes target statistics for each row using <strong>only prior rows in a random permutation</strong>, guaranteeing no target leakage and eliminating the prediction shift bias that plagues naive target encoding in boosting.</p>
+  </div>
+</div>
+
+<!-- CARD 2: HOW IT WORKS -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+  </div>
+
+  <h3 style="font-size:15px;font-weight:700;margin-bottom:8px">Ordered Target Statistics (no leakage)</h3>
+  <p>Standard target encoding sets \(\hat{x}_{i,k} = \frac{\sum_{j \neq i} \mathbb{1}[x_{j,k}=x_{i,k}] \cdot y_j}{\sum_{j \neq i} \mathbb{1}[x_{j,k}=x_{i,k}]}\). This leaks the target because the <em>same</em> labels that define the residuals are used to encode the features.</p>
+
+  <p>CatBoost draws a random permutation \(\sigma\) of training indices. For row \(\sigma(i)\), the statistic uses only rows \(\sigma(1), \ldots, \sigma(i-1)\):</p>
+  <div class="eq">$$\hat{x}_{\sigma(i),k} = \frac{\sum_{j=1}^{i-1} \mathbb{1}[x_{\sigma(j),k}=x_{\sigma(i),k}] \cdot y_{\sigma(j)} + a \cdot p}{\sum_{j=1}^{i-1} \mathbb{1}[x_{\sigma(j),k}=x_{\sigma(i),k}] + a}$$</div>
+  <p>where \(a > 0\) is a prior weight and \(p\) is a prior value (typically the global mean). Early rows in the permutation rely heavily on the prior; later rows have enough history to form a reliable estimate.</p>
+
+  <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;margin-top:1rem">Ordered Boosting (eliminates prediction shift)</h3>
+  <p>Standard GBDT uses the full training set to compute gradients <em>and</em> to fit the next tree — a circularity that causes prediction shift (inflated gradient estimates). CatBoost maintains \(n\) "model copies" indexed by the permutation: model \(M^{(i)}\) is built on examples \(\{\sigma(1),\ldots,\sigma(i-1)\}\) only. The gradient for \(\sigma(i)\) at iteration \(t\) is computed using \(M^{(i)}_{t-1}\), which has never seen \(\sigma(i)\).</p>
+
+  <h3 style="font-size:15px;font-weight:700;margin-bottom:8px;margin-top:1rem">Oblivious Symmetric Trees</h3>
+  <p>Each tree in CatBoost is <em>oblivious</em>: all nodes at the same depth use the <strong>same split</strong> (feature + threshold). A depth-\(d\) oblivious tree has exactly \(2^d\) leaves and can be represented as a lookup table indexed by a \(d\)-bit key. This ensures:</p>
+  <ul>
+    <li>Fast prediction (bitmask index into a leaf-value array)</li>
+    <li>Reduced overfitting via inductive bias toward simpler structures</li>
+    <li>Cache-friendly memory access patterns</li>
+  </ul>
+
+  <div class="concept-box warning">
+    <div class="concept-box-title">Design Trade-off</div>
+    <p>Ordered boosting is expensive: it needs \(O(n)\) model copies, making it slower than standard GBDT. CatBoost mitigates this with a "plain" boosting mode for large datasets and approximations that group permutation prefixes.</p>
+  </div>
+</div>
+
+<!-- CARD 3: MATH -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math — Prediction Shift &amp; Ordered Correction</div>
+  </div>
+
+  <p><strong>Prediction shift.</strong> Let \(F^t\) be the model after \(t\) iterations, \(h^t\) the \(t\)-th tree. The standard GBDT gradient for sample \(i\) is:</p>
+  <div class="eq">$$g_i^t = -\frac{\partial L(y_i, F)}{\partial F}\bigg|_{F=F^{t-1}(x_i)}$$</div>
+  <p>Because \(F^{t-1}\) was fitted on \(\{(x_i, y_i)\}\), the gradient \(g_i^t\) is correlated with the leaf value of \(h^t\) that will contain \(i\). This bias is the <em>prediction shift</em>.</p>
+
+  <p><strong>Ordered correction.</strong> Define ordered model \(M^{(i)}\) trained on \(\{\sigma(j) : j < i\}\). The unbiased gradient for \(\sigma(i)\) is:</p>
+  <div class="eq">$$g_{\sigma(i)}^t = -\frac{\partial L(y_{\sigma(i)}, F)}{\partial F}\bigg|_{F=M_{t-1}^{(i)}(x_{\sigma(i)})}$$</div>
+  <p>Because \(x_{\sigma(i)}\) was never used to build \(M_{t-1}^{(i)}\), the gradient is statistically unbiased. The leaf value estimate for a leaf \(\ell\) uses only the examples assigned to \(\ell\) under the same ordered principle.</p>
+
+  <p><strong>Ordered TS convergence.</strong> As dataset size \(n \to \infty\), the ordered TS converges to the true conditional mean \(\mathbb{E}[y \mid x_k = v]\) because the prior term \(a\cdot p\) becomes negligible and the number of prior rows with category \(v\) grows.</p>
+
+  <div class="concept-box math">
+    <div class="concept-box-title">Key Formula — Ordered Target Statistic</div>
+    <div class="eq" style="margin-top:6px">$$\hat{x}_{\sigma(i),k} = \frac{\displaystyle\sum_{j < i} \mathbb{1}[x_{\sigma(j),k}=x_{\sigma(i),k}]\, y_{\sigma(j)} + a\,p}{\displaystyle\sum_{j < i} \mathbb{1}[x_{\sigma(j),k}=x_{\sigma(i),k}] + a}$$</div>
+  </div>
+</div>
+
+<!-- CARD 4: INTERACTIVE VIZ -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+  </div>
+  <p style="font-size:13px;color:var(--text2)">Step through how CatBoost processes a small dataset — ordered target statistics, oblivious tree construction, and categorical handling.</p>
+
+  <div id="viz-area">
+    <div id="perm-area"></div>
+    <div id="tree-area" style="display:none"></div>
+    <div id="cat-area" style="display:none"></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--green-bg);border-color:var(--green-border)"></div> Prior rows (used)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-bg);border-color:var(--amber-border)"></div> Current row (being encoded)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--bg2);border-color:var(--border)"></div> Future rows (not seen yet)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-bg);border-color:var(--purple-border)"></div> Active tree node</div>
+  </div>
+
+  <div class="info-card" id="info-card">
+    <div class="step-counter" id="step-counter">Step 1 / 8</div>
+    <div class="step-title" id="step-title">Loading...</div>
+    <div class="step-prose" id="step-prose"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+    <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+    <button class="btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="progress-wrap" id="dots"></div>
+  <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+</div>
+
+<!-- CARD 5: COMPARISON -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison — CatBoost vs XGBoost vs LightGBM</div>
+  </div>
+  <table>
+    <tr><th>Dimension</th><th>XGBoost</th><th>LightGBM</th><th>CatBoost</th></tr>
+    <tr><td>Tree growth</td><td>Level-wise</td><td>Leaf-wise (best-first)</td><td>Oblivious (symmetric, depth-first)</td></tr>
+    <tr><td>Categorical handling</td><td>Manual encoding required</td><td>Built-in split (not TS)</td><td>Ordered target statistics, auto</td></tr>
+    <tr><td>Target leakage risk</td><td>High (naive TE)</td><td>Medium</td><td>None (ordered TS)</td></tr>
+    <tr><td>Prediction shift</td><td>Present</td><td>Present</td><td>Eliminated (ordered boosting)</td></tr>
+    <tr><td>Prediction speed</td><td>Good</td><td>Very good</td><td>Excellent (oblivious trees = lookup table)</td></tr>
+    <tr><td>Training speed</td><td>Good</td><td>Fastest</td><td>Slower (ordered mode overhead)</td></tr>
+    <tr><td>High-cardinality cats</td><td>Poor (OHE blowup)</td><td>Fair</td><td>Excellent</td></tr>
+    <tr><td>Tuning complexity</td><td>High</td><td>High</td><td>Moderate (good defaults)</td></tr>
+  </table>
+  <div class="concept-box key-concept" style="margin-top:0.75rem">
+    <div class="concept-box-title">Decision Guide</div>
+    <p>Use <strong>CatBoost</strong> when your dataset has many high-cardinality categorical features, you want protection against target leakage without manual feature engineering, or prediction latency matters. Use <strong>LightGBM</strong> for pure speed on large numeric datasets. Use <strong>XGBoost</strong> when ecosystem integration (Spark, ONNX) is the priority.</p>
+  </div>
+</div>
+
+<!-- CARD 6: TAKEAWAYS -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways</div>
+  </div>
+  <ul>
+    <li><strong>Ordered target statistics</strong> prevent target leakage by restricting each row's encoding to only prior-permutation rows.</li>
+    <li><strong>Ordered boosting</strong> eliminates prediction shift — a bias in standard GBDT where gradient estimates are inflated because the model has already seen the examples used to compute them.</li>
+    <li><strong>Oblivious symmetric trees</strong> use the same split at every node of a given depth, yielding fast prediction via a \(d\)-bit lookup table with \(2^d\) leaves.</li>
+    <li>Native categorical support means zero manual preprocessing for string features — CatBoost auto-applies ordered TS during training and inference.</li>
+    <li>The prior weight \(a\) controls the prior-to-data tradeoff: higher \(a\) smooths rare-category estimates toward the global mean.</li>
+  </ul>
+  <div class="concept-box warning">
+    <div class="concept-box-title">Common Pitfall</div>
+    <p>Forgetting to pass categorical column indices via <code>cat_features</code> in the Python API causes CatBoost to treat them as numeric — silently losing all the ordered TS benefits.</p>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ── Dataset ─────────────────────────────────────────────────────────────────
+// Permutation order (indices into original rows, 0-based)
+const perm = [2, 0, 4, 1, 3]; // σ
+const data = [
+  {orig:0, x:'A', y:1.0},
+  {orig:1, x:'B', y:0.0},
+  {orig:2, x:'A', y:1.0},
+  {orig:3, x:'A', y:0.5},
+  {orig:4, x:'B', y:1.0},
+];
+const prior_a = 1, prior_p = 0.6; // global mean
+
+function orderedTS(cat, permIdx) {
+  // compute TS for perm[permIdx] using rows perm[0..permIdx-1]
+  let num = prior_a * prior_p, den = prior_a;
+  for (let j = 0; j < permIdx; j++) {
+    const row = data[perm[j]];
+    if (row.x === cat) { num += row.y; den += 1; }
+  }
+  return (num / den).toFixed(3);
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────────
+const steps = [
+  {
+    phase:'ordered', title:'Draw a random permutation',
+    prose:'CatBoost begins by drawing a random permutation σ of all training rows. Here: σ = [row 2, row 0, row 4, row 1, row 3]. This order determines which rows are "prior" when encoding each categorical value — the key to preventing target leakage.',
+    active:-1
+  },
+  {
+    phase:'ordered', title:'Encode row σ(0) = row 2 (cat A)',
+    prose:'Row 2 is first in the permutation. No prior rows exist, so the ordered TS is purely the prior: (a·p)/(a) = 1×0.6/1 = 0.600. The prior anchors rare-category estimates when history is thin.',
+    active:0
+  },
+  {
+    phase:'ordered', title:'Encode row σ(1) = row 0 (cat A)',
+    prose:'Now row 0 (cat A) is encoded. One prior row exists: row 2 (cat A, y=1.0). TS = (1×0.6 + 1.0) / (1 + 1) = 1.6/2 = 0.800. The prior weight gradually dilutes as more same-category rows accumulate.',
+    active:1
+  },
+  {
+    phase:'ordered', title:'Encode row σ(2) = row 4 (cat B)',
+    prose:'Row 4 (cat B). Prior rows are rows 2 and 0 — neither is category B. TS falls back entirely to prior: 0.600. Row σ(1) = row 0 is cat A, so it does not contribute to the B statistic.',
+    active:2
+  },
+  {
+    phase:'ordered', title:'Encode row σ(3) = row 1 (cat B)',
+    prose:'Row 1 (cat B). Prior rows: 2 (A), 0 (A), 4 (B, y=1.0). One B row exists with y=1.0. TS = (0.6 + 1.0)/(1 + 1) = 0.800. Notice: row 1\'s own label (y=0) is NOT used — no target leakage.',
+    active:3
+  },
+  {
+    phase:'ordered', title:'All rows encoded — no row used its own label',
+    prose:'Final ordered TS values: row 2→0.600, row 0→0.800, row 4→0.600, row 1→0.800, row 3→0.733. Every estimate was computed from rows that appear BEFORE the current row in σ — the defining guarantee of CatBoost\'s ordered encoding.',
+    active:4
+  },
+  {
+    phase:'tree', title:'Oblivious Symmetric Tree — same split at every level',
+    prose:'CatBoost grows depth-d symmetric trees where every node at depth k uses the SAME (feature, threshold) split. A depth-2 tree has one split per level: here TS-cat < 0.75 at depth 1, and numeric-x2 < 0.5 at depth 2. All 4 leaf paths are determined by a 2-bit key — enabling fast lookup-table inference.',
+    active:-1
+  },
+  {
+    phase:'cat', title:'Inference — ordered TS applied consistently',
+    prose:'At inference, CatBoost computes the same smoothed TS for each category using training statistics. The oblivious tree maps the encoded features to a 2^d leaf array in O(d) bit operations. Result: fast, bias-free predictions with zero manual categorical preprocessing.',
+    active:-1
+  },
+];
+
+let cur = 0;
+
+function renderPermArea(activeIdx) {
+  const el = document.getElementById('perm-area');
+  let html = '<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px">Permutation σ — Ordered Target Statistics</div>';
+  for (let i = 0; i < perm.length; i++) {
+    const row = data[perm[i]];
+    const ts = orderedTS(row.x, i);
+    let rowClass = '';
+    if (activeIdx === -1 || i < activeIdx) rowClass = 'used';
+    else if (i === activeIdx) rowClass = 'current';
+    else rowClass = 'future';
+    html += `<div class="permutation-row">
+      <div class="perm-label">σ(${i}) r${perm[i]}</div>`;
+    for (let j = 0; j < perm.length; j++) {
+      const isThis = (j === i);
+      const cellRow = data[perm[j]];
+      if (isThis) {
+        html += `<div class="perm-cell ${rowClass}">
+          <span>${cellRow.x}</span><span class="cell-y">y=${cellRow.y}</span>
+        </div>`;
+      } else {
+        html += `<div class="perm-cell" style="opacity:0.3;font-size:10px">${cellRow.x}</div>`;
+      }
+    }
+    if (i <= (activeIdx === -1 ? perm.length - 1 : activeIdx)) {
+      html += `<div class="stat-badge">TS=${ts}</div>`;
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderTreeArea() {
+  const el = document.getElementById('tree-area');
+  el.innerHTML = `
+  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px">Oblivious Symmetric Tree (depth=2) — same split per level</div>
+  <div class="tree-container">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+      <div class="t-node active-node" style="width:160px">Depth 1: TS-cat &lt; 0.75?</div>
+      <div style="display:flex;gap:8px;margin:0 0 0 0">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div style="font-size:10px;color:var(--text3)">Yes (TS&lt;0.75)</div>
+          <div class="t-node active-node" style="width:130px">Depth 2: x2 &lt; 0.5?</div>
+          <div style="display:flex;gap:6px">
+            <div class="t-node leaf" style="width:60px">Leaf 00<br>val=-0.3</div>
+            <div class="t-node leaf" style="width:60px">Leaf 01<br>val=+0.1</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div style="font-size:10px;color:var(--text3)">No (TS≥0.75)</div>
+          <div class="t-node active-node" style="width:130px">Depth 2: x2 &lt; 0.5?</div>
+          <div style="display:flex;gap:6px">
+            <div class="t-node leaf" style="width:60px">Leaf 10<br>val=-0.1</div>
+            <div class="t-node leaf" style="width:60px">Leaf 11<br>val=+0.4</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="font-size:12px;color:var(--text2);margin-top:10px;text-align:center">
+    Leaf lookup: 2-bit key → O(1) array access. All depth-k nodes share the same split ⟹ oblivious.
+  </div>`;
+}
+
+function renderCatArea() {
+  const el = document.getElementById('cat-area');
+  el.innerHTML = `
+  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px">Inference — Ordered TS + Oblivious Tree Lookup</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+    <div style="background:var(--blue-bg);border:1px solid var(--blue-border);border-radius:var(--radius);padding:14px 18px;min-width:200px">
+      <div style="font-size:11px;font-weight:700;color:var(--blue-mid);margin-bottom:6px">INPUT</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--blue-text)">cat_feature = "A"<br>numeric_x2 = 0.8</div>
+    </div>
+    <div style="font-size:22px;color:var(--text3);align-self:center">→</div>
+    <div style="background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);padding:14px 18px;min-width:200px">
+      <div style="font-size:11px;font-weight:700;color:var(--amber-mid);margin-bottom:6px">ENCODE</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--amber-text)">TS("A") = 0.733<br>(from training stats)</div>
+    </div>
+    <div style="font-size:22px;color:var(--text3);align-self:center">→</div>
+    <div style="background:var(--green-bg);border:1px solid var(--green-border);border-radius:var(--radius);padding:14px 18px;min-width:200px">
+      <div style="font-size:11px;font-weight:700;color:var(--green-mid);margin-bottom:6px">LOOKUP</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--green-text)">0.733 ≥ 0.75? No → bit0=0<br>0.8 ≥ 0.5? Yes → bit1=1<br>key=01 → Leaf[01]=+0.1</div>
+    </div>
+  </div>
+  <div style="font-size:12px;color:var(--text2);margin-top:12px;text-align:center">
+    Oblivious tree prediction is a single bitmask + array lookup — GPU-friendly and cache-efficient.
+  </div>`;
+}
+
+function updateViz(s) {
+  const pa = document.getElementById('perm-area');
+  const ta = document.getElementById('tree-area');
+  const ca = document.getElementById('cat-area');
+  if (s.phase === 'ordered') {
+    pa.style.display = ''; ta.style.display = 'none'; ca.style.display = 'none';
+    renderPermArea(s.active);
+  } else if (s.phase === 'tree') {
+    pa.style.display = 'none'; ta.style.display = ''; ca.style.display = 'none';
+    renderTreeArea();
+  } else {
+    pa.style.display = 'none'; ta.style.display = 'none'; ca.style.display = '';
+    renderCatArea();
+  }
+}
+
+function updateInfo(idx) {
+  const s = steps[idx];
+  document.getElementById('step-counter').textContent = `Step ${idx+1} / ${steps.length}`;
+  document.getElementById('step-title').textContent = s.title;
+  document.getElementById('step-prose').textContent = s.prose;
+  const phases = {ordered:'phase-ordered Ordered Boosting',tree:'phase-tree Oblivious Trees',cat:'phase-cat Categorical'};
+  const [cls, label] = phases[s.phase].split(' ');
+  document.getElementById('info-card').querySelector('.phase-badge')?.remove();
+  const badge = document.createElement('div');
+  badge.className = `phase-badge ${cls}`;
+  badge.textContent = label.replace('Oblivious ','Oblivious ');
+  document.getElementById('info-card').prepend(badge);
+}
+
+function updateDots(idx) {
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.className = 'dot' + (i < idx ? ' done' : i === idx ? ' active' : '');
+  });
+}
+
+function render() {
+  updateViz(steps[cur]);
+  updateInfo(cur);
+  updateDots(cur);
+  document.getElementById('btn-prev').disabled = cur === 0;
+  document.getElementById('btn-next').disabled = cur === steps.length - 1;
+  if (typeof renderMathInElement !== 'undefined') {
+    renderMathInElement(document.getElementById('info-card'), {
+      delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+}
+
+function go(d) { cur = Math.max(0, Math.min(steps.length-1, cur+d)); render(); }
+function reset() { cur = 0; render(); }
+
+// Build dots
+const dotWrap = document.getElementById('dots');
+steps.forEach((_,i) => {
+  const d = document.createElement('div');
+  d.className = 'dot';
+  d.onclick = () => { cur = i; render(); };
+  dotWrap.appendChild(d);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+render();
+</script>
+</body>
+</html>

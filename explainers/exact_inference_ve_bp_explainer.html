@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exact Inference: Variable Elimination & Belief Propagation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#ffffff;
+  --border:rgba(0,0,0,0.12); --border2:rgba(0,0,0,0.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius:10px; --radius-lg:14px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+    --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+    --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+    --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+    --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+    --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;padding:0 0 3rem;}
+/* Header */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:2rem 1.5rem 1.5rem;max-width:860px;margin:0 auto;}
+.header h1{font-size:clamp(1.3rem,3vw,1.9rem);font-weight:700;line-height:1.2;color:var(--text);}
+.header .subtitle{font-size:14px;color:var(--text2);margin-top:6px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+/* Layout */
+.container{max-width:860px;margin:0 auto;padding:1.5rem;}
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.card-header{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:16px;font-weight:700;color:var(--text);}
+.chevron{margin-left:auto;color:var(--text3);transition:transform .25s;font-size:18px;}
+.card-body{margin-top:1.2rem;}
+.card.collapsed .card-body{display:none;}
+.card.collapsed .chevron{transform:rotate(-90deg);}
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.eq{text-align:center;padding:14px 20px;margin:.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+p,li{font-size:14px;line-height:1.75;color:var(--text2);}
+p+p{margin-top:.75rem;}
+ul,ol{margin:.75rem 0 .75rem 1.4rem;}
+li{margin:.3rem 0;}
+strong{color:var(--text);}
+h4{font-size:14px;font-weight:700;color:var(--text);margin:1rem 0 .4rem;}
+/* Visualization area */
+.viz-wrap{background:var(--bg2);border-radius:var(--radius-lg);padding:1.25rem;margin-top:1rem;}
+/* Factor graph / network */
+#fg-canvas{display:block;width:100%;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);}
+/* Info card */
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;}
+.info-phase{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:2px 8px;border-radius:12px;display:inline-block;margin-bottom:.5rem;}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:.3rem;}
+.info-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:.4rem;}
+.info-prose{font-size:13px;color:var(--text2);line-height:1.65;}
+.info-eq{font-family:var(--mono);font-size:12px;background:var(--bg2);border-radius:var(--radius);padding:.5rem .75rem;margin:.5rem 0;color:var(--cyan-mid);border-left:3px solid var(--cyan-border);}
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:#fff;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all .25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:.75rem;font-size:11px;color:var(--text3);}
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:.75rem;justify-content:center;}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background .25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Exact Inference: Variable Elimination &amp; Belief Propagation</h1>
+  <div class="subtitle">Computing exact marginals in Bayesian Networks and Markov Random Fields</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Bayesian Networks</span>
+    <span class="tag tag-category">Probabilistic ML</span>
+    <span class="tag tag-complexity">O(n · exp(w))</span>
+  </div>
+</div>
+
+<div class="container">
+<!-- CARD 1: Understanding -->
+<div class="card" id="card1">
+  <div class="card-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <p>A Bayesian Network encodes a joint probability distribution over many random variables as a directed graph. Computing a marginal probability — say \(P(X_i)\) — naively requires summing the full joint over all other variables, which is exponential in the number of variables.</p>
+    <p><strong>Exact inference</strong> computes these marginals and conditionals precisely (no sampling, no approximation) by exploiting the graph's factored structure. Two canonical algorithms achieve this:</p>
+    <ul>
+      <li><strong>Variable Elimination (VE):</strong> Eliminate one variable at a time by multiplying factors that mention it, then summing it out. Yields a single query answer.</li>
+      <li><strong>Belief Propagation (BP):</strong> Pass "messages" along graph edges (on a tree/junction-tree). Each node's belief is the product of incoming messages. Runs in one forward+backward sweep; gives ALL marginals simultaneously.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">Key Insight</div>
+      Both algorithms exploit the same algebraic identity — <em>distributivity of summation over products</em> — to avoid exponential blowup. The complexity is governed by <strong>treewidth \(w\)</strong>: the graph structure that determines how large the largest factor table can grow.
+    </div>
+    <p>Real-world analogy: think of summing a product of many variables. Instead of expanding everything first, you "push sums inside" to cancel variables early — exactly like factoring out constants in algebra before summing.</p>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card" id="card2">
+  <div class="card-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <h4>Variable Elimination</h4>
+    <p>Given a joint \(P(X_1,\ldots,X_n) = \prod_i \phi_i(\mathbf{X}_{C_i})\), to compute \(P(X_q)\):</p>
+    <ol>
+      <li>Choose an elimination ordering \(\pi\) of all non-query variables.</li>
+      <li>For the next variable \(X_k\) in \(\pi\): collect all factors mentioning \(X_k\), multiply them into one joint factor \(\psi\), then sum \(X_k\) out: \(\tau_k = \sum_{X_k} \psi\). This new factor \(\tau_k\) is added back to the factor pool.</li>
+      <li>Repeat until only the query variable remains; normalize to get \(P(X_q)\).</li>
+    </ol>
+    <div class="eq">$$P(X_q) \propto \sum_{X_1}\cdots\sum_{X_{n-1}} \prod_i \phi_i(\mathbf{X}_{C_i}) = \text{(push sums inside products)}$$</div>
+
+    <h4>Belief Propagation on Trees</h4>
+    <p>On a tree-structured factor graph, BP runs in two passes — collect (leaves → root) and distribute (root → leaves). Each variable node \(X_i\) sends a message \(\mu_{X_i \to f_j}\) to adjacent factor node \(f_j\), and each factor sends back \(\mu_{f_j \to X_i}\).</p>
+    <div class="eq">$$\mu_{X_i \to f_j}(x_i) = \prod_{f_k \in \text{ne}(X_i) \setminus f_j} \mu_{f_k \to X_i}(x_i)$$</div>
+    <div class="eq">$$\mu_{f_j \to X_i}(x_i) = \sum_{\mathbf{x}_{C_j} \setminus x_i} f_j(\mathbf{x}_{C_j}) \prod_{X_m \in \text{ne}(f_j) \setminus X_i} \mu_{X_m \to f_j}(x_m)$$</div>
+    <p>The final belief at node \(X_i\) is the (normalized) product of all incoming factor messages:</p>
+    <div class="eq">$$b(x_i) \propto \prod_{f_k \in \text{ne}(X_i)} \mu_{f_k \to X_i}(x_i)$$</div>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Key Property</div>
+      BP on a tree is <strong>exact</strong> and terminates in \(O(n \cdot k^2)\) where \(k\) = state-space size. On graphs with cycles, "Loopy BP" runs iteratively but loses exactness guarantees (though it often works well in practice).
+    </div>
+
+    <h4>Junction Tree for General Graphs</h4>
+    <p>For graphs with cycles, exact inference first runs a triangulation step to add "fill edges," then clusters variables into cliques arranged as a tree (the <em>junction tree</em>). BP is then run on this clique tree. Complexity: \(O(n \cdot k^w)\) where \(w\) = treewidth.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Complexity Warning</div>
+      Treewidth \(w\) can be as large as \(n-1\) (for a clique), making inference \(O(k^n)\) — intractable. Finding the optimal elimination ordering is NP-hard. In practice, heuristics like min-fill are used.
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card" id="card3">
+  <div class="card-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">The Math — Derivation &amp; Guarantees</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <h4>Marginal via Factor-Graph Factorization</h4>
+    <p>A factor graph factorizes the joint as \(p(\mathbf{x}) = \frac{1}{Z}\prod_s f_s(\mathbf{x}_{C_s})\). The marginal over \(x_i\) is:</p>
+    <div class="eq">$$p(x_i) = \sum_{\mathbf{x} \setminus x_i} \frac{1}{Z}\prod_s f_s(\mathbf{x}_{C_s})$$</div>
+    <p>The distributive law lets us push summations inside when a factor does not depend on the variable being summed:</p>
+    <div class="eq">$$\sum_x \phi_A(x,y)\,\phi_B(x,z) = \left(\sum_x \phi_A(x,y)\,\phi_B(x,z)\right) = \tau(y,z)$$</div>
+    <p>The size of \(\tau\) is the product of the domains of its free variables — this is the source of exponential cost in treewidth.</p>
+
+    <h4>Message Correctness (Tree Case)</h4>
+    <p>On a tree, messages are computed from leaves inward. Let \(T(f_j, X_i)\) be the subtree rooted at \(f_j\) away from \(X_i\). Then:</p>
+    <div class="eq">$$\mu_{f_j \to X_i}(x_i) = \sum_{\mathbf{x}_{C_j \setminus i}} f_j(\mathbf{x}_{C_j}) \prod_{X_m \in C_j \setminus i} \mu_{X_m \to f_j}(x_m)$$</div>
+    <p>This is exactly the marginal of the subtree \(T(f_j, X_i)\) over \(x_i\), computed exactly by induction. Belief \(b(x_i) = \prod_k \mu_{f_k \to X_i}(x_i) / Z\) then equals the true marginal \(p(x_i)\).</p>
+
+    <h4>Numerical Trace — 3-node Chain</h4>
+    <p>Consider \(X_1 - X_2 - X_3\) (binary, each \(\in \{0,1\}\)), with factors:</p>
+    <ul>
+      <li>\(\phi_{12}(x_1,x_2) = \begin{bmatrix}0.9 & 0.1 \\ 0.2 & 0.8\end{bmatrix}\) — rows index \(x_1\), cols \(x_2\)</li>
+      <li>\(\phi_{23}(x_2,x_3) = \begin{bmatrix}0.7 & 0.3 \\ 0.4 & 0.6\end{bmatrix}\)</li>
+      <li>Prior \(\phi_1(x_1) = [0.6, 0.4]\)</li>
+    </ul>
+    <p><strong>VE: eliminate \(X_1\), then \(X_2\), query \(X_3\):</strong></p>
+    <div class="eq">$$\tau_1(x_2) = \sum_{x_1} \phi_1(x_1)\,\phi_{12}(x_1,x_2)$$</div>
+    <p>\(\tau_1(0) = 0.6\times0.9 + 0.4\times0.2 = 0.54+0.08=0.62\); \(\tau_1(1)=0.6\times0.1+0.4\times0.8=0.06+0.32=0.38\).</p>
+    <div class="eq">$$\tau_2(x_3) = \sum_{x_2} \tau_1(x_2)\,\phi_{23}(x_2,x_3)$$</div>
+    <p>\(\tau_2(0)=0.62\times0.7+0.38\times0.4=0.434+0.152=0.586\); \(\tau_2(1)=0.62\times0.3+0.38\times0.6=0.186+0.228=0.414\). After normalization (sum=1): \(P(X_3=0)=0.586,\;P(X_3=1)=0.414\). ✓ Exact.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Treewidth &amp; Complexity</div>
+      For an elimination ordering \(\pi\), the <em>induced width</em> \(w_\pi\) = max clique size − 1. The optimal ordering minimizes \(w_\pi\); its minimum over all orderings is the treewidth \(w^*\). VE/BP on the junction tree runs in \(O(n \cdot k^{w^*+1})\).
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card" id="card4">
+  <div class="card-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive: Factor-Graph Inference Walkthrough</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:13px;color:var(--text3);margin-bottom:.75rem;">A 4-node chain Bayesian Network. Step through <strong>Variable Elimination</strong> (left panel) and <strong>Belief Propagation</strong> (right panel) simultaneously. Active factors are highlighted; numeric factor values shown.</p>
+    <div class="viz-wrap">
+      <canvas id="fg-canvas" height="320"></canvas>
+      <div class="info-card" id="info-card">
+        <div class="info-phase" id="info-phase">VE + BP</div>
+        <div class="info-step" id="info-step">Step 0 of 7</div>
+        <div class="info-title" id="info-title">Initial Factor Graph</div>
+        <div class="info-prose" id="info-prose">Four binary variables X1–X4 in a chain. Each edge represents a pairwise factor φ(Xi, Xj). We want P(X4). VE eliminates X1, X2, X3 in order; BP passes messages left→right then right→left.</div>
+        <div class="info-eq" id="info-eq">Factors: φ1(x1), φ12(x1,x2), φ23(x2,x3), φ34(x3,x4)</div>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div>Active/processing</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3B6D11"></div>Eliminated/done</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#00ACC1"></div>New factor τ</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#854F0B"></div>BP message</div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="btnPrev" onclick="go(-1)" disabled>&#8592; Prev</button>
+      <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next &#8594;</button>
+      <button class="btn" onclick="reset()">&#8635; Reset</button>
+    </div>
+    <div class="progress-wrap" id="progress"></div>
+    <div class="kbd-hint">Use &#8592; &#8594; arrow keys to navigate &nbsp;·&nbsp; R to reset</div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card" id="card5">
+  <div class="card-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways &amp; When to Use</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <div class="concept-box insight">
+      <div class="concept-box-title">When to Use Exact Inference</div>
+      <ul style="margin:.4rem 0 0 1.2rem;">
+        <li>Graph treewidth is small (≤ 15–20) — VE / junction-tree BP is tractable.</li>
+        <li>You need provably correct marginals (medical diagnosis, formal verification).</li>
+        <li>Tree-structured model: BP is linear-time and exact.</li>
+      </ul>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">When to Switch to Approximate Inference</div>
+      <ul style="margin:.4rem 0 0 1.2rem;">
+        <li>Dense graphs (e.g., fully connected MRFs) — treewidth too large.</li>
+        <li>Continuous latent variables — use Variational Bayes or MCMC instead.</li>
+        <li>Scale: millions of nodes — use Loopy BP or mean-field VI.</li>
+      </ul>
+    </div>
+    <h4>Summary</h4>
+    <ul>
+      <li>VE and BP both exploit <em>distributivity of + over ×</em> — the same idea, different schedules.</li>
+      <li>BP on a tree is exact in \(O(n\,k^2)\); on a junction tree in \(O(n\,k^{w+1})\).</li>
+      <li>Treewidth \(w\) is the fundamental complexity parameter; NP-hard to minimize exactly.</li>
+      <li>Loopy BP often converges to good approximate marginals despite lacking guarantees.</li>
+    </ul>
+    <p style="margin-top:.75rem;font-size:13px;color:var(--text3);">Related topics: Bayes Nets, Markov Random Fields, Approximate Inference (MCMC, Variational), Loopy Belief Propagation, Junction Tree Algorithm.</p>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card collapsed" id="card6">
+  <div class="card-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">From-Scratch Python: VE on a Chain</div>
+    <span class="chevron">&#8964;</span>
+  </div>
+  <div class="card-body">
+    <div class="code-panel" id="code-panel">
+<div class="code-line" id="cl0">import numpy as np</div>
+<div class="code-line" id="cl1"></div>
+<div class="code-line" id="cl2">def variable_elimination(factors, elim_order, query):</div>
+<div class="code-line" id="cl3">    """Compute P(query) by eliminating variables in elim_order."""</div>
+<div class="code-line" id="cl4">    pool = list(factors)  # list of (variables_tuple, np.ndarray)</div>
+<div class="code-line" id="cl5">    for X in elim_order:  # eliminate each non-query variable</div>
+<div class="code-line" id="cl6">        # collect all factors that mention X</div>
+<div class="code-line" id="cl7">        relevant = [f for f in pool if X in f[0]]</div>
+<div class="code-line" id="cl8">        pool     = [f for f in pool if X not in f[0]]</div>
+<div class="code-line" id="cl9">        # multiply them into a joint factor</div>
+<div class="code-line" id="cl10">        joint_vars, joint_table = factor_product(relevant)</div>
+<div class="code-line" id="cl11">        # sum out X</div>
+<div class="code-line" id="cl12">        ax = joint_vars.index(X)</div>
+<div class="code-line" id="cl13">        tau_table = joint_table.sum(axis=ax)</div>
+<div class="code-line" id="cl14">        tau_vars  = [v for v in joint_vars if v != X]</div>
+<div class="code-line" id="cl15">        pool.append((tau_vars, tau_table))  # new factor τ</div>
+<div class="code-line" id="cl16">    # multiply remaining factors (only mention query)</div>
+<div class="code-line" id="cl17">    _, result = factor_product(pool)</div>
+<div class="code-line" id="cl18">    return result / result.sum()  # normalize → P(query)</div>
+    </div>
+  </div>
+</div>
+</div><!-- /container -->
+
+<script>
+// ── Card toggle ────────────────────────────────────────────────
+function toggleCard(id){
+  const c=document.getElementById(id);
+  c.classList.toggle('collapsed');
+}
+
+// ── VE + BP step data ──────────────────────────────────────────
+// 4-node chain: X1 - X2 - X3 - X4
+// Binary variables {0,1}
+// Prior φ1=[0.6,0.4], φ12=[[0.9,0.1],[0.2,0.8]], φ23=[[0.7,0.3],[0.4,0.6]], φ34=[[0.8,0.2],[0.3,0.7]]
+// VE: eliminate X1, X2, X3 to get P(X4)
+// BP: fwd messages μ12, μ23, μ34 then bwd μ43, μ32, μ21, beliefs
+
+const STEPS = [
+  {
+    title:"Initial Factor Graph",
+    phase:"Setup", phaseColor:"var(--blue-mid)", phaseColorBg:"var(--blue-bg)",
+    active:[], eliminated:[], newFactor:[], messages:[],
+    prose:"Four binary variables X1–X4 in a chain. Three pairwise factors φ12, φ23, φ34 and a prior φ1. We compute P(X4) via VE and all marginals via BP.",
+    eq:"Joint: P(x1,x2,x3,x4) = φ1(x1)·φ12(x1,x2)·φ23(x2,x3)·φ34(x3,x4)"
+  },
+  {
+    title:"VE Step 1: Eliminate X1",
+    phase:"Variable Elimination", phaseColor:"var(--purple-mid)", phaseColorBg:"var(--purple-bg)",
+    active:[0,1], eliminated:[], newFactor:[1], messages:[],
+    prose:"Collect factors mentioning X1: φ1(x1) and φ12(x1,x2). Multiply and sum out x1:",
+    eq:"τ1(x2) = Σx1 φ1(x1)·φ12(x1,x2) = [0.6·0.9+0.4·0.2, 0.6·0.1+0.4·0.8] = [0.62, 0.38]"
+  },
+  {
+    title:"VE Step 2: Eliminate X2",
+    phase:"Variable Elimination", phaseColor:"var(--purple-mid)", phaseColorBg:"var(--purple-bg)",
+    active:[1,2], eliminated:[0], newFactor:[2], messages:[],
+    prose:"Pool now contains τ1(x2) and φ23(x2,x3). Multiply and sum out x2:",
+    eq:"τ2(x3) = Σx2 τ1(x2)·φ23(x2,x3) = [0.62·0.7+0.38·0.4, 0.62·0.3+0.38·0.6] = [0.586, 0.414]"
+  },
+  {
+    title:"VE Step 3: Eliminate X3 → P(X4)",
+    phase:"Variable Elimination", phaseColor:"var(--purple-mid)", phaseColorBg:"var(--purple-bg)",
+    active:[2,3], eliminated:[0,1], newFactor:[3], messages:[],
+    prose:"Pool: τ2(x3) and φ34(x3,x4). Multiply and sum out x3. Normalize to get P(X4).",
+    eq:"τ3(x4) = Σx3 τ2(x3)·φ34(x3,x4) = [0.586·0.8+0.414·0.3, 0.586·0.2+0.414·0.7] ≈ [0.593, 0.407]"
+  },
+  {
+    title:"BP Forward Pass: Messages left→right",
+    phase:"Belief Propagation", phaseColor:"var(--amber-mid)", phaseColorBg:"var(--amber-bg)",
+    active:[], eliminated:[], newFactor:[], messages:["12","23","34"],
+    prose:"Each variable sends its evidence forward. μ(X1→X2) = Σx1 φ1(x1)·φ12 = [0.62,0.38]. Then μ(X2→X3) = Σx2 μ(X1→X2)·φ23, etc.",
+    eq:"μ12=[0.62,0.38] → μ23=[0.586,0.414] → μ34=[0.593,0.407]"
+  },
+  {
+    title:"BP Backward Pass: Messages right→left",
+    phase:"Belief Propagation", phaseColor:"var(--amber-mid)", phaseColorBg:"var(--amber-bg)",
+    active:[], eliminated:[], newFactor:[], messages:["43","32","21"],
+    prose:"From the right leaf X4 (uniform prior here): μ(X4→X3)=[1,1]. Then multiply by φ34 and sum to get μ(X3→X2), etc.",
+    eq:"μ43=[1,1] → μ32=[1.1,1.0] (unnorm) → μ21=[1.1,0.88] (unnorm)"
+  },
+  {
+    title:"BP Beliefs: All Marginals",
+    phase:"Result", phaseColor:"var(--green-mid)", phaseColorBg:"var(--green-bg)",
+    active:[0,1,2,3], eliminated:[], newFactor:[], messages:["12","23","34","43","32","21"],
+    prose:"Each node's belief = product of all incoming messages, normalized. VE result P(X4)=[0.593,0.407] matches BP belief at X4. Both are exact on this tree.",
+    eq:"b(X4)∝ μ34 = [0.593,0.407] → P(X4=0)≈0.593, P(X4=1)≈0.407 ✓"
+  }
+];
+
+// ── Canvas drawing ─────────────────────────────────────────────
+const canvas = document.getElementById('fg-canvas');
+const ctx    = canvas.getContext('2d');
+const N      = STEPS.length;
+let  step    = 0;
+
+// Node positions (4 variables, 3 factor nodes between them)
+// We'll draw: X1 - f12 - X2 - f23 - X3 - f34 - X4
+// In a 780 x 320 canvas
+
+function nodePositions(W, H){
+  const y = H*0.45, yF = H*0.55;
+  const xs = [W*0.08, W*0.35, W*0.62, W*0.89];
+  const xf = [(W*0.08+W*0.35)/2, (W*0.35+W*0.62)/2, (W*0.62+W*0.89)/2];
+  return {xs, y, xf, yF};
+}
+
+function getColor(s){
+  switch(s){
+    case 'active':    return {fill:'var(--purple-bg)', stroke:'var(--purple-mid)', text:'var(--purple-text)'};
+    case 'elim':      return {fill:'var(--green-bg)', stroke:'var(--green-mid)', text:'var(--green-text)'};
+    case 'new':       return {fill:'var(--cyan-bg)', stroke:'var(--cyan-mid)', text:'var(--cyan-text)'};
+    case 'msg':       return {fill:'var(--amber-bg)', stroke:'var(--amber-mid)', text:'var(--amber-text)'};
+    default:          return {fill:'var(--surface)', stroke:'var(--border2)', text:'var(--text2)'};
+  }
+}
+
+function drawCircle(x,y,r,fill,stroke,text,label){
+  // parse CSS vars via computed style (canvas can't use vars directly)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle   = resolveCSSVar(fill);
+  ctx.strokeStyle = resolveCSSVar(stroke);
+  ctx.lineWidth   = 2.5;
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle   = resolveCSSVar(text);
+  ctx.font        = `bold 13px 'DM Sans',system-ui,sans-serif`;
+  ctx.textAlign   = 'center';
+  ctx.textBaseline= 'middle';
+  ctx.fillText(label,x,y);
+  ctx.restore();
+}
+
+function drawRect(x,y,w,h,fill,stroke,text,label){
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x-w/2,y-h/2,w,h,4);
+  ctx.fillStyle   = resolveCSSVar(fill);
+  ctx.strokeStyle = resolveCSSVar(stroke);
+  ctx.lineWidth   = 2;
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle   = resolveCSSVar(text);
+  ctx.font        = `bold 11px 'DM Sans',system-ui,sans-serif`;
+  ctx.textAlign   = 'center';
+  ctx.textBaseline= 'middle';
+  ctx.fillText(label,x,y);
+  ctx.restore();
+}
+
+function drawLine(x1,y1,x2,y2,color,dashed,arrowDir){
+  ctx.save();
+  ctx.beginPath();
+  ctx.strokeStyle = resolveCSSVar(color);
+  ctx.lineWidth   = 2;
+  if(dashed) ctx.setLineDash([5,4]);
+  ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+  ctx.stroke();
+  if(arrowDir){
+    // arrowhead at end
+    const angle = Math.atan2(y2-y1,x2-x1);
+    const size  = 9;
+    ctx.beginPath();
+    ctx.fillStyle = resolveCSSVar(color);
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-size*Math.cos(angle-Math.PI/6), y2-size*Math.sin(angle-Math.PI/6));
+    ctx.lineTo(x2-size*Math.cos(angle+Math.PI/6), y2-size*Math.sin(angle+Math.PI/6));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// Resolve CSS variable to a concrete color string
+const _resolveEl = document.createElement('div');
+document.body.appendChild(_resolveEl);
+const _resolveCache = {};
+function resolveCSSVar(v){
+  if(!v || !v.startsWith('var(')) return v||'#888';
+  if(_resolveCache[v]) return _resolveCache[v];
+  _resolveEl.style.color = v;
+  const c = getComputedStyle(_resolveEl).color;
+  _resolveCache[v] = c||'#888';
+  return _resolveCache[v];
+}
+
+function drawStep(s){
+  const DPR = window.devicePixelRatio||1;
+  const W   = canvas.clientWidth;
+  const H   = canvas.clientHeight||320;
+  canvas.width  = W*DPR;
+  canvas.height = H*DPR;
+  ctx.scale(DPR,DPR);
+  ctx.clearRect(0,0,W,H);
+
+  const {xs, y, xf, yF} = nodePositions(W,H);
+  const data = STEPS[s];
+  const R  = Math.min(26, W*0.05);
+  const FH = 26, FW = 44;
+
+  // Helper: state of each variable node (0-3)
+  function varState(i){
+    if(data.eliminated.includes(i)) return 'elim';
+    if(data.active.includes(i))     return 'active';
+    return 'normal';
+  }
+  // Factor node state
+  function facState(i){ // factors 0=φ12,1=φ23,2=φ34
+    if(data.newFactor.includes(i+1)) return 'new';
+    if(data.active.includes(i) && data.active.includes(i+1)) return 'active';
+    return 'normal';
+  }
+  // Message state (fwd: "12","23","34"; bwd: "43","32","21")
+  const msgs = data.messages||[];
+
+  // Draw edges (variable ↔ factor)
+  for(let i=0;i<3;i++){
+    const x1=xs[i], x2=xf[i], x3=xs[i+1];
+    // edge from var i to factor i
+    const fc = facState(i);
+    const lc = fc==='new'?'var(--cyan-mid)':fc==='active'?'var(--purple-mid)':'var(--border2)';
+    drawLine(x1,y,x2,yF,lc,false,false);
+    drawLine(x2,yF,x3,y,lc,false,false);
+  }
+
+  // Draw BP message arrows over edges
+  const msgDefs = {
+    "12":{x1:xs[0]+8,y1:y,x2:xf[0]-8,y2:yF,color:'var(--amber-mid)',offset:7},
+    "23":{x1:xf[0]+8,y1:yF,x2:xf[1]-8,y2:yF,color:'var(--amber-mid)',offset:7},
+    "34":{x1:xf[1]+8,y1:yF,x2:xf[2]-8,y2:yF,color:'var(--amber-mid)',offset:7},
+    "43":{x1:xs[3]-8,y1:y,x2:xf[2]+8,y2:yF,color:'var(--amber-mid)',offset:7},
+    "32":{x1:xf[2]-8,y1:yF,x2:xf[1]+8,y2:yF,color:'var(--amber-border)',offset:-7},
+    "21":{x1:xf[1]-8,y1:yF,x2:xf[0]+8,y2:yF,color:'var(--amber-border)',offset:-7}
+  };
+  // draw forward messages along the chain
+  if(msgs.includes("12")){
+    drawArrowMsg(xs[0]+R, y, xf[0]-FW/2, yF, 'var(--amber-mid)');
+    drawArrowMsg(xf[0]+FW/2, yF, xs[1]-R, y, 'var(--amber-mid)');
+  }
+  if(msgs.includes("23")){
+    drawArrowMsg(xs[1]+R, y, xf[1]-FW/2, yF, 'var(--amber-mid)');
+    drawArrowMsg(xf[1]+FW/2, yF, xs[2]-R, y, 'var(--amber-mid)');
+  }
+  if(msgs.includes("34")){
+    drawArrowMsg(xs[2]+R, y, xf[2]-FW/2, yF, 'var(--amber-mid)');
+    drawArrowMsg(xf[2]+FW/2, yF, xs[3]-R, y, 'var(--amber-mid)');
+  }
+  if(msgs.includes("43")){
+    drawArrowMsg(xs[3]-R, y, xf[2]+FW/2, yF, 'var(--amber-border)', true);
+    drawArrowMsg(xf[2]-FW/2, yF, xs[2]+R, y, 'var(--amber-border)', true);
+  }
+  if(msgs.includes("32")){
+    drawArrowMsg(xs[2]-R, y, xf[1]+FW/2, yF, 'var(--amber-border)', true);
+    drawArrowMsg(xf[1]-FW/2, yF, xs[1]+R, y, 'var(--amber-border)', true);
+  }
+  if(msgs.includes("21")){
+    drawArrowMsg(xs[1]-R, y, xf[0]+FW/2, yF, 'var(--amber-border)', true);
+    drawArrowMsg(xf[0]-FW/2, yF, xs[0]+R, y, 'var(--amber-border)', true);
+  }
+
+  // Draw factor nodes
+  const fLabels = ['φ₁₂','φ₂₃','φ₃₄'];
+  for(let i=0;i<3;i++){
+    const fc    = facState(i);
+    const cs    = getColor(fc);
+    drawRect(xf[i],yF,FW,FH,cs.fill,cs.stroke,cs.text,fLabels[i]);
+  }
+
+  // Draw prior φ1 above X1
+  const priorY = y - R - 28;
+  drawLine(xs[0],y-R,xs[0],priorY+14,'var(--border2)',false,false);
+  drawRect(xs[0],priorY,36,20,'var(--blue-bg)','var(--blue-border)','var(--blue-text)','φ₁');
+
+  // Draw variable nodes
+  const vLabels = ['X₁','X₂','X₃','X₄'];
+  const nodeValues = [
+    '[.6,.4]','[.62,.38]','[.586,.414]','[.593,.407]'
+  ];
+  for(let i=0;i<4;i++){
+    const vs = varState(i);
+    const cs = getColor(vs);
+    drawCircle(xs[i],y,R,cs.fill,cs.stroke,cs.text,vLabels[i]);
+    // show marginal value if eliminated or final step
+    if(vs==='elim'||(s===N-1)){
+      ctx.save();
+      ctx.font = `10px 'JetBrains Mono',monospace`;
+      ctx.fillStyle = resolveCSSVar('var(--text3)');
+      ctx.textAlign = 'center';
+      ctx.fillText(nodeValues[i], xs[i], y+R+13);
+      ctx.restore();
+    }
+  }
+
+  // Step label bottom
+  ctx.save();
+  ctx.font = `11px 'DM Sans',system-ui,sans-serif`;
+  ctx.fillStyle = resolveCSSVar('var(--text3)');
+  ctx.textAlign = 'center';
+  ctx.fillText(`Step ${s} of ${N-1}`, W/2, H-8);
+  ctx.restore();
+}
+
+function drawArrowMsg(x1,y1,x2,y2,color,reversed){
+  ctx.save();
+  ctx.beginPath();
+  ctx.strokeStyle = resolveCSSVar(color);
+  ctx.lineWidth   = 2;
+  ctx.setLineDash([4,3]);
+  ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // arrowhead
+  const angle = Math.atan2(y2-y1,x2-x1);
+  const size  = 7;
+  ctx.beginPath();
+  ctx.fillStyle = resolveCSSVar(color);
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-size*Math.cos(angle-Math.PI/6),y2-size*Math.sin(angle-Math.PI/6));
+  ctx.lineTo(x2-size*Math.cos(angle+Math.PI/6),y2-size*Math.sin(angle+Math.PI/6));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Navigation ─────────────────────────────────────────────────
+function updateUI(){
+  const d = STEPS[step];
+  const phaseEl = document.getElementById('info-phase');
+  phaseEl.textContent    = d.phase;
+  phaseEl.style.background = resolveCSSVar(d.phaseColorBg||'var(--blue-bg)');
+  phaseEl.style.color      = resolveCSSVar(d.phaseColor||'var(--blue-mid)');
+  document.getElementById('info-step').textContent  = `Step ${step} of ${N-1}`;
+  document.getElementById('info-title').textContent = d.title;
+  document.getElementById('info-prose').textContent = d.prose;
+  document.getElementById('info-eq').textContent    = d.eq;
+  document.getElementById('btnPrev').disabled = step===0;
+  document.getElementById('btnNext').disabled = step===N-1;
+  // dots
+  const pw = document.getElementById('progress');
+  [...pw.querySelectorAll('.dot')].forEach((dot,i)=>{
+    dot.classList.toggle('active', i===step);
+    dot.classList.toggle('done',   i<step);
+  });
+  drawStep(step);
+}
+
+function go(dir){
+  step = Math.max(0, Math.min(N-1, step+dir));
+  updateUI();
+}
+function reset(){ step=0; updateUI(); }
+
+// Build progress dots
+(function(){
+  const pw = document.getElementById('progress');
+  for(let i=0;i<N;i++){
+    const d=document.createElement('div');
+    d.className='dot';
+    d.onclick=()=>{step=i;updateUI();};
+    pw.appendChild(d);
+  }
+})();
+
+// Keyboard nav
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft')  go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+// Wait for fonts/KaTeX before first draw
+window.addEventListener('load',()=>{ updateUI(); });
+window.addEventListener('resize',()=>{ drawStep(step); });
+</script>
+</body>
+</html>

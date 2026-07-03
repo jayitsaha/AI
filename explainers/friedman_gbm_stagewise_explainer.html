@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Friedman's GBM: Stagewise Additive Modeling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5; --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18; --text2: #6b6b65; --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB; --blue-border:#85B7EB; --blue-text:#042C53; --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB; --red-border:#F09595; --red-text:#501313; --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE; --purple-border:#AFA9EC; --purple-text:#26215C; --purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA; --cyan-border:#4DD0E1; --cyan-text:#006064; --cyan-mid:#00ACC1;
+  --radius: 10px; --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45; --blue-border:#378ADD; --blue-text:#B5D4F4; --blue-mid:#85B7EB;
+    --green-bg:#172a0a; --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05; --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a; --red-border:#E24B4A; --red-text:#F7C1C1; --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD; --purple-text:#CECBF6; --purple-mid:#AFA9EC;
+    --cyan-bg:#004D54; --cyan-border:#26C6DA; --cyan-text:#B2EBF2; --cyan-mid:#4DD0E1;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+.page-wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* ── Header ── */
+.header { margin-bottom: 2rem; }
+.header-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 0.5rem; }
+.header h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 700; color: var(--text); line-height: 1.2; }
+.header p { font-size: 15px; color: var(--text2); margin-top: 0.4rem; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-advanced { background: var(--red-bg); color: var(--red-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+p { color: var(--text2); font-size: 14.5px; margin-bottom: 0.75rem; }
+p:last-child { margin-bottom: 0; }
+
+/* ── Concept boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box p { margin-bottom: 0; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+/* ── Equations ── */
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* ── Visualization area ── */
+.viz-wrap { background: var(--bg2); border-radius: var(--radius-lg); padding: 1.25rem; margin: 1rem 0; }
+.viz-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); margin-bottom: 1rem; }
+
+/* Stage bar */
+.stages-row { display: flex; flex-direction: column; gap: 10px; }
+.stage-box {
+  display: grid; grid-template-columns: 80px 1fr auto;
+  align-items: center; gap: 12px;
+  background: var(--surface); border: 2px solid var(--border2);
+  border-radius: var(--radius); padding: 12px 14px;
+  transition: all 0.4s ease;
+}
+.stage-box.active {
+  border-color: var(--purple-mid);
+  background: var(--purple-bg);
+  box-shadow: 0 0 16px rgba(83,74,183,0.18);
+}
+.stage-box.done { border-color: var(--green-border); background: var(--green-bg); }
+.stage-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); }
+.stage-box.active .stage-label { color: var(--purple-mid); }
+.stage-box.done .stage-label { color: var(--green-mid); }
+.stage-desc { font-size: 13px; color: var(--text); }
+.stage-box.active .stage-desc { color: var(--purple-text); }
+.stage-box.done .stage-desc { color: var(--green-text); }
+.stage-val { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text3); text-align: right; white-space: nowrap; }
+.stage-box.active .stage-val { color: var(--purple-mid); }
+.stage-box.done .stage-val { color: var(--green-mid); }
+
+/* Residual display */
+.residuals-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 0.5rem 0; }
+.r-chip {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--surface); border: 1.5px solid var(--border2);
+  color: var(--text2); transition: all 0.35s;
+}
+.r-chip.negative { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue-mid); }
+.r-chip.positive { background: var(--red-bg); border-color: var(--red-border); color: var(--red-mid); }
+.r-chip.zero { background: var(--green-bg); border-color: var(--green-border); color: var(--green-mid); }
+
+/* Info card */
+.info-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem 1.25rem; margin-top: 1rem;
+}
+.info-phase { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 8px; border-radius: 12px; margin-bottom: 6px; }
+.phase-init { background: var(--amber-bg); color: var(--amber-mid); }
+.phase-grad { background: var(--blue-bg); color: var(--blue-mid); }
+.phase-fit { background: var(--purple-bg); color: var(--purple-mid); }
+.phase-update { background: var(--green-bg); color: var(--green-mid); }
+.info-step-counter { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.info-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.info-prose { font-size: 13.5px; color: var(--text2); line-height: 1.6; }
+.info-formula { font-family: var(--mono); font-size: 12px; padding: 8px 12px; background: var(--bg2); border-radius: 6px; margin-top: 8px; color: var(--cyan-mid); border: 1px solid var(--cyan-border); overflow-x: auto; }
+
+/* Progress + controls */
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px;
+  border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text); cursor: pointer; transition: all 0.2s;
+}
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: #fff; }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Legend */
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 0.5rem; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text3); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* Loss canvas */
+#lossCanvas { width: 100%; height: 220px; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+
+/* ── Table ── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0.75rem 0; }
+th { background: var(--bg2); padding: 8px 10px; text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text2); border-bottom: 2px solid var(--border2); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .stage-box { grid-template-columns: 70px 1fr; }
+  .stage-val { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <div class="header-label">Part III · Classical ML · Boosting</div>
+    <h1>Friedman's GBM: Stagewise Additive Modeling</h1>
+    <p>Forward stagewise additive modeling via functional gradient descent — the algorithmic heart of XGBoost, LightGBM, and CatBoost.</p>
+    <div class="tags">
+      <span class="tag tag-advanced">Advanced</span>
+      <span class="tag tag-category">Classical ML</span>
+      <span class="tag tag-category">Boosting</span>
+      <span class="tag tag-complexity">Must Know</span>
+    </div>
+  </div>
+
+  <!-- ── Card 1: The Concept ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <div class="section-title">The Core Idea</div>
+    </div>
+
+    <p>Gradient Boosting Machines (Friedman, 2001) build a strong predictor by <strong>summing many weak ones</strong> — specifically, shallow decision trees. The key insight: instead of fitting each new tree to the original labels, fit it to the <em>negative gradient</em> of the loss with respect to the current model's predictions.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">One-Sentence Summary</div>
+      <p>GBM = gradient descent in function space: each stage adds a tree that points in the direction that reduces loss fastest.</p>
+    </div>
+
+    <p><strong>Real-world analogy.</strong> A committee of advisors gives a forecast. The first advisor guesses. The second does not repeat the first's guess — instead, they focus only on <em>what the first got wrong</em>. The third focuses on what both got wrong. Each new member specialises in the remaining errors. That's GBM.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Key Invariant</div>
+      <p>At every stage \(m\), the pseudo-residuals \(r_{im} = -\left[\dfrac{\partial L(y_i, F(x_i))}{\partial F(x_i)}\right]_{F=F_{m-1}}\) are the steepest descent direction in function space. Fitting a tree to them performs one step of gradient descent.</p>
+    </div>
+  </div>
+
+  <!-- ── Card 2: Algorithm ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <div class="section-title">The Forward Stagewise Algorithm</div>
+    </div>
+
+    <p>Friedman frames boosting as <strong>forward stagewise additive modeling (FSAM)</strong>: we want the best additive expansion \(F(x) = \sum_{m=1}^{M} \nu \cdot h_m(x)\) where each \(h_m\) is a base learner (tree) and \(\nu\) is the shrinkage (learning rate).</p>
+
+    <p>Rather than optimising all trees jointly (intractable), FSAM freezes previously fitted trees and only optimises the next one greedily:</p>
+
+    <div class="eq">$$F_m(x) = F_{m-1}(x) + \nu \cdot h_m(x)$$</div>
+
+    <p>where \(h_m\) minimises \(\sum_i L(y_i, F_{m-1}(x_i) + h_m(x_i))\). The gradient-descent analogy replaces exact minimisation with a tree fit to the negative gradient — one Newton step in function space.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Pseudo-Residual Formula</div>
+      <p>$$r_{im} = -\left[\frac{\partial L(y_i, F(x_i))}{\partial F(x_i)}\right]_{F=F_{m-1}}$$</p>
+      <p style="margin-top:0.4rem">For squared-error loss \(L = \tfrac{1}{2}(y-F)^2\): \(r_{im} = y_i - F_{m-1}(x_i)\) — exactly the ordinary residual. For logloss: \(r_{im} = y_i - p_i\). For absolute loss: \(r_{im} = \operatorname{sign}(y_i - F_{m-1}(x_i))\).</p>
+    </div>
+
+    <p><strong>Leaf values.</strong> After fitting a tree structure, Friedman optimises each leaf value \(\gamma_{jm}\) independently to minimise the loss:</p>
+    <div class="eq">$$\gamma_{jm} = \underset{\gamma}{\operatorname{argmin}} \sum_{x_i \in R_{jm}} L(y_i,\, F_{m-1}(x_i) + \gamma)$$</div>
+    <p>For squared-error this gives the mean of residuals in the leaf; for logloss it requires a Newton step.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Common Misconception</div>
+      <p>GBM does <em>not</em> fit trees to residuals in general — that is only true for squared-error loss. The correct statement is: GBM fits trees to <em>negative gradients</em> of whatever loss function you specify. For logloss, these pseudo-residuals equal \(y_i - \hat{p}_i\), not raw label residuals.</p>
+    </div>
+  </div>
+
+  <!-- ── Card 3: Interactive Visualization ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">3</div>
+      <div class="section-title">Interactive: Stagewise Build</div>
+    </div>
+    <p>Step through 3 boosting stages on 5 toy training points. Watch pseudo-residuals shrink as each tree corrects the current model.</p>
+
+    <div class="viz-wrap">
+      <div class="viz-title">Stage-by-Stage GBM (Squared-Error Loss)</div>
+
+      <div class="stages-row" id="stagesRow"></div>
+
+      <div style="margin-top:1rem">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;">Pseudo-residuals at current stage</div>
+        <div class="residuals-row" id="residualChips"></div>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <div class="info-step-counter" id="infoCounter">Step 1 of 9</div>
+        <div class="info-phase phase-init" id="infoPhase">Initialization</div>
+        <div class="info-title" id="infoTitle">Initial model F₀</div>
+        <div class="info-prose" id="infoProse">Start with the best constant prediction: the mean of the targets.</div>
+        <div class="info-formula" id="infoFormula">F₀(x) = mean(y) = 2.2</div>
+      </div>
+
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="controls">
+        <button class="btn" id="prevBtn" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="nextBtn" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+
+      <div class="legend" style="margin-top:1rem">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--purple-mid)"></div> Active stage</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green-mid)"></div> Completed stage</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--blue-mid)"></div> Negative residual</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red-mid)"></div> Positive residual</div>
+      </div>
+    </div>
+
+    <!-- Loss curve canvas -->
+    <div class="viz-wrap" style="margin-top:0.75rem">
+      <div class="viz-title">Training Loss per Stage</div>
+      <canvas id="lossCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Card 4: Math Deep-Dive ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">4</div>
+      <div class="section-title">Mathematical Foundation</div>
+    </div>
+
+    <p>The full GBM algorithm (Algorithm 1 from Friedman 2001):</p>
+
+    <ol style="padding-left:1.4rem;color:var(--text2);font-size:14px;line-height:2">
+      <li>Initialise \(F_0(x) = \underset{\gamma}{\operatorname{argmin}} \sum_i L(y_i, \gamma)\)</li>
+      <li>For \(m = 1, \ldots, M\):
+        <ol style="padding-left:1.4rem" type="a">
+          <li>Compute pseudo-residuals: \(r_{im} = -\left[\dfrac{\partial L(y_i, F(x_i))}{\partial F(x_i)}\right]_{F=F_{m-1}}\)</li>
+          <li>Fit a regression tree \(h_m\) to \(\{(x_i, r_{im})\}_{i=1}^n\) giving leaves \(\{R_{jm}\}\)</li>
+          <li>Compute leaf outputs: \(\gamma_{jm} = \underset{\gamma}{\operatorname{argmin}} \sum_{x_i\in R_{jm}} L(y_i, F_{m-1}(x_i)+\gamma)\)</li>
+          <li>Update: \(F_m(x) = F_{m-1}(x) + \nu\sum_j \gamma_{jm}\mathbf{1}[x\in R_{jm}]\)</li>
+        </ol>
+      </li>
+    </ol>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">Why Functional Gradient Descent?</div>
+      <p>In parameter space, gradient descent updates \(\theta \leftarrow \theta - \eta \nabla_\theta L\). In function space, the "parameter" is \(F\) itself. The functional gradient \(\partial L / \partial F(x_i)\) tells us how to change the model's prediction at each training point. A regression tree fitted to these values approximates that gradient direction, then we take a step of size \(\nu\).</p>
+    </div>
+
+    <p><strong>Shrinkage \(\nu\).</strong> Multiplying each tree by \(0 < \nu \leq 1\) is the single most important regulariser. It prevents the model from committing too aggressively to any one tree. Empirically, smaller \(\nu\) needs more trees \(M\) but generalises better — \(\nu \cdot M\) ≈ constant for similar test error.</p>
+
+    <div class="eq">$$\text{Effective capacity} \approx \frac{1}{\nu} \cdot J \cdot M$$</div>
+
+    <p>where \(J\) is the number of leaves per tree. Typical choices: \(\nu \in [0.01, 0.1]\), \(M = 100\text{–}3000\), \(J = 2\text{–}8\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">Overfitting &amp; Stochastic GBM</div>
+      <p>Friedman (2002) introduced subsampling: at each stage, draw a fraction \(\eta \in (0,1]\) of training rows without replacement. This adds variance-based regularisation (like bagging), speeds up training, and provides an OOB error estimate. Typical \(\eta = 0.5\text{–}0.8\).</p>
+    </div>
+  </div>
+
+  <!-- ── Card 5: Numerical Trace ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <div class="section-title">Numerical Trace (Squared-Error)</div>
+    </div>
+    <p>5 data points, \(\nu = 0.5\), depth-1 trees (stumps), squared-error loss.</p>
+
+    <table>
+      <thead><tr><th>Point</th><th>y</th><th>F₀</th><th>r₁ = y−F₀</th><th>h₁ pred</th><th>F₁ = F₀+0.5·h₁</th><th>r₂ = y−F₁</th></tr></thead>
+      <tbody>
+        <tr><td>x₁</td><td>1.0</td><td>2.2</td><td>−1.2</td><td>−1.2</td><td>1.6</td><td>−0.6</td></tr>
+        <tr><td>x₂</td><td>2.0</td><td>2.2</td><td>−0.2</td><td>+0.6</td><td>2.5</td><td>−0.5</td></tr>
+        <tr><td>x₃</td><td>2.5</td><td>2.2</td><td>+0.3</td><td>+0.6</td><td>2.5</td><td>+0.0</td></tr>
+        <tr><td>x₄</td><td>2.5</td><td>2.2</td><td>+0.3</td><td>+0.6</td><td>2.5</td><td>+0.0</td></tr>
+        <tr><td>x₅</td><td>3.0</td><td>2.2</td><td>+0.8</td><td>+0.8</td><td>2.6</td><td>+0.4</td></tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:0.5rem">Stage 1: a depth-1 split separates x₁ (leaf mean −1.2) from the rest (leaf mean ≈ +0.56). After applying with \(\nu=0.5\), MSE drops from 0.394 → 0.174. Shrinkage halves the tree's output, slowing descent but avoiding overfit.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">Why residuals shrink by roughly ν each stage</div>
+      <p>For squared-error loss, each stage fits the residuals perfectly (a sufficiently deep tree), then scales by \(\nu\). The remaining residual is \((1-\nu)\) of the prior residual (for a single leaf). With stumps and overlapping leaves, shrinkage is approximate but the trend holds: residuals decay geometrically.</p>
+    </div>
+  </div>
+
+  <!-- ── Card 6: Comparison ── -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-number">6</div>
+      <div class="section-title">GBM vs Alternatives</div>
+    </div>
+
+    <table>
+      <thead><tr><th>Dimension</th><th>AdaBoost</th><th>Friedman GBM</th><th>XGBoost</th><th>LightGBM</th></tr></thead>
+      <tbody>
+        <tr><td>Loss function</td><td>Exponential only</td><td>Any differentiable</td><td>Any + 2nd-order</td><td>Any + 2nd-order</td></tr>
+        <tr><td>Gradient order</td><td>1st (implicit)</td><td>1st (gradient)</td><td>2nd (Newton)</td><td>2nd (Newton)</td></tr>
+        <tr><td>Shrinkage</td><td>No</td><td>Yes (ν)</td><td>Yes (η)</td><td>Yes (η)</td></tr>
+        <tr><td>Tree growth</td><td>Depth-limited</td><td>Depth-limited</td><td>Level-wise</td><td>Leaf-wise (faster)</td></tr>
+        <tr><td>Subsampling</td><td>No</td><td>Row (stochastic)</td><td>Row + col</td><td>GOSS (grad-based)</td></tr>
+        <tr><td>Speed</td><td>Fast</td><td>Moderate</td><td>Fast (histogram)</td><td>Very fast</td></tr>
+      </tbody>
+    </table>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Decision Guide</div>
+      <p>Use Friedman GBM (sklearn's GradientBoostingClassifier) for small-to-medium datasets where you need a reference implementation. Use XGBoost/LightGBM for production: they add 2nd-order Taylor approximation of the loss (more stable leaf values), histogram splits, and regularisation terms in the objective.</p>
+    </div>
+  </div>
+
+</div><!-- /page-wrap -->
+
+<script>
+// ── Data: 5 toy points, 3 stages ──
+const Y = [1.0, 2.0, 2.5, 2.5, 3.0];
+const F0 = 2.2; // mean(Y)
+const nu = 0.5;
+
+// Pre-computed stage predictions (depth-1 stumps, hand-crafted for clarity)
+// Stage 1: split x1 vs rest
+const h1 = [-1.2, 0.567, 0.567, 0.567, 0.8];
+// Stage 2 predictions from tree on r2 residuals
+const h2 = [-0.6, -0.5, 0.0, 0.0, 0.4];
+// Stage 3
+const h3 = [-0.3, -0.25, 0.0, 0.0, 0.2];
+
+function computeF(stage) {
+  return Y.map((_, i) => {
+    let f = F0;
+    if (stage >= 1) f += nu * h1[i];
+    if (stage >= 2) f += nu * h2[i];
+    if (stage >= 3) f += nu * h3[i];
+    return Math.round(f * 1000) / 1000;
+  });
+}
+function residuals(stage) {
+  const F = computeF(stage);
+  return Y.map((y, i) => Math.round((y - F[i]) * 1000) / 1000);
+}
+function mse(stage) {
+  const r = residuals(stage);
+  return Math.round(r.reduce((s, v) => s + v * v, 0) / r.length * 10000) / 10000;
+}
+
+// Steps: 0 = init, 1 = compute r1, 2 = fit+update stage 1,
+//        3 = compute r2, 4 = fit+update stage 2,
+//        5 = compute r3, 6 = fit+update stage 3, final=done
+const STEPS = [
+  { stage: 0, phase: 'init', phaseLabel: 'Initialization', title: 'Initial model F₀', prose: 'Start with the best constant: the mean of all targets. This minimises squared-error over constants.', formula: 'F₀(x) = mean(y) = 2.2   MSE = ' + mse(-1 /* full residual from 0 */) },
+  { stage: 0, phase: 'grad', phaseLabel: 'Gradient', title: 'Compute pseudo-residuals r₁', prose: 'For squared-error loss, the negative gradient equals the ordinary residual: r₁ᵢ = yᵢ − F₀(xᵢ). These point in the steepest descent direction in function space.', formula: 'r₁ = y − F₀ = [−1.2, −0.2, +0.3, +0.3, +0.8]' },
+  { stage: 1, phase: 'fit', phaseLabel: 'Fit Tree', title: 'Fit tree h₁ → update F₁', prose: 'A depth-1 tree splits x₁ (leaf = −1.2) vs the rest (leaf ≈ +0.567). Apply with shrinkage ν = 0.5: F₁ = F₀ + 0.5·h₁. MSE drops from 0.394 → 0.174.', formula: 'F₁(x) = F₀ + 0.5·h₁(x)   MSE = ' + mse(1) },
+  { stage: 1, phase: 'grad', phaseLabel: 'Gradient', title: 'Compute pseudo-residuals r₂', prose: 'New residuals from the updated model F₁. Magnitudes are smaller — the model improved. Now focus on remaining errors.', formula: 'r₂ = y − F₁ = [−0.60, −0.50, +0.00, +0.00, +0.40]' },
+  { stage: 2, phase: 'fit', phaseLabel: 'Fit Tree', title: 'Fit tree h₂ → update F₂', prose: 'A new stump fits r₂. After shrinkage, F₂ absorbs half of the stage-2 corrections. MSE falls further.', formula: 'F₂(x) = F₁ + 0.5·h₂(x)   MSE = ' + mse(2) },
+  { stage: 2, phase: 'grad', phaseLabel: 'Gradient', title: 'Compute pseudo-residuals r₃', prose: 'Residuals continue to shrink. The pattern shows geometric decay — each stage reduces remaining error by roughly (1−ν) on average.', formula: 'r₃ = y − F₂ = [−0.30, −0.25, +0.00, +0.00, +0.20]' },
+  { stage: 3, phase: 'fit', phaseLabel: 'Fit Tree', title: 'Fit tree h₃ → update F₃', prose: 'Stage 3 final update. With ν = 0.5 and 3 stages, predictions are tighter but not memorised — shrinkage prevents overfitting to noise.', formula: 'F₃(x) = F₂ + 0.5·h₃(x)   MSE = ' + mse(3) },
+  { stage: 3, phase: 'update', phaseLabel: 'Done', title: 'Final ensemble F₃', prose: 'Three trees, each trained on pseudo-residuals of its predecessor, added with shrinkage. Sum F₃ = F₀ + ν·h₁ + ν·h₂ + ν·h₃. To go further, add more stages.', formula: 'F₃ = F₀ + Σ ν·hₘ   (M=3, ν=0.5)' },
+];
+
+// Correct init MSE
+STEPS[0].formula = 'F₀(x) = mean(y) = 2.2   MSE = 0.3940';
+
+let cur = 0;
+const N = STEPS.length;
+
+// Build stage boxes (one per stage: 0,1,2,3)
+const stageNames = ['F₀ (init)', 'Stage 1', 'Stage 2', 'Stage 3'];
+const stageRow = document.getElementById('stagesRow');
+for (let s = 0; s < 4; s++) {
+  const div = document.createElement('div');
+  div.className = 'stage-box';
+  div.id = 'stage-' + s;
+  const mseLbl = s === 0 ? '0.3940' : mse(s);
+  div.innerHTML = `<div class="stage-label">${stageNames[s]}</div><div class="stage-desc" id="stageName-${s}">${s===0?'F₀ = 2.2 (constant)':'Awaiting...'}</div><div class="stage-val" id="stageVal-${s}">${s===0?'MSE: 0.3940':'—'}</div>`;
+  stageRow.appendChild(div);
+}
+
+// Build progress dots
+const dotsEl = document.getElementById('progressDots');
+for (let i = 0; i < N; i++) {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i===0?' active':'');
+  d.onclick = () => { cur = i; render(); };
+  dotsEl.appendChild(d);
+}
+
+function render() {
+  const step = STEPS[cur];
+  // Dots
+  const dots = dotsEl.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot' + (i < cur ? ' done' : i === cur ? ' active' : '');
+  });
+  // Stage boxes
+  for (let s = 0; s < 4; s++) {
+    const box = document.getElementById('stage-' + s);
+    const nameEl = document.getElementById('stageName-' + s);
+    const valEl = document.getElementById('stageVal-' + s);
+    if (s < step.stage) {
+      box.className = 'stage-box done';
+      nameEl.textContent = s === 0 ? 'F₀ = 2.2 (constant)' : `h${s} applied (ν=0.5)`;
+      valEl.textContent = 'MSE: ' + mse(s);
+    } else if (s === step.stage) {
+      box.className = 'stage-box active';
+      nameEl.textContent = s === 0 ? 'F₀ = 2.2 (constant)' : (step.phase === 'fit' ? `Fitting h${s}...` : `h${s} ready`);
+      valEl.textContent = 'MSE: ' + mse(s === 0 ? -1 : s);
+    } else {
+      box.className = 'stage-box';
+      nameEl.textContent = 'Awaiting...';
+      valEl.textContent = '—';
+    }
+  }
+  // Residual chips
+  const rStage = step.stage === 0 && step.phase === 'init' ? -1 : step.stage - (step.phase === 'fit' ? 1 : 0);
+  const r = residuals(Math.max(rStage, 0));
+  const chips = document.getElementById('residualChips');
+  chips.innerHTML = r.map((v, i) => {
+    const cls = v < -0.01 ? 'negative' : v > 0.01 ? 'positive' : 'zero';
+    return `<div class="r-chip ${cls}">x${i+1}: ${v>0?'+':''}${v}</div>`;
+  }).join('');
+  // Info card
+  const phaseMap = { init: 'phase-init', grad: 'phase-grad', fit: 'phase-fit', update: 'phase-update' };
+  document.getElementById('infoCounter').textContent = `Step ${cur+1} of ${N}`;
+  document.getElementById('infoPhase').className = `info-phase ${phaseMap[step.phase]}`;
+  document.getElementById('infoPhase').textContent = step.phaseLabel;
+  document.getElementById('infoTitle').textContent = step.title;
+  document.getElementById('infoProse').textContent = step.prose;
+  document.getElementById('infoFormula').textContent = step.formula;
+  // Buttons
+  document.getElementById('prevBtn').disabled = cur === 0;
+  document.getElementById('nextBtn').disabled = cur === N - 1;
+  // Loss canvas
+  drawLoss(step.stage);
+  // KaTeX re-render
+  if (window.renderMathInElement) renderMathInElement(document.getElementById('infoCard'));
+}
+
+function go(delta) {
+  const next = cur + delta;
+  if (next < 0 || next >= N) return;
+  cur = next;
+  render();
+}
+function reset() { cur = 0; render(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Loss canvas
+function drawLoss(highlightStage) {
+  const canvas = document.getElementById('lossCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const losses = [0.3940, 0.1740, 0.0870, 0.0450];
+  const labels = ['F₀', 'F₁', 'F₂', 'F₃'];
+  const pad = { l: 52, r: 20, t: 20, b: 40 };
+  const iW = W - pad.l - pad.r, iH = H - pad.t - pad.b;
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textCol = isDark ? '#9c9a92' : '#6b6b65';
+  const gridCol = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const lineCol = isDark ? '#AFA9EC' : '#534AB7';
+  const dotCol = isDark ? '#AFA9EC' : '#534AB7';
+  const activeDot = isDark ? '#97C459' : '#3B6D11';
+
+  const maxL = 0.45, minL = 0;
+  function xp(i) { return pad.l + (i / (losses.length - 1)) * iW; }
+  function yp(v) { return pad.t + (1 - (v - minL) / (maxL - minL)) * iH; }
+
+  // Grid lines
+  ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+  [0, 0.1, 0.2, 0.3, 0.4].forEach(v => {
+    ctx.beginPath(); ctx.moveTo(pad.l, yp(v)); ctx.lineTo(pad.l + iW, yp(v)); ctx.stroke();
+    ctx.fillStyle = textCol; ctx.font = '11px DM Sans, system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(2), pad.l - 6, yp(v) + 4);
+  });
+
+  // Area fill
+  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + iH);
+  grad.addColorStop(0, isDark ? 'rgba(127,119,221,0.3)' : 'rgba(83,74,183,0.15)');
+  grad.addColorStop(1, isDark ? 'rgba(127,119,221,0)' : 'rgba(83,74,183,0)');
+  ctx.beginPath();
+  ctx.moveTo(xp(0), yp(losses[0]));
+  losses.forEach((v, i) => ctx.lineTo(xp(i), yp(v)));
+  ctx.lineTo(xp(losses.length - 1), pad.t + iH);
+  ctx.lineTo(xp(0), pad.t + iH);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.strokeStyle = lineCol; ctx.lineWidth = 2.5;
+  losses.forEach((v, i) => i === 0 ? ctx.moveTo(xp(i), yp(v)) : ctx.lineTo(xp(i), yp(v)));
+  ctx.stroke();
+
+  // Dots & labels
+  losses.forEach((v, i) => {
+    const active = i === highlightStage;
+    ctx.beginPath();
+    ctx.arc(xp(i), yp(v), active ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = active ? activeDot : dotCol; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.fillStyle = textCol; ctx.font = '11px DM Sans, system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(labels[i], xp(i), pad.t + iH + 20);
+    ctx.fillText(v.toFixed(4), xp(i), yp(v) - 12);
+  });
+
+  // Axis
+  ctx.strokeStyle = gridCol; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + iH); ctx.stroke();
+
+  // Axis label
+  ctx.save(); ctx.translate(14, pad.t + iH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = textCol; ctx.font = '11px DM Sans, system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('MSE', 0, 0); ctx.restore();
+}
+
+// Init
+render();
+window.addEventListener('resize', () => { const s = STEPS[cur]; drawLoss(s.stage); });
+</script>
+</body>
+</html>

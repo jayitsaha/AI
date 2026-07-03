@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XGBoost: Second-Order Gradients — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{margin:0.5rem 0 0.75rem 1.25rem;font-size:14px;}
+.section-body li{margin-bottom:0.3rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Equations */
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+
+/* Code */
+.code-panel{margin-top:1rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Viz area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;background:var(--bg2);border-radius:var(--radius);margin-bottom:1rem;overflow:hidden;}
+.viz-canvas-wrap canvas{display:block;width:100%;height:auto;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px;margin-bottom:6px;}
+.info-phase.taylor{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.split{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.leaf{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.column{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.sparse{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-text{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+
+/* Progress */
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Legend */
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:0.75rem;justify-content:center;}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);}
+.legend-dot{width:10px;height:10px;border-radius:2px;}
+
+/* Step counter */
+.step-counter{text-align:center;font-size:12px;color:var(--text3);margin-top:0.5rem;font-family:var(--mono);}
+
+/* Table */
+table.comp{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+table.comp th{background:var(--blue-bg);color:var(--blue-mid);padding:8px 10px;text-align:left;font-weight:700;}
+table.comp td{padding:8px 10px;border-bottom:1px solid var(--border);}
+table.comp tr:hover td{background:var(--bg2);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>XGBoost: Second-Order Gradients</h1>
+  <div class="subtitle">Regularization · Column Subsampling · Sparsity-Aware Split Finding — Part III Classical ML (Review)</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Classical ML · Boosting</span>
+    <span class="tag tag-complexity">Must Know</span>
+  </div>
+</div>
+
+<!-- CARD 1: THE CORE IDEA -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">The Core Idea</div>
+    <div class="section-toggle open" id="card1-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card1-body">
+    <p>XGBoost is a gradient-boosted tree ensemble that fits one new decision tree per round, each tree correcting the residual errors of all previous trees. What makes it special — and why it dominated Kaggle competitions from 2014 onward — is a single brilliant design choice: <strong>use second-order Taylor expansion of the loss to guide every split and leaf value</strong>.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The One Insight</div>
+      <p>Ordinary gradient boosting only uses the gradient \(g_i = \partial \ell / \partial \hat{y}_i\) to decide how to correct errors. XGBoost additionally uses the Hessian \(h_i = \partial^2 \ell / \partial \hat{y}_i^2\) — the curvature of the loss — which gives it a Newton-step update instead of a first-order gradient step. The Hessian acts as a natural per-sample learning rate that down-weights uncertain predictions.</p>
+    </div>
+    <p><strong>Real-world analogy:</strong> Imagine you're navigating a hilly landscape in fog and want to reach the valley. A first-order method (gradient) tells you which direction slopes downhill. A second-order method (gradient + curvature) additionally tells you <em>how steeply</em> the slope curves ahead — so you know whether you can take a big safe step or should be cautious near a cliff edge. XGBoost uses the curvature (Hessian) to take an optimal Newton step at every leaf.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Four Innovations</div>
+      <ul>
+        <li><strong>Second-order objective:</strong> Taylor expand loss → closed-form optimal leaf weights and split gain</li>
+        <li><strong>Regularization:</strong> \(L_2\) penalty \(\lambda\) on leaf weights + \(\gamma\) per-leaf complexity penalty</li>
+        <li><strong>Column subsampling:</strong> randomly subsample features per tree/level/node (like Random Forest)</li>
+        <li><strong>Sparsity-aware:</strong> learn a default branch direction for missing/zero values — no imputation needed</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: THE MATH -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">The Mathematics</div>
+    <div class="section-toggle open" id="card2-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card2-body">
+    <h4>Taylor Objective</h4>
+    <p>At boosting round \(t\), the ensemble prediction is \(\hat{y}_i^{(t)} = \hat{y}_i^{(t-1)} + f_t(x_i)\). XGBoost approximates the per-sample loss contribution via second-order Taylor expansion around the current prediction:</p>
+    <div class="eq">$$\mathcal{L}^{(t)} \approx \sum_{i=1}^n \left[ g_i f_t(x_i) + \tfrac{1}{2} h_i f_t(x_i)^2 \right] + \Omega(f_t)$$</div>
+    <p>where \(g_i = \partial_{\hat{y}} \ell(y_i, \hat{y}_i^{(t-1)})\) and \(h_i = \partial^2_{\hat{y}} \ell(y_i, \hat{y}_i^{(t-1)})\). The regularization term is:</p>
+    <div class="eq">$$\Omega(f_t) = \gamma T + \tfrac{1}{2}\lambda \sum_{j=1}^T w_j^2$$</div>
+    <p>with \(T\) = number of leaves, \(w_j\) = leaf weight (score), \(\gamma\) = min-split-gain threshold, \(\lambda\) = L2 leaf-weight penalty.</p>
+
+    <h4>Optimal Leaf Weight</h4>
+    <p>Within a leaf \(j\) containing instance set \(I_j\), the objective becomes a simple quadratic in \(w_j\). Taking derivative and setting to zero:</p>
+    <div class="eq">$$w_j^* = -\frac{G_j}{H_j + \lambda}, \quad G_j = \sum_{i \in I_j} g_i,\quad H_j = \sum_{i \in I_j} h_i$$</div>
+
+    <h4>Split Gain</h4>
+    <p>For a candidate split partitioning leaf \(j\) into left \(L\) and right \(R\), the gain in objective (higher = better) is:</p>
+    <div class="eq">$$\text{Gain} = \frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$</div>
+    <p>A split is accepted only when Gain &gt; 0. The \(-\gamma\) term ensures the gain must overcome the per-leaf complexity cost. This is the <em>exact same formula</em> for any differentiable loss — MSE, log-loss, or custom.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 Optimal Tree Score</div>
+      <p>Substituting \(w_j^*\) back gives the tree's best achievable objective value (used to compare tree structures):</p>
+      <div class="eq">$$\mathcal{L}^*_{\text{tree}} = -\frac{1}{2}\sum_{j=1}^T \frac{G_j^2}{H_j + \lambda} + \gamma T$$</div>
+    </div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p>The Hessian \(h_i\) is always non-negative for convex losses (squared error: \(h_i = 2\); logistic: \(h_i = \hat{p}_i(1-\hat{p}_i)\)). It cannot be zero unless \(\hat{p} \in \{0,1\}\), so the denominator \(H_j + \lambda\) is always safely positive (with \(\lambda > 0\)).</p>
+    </div>
+
+    <h4>Column Subsampling</h4>
+    <p>At tree construction time, XGBoost randomly samples a fraction \(\text{colsample\_bytree} \in (0,1]\) of features before evaluating splits. This decorrelates trees (à la Random Forest), reduces overfitting, and speeds up split finding significantly.</p>
+
+    <h4>Sparsity-Aware Split Finding</h4>
+    <p>Many real datasets have missing or zero values. Rather than imputing, XGBoost learns a <em>default direction</em> per node: during tree learning, samples with missing feature values are sent both left and right separately; whichever direction yields higher gain wins, and that direction is stored. At inference, missing values automatically follow the learned default branch.</p>
+  </div>
+</div>
+
+<!-- CARD 3: NUMERICAL TRACE -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">Numerical Trace</div>
+    <div class="section-toggle open" id="card3-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card3-body">
+    <p>Binary classification with log-loss. Four samples, current predictions after round 1:</p>
+    <div class="code-panel" id="trace-code">
+<div class="code-line" id="tl1"># Setup: y = [1, 1, 0, 0], y_hat (after round 1) = [0.6, 0.4, 0.3, 0.7]</div>
+<div class="code-line" id="tl2"># g_i = y_hat - y  (gradient of log-loss)</div>
+<div class="code-line" id="tl3"># g = [-0.4, -0.6, +0.3, +0.7]</div>
+<div class="code-line" id="tl4"># h_i = y_hat*(1-y_hat)  (Hessian of log-loss)</div>
+<div class="code-line" id="tl5"># h = [0.24, 0.24, 0.21, 0.21]</div>
+<div class="code-line" id="tl6"># Candidate split: feature x1 < 0.5 → left={0,1}, right={2,3}</div>
+<div class="code-line" id="tl7"># G_L = -0.4 + (-0.6) = -1.0,  H_L = 0.24 + 0.24 = 0.48</div>
+<div class="code-line" id="tl8"># G_R = +0.3 + (+0.7) = +1.0,  H_R = 0.21 + 0.21 = 0.42</div>
+<div class="code-line" id="tl9"># λ = 1.0, γ = 0.0</div>
+<div class="code-line" id="tl10"># Gain = 0.5*[(-1)²/(0.48+1) + (1)²/(0.42+1) - (0)²/(0.9+1)] - 0</div>
+<div class="code-line" id="tl11"># Gain = 0.5*[1/1.48 + 1/1.42 - 0] = 0.5*[0.676 + 0.704] = 0.690</div>
+<div class="code-line" id="tl12"># w_L* = -G_L/(H_L+λ) = -(-1.0)/(0.48+1) = +0.676</div>
+<div class="code-line" id="tl13"># w_R* = -G_R/(H_R+λ) = -(+1.0)/(0.42+1) = -0.704</div>
+<div class="code-line" id="tl14"># → left leaf predicts +0.676 correction (push toward class 1)</div>
+<div class="code-line" id="tl15"># → right leaf predicts −0.704 correction (push toward class 0) ✓</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: INTERACTIVE VISUALIZATION -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Visualization — Split Gain Explorer</div>
+    <div class="section-toggle open" id="card4-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card4-body">
+    <div class="viz-container">
+      <div class="viz-canvas-wrap" style="height:340px;">
+        <canvas id="mainCanvas" width="900" height="340"></canvas>
+      </div>
+      <div class="info-card" id="infoCard">
+        <div class="info-phase taylor" id="infoPhase">TAYLOR EXPANSION</div>
+        <div class="info-title" id="infoTitle">Second-Order Taylor Objective</div>
+        <div class="info-text" id="infoText">XGBoost approximates the loss using a quadratic Taylor expansion around the current prediction. This yields a simple closed-form for optimal leaf weights and split gain — valid for any differentiable loss function.</div>
+      </div>
+      <div class="step-counter" id="stepCounter">Step 1 / 5</div>
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" id="btnReset" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+      <div class="legend" id="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--purple-mid)"></div><span>Taylor / Objective</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--blue-mid)"></div><span>Split Gain</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green-mid)"></div><span>Leaf Weight</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--amber-mid)"></div><span>Column Subsampling</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--cyan-mid)"></div><span>Sparsity Default</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: COMPARISON & INTERVIEW -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison & Interview Prep</div>
+    <div class="section-toggle open" id="card5-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card5-body">
+    <h4>XGBoost vs. Alternatives</h4>
+    <table class="comp">
+      <tr><th>Dimension</th><th>GBDT (vanilla)</th><th>XGBoost</th><th>LightGBM</th><th>CatBoost</th></tr>
+      <tr><td>Order of gradients used</td><td>1st (gradient)</td><td>2nd (Newton)</td><td>2nd (Newton)</td><td>2nd (Newton)</td></tr>
+      <tr><td>Regularization</td><td>Shrinkage only</td><td>λ (L2) + γ (leaf count)</td><td>λ + min_child_samples</td><td>L2 + depth/border controls</td></tr>
+      <tr><td>Split finding</td><td>Exact or approx.</td><td>Exact + weighted quantile sketch</td><td>Histogram-based (GOSS)</td><td>Ordered boosting</td></tr>
+      <tr><td>Column subsampling</td><td>No (full)</td><td>colsample_bytree/level/node</td><td>feature_fraction</td><td>rsm</td></tr>
+      <tr><td>Sparse/missing data</td><td>Imputation required</td><td>Learned default direction</td><td>Treats missing separately</td><td>Treats as own category</td></tr>
+      <tr><td>Speed</td><td>Moderate</td><td>Fast (parallelized)</td><td>Fastest (leaf-wise)</td><td>Moderate</td></tr>
+      <tr><td>Best for</td><td>Simple tasks</td><td>Structured data, tabular</td><td>Large datasets, memory-tight</td><td>High-cardinality categoricals</td></tr>
+    </table>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🎯 Decision Guide</div>
+      <p>Use <strong>XGBoost</strong> as your default tabular baseline. Switch to <strong>LightGBM</strong> if you have millions of rows and need speed. Use <strong>CatBoost</strong> when you have many high-cardinality categorical features and don't want to encode them manually.</p>
+    </div>
+
+    <h4>Top Interview Questions</h4>
+    <p><strong>Q1 (Easy):</strong> Why does XGBoost use second-order gradients?<br>
+    <em>A:</em> First-order boosting (gradient descent) uses only the slope of the loss — it picks a step direction but not an optimal step size. The Hessian gives the curvature, enabling a Newton-step update \(w^* = -G/(H+\lambda)\) that is the closed-form optimal leaf weight. This converges faster and adapts to the loss shape automatically.</p>
+
+    <p><strong>Q2 (Medium):</strong> What does \(\lambda\) do in XGBoost?<br>
+    <em>A:</em> \(\lambda\) adds an L2 penalty on each leaf weight in the objective. It appears in both the optimal weight formula \(w^* = -G/(H+\lambda)\) — shrinking leaf values toward zero — and in the split gain denominator, making splits harder to achieve. It controls model complexity similarly to ridge regression's regularization.</p>
+
+    <p><strong>Q3 (Medium):</strong> What is \(\gamma\) and how does it prune trees?<br>
+    <em>A:</em> \(\gamma\) is the minimum gain required for a split to be accepted. It appears as \(-\gamma\) in the gain formula, so a split only happens if the gain in objective exceeds \(\gamma\). Higher \(\gamma\) → fewer splits → shallower, more regularized trees. It is equivalent to post-pruning: XGBoost first grows max-depth trees then prunes splits with Gain &lt; \(\gamma\).</p>
+
+    <p><strong>Q4 (Hard):</strong> How does sparsity-aware split finding work for missing values?<br>
+    <em>A:</em> During tree construction, for each split candidate, samples with a missing feature value are tried in both left and right branches separately. The direction that yields higher gain is recorded as the "default direction" for that node. At inference, any missing value automatically routes to that default branch. This learns optimal imputation directions for free, without any preprocessing.</p>
+
+    <p><strong>Q5 (Hard):</strong> Show why \(H_j\) (Hessian sum) acts as a sample-count proxy in MSE.<br>
+    <em>A:</em> For squared loss \(\ell = \tfrac{1}{2}(y-\hat{y})^2\), \(h_i = \partial^2 \ell / \partial \hat{y}^2 = 1\) for every sample. So \(H_j = |I_j|\). The optimal leaf weight becomes \(w^* = -G_j/(|I_j| + \lambda)\), which is the negative mean gradient (i.e., mean residual) in that leaf — exactly the tree fitted on residuals in standard GBDT. The Hessian unifies diverse losses under one formula.</p>
+
+    <div class="concept-box danger">
+      <div class="concept-box-title">🚩 Red Flags (Wrong Answers)</div>
+      <ul>
+        <li>"XGBoost uses random forests" — No. It is sequential boosting, not bagging. Column subsampling is an option, not the core algorithm.</li>
+        <li>"The Hessian is always 1" — Only for MSE. For log-loss, \(h_i = \hat{p}(1-\hat{p})\) which varies per sample.</li>
+        <li>"Missing values are imputed to 0 or mean" — No. The default direction is <em>learned</em> during training.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: KEY TAKEAWAYS -->
+<div class="card" id="card6">
+  <div class="section-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open" id="card6-toggle">▼</div>
+  </div>
+  <div class="section-body" id="card6-body">
+    <ul>
+      <li><strong>Taylor objective:</strong> approximate \(\mathcal{L}^{(t)}\) using \(g_i\) (gradient) and \(h_i\) (Hessian) per sample.</li>
+      <li><strong>Optimal leaf weight:</strong> \(w_j^* = -G_j/(H_j+\lambda)\) — Newton step, shrunk by \(\lambda\).</li>
+      <li><strong>Split gain formula:</strong> \(\tfrac{1}{2}\left[\tfrac{G_L^2}{H_L+\lambda}+\tfrac{G_R^2}{H_R+\lambda}-\tfrac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right]-\gamma\)</li>
+      <li><strong>Column subsampling</strong> decorrelates trees and speeds up training without hurting accuracy (often improves it).</li>
+      <li><strong>Sparsity-aware:</strong> default direction is learned, not imputed — critical for real-world sparse/missing data.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Unified View</div>
+      <p>The split gain formula, optimal weight, and tree score are all derived from a single quadratic approximation to the loss. Change the loss function (swap MSE → log-loss → any custom loss), re-compute \(g_i\) and \(h_i\) — everything else stays identical. This is what makes XGBoost a general-purpose boosting framework.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Card toggle ─────────────────────────────────────────────────────────────
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const toggle = document.getElementById(id + '-toggle');
+  const isOpen = !body.classList.contains('collapsed');
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = body.scrollHeight + 'px';
+      requestAnimationFrame(() => { body.classList.add('collapsed'); body.style.maxHeight = '0'; });
+    });
+    toggle.classList.remove('open');
+  } else {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.addEventListener('transitionend', () => { body.style.maxHeight = 'none'; }, {once:true});
+    toggle.classList.add('open');
+  }
+}
+// Initialize all cards open
+document.querySelectorAll('.section-body').forEach(b => { b.style.maxHeight = 'none'; });
+
+// ── Visualization ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+// Resolve CSS custom properties
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+const STEPS = [
+  {
+    phase: 'taylor', phaseLabel: 'TAYLOR EXPANSION',
+    title: 'Second-Order Taylor Objective',
+    text: 'At round t, XGBoost approximates loss ℒ(t) ≈ Σ[gᵢ·f(xᵢ) + ½hᵢ·f(xᵢ)²] + Ω(f). The quadratic is exact locally and provides a closed-form optimal update — no line search needed. Here g and h are the gradient and Hessian of the loss w.r.t. current predictions.',
+    draw: drawTaylor
+  },
+  {
+    phase: 'split', phaseLabel: 'SPLIT GAIN',
+    title: 'Evaluating a Candidate Split',
+    text: 'For a split into left (G_L, H_L) and right (G_R, H_R) children: Gain = ½[G_L²/(H_L+λ) + G_R²/(H_R+λ) − (G_L+G_R)²/(H_L+H_R+λ)] − γ. Only accept if Gain > 0. The −γ term ensures the split must pay for the added leaf complexity.',
+    draw: drawSplitGain
+  },
+  {
+    phase: 'leaf', phaseLabel: 'LEAF WEIGHT',
+    title: 'Optimal Leaf Weight: w* = −G/(H+λ)',
+    text: 'Within leaf j, objective is quadratic in wⱼ: minimizing gives w*ⱼ = −Gⱼ/(Hⱼ+λ). This is a Newton step. λ shrinks weights toward zero (L2 regularization). For MSE: Hⱼ = |Iⱼ| so w* = mean residual. For log-loss: Hⱼ = Σp̂(1−p̂) which naturally down-weights high-confidence samples.',
+    draw: drawLeafWeight
+  },
+  {
+    phase: 'column', phaseLabel: 'COLUMN SUBSAMPLING',
+    title: 'Column Subsampling (colsample_bytree)',
+    text: 'At each tree (or level/node), XGBoost randomly selects a fraction of features to consider for splits. This decorrelates consecutive trees, reduces variance, and dramatically speeds up split search. Here 3 of 6 features are selected — only those are evaluated for gain.',
+    draw: drawColumnSample
+  },
+  {
+    phase: 'sparse', phaseLabel: 'SPARSITY-AWARE',
+    title: 'Learned Default Direction for Missing Values',
+    text: 'For a node with feature x2, samples missing x2 are routed both left and right during training — whichever direction yields higher gain wins and becomes the stored default. At inference, missing x2 always follows that default branch. No imputation, no preprocessing — optimal routing is learned from data.',
+    draw: drawSparsity
+  }
+];
+
+let cur = 0;
+
+// Build progress dots
+const pw = document.getElementById('progressWrap');
+STEPS.forEach((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i === 0 ? ' active' : '');
+  d.onclick = () => { cur = i; render(); };
+  pw.appendChild(d);
+});
+
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot' + (i < cur ? ' done' : (i === cur ? ' active' : ''));
+  });
+}
+
+function go(dir) {
+  cur = Math.max(0, Math.min(STEPS.length - 1, cur + dir));
+  render();
+}
+function reset() { cur = 0; render(); }
+
+function render() {
+  const s = STEPS[cur];
+  document.getElementById('infoPhase').textContent = s.phaseLabel;
+  document.getElementById('infoPhase').className = 'info-phase ' + s.phase;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoText').textContent = s.text;
+  document.getElementById('stepCounter').textContent = `Step ${cur+1} / ${STEPS.length}`;
+  document.getElementById('btnPrev').disabled = cur === 0;
+  document.getElementById('btnNext').disabled = cur === STEPS.length - 1;
+  updateDots();
+  s.draw();
+}
+
+// ── Drawing helpers ──────────────────────────────────────────────────────────
+function clearCanvas() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = cssVar('--bg2');
+  ctx.fillRect(0, 0, W, H);
+}
+function txt(str, x, y, opts={}) {
+  ctx.font = `${opts.w||'normal'} ${opts.sz||13}px ${opts.mono ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif"}`;
+  ctx.fillStyle = opts.color || cssVar('--text');
+  ctx.textAlign = opts.align || 'center';
+  ctx.fillText(str, x, y);
+}
+function roundRect(x, y, w, h, r, fillStyle, strokeStyle) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+  if (fillStyle) { ctx.fillStyle = fillStyle; ctx.fill(); }
+  if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = 2; ctx.stroke(); }
+}
+
+// Step 1: Taylor parabola
+function drawTaylor() {
+  clearCanvas();
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H*0.55, sx = 200, sy = 120;
+  // axes
+  ctx.strokeStyle = cssVar('--border2'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx-sx-20, cy); ctx.lineTo(cx+sx+20, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy+30); ctx.lineTo(cx, cy-sy-20); ctx.stroke();
+  // axis labels
+  txt('f(x)', cx+sx+15, cy-5, {sz:12, color:cssVar('--text3')});
+  txt('ℒ', cx+5, cy-sy-10, {sz:12, color:cssVar('--text3')});
+
+  // True loss curve (slightly asymmetric)
+  ctx.beginPath(); ctx.strokeStyle = cssVar('--text3'); ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+  for (let px = -sx; px <= sx; px++) {
+    const f = px/sx, loss = 0.8*f*f + 0.3*f*f*f*f - 0.1*f + 0.05;
+    const lx = cx+px, ly = cy - loss*sy;
+    px === -sx ? ctx.moveTo(lx, ly) : ctx.lineTo(lx, ly);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Taylor quadratic approx (centered at f0 = -0.15)
+  const f0 = -0.15, g = 2*0.8*f0 + 4*0.3*f0*f0*f0 - 0.1, h = 2*0.8 + 12*0.3*f0*f0;
+  const L0 = 0.8*f0*f0 + 0.3*f0*f0*f0*f0 - 0.1*f0 + 0.05;
+  ctx.beginPath(); ctx.strokeStyle = cssVar('--purple-mid'); ctx.lineWidth = 3;
+  for (let px = -sx; px <= sx; px++) {
+    const f = px/sx - f0, approx = L0 + g*f + 0.5*h*f*f;
+    const lx = cx+px, ly = cy - approx*sy;
+    px === -sx ? ctx.moveTo(lx, ly) : ctx.lineTo(lx, ly);
+  }
+  ctx.stroke();
+
+  // mark f0 point
+  const f0x = cx + f0*sx, f0y = cy - L0*sy;
+  ctx.beginPath(); ctx.arc(f0x, f0y, 6, 0, Math.PI*2); ctx.fillStyle=cssVar('--purple-mid'); ctx.fill();
+  // Newton step marker
+  const wstar = -g/h, wstarX = cx + (f0+wstar)*sx;
+  ctx.beginPath(); ctx.setLineDash([4,3]); ctx.strokeStyle=cssVar('--green-mid'); ctx.lineWidth=2;
+  ctx.moveTo(wstarX, cy+10); ctx.lineTo(wstarX, f0y-10); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(wstarX, cy - (L0+g*wstar+0.5*h*wstar*wstar)*sy, 6, 0, Math.PI*2);
+  ctx.fillStyle=cssVar('--green-mid'); ctx.fill();
+
+  // Labels
+  txt('True loss', cx-sx+40, cy-sy+10, {sz:12, color:cssVar('--text3')});
+  txt('Taylor approx (purple)', cx+sx-10, cy-sy*0.6, {sz:12, color:cssVar('--purple-mid'), align:'right'});
+  txt('w* = −G/(H+λ)', wstarX+5, cy-sy*0.3, {sz:11, color:cssVar('--green-mid'), align:'left', mono:true});
+  txt('f₀ (current pred.)', f0x+8, f0y-10, {sz:11, color:cssVar('--purple-mid'), align:'left'});
+  txt('g: gradient (slope)', cx-sx+5, cy+20, {sz:11, color:cssVar('--text2'), align:'left'});
+  txt('h: Hessian (curvature)', cx-sx+5, cy+35, {sz:11, color:cssVar('--text2'), align:'left'});
+}
+
+// Step 2: Split gain bar chart
+function drawSplitGain() {
+  clearCanvas();
+  const W = canvas.width, H = canvas.height;
+  // Node before split
+  roundRect(W/2-90, 20, 180, 60, 8, cssVar('--purple-bg'), cssVar('--purple-border'));
+  txt('Root Node', W/2, 45, {sz:13, w:'700'});
+  txt('G=0.0  H=0.90  λ=1.0', W/2, 68, {sz:11, color:cssVar('--purple-mid'), mono:true});
+
+  // Arrow down
+  ctx.beginPath(); ctx.strokeStyle=cssVar('--text3'); ctx.lineWidth=2;
+  ctx.moveTo(W/2, 80); ctx.lineTo(W/2-120, 110); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, 80); ctx.lineTo(W/2+120, 110); ctx.stroke();
+
+  // Left child: G_L=-1.0, H_L=0.48
+  roundRect(W/2-240, 110, 180, 65, 8, cssVar('--green-bg'), cssVar('--green-border'));
+  txt('Left Leaf', W/2-150, 132, {sz:13, w:'700'});
+  txt('G_L = -1.0', W/2-150, 150, {sz:11, color:cssVar('--green-mid'), mono:true});
+  txt('H_L = 0.48', W/2-150, 165, {sz:11, color:cssVar('--green-mid'), mono:true});
+
+  // Right child: G_R=1.0, H_R=0.42
+  roundRect(W/2+60, 110, 180, 65, 8, cssVar('--blue-bg'), cssVar('--blue-border'));
+  txt('Right Leaf', W/2+150, 132, {sz:13, w:'700'});
+  txt('G_R = +1.0', W/2+150, 150, {sz:11, color:cssVar('--blue-mid'), mono:true});
+  txt('H_R = 0.42', W/2+150, 165, {sz:11, color:cssVar('--blue-mid'), mono:true});
+
+  // Gain computation
+  const GL=-1.0, HL=0.48, GR=1.0, HR=0.42, lam=1.0, gam=0.0;
+  const gainL = GL*GL/(HL+lam), gainR = GR*GR/(HR+lam), gainP = (GL+GR)*(GL+GR)/(HL+HR+lam);
+  const gain = 0.5*(gainL+gainR-gainP)-gam;
+
+  // Gain bar
+  const bx = 60, by = 215, bw = W-120, bh = 28;
+  roundRect(bx, by, bw, bh, 6, cssVar('--bg2'), cssVar('--border2'));
+  const fillW = Math.min(bw-4, (gain/1.5)*bw);
+  roundRect(bx+2, by+2, fillW, bh-4, 5, cssVar('--blue-mid'), null);
+  txt(`Gain = ½[${gainL.toFixed(3)} + ${gainR.toFixed(3)} − ${gainP.toFixed(3)}] − γ = ${gain.toFixed(3)}`, W/2, by+19, {sz:12, color:'#fff', w:'600'});
+
+  // Leaf weights
+  const wL = -GL/(HL+lam), wR = -GR/(HR+lam);
+  txt(`w*_L = −G_L/(H_L+λ) = ${wL.toFixed(3)}`, W/2-150, 200, {sz:11, color:cssVar('--green-mid'), mono:true});
+  txt(`w*_R = −G_R/(H_R+λ) = ${wR.toFixed(3)}`, W/2+150, 200, {sz:11, color:cssVar('--blue-mid'), mono:true});
+
+  // γ threshold line
+  const gx = bx+2 + (0.0/1.5)*bw;
+  txt('Gain > 0 ✓  (split accepted)', W/2, 265, {sz:13, color:cssVar('--green-mid'), w:'700'});
+  txt('Gain = 0.690 | λ=1.0 | γ=0.0', W/2, 285, {sz:11, color:cssVar('--text2'), mono:true});
+  txt('−γ threshold', bx+2, by-5, {sz:10, color:cssVar('--red-mid'), align:'left'});
+}
+
+// Step 3: Leaf weight formula visual
+function drawLeafWeight() {
+  clearCanvas();
+  const W = canvas.width, H = canvas.height;
+
+  // Two leaves side by side
+  const leaves = [
+    {label:'Left Leaf', G:-1.0, H:0.48, lam:1.0, color:'green'},
+    {label:'Right Leaf', G:1.0, H:0.42, lam:1.0, color:'blue'}
+  ];
+  const colors = {
+    green: {bg:cssVar('--green-bg'), border:cssVar('--green-border'), mid:cssVar('--green-mid')},
+    blue: {bg:cssVar('--blue-bg'), border:cssVar('--blue-border'), mid:cssVar('--blue-mid')}
+  };
+
+  leaves.forEach((lf, i) => {
+    const lx = i===0 ? 40 : W/2+20;
+    const lw = W/2-60;
+    const c = colors[lf.color];
+    const wstar = -lf.G/(lf.H+lf.lam);
+
+    roundRect(lx, 20, lw, 140, 10, c.bg, c.border);
+    txt(lf.label, lx+lw/2, 45, {sz:14, w:'700', color:c.mid});
+    txt(`G = ${lf.G.toFixed(2)}`, lx+lw/2, 70, {sz:12, mono:true, color:cssVar('--text')});
+    txt(`H = ${lf.H.toFixed(2)}`, lx+lw/2, 88, {sz:12, mono:true, color:cssVar('--text')});
+    txt(`λ = ${lf.lam.toFixed(2)}`, lx+lw/2, 106, {sz:12, mono:true, color:cssVar('--text')});
+    txt(`w* = −${lf.G}/(${lf.H}+${lf.lam})`, lx+lw/2, 128, {sz:11, mono:true, color:c.mid});
+    txt(`w* = ${wstar.toFixed(4)}`, lx+lw/2, 148, {sz:13, mono:true, w:'700', color:c.mid});
+
+    // Bar showing w* magnitude
+    const bx = lx+10, by = 175, bw = lw-20, bh = 22;
+    roundRect(bx, by, bw, bh, 5, cssVar('--bg2'), null);
+    const zeroPx = bx + bw/2;
+    const barLen = Math.abs(wstar) / 1.5 * (bw/2);
+    if (wstar < 0) {
+      roundRect(zeroPx-barLen, by+1, barLen, bh-2, 4, c.mid, null);
+    } else {
+      roundRect(zeroPx, by+1, barLen, bh-2, 4, c.mid, null);
+    }
+    ctx.beginPath(); ctx.strokeStyle=cssVar('--text3'); ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.moveTo(zeroPx, by); ctx.lineTo(zeroPx, by+bh); ctx.stroke(); ctx.setLineDash([]);
+    txt('0', zeroPx, by+bh+14, {sz:10, color:cssVar('--text3'), mono:true});
+    txt(`${wstar.toFixed(3)}`, wstar<0 ? zeroPx-barLen-2 : zeroPx+barLen+2, by+15, {sz:10, mono:true, color:c.mid, align: wstar<0?'right':'left'});
+  });
+
+  // Hessian as weighting
+  roundRect(W/2-200, 220, 400, 80, 10, cssVar('--amber-bg'), cssVar('--amber-border'));
+  txt('Hessian as Adaptive Step Size', W/2, 245, {sz:13, w:'700', color:cssVar('--amber-mid')});
+  txt('MSE: h_i = 1 for all samples  →  equal weighting', W/2, 265, {sz:11, mono:true, color:cssVar('--text2')});
+  txt('Log-loss: h_i = p̂(1−p̂)  →  uncertain preds contribute more', W/2, 283, {sz:11, mono:true, color:cssVar('--text2')});
+  txt('h_i = 0.5×0.5 = 0.25 for 50/50, near 0 for confident preds', W/2, 299, {sz:10, mono:true, color:cssVar('--text3')});
+
+  txt('Optimal Newton step: w* = −G/(H+λ)', W/2, 330, {sz:13, w:'700', color:cssVar('--purple-mid')});
+}
+
+// Step 4: Column subsampling
+function drawColumnSample() {
+  clearCanvas();
+  const W = canvas.width, H = canvas.height;
+
+  const features = ['x1: age','x2: income','x3: score','x4: tenure','x5: clicks','x6: spend'];
+  const selected = [0, 2, 4]; // indices of selected features
+  const fh = 36, gap = 8, totalH = features.length*(fh+gap);
+  const startY = (H - totalH)/2;
+  const fw = 200;
+
+  txt('All Features', W/4, startY-12, {sz:13, w:'700', color:cssVar('--text2')});
+  txt('colsample_bytree = 0.5 → select 3 of 6', W/4, startY-28, {sz:11, color:cssVar('--text3')});
+
+  features.forEach((f, i) => {
+    const fy = startY + i*(fh+gap);
+    const isSel = selected.includes(i);
+    roundRect(W/4-fw/2, fy, fw, fh, 6,
+      isSel ? cssVar('--green-bg') : cssVar('--bg2'),
+      isSel ? cssVar('--green-border') : cssVar('--border2'));
+    txt(f, W/4, fy+fh/2+5, {sz:12, w: isSel?'700':'400', color: isSel?cssVar('--green-mid'):cssVar('--text3'), mono:true});
+    if (isSel) {
+      txt('✓', W/4+fw/2-12, fy+fh/2+5, {sz:13, color:cssVar('--green-mid')});
+    } else {
+      // strikethrough feel
+      ctx.beginPath(); ctx.strokeStyle=cssVar('--border2'); ctx.lineWidth=1; ctx.setLineDash([4,3]);
+      ctx.moveTo(W/4-fw/2+10, fy+fh/2); ctx.lineTo(W/4+fw/2-10, fy+fh/2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  // Arrow to tree
+  ctx.beginPath(); ctx.strokeStyle=cssVar('--text2'); ctx.lineWidth=2;
+  ctx.moveTo(W/4+fw/2+10, H/2); ctx.lineTo(W*0.55, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W*0.55, H/2); ctx.lineTo(W*0.55-10, H/2-6); ctx.lineTo(W*0.55-10, H/2+6); ctx.closePath(); ctx.fillStyle=cssVar('--text2'); ctx.fill();
+
+  // Tree with 3 selected features
+  const tx = W*0.6, ty = 40;
+  roundRect(tx-80, ty, 160, 44, 8, cssVar('--blue-bg'), cssVar('--blue-border'));
+  txt('x1 < 35?', tx, ty+16, {sz:13, w:'700'});
+  txt('(selected)', tx, ty+32, {sz:10, color:cssVar('--blue-mid')});
+
+  // left subtree
+  roundRect(tx-180, ty+80, 140, 44, 8, cssVar('--green-bg'), cssVar('--green-border'));
+  txt('x3 < 0.6?', tx-110, ty+96, {sz:13, w:'700'});
+  txt('(selected)', tx-110, ty+112, {sz:10, color:cssVar('--green-mid')});
+
+  // right subtree
+  roundRect(tx+60, ty+80, 140, 44, 8, cssVar('--amber-bg'), cssVar('--amber-border'));
+  txt('x5 < 12?', tx+130, ty+96, {sz:13, w:'700'});
+  txt('(selected)', tx+130, ty+112, {sz:10, color:cssVar('--amber-mid')});
+
+  // lines
+  ctx.strokeStyle=cssVar('--text2'); ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(tx, ty+44); ctx.lineTo(tx-110, ty+80); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tx, ty+44); ctx.lineTo(tx+130, ty+80); ctx.stroke();
+
+  // Leaves
+  [tx-170, tx-50, tx+70, tx+190].forEach((lx, i) => {
+    roundRect(lx, ty+160, 70, 34, 6, cssVar('--purple-bg'), cssVar('--purple-border'));
+    txt('leaf', lx+35, ty+178, {sz:11, color:cssVar('--purple-mid')});
+  });
+
+  [tx-110, tx+130].forEach((px, i) => {
+    ctx.beginPath(); ctx.moveTo(px, ty+124); ctx.lineTo(i===0?tx-135:tx+105, ty+160); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px, ty+124); ctx.lineTo(i===0?tx-65:tx+225, ty+160); ctx.stroke();
+  });
+
+  txt('Only x1, x3, x5 considered at ANY node in this tree', W*0.72, H-30, {sz:11, color:cssVar('--text3'), align:'center'});
+  txt('Next tree may use x2, x4, x6 → trees decorrelated', W*0.72, H-14, {sz:11, color:cssVar('--amber-mid'), align:'center'});
+}
+
+// Step 5: Sparsity-aware
+function drawSparsity() {
+  clearCanvas();
+  const W = canvas.width, H = canvas.height;
+
+  // Samples with some missing x2
+  const samples = [
+    {id:'s1', x2:'1.2', missing:false},
+    {id:'s2', x2:'NaN', missing:true},
+    {id:'s3', x2:'3.8', missing:false},
+    {id:'s4', x2:'NaN', missing:true},
+    {id:'s5', x2:'2.1', missing:false},
+  ];
+
+  txt('Training: node splits on x2 < 2.5', W/2, 18, {sz:13, w:'700'});
+  const startX = 50, sy = 45, sh = 36, sgap = 8;
+  samples.forEach((s, i) => {
+    const sx2 = startX + i*(100+sgap);
+    roundRect(sx2, sy, 100, sh, 6,
+      s.missing ? cssVar('--amber-bg') : cssVar('--blue-bg'),
+      s.missing ? cssVar('--amber-border') : cssVar('--blue-border'));
+    txt(s.id, sx2+50, sy+14, {sz:11, w:'700', color: s.missing?cssVar('--amber-mid'):cssVar('--blue-mid')});
+    txt(`x2=${s.x2}`, sx2+50, sy+28, {sz:10, mono:true, color: s.missing?cssVar('--amber-mid'):cssVar('--blue-mid')});
+  });
+
+  // Two paths: known go by value, missing try both
+  const nodeY = 115;
+  roundRect(W/2-80, nodeY, 160, 44, 8, cssVar('--purple-bg'), cssVar('--purple-border'));
+  txt('x2 < 2.5 ?', W/2, nodeY+16, {sz:13, w:'700'});
+  txt('(missing → try both)', W/2, nodeY+32, {sz:10, color:cssVar('--purple-mid')});
+
+  // lines
+  ctx.strokeStyle=cssVar('--text2'); ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2, nodeY+44); ctx.lineTo(W/4, nodeY+100); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, nodeY+44); ctx.lineTo(3*W/4, nodeY+100); ctx.stroke();
+
+  txt('True (x2<2.5)', W/4, nodeY+97, {sz:11, color:cssVar('--green-mid')});
+  txt('False (x2≥2.5)', 3*W/4, nodeY+97, {sz:11, color:cssVar('--blue-mid')});
+
+  roundRect(W/4-90, nodeY+105, 180, 50, 8, cssVar('--green-bg'), cssVar('--green-border'));
+  txt('Left: s1(1.2), s5(2.1)', W/4, nodeY+123, {sz:11, color:cssVar('--green-mid'), mono:true});
+  txt('+ NaN samples tried here', W/4, nodeY+140, {sz:10, color:cssVar('--amber-mid')});
+
+  roundRect(3*W/4-90, nodeY+105, 180, 50, 8, cssVar('--blue-bg'), cssVar('--blue-border'));
+  txt('Right: s3(3.8)', 3*W/4, nodeY+123, {sz:11, color:cssVar('--blue-mid'), mono:true});
+  txt('+ NaN samples tried here', 3*W/4, nodeY+140, {sz:10, color:cssVar('--amber-mid')});
+
+  // Result
+  roundRect(W/2-220, nodeY+180, 440, 60, 10, cssVar('--cyan-bg'), cssVar('--cyan-border'));
+  txt('XGBoost evaluates: which direction for NaN yields higher Gain?', W/2, nodeY+202, {sz:12, w:'700', color:cssVar('--cyan-mid')});
+  txt('→ Suppose Right gives Gain=0.82, Left gives Gain=0.61', W/2, nodeY+220, {sz:11, color:cssVar('--text2'), mono:true});
+  txt('→ Default direction = RIGHT  (stored in tree node)', W/2, nodeY+238, {sz:11, color:cssVar('--cyan-mid'), mono:true, w:'700'});
+
+  txt('At inference: s2, s4 (missing x2) automatically route RIGHT', W/2, H-12, {sz:12, w:'600', color:cssVar('--green-mid')});
+}
+
+// ── Keyboard nav ─────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Init
+render();
+</script>
+</body>
+</html>

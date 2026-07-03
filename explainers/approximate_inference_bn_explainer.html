@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approximate Inference: Loopy BP & Sampling</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;padding:0 0 60px;}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:2rem 2rem 1.5rem;max-width:900px;margin:0 auto;}
+.header h1{font-size:clamp(1.4rem,4vw,2rem);font-weight:700;line-height:1.2;margin-bottom:0.4rem;}
+.header .subtitle{font-size:1rem;color:var(--text2);margin-bottom:0.75rem;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+.main{max-width:900px;margin:0 auto;padding:1.5rem 2rem;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:1rem;overflow:hidden;}
+.card-header{display:flex;align-items:center;gap:12px;padding:1.25rem 1.5rem;cursor:pointer;user-select:none;}
+.card-header:hover{background:var(--bg2);}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:17px;font-weight:700;color:var(--text);}
+.chevron{margin-left:auto;color:var(--text3);transition:transform 0.2s;font-size:18px;}
+.chevron.open{transform:rotate(180deg);}
+.card-body{padding:0 1.5rem 1.5rem;display:none;}
+.card-body.open{display:block;}
+p{margin-bottom:0.85rem;color:var(--text);font-size:0.97rem;}
+h4{font-size:0.95rem;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+ul,ol{padding-left:1.4rem;margin-bottom:0.85rem;}
+li{margin-bottom:0.4rem;font-size:0.97rem;}
+.code-panel{margin-top:1rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* ── Visualization ── */
+#viz-section{margin-bottom:1.5rem;}
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;}
+.viz-title{font-size:15px;font-weight:700;margin-bottom:1rem;text-align:center;color:var(--text);}
+.canvas-wrap{position:relative;width:100%;display:flex;justify-content:center;}
+canvas#vizCanvas{border-radius:var(--radius);background:var(--bg2);display:block;max-width:100%;}
+
+.info-card{background:var(--blue-bg);border:1px solid var(--blue-border);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;}
+.info-phase{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--blue-mid);margin-bottom:0.25rem;}
+.info-step{font-size:12px;color:var(--text3);margin-bottom:0.3rem;}
+.info-title{font-size:15px;font-weight:700;color:var(--blue-text);margin-bottom:0.4rem;}
+.info-desc{font-size:13px;color:var(--blue-text);line-height:1.55;}
+.info-math{font-size:12px;font-family:var(--mono);margin-top:0.5rem;padding:6px 10px;background:rgba(255,255,255,0.5);border-radius:6px;color:var(--blue-mid);}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:0.85rem;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);}
+.legend-swatch{width:14px;height:14px;border-radius:3px;}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+table{border-collapse:collapse;width:100%;margin:0.75rem 0;font-size:0.9rem;}
+th,td{padding:8px 12px;text-align:left;border:1px solid var(--border);}
+th{background:var(--bg2);font-weight:600;}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Approximate Inference: Loopy BP &amp; Sampling</h1>
+  <p class="subtitle">When exact inference is intractable — message-passing on cyclic graphs &amp; MCMC sampling for marginals</p>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Probabilistic ML</span>
+    <span class="tag tag-category">Bayesian Networks</span>
+    <span class="tag tag-complexity">High Complexity</span>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- Card 1 -->
+<div class="card">
+  <div class="card-header" onclick="toggleCard(this)">
+    <div class="section-number">1</div>
+    <span class="section-title">Why Exact Inference Fails</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body open">
+    <p>Exact probabilistic inference computes marginals like \(P(X_i)\) by summing over all assignments of the remaining variables — the <em>variable elimination</em> or <em>junction tree</em> algorithm. On a tree-structured graph, this runs in time linear in the number of variables. But the moment cycles appear, elimination creates factors (cliques) that can grow exponentially large.</p>
+    <div class="concept-box key-concept"><div class="concept-box-title">Core Barrier</div>
+      Inference in a general Bayesian Network (or MRF) is #P-hard. Even approximate inference is NP-hard in the worst case. Practical algorithms trade exactness for tractability.
+    </div>
+    <p>Consider a grid MRF — the standard model in image segmentation. Each pixel node is connected to four neighbours, forming dense cycles. Variable elimination would produce cliques spanning entire rows, making it exponential. We need <strong>approximate</strong> methods.</p>
+    <p>Two major families: <strong>Variational methods</strong> (minimise a divergence; Loopy BP is one) and <strong>Monte Carlo / MCMC</strong> (sample from the distribution and estimate marginals from histograms).</p>
+    <div class="concept-box insight"><div class="concept-box-title">Key Insight</div>
+      Loopy BP pretends cycles don't exist and still works empirically; MCMC turns sampling into integration, avoiding the combinatorial sum entirely.
+    </div>
+  </div>
+</div>
+
+<!-- Card 2 -->
+<div class="card">
+  <div class="card-header" onclick="toggleCard(this)">
+    <div class="section-number">2</div>
+    <span class="section-title">Loopy Belief Propagation</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p>Belief Propagation (BP) on a <em>tree</em> is exact. The message from node \(i\) to neighbour \(j\) is:</p>
+    <div class="eq">$$\mu_{i \to j}(x_j) = \sum_{x_i} \psi_i(x_i)\,\psi_{ij}(x_i,x_j) \prod_{k \in N(i)\setminus j} \mu_{k \to i}(x_i)$$</div>
+    <p>On a tree each message is computed once; beliefs are:</p>
+    <div class="eq">$$b_i(x_i) \propto \psi_i(x_i) \prod_{j \in N(i)} \mu_{j \to i}(x_i)$$</div>
+    <p><strong>Loopy BP (LBP)</strong> applies exactly these update rules on a graph <em>with cycles</em>, iterating until convergence. Messages loop around cycles, potentially forever — hence "loopy."</p>
+    <h4>Algorithm</h4>
+    <ol>
+      <li>Initialise all messages \(\mu_{i\to j}^{(0)}(x_j) = 1\) (uniform).</li>
+      <li>Repeat until convergence:
+        <br>&nbsp;&nbsp;For each edge \((i,j)\) in some schedule:
+        $$\mu_{i \to j}^{(t+1)}(x_j) = \sum_{x_i} \psi_i(x_i)\,\psi_{ij}(x_i,x_j) \prod_{k \neq j} \mu_{k \to i}^{(t)}(x_i)$$
+      </li>
+      <li>Read off approximate beliefs \(b_i \propto \psi_i \prod_j \mu_{j\to i}\).</li>
+    </ol>
+    <div class="concept-box warning"><div class="concept-box-title">Warning: No Convergence Guarantee</div>
+      LBP may oscillate or diverge on graphs with strong couplings and many short cycles. In practice, damping (blend new and old messages) helps:<br>
+      \(\mu^{(t+1)} \leftarrow \lambda\,\mu^{(t+1)}_{\text{new}} + (1-\lambda)\,\mu^{(t)}\), with \(\lambda \approx 0.5\).
+    </div>
+    <h4>Numerical Trace (3-node loop, binary variables)</h4>
+    <p>Nodes A–B–C form a triangle. All potentials \(\psi_{ij}(x_i,x_j) = \exp(0.8\cdot\mathbb{1}[x_i=x_j])\), unary \(\psi_A(1)=0.7, \psi_A(0)=0.3\), others uniform.</p>
+    <div class="code-panel">
+<div class="code-line">Iter 0: mu_A→B = [1,1], mu_B→A = [1,1], mu_C→A = [1,1], ...</div>
+<div class="code-line">Iter 1: mu_A→B(0) ∝ ψ_A(0)·e^0·mu_C→A(0) + ψ_A(0)·e^0.8·mu_C→A(0)</div>
+<div class="code-line">       = 0.3*[e^0 + e^0.8] = 0.3*[1 + 2.226] = 0.968</div>
+<div class="code-line">       mu_A→B(1) = 0.7*[e^0.8 + e^0] = 0.7*3.226 = 2.258 → normalise</div>
+<div class="code-line">       normalised: mu_A→B ≈ [0.300, 0.700]   (unchanged — uniform init)</div>
+<div class="code-line">Iter 5: mu_A→B ≈ [0.241, 0.759], b_A ≈ [0.218, 0.782]</div>
+<div class="code-line">Iter 10: converged b_A ≈ [0.214, 0.786]   ← approximate marginal</div>
+    </div>
+  </div>
+</div>
+
+<!-- Card 3 -->
+<div class="card">
+  <div class="card-header" onclick="toggleCard(this)">
+    <div class="section-number">3</div>
+    <span class="section-title">Sampling Methods: Rejection, Importance &amp; Gibbs MCMC</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <p>Sampling-based inference estimates \(\mathbb{E}_P[f(X)] \approx \frac{1}{N}\sum_{n=1}^N f(x^{(n)})\) where \(x^{(n)} \sim P\). The key insight: integration by the law of large numbers, no combinatorial sum.</p>
+    <h4>Rejection Sampling</h4>
+    <p>Sample \(x \sim q(x)\) and accept with probability \(p(x)/(Mq(x))\) where \(M = \max p/q\). Accepted samples are exactly distributed as \(p\). Breaks in high dimensions — acceptance rate \(\to 0\).</p>
+    <div class="eq">$$P(\text{accept}) = \frac{1}{M}\int p(x)\,dx = \frac{1}{M}$$</div>
+    <h4>Importance Sampling</h4>
+    <p>Instead of rejecting, weight each sample by \(w(x) = p(x)/q(x)\):</p>
+    <div class="eq">$$\mathbb{E}_P[f] \approx \frac{\sum_n w(x^{(n)}) f(x^{(n)})}{\sum_n w(x^{(n)})}$$</div>
+    <p>Variance of the estimator is controlled by how well \(q\) covers \(p\). Self-normalised IS is consistent even when only the unnormalised \(\tilde{p}\) is available.</p>
+    <h4>Gibbs Sampling (MCMC)</h4>
+    <p>Gibbs constructs a Markov chain whose stationary distribution is exactly \(P(X)\). At each step, sample one variable from its conditional given the rest:</p>
+    <div class="eq">$$x_i^{(t+1)} \sim P(X_i \mid X_{-i} = x_{-i}^{(t)})$$</div>
+    <p>After a burn-in period (discard early samples), the chain mixes and samples approximate the target. For a Bayesian Network:</p>
+    <div class="eq">$$P(X_i \mid X_{-i}) \propto \psi_i(x_i) \prod_{j \in \text{MB}(i)} \psi_{ij}(x_i, x_j)$$</div>
+    <p>where MB(\(i\)) is the Markov blanket — parents, children, and co-parents.</p>
+    <div class="concept-box insight"><div class="concept-box-title">Gibbs is MCMC without Metropolis</div>
+      Each Gibbs step has acceptance probability 1 — no rejection needed. But mixing time can be exponential in strong dependency regimes (multimodal distributions).
+    </div>
+  </div>
+</div>
+
+<!-- Card 4: Visualization -->
+<div class="card" id="viz-section">
+  <div class="card-header" onclick="toggleCard(this)">
+    <div class="section-number">4</div>
+    <span class="section-title">Interactive Walkthrough — LBP vs Gibbs on a Grid</span>
+    <span class="chevron open">▾</span>
+  </div>
+  <div class="card-body open">
+    <p>Visualise approximate inference on a 4×4 grid MRF (binary \(\pm 1\) spins, Ising-like). Step through Loopy BP message passing vs Gibbs MCMC sweeps. Node colours show current belief/state. Edge thickness shows message strength.</p>
+    <div class="viz-container">
+      <div class="viz-title" id="vizTitle">Approximate Inference on a Cyclic Graph</div>
+      <div class="canvas-wrap">
+        <canvas id="vizCanvas" width="700" height="340"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#534AB7;"></div>State +1 / Belief→+1</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#E24B4A;"></div>State −1 / Belief→−1</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#9c9a92;"></div>Uncertain (≈0.5)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#97C459;border-radius:50%;"></div>Active node (current update)</div>
+      </div>
+      <div class="info-card">
+        <div class="info-phase" id="infoPhase">INITIALISATION</div>
+        <div class="info-step" id="infoStep">Step 1 / 12</div>
+        <div class="info-title" id="infoTitle">Uniform Messages — No Information Yet</div>
+        <div class="info-desc" id="infoDesc">All messages initialised to [1,1] (uniform). Beliefs are driven only by unary potentials.</div>
+        <div class="info-math" id="infoMath">μᵢ→ⱼ⁽⁰⁾(xⱼ) = 1  ∀ xⱼ</div>
+      </div>
+      <div class="progress-wrap" id="dots"></div>
+      <div class="controls">
+        <button class="btn" id="prevBtn" onclick="go(-1)" disabled>◀ Prev</button>
+        <button class="btn btn-primary" id="nextBtn" onclick="go(1)">Next ▶</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- Card 5 -->
+<div class="card">
+  <div class="card-header" onclick="toggleCard(this)">
+    <div class="section-number">5</div>
+    <span class="section-title">Comparison &amp; Key Takeaways</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="card-body">
+    <table>
+      <tr><th>Dimension</th><th>Exact (Junction Tree)</th><th>Loopy BP</th><th>Gibbs MCMC</th><th>Importance Sampling</th></tr>
+      <tr><td>Exactness</td><td>Exact</td><td>Approximate (fixed point)</td><td>Asymptotically exact</td><td>Asymptotically exact</td></tr>
+      <tr><td>Complexity</td><td>Exp in treewidth</td><td>O(iter·E·|X|²)</td><td>O(iter·N)</td><td>O(N) but var can explode</td></tr>
+      <tr><td>Convergence</td><td>Guaranteed</td><td>Not guaranteed</td><td>Guaranteed (ergodic)</td><td>Consistent</td></tr>
+      <tr><td>Scales to</td><td>Low treewidth</td><td>Large sparse graphs</td><td>Any (slow mixing)</td><td>Low-dim or good q</td></tr>
+      <tr><td>Use case</td><td>Exact needs, trees</td><td>Computer vision, NLP CRFs</td><td>Bayesian networks, BUGS</td><td>Normalising constants</td></tr>
+    </table>
+    <div class="concept-box key-concept"><div class="concept-box-title">Decision Rule</div>
+      Treewidth ≤ ~15 → exact junction tree. Sparse graph, good results empirically → Loopy BP. Need unbiased marginals, enough compute → Gibbs/HMC. Need \(Z = \int p\) → IS or AIS.
+    </div>
+    <h4>Why Loopy BP Works</h4>
+    <p>Yedidia, Freeman & Weiss (2001) showed LBP fixed points correspond to stationary points of the Bethe free energy, a tractable approximation to the exact free energy. On graphs with weak correlations and long cycles, the Bethe approximation is tight.</p>
+    <h4>Prerequisites</h4>
+    <ul>
+      <li>Bayesian Networks & Markov Random Fields</li>
+      <li>Variable Elimination & Sum-Product on trees</li>
+      <li>Markov chains & stationarity</li>
+      <li>Monte Carlo estimation & law of large numbers</li>
+    </ul>
+    <h4>What to Learn Next</h4>
+    <ul>
+      <li>Variational Inference (mean-field, ELBO)</li>
+      <li>Expectation Propagation (EP)</li>
+      <li>Hamiltonian Monte Carlo (HMC) / NUTS</li>
+      <li>Sequential Monte Carlo (particle filters)</li>
+    </ul>
+  </div>
+</div>
+
+</div><!-- .main -->
+
+<script>
+// ── Card toggle ──────────────────────────────────────────────────────────────
+function toggleCard(header) {
+  const body = header.nextElementSibling;
+  const chev = header.querySelector('.chevron');
+  const open = body.classList.toggle('open');
+  chev.classList.toggle('open', open);
+}
+
+// ── Visualisation ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const HALF = Math.floor(W / 2);
+
+// 4×4 grid — two panels side by side: LBP (left) and Gibbs (right)
+const ROWS = 4, COLS = 4, N = ROWS * COLS;
+const PAD = 30, CELL = 58;
+
+// Node positions for left panel
+function nodePos(r, c, panel) {
+  const ox = panel === 'lbp' ? PAD : HALF + PAD;
+  return { x: ox + c * CELL + CELL/2, y: PAD + r * CELL + CELL/2 };
+}
+
+// Ising coupling J=0.6, unary h[i]
+const J = 0.6;
+const h = Array.from({length: N}, (_, i) => (i % 3 === 0 ? 0.4 : i % 3 === 1 ? -0.2 : 0.0));
+
+// Belief state (0..1 = probability of +1)
+let lbpBeliefs = Array(N).fill(0.5);
+let gibbsState = Array(N).fill(0).map(() => Math.random() < 0.5 ? 1 : -1);
+let gibbsBeliefs = Array(N).fill(0.5); // running avg
+
+// Messages lbp: mu[i][j] = prob mass on x_j=+1 given from node i
+// We index edges as pairs
+function neighbours(i) {
+  const r = Math.floor(i / COLS), c = i % COLS, nb = [];
+  if (r > 0) nb.push(i - COLS);
+  if (r < ROWS-1) nb.push(i + COLS);
+  if (c > 0) nb.push(i - 1);
+  if (c < COLS-1) nb.push(i + 1);
+  return nb;
+}
+
+// msg[i][j] = mu_{i->j}(+1) in [0,1]
+let msg = {};
+for (let i = 0; i < N; i++) {
+  msg[i] = {};
+  for (const j of neighbours(i)) msg[i][j] = 0.5;
+}
+
+let activeNodes = [];
+let gibbsSweepNode = 0;
+let currentStep = 0;
+
+const STEPS = [
+  // Phase: Init
+  {phase:'INITIALISATION',title:'Uniform Messages — No Information Yet',
+   desc:'All messages μᵢ→ⱼ initialised to 0.5 (uniform over ±1). Beliefs driven only by unary potentials h[i]. Loopy BP has not yet propagated any structural information. Gibbs states are random.',
+   math:'μᵢ→ⱼ⁽⁰⁾ = 0.5,   bᵢ = σ(hᵢ)',
+   action: () => { initAll(); }},
+  // LBP iter 1
+  {phase:'LOOPY BP — ITERATION 1',title:'First Message Pass (Left Panel)',
+   desc:'LBP sweep: every node i computes outgoing messages to each neighbour j by marginalising over xᵢ, incorporating all incoming messages from neighbours k≠j. Messages encode pairwise coupling J=0.6.',
+   math:'μᵢ→ⱼ⁽¹⁾ = Σ_{xᵢ} ψᵢ(xᵢ) e^{J·xᵢ·xⱼ} ∏_{k≠j} μₖ→ᵢ⁽⁰⁾',
+   action: () => { lbpSweep(1); activeNodes=[]; }},
+  {phase:'LOOPY BP — ITERATION 2',title:'Beliefs Start Differentiating',
+   desc:'After 2 sweeps, unary biases propagate one hop. Nodes with positive h drift toward +1 (purple). Strongly coupled neighbours begin to align. Notice how short cycles can cause messages to amplify spuriously.',
+   math:'bᵢ ∝ ψᵢ(xᵢ) ∏_{j∈N(i)} μⱼ→ᵢ(xᵢ)',
+   action: () => { lbpSweep(2); }},
+  {phase:'LOOPY BP — ITERATION 5',title:'Messages Propagate Through Cycles',
+   desc:'By iteration 5 messages have circled around 4-cycles. Evidence can double-count through loops — the core approximation of Loopy BP. Beliefs are approaching a fixed point but may oscillate for strong J.',
+   math:'Fixed point: μ* s.t. μᵢ→ⱼ = F(μ*)',
+   action: () => { lbpSweep(5); }},
+  {phase:'LOOPY BP — CONVERGENCE',title:'LBP Fixed Point (≈12 Iterations)',
+   desc:'Messages have converged (max change < 1e-4). Final beliefs approximate marginals P(Xᵢ=+1). Corresponds to stationary point of Bethe free energy — not the true marginal but often accurate for weak coupling or long cycles.',
+   math:'Bethe free energy: F_B = -Σᵢ H(bᵢ) + Σ_{ij} I_{ij}(bᵢⱼ)',
+   action: () => { lbpConverge(); }},
+  // Gibbs
+  {phase:'GIBBS MCMC — INIT',title:'Random Initial State (Right Panel)',
+   desc:'Gibbs starts from a random spin assignment. We will sweep through all nodes, resampling each from its conditional P(Xᵢ | X_{-i}). The Markov blanket in a grid MRF is exactly the 4 direct neighbours.',
+   math:'P(Xᵢ | X_{-i}) ∝ exp(hᵢ·xᵢ + J·xᵢ·Σⱼ∈N(i) xⱼ)',
+   action: () => { resetGibbs(); gibbsStep(0); }},
+  {phase:'GIBBS MCMC — SWEEP 1',title:'First Full Gibbs Sweep',
+   desc:'Visiting all 16 nodes in raster order. Each node is resampled from its exact conditional (no approximation!). The chain has not mixed — the current state is strongly influenced by initialisation.',
+   math:'xᵢ ← +1 w.p. σ(2hᵢ + 2J·Σⱼxⱼ),  σ(z)=1/(1+e^{-z})',
+   action: () => { gibbsSweep(1); }},
+  {phase:'GIBBS MCMC — SWEEP 5',title:'Chain Begins to Mix',
+   desc:'After 5 sweeps the chain has partially forgotten the initialisation. High-coupling nodes cluster (ferromagnetic alignment). We start accumulating statistics for marginal estimates.',
+   math:'Marginal estimate: P̂(Xᵢ=+1) = (1/T)·Σₜ 𝟙[xᵢ⁽ᵗ⁾=+1]',
+   action: () => { gibbsSweep(5); }},
+  {phase:'GIBBS MCMC — BURN-IN DONE',title:'Burn-in Complete (≈20 sweeps)',
+   desc:'After 20 sweeps we declare burn-in over and begin collecting samples. Node colours now show the running average of +1 occurrences — the empirical marginal. Compare to LBP beliefs on the left.',
+   math:'T_burn ≈ 1/gap(L), where gap(L) = spectral gap of transition operator',
+   action: () => { gibbsSweep(20); }},
+  {phase:'GIBBS MCMC — SAMPLING',title:'Accumulated Marginal Estimates',
+   desc:'Running 50 more sweeps. Sampling estimate variance drops as O(1/T). High-coupling regions show near-deterministic beliefs; weakly biased nodes remain close to 0.5.',
+   math:'Var(P̂) ≈ (1/T)·Var_{iid} · τ_mix,  τ_mix = integrated autocorrelation',
+   action: () => { gibbsSweep(50); }},
+  {phase:'COMPARISON',title:'LBP vs Gibbs — Final Beliefs',
+   desc:'Both panels show approximate marginals P(Xᵢ=+1). LBP converges in ~12 iterations (fast) but is biased by the Bethe approximation. Gibbs is asymptotically exact but needs T→∞ sweeps. Agreement is strong for J=0.6; would diverge at the phase transition J≈0.88.',
+   math:'KL(P || b_LBP) > 0 generally;  KL(P || P̂_Gibbs) → 0 as T → ∞',
+   action: () => { drawBoth(); }},
+  {phase:'SUMMARY',title:'When to Use Each Method',
+   desc:'Loopy BP: sparse graphs, fast convergence needed, tolerate small approximation (CRFs in NLP/CV). Gibbs: any graph, need unbiased marginals, have compute budget. Rejection sampling: low-dim, easy proposal. Importance sampling: need Z or expectations under shifted p.',
+   math:'Rule: treewidth ≤ 15 → exact; sparse + empirically converges → LBP; else → MCMC',
+   action: () => { drawBoth(); }},
+];
+
+function initAll() {
+  msg = {};
+  for (let i = 0; i < N; i++) {
+    msg[i] = {};
+    for (const j of neighbours(i)) msg[i][j] = 0.5;
+  }
+  // Initial LBP beliefs from unary only
+  for (let i = 0; i < N; i++) {
+    const e = Math.exp(2 * h[i]);
+    lbpBeliefs[i] = e / (1 + e);
+  }
+  resetGibbs();
+  activeNodes = [];
+}
+
+function resetGibbs() {
+  // seeded pseudo-random for reproducibility
+  const rng = lcg(42);
+  gibbsState = Array.from({length:N}, () => rng() < 0.5 ? 1 : -1);
+  gibbsBeliefs = gibbsState.map(s => s === 1 ? 1 : 0);
+  gibbsSweepNode = 0;
+}
+
+function lcg(seed) {
+  let s = seed;
+  return () => { s = (1664525*s + 1013904223) & 0xffffffff; return (s>>>0)/0xffffffff; };
+}
+const rng = lcg(99);
+
+function lbpUpdateMsg(i, j) {
+  // mu_{i->j}(+1): sum over xi of psi_i(xi)*psi_ij(xi,xj=+1)*prod_k!=j mu_{k->i}(xi)
+  // xi in {+1, -1}; psi_i(xi) = exp(h[i]*xi); psi_ij = exp(J*xi*xj)
+  let m_plus = 0, m_minus = 0;
+  for (const xi of [1, -1]) {
+    let prod = Math.exp(h[i] * xi);
+    for (const k of neighbours(i)) {
+      if (k === j) continue;
+      // msg[k][i] is P(xi=+1); so for xi: mu = xi===1 ? msg[k][i] : 1-msg[k][i]
+      prod *= (xi === 1) ? msg[k][i] : (1 - msg[k][i]);
+    }
+    // xj=+1 contribution
+    m_plus += prod * Math.exp(J * xi * 1);
+    // xj=-1 contribution (we only store m_plus normalised later)
+  }
+  // Actually compute both and normalise
+  let mp = 0, mm = 0;
+  for (const xi of [1, -1]) {
+    let prod_i = Math.exp(h[i] * xi);
+    for (const k of neighbours(i)) {
+      if (k === j) continue;
+      prod_i *= (xi === 1) ? msg[k][i] : (1 - msg[k][i]);
+    }
+    mp += prod_i * Math.exp(J * xi);    // xj=+1
+    mm += prod_i * Math.exp(-J * xi);   // xj=-1
+  }
+  const norm = mp + mm;
+  return norm > 0 ? mp / norm : 0.5;
+}
+
+function lbpComputeBeliefs() {
+  for (let i = 0; i < N; i++) {
+    let bp = Math.exp(h[i]), bm = Math.exp(-h[i]);
+    for (const j of neighbours(i)) {
+      bp *= msg[j][i];
+      bm *= (1 - msg[j][i]);
+    }
+    const s = bp + bm;
+    lbpBeliefs[i] = s > 0 ? bp / s : 0.5;
+  }
+}
+
+function lbpSweep(iters) {
+  const damp = 0.5;
+  for (let it = 0; it < iters; it++) {
+    for (let i = 0; i < N; i++) {
+      for (const j of neighbours(i)) {
+        const newMsg = lbpUpdateMsg(i, j);
+        msg[i][j] = damp * newMsg + (1 - damp) * msg[i][j];
+      }
+    }
+  }
+  lbpComputeBeliefs();
+}
+
+function lbpConverge() {
+  for (let it = 0; it < 50; it++) {
+    let maxDelta = 0;
+    for (let i = 0; i < N; i++) {
+      for (const j of neighbours(i)) {
+        const newMsg = lbpUpdateMsg(i, j);
+        const damp = 0.5;
+        const updated = damp * newMsg + (1 - damp) * msg[i][j];
+        maxDelta = Math.max(maxDelta, Math.abs(updated - msg[i][j]));
+        msg[i][j] = updated;
+      }
+    }
+    if (maxDelta < 1e-5) break;
+  }
+  lbpComputeBeliefs();
+}
+
+function gibbsConditional(i) {
+  // P(xi=+1 | x_{-i}) propto exp(h[i] + J * sum_j x_j)
+  const sumNb = neighbours(i).reduce((s, j) => s + gibbsState[j], 0);
+  const logRatio = 2 * h[i] + 2 * J * sumNb;
+  return 1 / (1 + Math.exp(-logRatio));
+}
+
+let gibbsSweepCount = 0;
+
+function gibbsStep(node) {
+  const p = gibbsConditional(node);
+  gibbsState[node] = rng() < p ? 1 : -1;
+}
+
+function gibbsSweep(nSweeps) {
+  const alpha = 0.15; // EMA for beliefs
+  for (let sw = 0; sw < nSweeps; sw++) {
+    for (let i = 0; i < N; i++) {
+      gibbsStep(i);
+      const sample = gibbsState[i] === 1 ? 1 : 0;
+      gibbsBeliefs[i] = (1 - alpha) * gibbsBeliefs[i] + alpha * sample;
+    }
+    gibbsSweepCount++;
+  }
+}
+
+// ── Drawing ──────────────────────────────────────────────────────────────────
+function beliefColor(b) {
+  // b in [0,1]; 1 → purple, 0 → red, 0.5 → gray
+  const r = b < 0.5 ? 220 : Math.round(220 - (b-0.5)*2*137);
+  const g = b < 0.5 ? Math.round(b*2*75) : Math.round(75 - (b-0.5)*2*75);
+  const bl = b < 0.5 ? Math.round(b*2*183) : Math.round(183 - (b-0.5)*2*0);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function drawGrid(panel, beliefs, highlightNodes) {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const ox = panel === 'lbp' ? PAD : HALF + PAD;
+
+  // Panel label
+  ctx.font = 'bold 12px DM Sans, system-ui';
+  ctx.fillStyle = isDark ? '#9c9a92' : '#6b6b65';
+  ctx.textAlign = 'center';
+  ctx.fillText(panel === 'lbp' ? 'LOOPY BP' : 'GIBBS MCMC', ox + (COLS-1)*CELL/2 + CELL/2, PAD - 12);
+
+  // Edges
+  for (let i = 0; i < N; i++) {
+    const pi = nodePos(Math.floor(i/COLS), i%COLS, panel);
+    for (const j of neighbours(i)) {
+      if (j > i) {
+        const pj = nodePos(Math.floor(j/COLS), j%COLS, panel);
+        // Edge thickness by coupling
+        const b = (beliefs[i] + beliefs[j]) / 2;
+        const agree = Math.abs(beliefs[i] - 0.5) + Math.abs(beliefs[j] - 0.5);
+        ctx.strokeStyle = isDark ? `rgba(255,255,255,${0.1 + agree*0.3})` : `rgba(0,0,0,${0.08 + agree*0.25})`;
+        ctx.lineWidth = 1 + agree * 3;
+        ctx.beginPath();
+        ctx.moveTo(pi.x, pi.y);
+        ctx.lineTo(pj.x, pj.y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Nodes
+  for (let i = 0; i < N; i++) {
+    const r = Math.floor(i/COLS), c = i%COLS;
+    const {x, y} = nodePos(r, c, panel);
+    const b = beliefs[i];
+    const isActive = highlightNodes.includes(i);
+    const radius = isActive ? 22 : 18;
+
+    if (isActive) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(151,196,89,0.35)';
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI*2);
+    ctx.fillStyle = beliefColor(b);
+    ctx.fill();
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.font = `bold 10px JetBrains Mono, monospace`;
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.toFixed(2), x, y);
+  }
+}
+
+function drawDivider() {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(HALF, PAD - 20);
+  ctx.lineTo(HALF, H - PAD + 20);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawBoth(highlight=[]) {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = isDark ? '#222224' : '#f0efe9';
+  ctx.fillRect(0, 0, W, H);
+  drawDivider();
+  drawGrid('lbp', lbpBeliefs, highlight.filter(n => n < 0));
+  drawGrid('gibbs', gibbsBeliefs, highlight.filter(n => n >= 0));
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────────
+function applyStep(idx) {
+  STEPS[idx].action();
+  drawBoth(activeNodes);
+  document.getElementById('infoPhase').textContent = STEPS[idx].phase;
+  document.getElementById('infoStep').textContent = `Step ${idx+1} / ${STEPS.length}`;
+  document.getElementById('infoTitle').textContent = STEPS[idx].title;
+  document.getElementById('infoDesc').textContent = STEPS[idx].desc;
+  document.getElementById('infoMath').textContent = STEPS[idx].math;
+  document.getElementById('prevBtn').disabled = idx === 0;
+  document.getElementById('nextBtn').disabled = idx === STEPS.length - 1;
+  updateDots(idx);
+}
+
+function go(delta) {
+  const next = Math.max(0, Math.min(STEPS.length-1, currentStep + delta));
+  if (next === currentStep) return;
+  currentStep = next;
+  applyStep(currentStep);
+}
+
+function reset() {
+  currentStep = 0;
+  initAll();
+  applyStep(0);
+}
+
+// Dots
+function buildDots() {
+  const wrap = document.getElementById('dots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < STEPS.length; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => { currentStep = i; applyStep(i); };
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots(active) {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot' + (i < active ? ' done' : i === active ? ' active' : '');
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// Init
+initAll();
+buildDots();
+applyStep(0);
+</script>
+</body>
+</html>

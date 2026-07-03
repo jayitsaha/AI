@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XGBoost: Weighted Quantile Sketch & Histogram-Based Splits</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+.page { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+/* ── Header ── */
+header { margin-bottom: 2rem; }
+.breadcrumb { font-size: 12px; color: var(--text3); margin-bottom: 0.5rem; }
+h1 { font-size: clamp(22px, 4vw, 32px); font-weight: 800; line-height: 1.2; color: var(--text); }
+.subtitle { font-size: 15px; color: var(--text2); margin-top: 0.4rem; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 10px; border-radius: 20px; }
+.tag-advanced { background: var(--red-bg); color: var(--red-mid); }
+.tag-category { background: var(--blue-bg); color: var(--blue-mid); }
+.tag-complexity { background: var(--cyan-bg); color: var(--cyan-mid); }
+.tag-green { background: var(--green-bg); color: var(--green-mid); }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.card-header { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.chevron { color: var(--text3); font-size: 18px; transition: transform 0.25s; }
+.card-header.open .chevron { transform: rotate(90deg); }
+.card-body { margin-top: 1rem; }
+.card-body.hidden { display: none; }
+
+/* ── Concept boxes ── */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+
+.eq { text-align: center; padding: 12px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+p { color: var(--text2); font-size: 14px; line-height: 1.75; margin-bottom: 0.75rem; }
+p:last-child { margin-bottom: 0; }
+ul, ol { color: var(--text2); font-size: 14px; padding-left: 1.4rem; margin-bottom: 0.75rem; }
+li { margin-bottom: 0.35rem; }
+strong { color: var(--text); font-weight: 600; }
+
+/* ── Visualization ── */
+#viz-container { background: var(--bg2); border-radius: var(--radius-lg); padding: 1.25rem; margin: 1rem 0; }
+#viz-canvas { width: 100%; height: 360px; display: block; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 10px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); font-weight: 600; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.legend-rect { width: 14px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+/* Info card */
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-top: 1rem; }
+.info-phase { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 8px; border-radius: 12px; display: inline-block; margin-bottom: 0.5rem; background: var(--purple-bg); color: var(--purple-mid); }
+.info-step { font-size: 11px; color: var(--text3); float: right; }
+.info-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 0.4rem; }
+.info-prose { font-size: 13px; color: var(--text2); line-height: 1.65; }
+
+/* Controls */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+
+/* Code panel */
+.code-panel { margin-top: 1rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; transition: background 0.25s; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- ── Header ── -->
+  <header>
+    <div class="breadcrumb">Part III: Classical ML (Boosting) › XGBoost Internals</div>
+    <h1>XGBoost: Weighted Quantile Sketch &amp; Histogram-Based Splits</h1>
+    <div class="subtitle">How XGBoost proposes candidate split points in O(#bins) instead of O(#samples)</div>
+    <div class="tags">
+      <span class="tag tag-advanced">Advanced</span>
+      <span class="tag tag-category">Classical ML · Boosting</span>
+      <span class="tag tag-complexity">O(#bins · depth · trees)</span>
+      <span class="tag tag-green">Must Know</span>
+    </div>
+  </header>
+
+  <!-- ── Card 1: Understanding ── -->
+  <div class="card" id="card1">
+    <div class="card-header open" onclick="toggleCard('card1')">
+      <div class="section-number">1</div>
+      <div class="section-title">Understanding the Concept</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body">
+      <p>XGBoost builds an ensemble of decision trees, one at a time, where each tree fits the <strong>residual errors</strong> left by the previous trees. To build each tree, XGBoost needs to find the best place to split the data at every node — i.e., which feature threshold maximises the reduction in the loss.</p>
+      <p>The naive approach checks <em>every unique value</em> in the data as a candidate split: if you have 10 million rows, that's up to 10 million split points per feature per node — impossibly slow. XGBoost solves this with two interlocking techniques:</p>
+      <ol>
+        <li><strong>Weighted Quantile Sketch</strong> — compress the full data distribution into a small set of candidate split points weighted by second-order gradients (hessians). Each candidate represents a "bucket" of equal hessian weight, so no important region is under-sampled.</li>
+        <li><strong>Histogram-Based Split Finding</strong> — pre-aggregate all gradient statistics into discrete bins, then evaluate only those bins. Split evaluation becomes O(#bins) not O(#samples).</li>
+      </ol>
+      <div class="concept-box insight">
+        <div class="concept-box-title">Key Insight</div>
+        <p style="margin:0">The hessian \(h_i\) is the curvature of the loss at sample \(i\). It measures how "confident" the model is about that sample. Weighting quantile buckets by \(h_i\) ensures that uncertain samples (high curvature) get finer resolution in split candidates, exactly where it matters most.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Card 2: How It Works ── -->
+  <div class="card" id="card2">
+    <div class="card-header open" onclick="toggleCard('card2')">
+      <div class="section-number">2</div>
+      <div class="section-title">How It Works Internally</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body">
+      <p>At each boosting round, XGBoost computes first-order (\(g_i\)) and second-order (\(h_i\)) gradient statistics for every sample. The <strong>Weighted Quantile Sketch</strong> algorithm then finds quantile boundaries of the <em>weighted</em> empirical CDF, where the weight of sample \(i\) with feature value \(x_i\) is its hessian \(h_i\).</p>
+      <p>Formally, define the rank function for feature \(k\):</p>
+      <div class="eq">$$r_k(z) = \frac{1}{\sum_{(x,h)\in\mathcal{D}_k} h} \sum_{\substack{(x,h)\in\mathcal{D}_k \\ x < z}} h$$</div>
+      <p>This is the fraction of total hessian mass whose feature value is below \(z\). XGBoost selects candidate split points \(\{s_{k,1}, \ldots, s_{k,l}\}\) such that:</p>
+      <div class="eq">$$|r_k(s_{k,j}) - r_k(s_{k,j+1})| < \epsilon$$</div>
+      <p>where \(\epsilon\) is the approximation factor. This guarantees roughly \(1/\epsilon\) candidate splits per feature — completely independent of dataset size.</p>
+      <div class="concept-box key-concept">
+        <div class="concept-box-title">Histogram Binning</div>
+        <p style="margin:0">After candidate splits are fixed, XGBoost builds a <strong>gradient histogram</strong>: for each bin \(b\), accumulate \(G_b = \sum_{i \in b} g_i\) and \(H_b = \sum_{i \in b} h_i\). The gain of splitting at any boundary is then computed directly from \(G_b, H_b\) — no need to touch individual samples again.</p>
+      </div>
+      <p>The exact gain formula for splitting node \(t\) into left \(L\) and right \(R\) children is:</p>
+      <div class="eq">$$\text{Gain} = \frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda} + \frac{G_R^2}{H_R+\lambda} - \frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right] - \gamma$$</div>
+      <p>where \(\lambda\) is the L2 leaf-weight regulariser and \(\gamma\) is the minimum gain threshold (pruning). This is evaluated once per bin boundary — O(#bins) — not once per sample.</p>
+    </div>
+  </div>
+
+  <!-- ── Card 3: Why It Works ── -->
+  <div class="card" id="card3">
+    <div class="card-header open" onclick="toggleCard('card3')">
+      <div class="section-number">3</div>
+      <div class="section-title">Why It Works: The Math</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body">
+      <p>XGBoost frames tree construction as minimising a second-order Taylor expansion of the loss. For round \(t\), the objective for a single tree \(f_t\) is:</p>
+      <div class="eq">$$\tilde{\mathcal{L}}^{(t)} = \sum_{i=1}^n \left[ g_i f_t(x_i) + \frac{1}{2} h_i f_t(x_i)^2 \right] + \Omega(f_t)$$</div>
+      <p>where \(\Omega(f_t) = \gamma T + \frac{\lambda}{2}\sum_{j=1}^T w_j^2\). For a fixed tree structure, the optimal leaf weight in leaf \(j\) is:</p>
+      <div class="eq">$$w_j^* = -\frac{G_j}{H_j + \lambda}, \quad G_j = \sum_{i \in I_j} g_i,\; H_j = \sum_{i \in I_j} h_i$$</div>
+      <p>And the optimal objective value (score of the tree structure) is:</p>
+      <div class="eq">$$\tilde{\mathcal{L}}^* = -\frac{1}{2}\sum_{j=1}^T \frac{G_j^2}{H_j+\lambda} + \gamma T$$</div>
+      <div class="concept-box math">
+        <div class="concept-box-title">Why Hessians as Weights</div>
+        <p style="margin:0">The error committed by approximating the optimal leaf weight with binned statistics is proportional to \(h_i\). Weighting bins by \(h_i\) distributes approximation error uniformly across all samples — it is the <em>minimax optimal</em> weighting under the second-order loss expansion.</p>
+      </div>
+      <div class="concept-box warning">
+        <div class="concept-box-title">Common Misconception</div>
+        <p style="margin:0">People assume the sketch uses uniform quantiles of feature values. It uses hessian-weighted quantiles. For MSE loss, \(h_i = 1\) always, so they coincide — but for logistic loss or custom losses, hessians vary and the difference is significant.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Card 4: Interactive Visualization ── -->
+  <div class="card" id="card4">
+    <div class="card-header open" onclick="toggleCard('card4')">
+      <div class="section-number">4</div>
+      <div class="section-title">Interactive Walkthrough</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body">
+      <p>Step through the full XGBoost split-finding pipeline: sample data with hessians, build the weighted CDF, propose quantile split candidates, fill histogram bins, and evaluate gain for each boundary.</p>
+      <div id="viz-container">
+        <canvas id="viz-canvas"></canvas>
+      </div>
+      <div class="legend" id="legend-container"></div>
+      <div class="info-card">
+        <span class="info-phase" id="info-phase">Setup</span>
+        <span class="info-step" id="info-step">Step 1 / 7</span>
+        <div class="info-title" id="info-title">Sample Data with Hessians</div>
+        <div class="info-prose" id="info-prose"></div>
+      </div>
+      <div class="progress-wrap" id="progress-wrap"></div>
+      <div class="controls">
+        <button class="btn" id="btn-prev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btn-next" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">↺ Reset</button>
+      </div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+
+  <!-- ── Card 5: Key Takeaways ── -->
+  <div class="card" id="card5">
+    <div class="card-header open" onclick="toggleCard('card5')">
+      <div class="section-number">5</div>
+      <div class="section-title">Key Takeaways &amp; When to Use</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body">
+      <div class="concept-box insight">
+        <div class="concept-box-title">Summary</div>
+        <ul style="margin:0; color:var(--text2); font-size:14px; padding-left:1.2rem;">
+          <li>Weighted quantile sketch → O(1/ε) candidate splits per feature, independent of N</li>
+          <li>Hessian weighting ensures finer resolution where curvature (uncertainty) is highest</li>
+          <li>Histogram aggregation reduces split evaluation from O(N) to O(#bins) per node</li>
+          <li>The gain formula directly follows from the optimal leaf-weight closed form</li>
+          <li>ε ≈ 0.1–0.3 in practice; LightGBM extends with leaf-wise growth and GOSS</li>
+        </ul>
+      </div>
+      <p><strong>Use when:</strong> tabular data with millions of rows, needing fast training without sacrificing split quality. The approximation is controlled by ε — smaller ε = more candidates = closer to exact but slower.</p>
+      <p><strong>Related topics:</strong> Gradient Boosting (GBDT), LightGBM (GOSS + EFB), CatBoost (ordered boosting), Decision Tree construction, Second-order optimisation.</p>
+    </div>
+  </div>
+
+  <!-- ── Card 6: Code Trace ── -->
+  <div class="card" id="card6">
+    <div class="card-header" onclick="toggleCard('card6')">
+      <div class="section-number">6</div>
+      <div class="section-title">Code Trace: From-Scratch Implementation</div>
+      <span class="chevron">›</span>
+    </div>
+    <div class="card-body hidden">
+      <p>Minimal NumPy implementation of the weighted quantile sketch + histogram gain computation:</p>
+      <div class="code-panel" id="code-panel">
+        <div class="code-line" id="cl0">import numpy as np</div>
+        <div class="code-line" id="cl1"></div>
+        <div class="code-line" id="cl2">def weighted_quantile_sketch(x, h, eps=0.1):</div>
+        <div class="code-line" id="cl3">    """Propose split candidates via hessian-weighted quantiles."""</div>
+        <div class="code-line" id="cl4">    order = np.argsort(x)          # sort by feature value</div>
+        <div class="code-line" id="cl5">    x_s, h_s = x[order], h[order]  # sorted feature + hessian</div>
+        <div class="code-line" id="cl6">    H_total = h_s.sum()            # total hessian mass</div>
+        <div class="code-line" id="cl7">    cum_h = np.cumsum(h_s) / H_total  # weighted CDF</div>
+        <div class="code-line" id="cl8">    candidates = []</div>
+        <div class="code-line" id="cl9">    prev_rank = 0.0</div>
+        <div class="code-line" id="cl10">    for i, (xi, ri) in enumerate(zip(x_s, cum_h)):</div>
+        <div class="code-line" id="cl11">        if ri - prev_rank >= eps:   # bucket boundary exceeded</div>
+        <div class="code-line" id="cl12">            candidates.append(xi)   # propose this value as split point</div>
+        <div class="code-line" id="cl13">            prev_rank = ri</div>
+        <div class="code-line" id="cl14">    return np.array(candidates)</div>
+        <div class="code-line" id="cl15"></div>
+        <div class="code-line" id="cl16">def histogram_gain(g, h, splits, x, lam=1.0):</div>
+        <div class="code-line" id="cl17">    """Evaluate split gain for each candidate via histograms."""</div>
+        <div class="code-line" id="cl18">    best_gain, best_split = -np.inf, None</div>
+        <div class="code-line" id="cl19">    G_tot, H_tot = g.sum(), h.sum()</div>
+        <div class="code-line" id="cl20">    for s in splits:</div>
+        <div class="code-line" id="cl21">        mask = x <= s                # left bin mask</div>
+        <div class="code-line" id="cl22">        G_L, H_L = g[mask].sum(), h[mask].sum()</div>
+        <div class="code-line" id="cl23">        G_R = G_tot - G_L; H_R = H_tot - H_L</div>
+        <div class="code-line" id="cl24">        gain = 0.5*(G_L**2/(H_L+lam) + G_R**2/(H_R+lam)</div>
+        <div class="code-line" id="cl25">                    - (G_tot)**2/(H_tot+lam))</div>
+        <div class="code-line" id="cl26">        if gain > best_gain:</div>
+        <div class="code-line" id="cl27">            best_gain, best_split = gain, s</div>
+        <div class="code-line" id="cl28">    return best_split, best_gain</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ─────────────────────────────────────────────
+// Visualization data: 20 samples, 1 feature
+// Using logistic-loss hessians h_i = p_i(1-p_i)
+// ─────────────────────────────────────────────
+const N = 20;
+// Feature values (sorted x): 0.1 .. 4.0 (hand-picked for clarity)
+const xVals = [0.15,0.32,0.48,0.65,0.78,0.95,1.12,1.35,1.52,1.70,
+               1.88,2.05,2.25,2.48,2.62,2.80,3.05,3.30,3.65,3.90];
+// Hessians h_i = p_i*(1-p_i) for various p_i — varies between samples
+const hVals = [0.12,0.18,0.21,0.24,0.23,0.25,0.22,0.20,0.17,0.24,
+               0.25,0.23,0.19,0.16,0.13,0.11,0.09,0.07,0.05,0.04];
+// Gradients g_i = p_i - y_i (some positive, some negative)
+const gVals = [-0.88,-0.82,-0.79,0.24,0.23,-0.75,0.22,0.20,-0.83,0.24,
+                0.25,0.23,-0.81,-0.84,0.13,-0.89,-0.91,0.07,-0.95,-0.96];
+
+const H_total = hVals.reduce((a,b)=>a+b, 0);
+// Weighted CDF values at each sample
+const cumH = [];
+let acc = 0;
+for (let i=0; i<N; i++) { acc += hVals[i]; cumH.push(acc/H_total); }
+
+// Propose candidates (eps=0.20 → ~5 splits)
+const EPS = 0.20;
+const candidates = [];
+let prevRank = 0;
+for (let i=0; i<N; i++) {
+  if (cumH[i] - prevRank >= EPS) {
+    candidates.push(xVals[i]);
+    prevRank = cumH[i];
+  }
+}
+// Ensure last point
+if (candidates[candidates.length-1] !== xVals[N-1]) candidates.push(xVals[N-1]);
+
+// Pre-compute histogram bin stats
+const binStats = candidates.map(s => {
+  let GL=0, HL=0, GR=0, HR=0;
+  for (let i=0; i<N; i++) {
+    if (xVals[i] <= s) { GL+=gVals[i]; HL+=hVals[i]; }
+    else { GR+=gVals[i]; HR+=hVals[i]; }
+  }
+  const G_tot = GL+GR, H_tot = HL+HR, lam = 1.0;
+  const gain = 0.5*(GL*GL/(HL+lam) + GR*GR/(HR+lam) - G_tot*G_tot/(H_tot+lam));
+  return {s, GL:GL.toFixed(3), HL:HL.toFixed(3), GR:GR.toFixed(3), HR:HR.toFixed(3), gain:gain.toFixed(4)};
+});
+const bestIdx = binStats.reduce((bi,b,i,arr)=>b.gain>arr[bi].gain?i:bi, 0);
+
+// ─────────────────────────────────────────────
+// Steps definition
+// ─────────────────────────────────────────────
+const STEPS = [
+  {
+    phase:"Setup", title:"20 Samples with Feature Values & Hessians",
+    prose:`We have 20 training samples with a single feature \(x_i \in [0.15, 3.90]\). Each sample carries a hessian \(h_i = p_i(1-p_i)\) (second derivative of logistic loss). Samples near the decision boundary (p≈0.5) have high hessian ≈ 0.25; confident predictions have low hessian ≈ 0.05. These hessians will control how we weight the feature distribution.`,
+    draw: drawSamples
+  },
+  {
+    phase:"Quantile Sketch", title:"Compute Hessian-Weighted CDF",
+    prose:`Sort samples by feature value. Compute the weighted rank function \(r(z) = \sum_{x_i < z} h_i \,/\, H_{\text{total}}\). This is the cumulative fraction of total hessian mass below threshold z. Notice the CDF rises quickly where hessians are large (mid-range x) — those regions will get more candidate splits.`,
+    draw: drawCDF
+  },
+  {
+    phase:"Quantile Sketch", title:"Propose Candidate Split Points (ε = 0.20)",
+    prose:`Walk the weighted CDF. Whenever the rank increases by ε = 0.20, emit a candidate split at that x value. With ε=0.20 we get approximately 1/ε = 5 candidates — regardless of dataset size N. In XGBoost this is \`sketch_eps\`, defaulting to ~0.1, giving ≈10 candidates per feature.`,
+    draw: drawCandidates
+  },
+  {
+    phase:"Histogram", title:"Build Gradient Histogram Bins",
+    prose:`Each candidate split defines a bin boundary. Accumulate \(G_b = \sum_{i \in \text{bin}} g_i\) and \(H_b = \sum_{i \in \text{bin}} h_i\) for every bin. This one-pass O(N) aggregation is done once; afterwards split evaluation never touches individual samples again.`,
+    draw: drawHistogram
+  },
+  {
+    phase:"Histogram", title:"Evaluate Split Gain at Each Boundary",
+    prose:`For each candidate split \(s\): compute prefix sums \(G_L, H_L\) (left of s) and by subtraction \(G_R = G_{\text{tot}}-G_L,\, H_R = H_{\text{tot}}-H_L\). Then evaluate the gain formula. This is O(#bins) ≈ O(5) — constant in N.`,
+    draw: drawGains
+  },
+  {
+    phase:"Result", title:`Best Split: x ≤ ${candidates[bestIdx].toFixed(2)} (Gain = ${binStats[bestIdx].gain})`,
+    prose:`The highest-gain split is at x = ${candidates[bestIdx].toFixed(2)} with gain = ${binStats[bestIdx].gain}. Left node gets G_L = ${binStats[bestIdx].GL}, H_L = ${binStats[bestIdx].HL}; right gets G_R = ${binStats[bestIdx].GR}, H_R = ${binStats[bestIdx].HR}. The optimal leaf weights are w*_L = -G_L/(H_L+λ) and w*_R = -G_R/(H_R+λ).`,
+    draw: drawBestSplit
+  },
+  {
+    phase:"Complexity", title:"Complexity: O(N·K) build, O(#bins·K·depth) per tree",
+    prose:`Building histograms: O(N·K) — one pass over all samples and K features. Split evaluation per node: O(#bins·K) = O(K/ε). Total per tree: O(K/ε · depth). Total training: O(N·K + K·T·d/ε) vs exact O(N·K·T·d). With N=10M, K=100, ε=0.1: sketch reduces per-tree work by ~1000×.`,
+    draw: drawComplexity
+  }
+];
+
+let step = 0;
+const TOTAL = STEPS.length;
+
+// ─────────────────────────────────────────────
+// Canvas drawing
+// ─────────────────────────────────────────────
+const canvas = document.getElementById('viz-canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  draw();
+}
+window.addEventListener('resize', () => { setTimeout(resize, 100); });
+
+function getColors() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    bg: s.getPropertyValue('--surface').trim(),
+    bg2: s.getPropertyValue('--bg2').trim(),
+    text: s.getPropertyValue('--text').trim(),
+    text2: s.getPropertyValue('--text2').trim(),
+    text3: s.getPropertyValue('--text3').trim(),
+    border: s.getPropertyValue('--border').trim(),
+    blueMid: s.getPropertyValue('--blue-mid').trim(),
+    blueBg: s.getPropertyValue('--blue-bg').trim(),
+    greenMid: s.getPropertyValue('--green-mid').trim(),
+    greenBg: s.getPropertyValue('--green-bg').trim(),
+    amberMid: s.getPropertyValue('--amber-mid').trim(),
+    amberBg: s.getPropertyValue('--amber-bg').trim(),
+    redMid: s.getPropertyValue('--red-mid').trim(),
+    purpleMid: s.getPropertyValue('--purple-mid').trim(),
+    purpleBg: s.getPropertyValue('--purple-bg').trim(),
+    cyanMid: s.getPropertyValue('--cyan-mid').trim(),
+    cyanBg: s.getPropertyValue('--cyan-bg').trim(),
+  };
+}
+
+function W() { return canvas.getBoundingClientRect().width; }
+function H() { return canvas.getBoundingClientRect().height; }
+
+// Coordinate helpers
+function scaleX(xv, pad=60) { return pad + (xv - 0) / 4.2 * (W() - 2*pad); }
+function scaleH(hv, pad=30, hmax=0.30) { return H() - pad - (hv/hmax)*(H()-2*pad-40); }
+
+function drawSamples() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const pad=60, top=50, bot=H()-40;
+  const w=W()-2*pad, h=bot-top;
+
+  // Axis
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,bot); ctx.lineTo(pad+w,bot); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad,top); ctx.lineTo(pad,bot); ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle=C.text2; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText('feature value  x', pad+w/2, H()-8);
+  ctx.save(); ctx.translate(16,top+h/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('hessian  h_i', 0, 0); ctx.restore();
+
+  // x-axis ticks
+  for (let v=0; v<=4; v++) {
+    const px = scaleX(v, pad);
+    ctx.fillStyle=C.text3; ctx.textAlign='center'; ctx.font='10px system-ui';
+    ctx.fillText(v.toFixed(1), px, bot+14);
+  }
+
+  // Samples as circles, sized/coloured by hessian
+  for (let i=0; i<N; i++) {
+    const px = pad + (xVals[i]/4.2)*(w);
+    const py = bot - (hVals[i]/0.30)*h;
+    const r = 5 + hVals[i]*30;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2);
+    ctx.fillStyle = hVals[i]>0.20 ? C.amberBg : C.blueBg;
+    ctx.fill(); ctx.strokeStyle = hVals[i]>0.20 ? C.amberMid : C.blueMid;
+    ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle=C.text; ctx.font='9px var(--mono)'; ctx.textAlign='center';
+    ctx.fillText(hVals[i].toFixed(2), px, py-r-4);
+  }
+
+  // Legend
+  updateLegend([
+    {color:'#EF9F27',label:'High hessian (h>0.20)',type:'dot'},
+    {color:'#185FA5',label:'Low hessian (h≤0.20)',type:'dot'},
+  ]);
+}
+
+function drawCDF() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const pad=60, top=50, bot=H()-50;
+  const w=W()-2*pad, h=bot-top;
+
+  // Axes
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,bot); ctx.lineTo(pad+w,bot); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad,top); ctx.lineTo(pad,bot); ctx.stroke();
+
+  // y-axis gridlines + labels
+  [0,0.25,0.5,0.75,1.0].forEach(v => {
+    const py = bot - v*h;
+    ctx.strokeStyle=C.border; ctx.lineWidth=0.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(pad,py); ctx.lineTo(pad+w,py); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=C.text3; ctx.font='10px system-ui'; ctx.textAlign='right';
+    ctx.fillText(v.toFixed(2), pad-6, py+4);
+  });
+
+  ctx.fillStyle=C.text2; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText('feature value  x', pad+w/2, H()-10);
+  ctx.save(); ctx.translate(16,top+h/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('weighted rank  r(x)', 0, 0); ctx.restore();
+
+  // CDF line
+  ctx.strokeStyle=C.purpleMid; ctx.lineWidth=2.5; ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(pad,bot);
+  for (let i=0; i<N; i++) {
+    const px = pad + (xVals[i]/4.2)*w;
+    const py = bot - cumH[i]*h;
+    ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+
+  // Dots
+  for (let i=0; i<N; i++) {
+    const px = pad + (xVals[i]/4.2)*w;
+    const py = bot - cumH[i]*h;
+    ctx.beginPath(); ctx.arc(px,py,3.5,0,Math.PI*2);
+    ctx.fillStyle=C.purpleMid; ctx.fill();
+  }
+
+  updateLegend([
+    {color:'#534AB7',label:'Hessian-weighted CDF r(x)',type:'line'},
+  ]);
+}
+
+function drawCandidates() {
+  const C = getColors();
+  drawCDF(); // base
+  const pad=60, top=50, bot=H()-50, w=W()-2*pad, h=bot-top;
+
+  // eps lines
+  [0.20,0.40,0.60,0.80,1.00].forEach(level => {
+    const py = bot - level*h;
+    ctx.strokeStyle=C.amberBg; ctx.lineWidth=1; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(pad,py); ctx.lineTo(pad+w,py); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=C.amberMid; ctx.font='9px system-ui'; ctx.textAlign='right';
+    ctx.fillText(`ε·${Math.round(level/EPS)}`, pad-4, py+4);
+  });
+
+  // Candidate vertical lines
+  candidates.forEach((cx,ci) => {
+    const px = pad + (cx/4.2)*w;
+    ctx.strokeStyle=C.greenMid; ctx.lineWidth=2; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(px,top); ctx.lineTo(px,bot); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=C.greenMid; ctx.font='bold 10px system-ui'; ctx.textAlign='center';
+    ctx.fillText(`s${ci+1}=${cx.toFixed(2)}`, px, top-6);
+  });
+
+  updateLegend([
+    {color:'#534AB7',label:'Weighted CDF',type:'line'},
+    {color:'#3B6D11',label:`Candidate splits (ε=${EPS})`,type:'line'},
+    {color:'#854F0B',label:'ε-bucket boundaries',type:'line'},
+  ]);
+}
+
+function drawHistogram() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const pad=60, top=50, bot=H()-50;
+  const w=W()-2*pad, h=bot-top;
+
+  // Axes
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,bot); ctx.lineTo(pad+w,bot); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad,top); ctx.lineTo(pad,bot); ctx.stroke();
+
+  ctx.fillStyle=C.text2; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText('feature value  x', pad+w/2, H()-10);
+
+  // Bin boundaries
+  const bounds = [0, ...candidates].map(v => pad + (v/4.2)*w);
+  const nBins = candidates.length;
+
+  // H-histogram bars (blue)
+  const maxH = Math.max(...binStats.map((_,i) => {
+    const left = i===0 ? 0 : candidates[i-1];
+    return hVals.filter((_,j) => xVals[j]>left && xVals[j]<=candidates[i]).reduce((a,b)=>a+b,0);
+  }));
+
+  for (let i=0; i<nBins; i++) {
+    const x0 = bounds[i], x1 = pad + (candidates[i]/4.2)*w;
+    const left = i===0 ? 0 : candidates[i-1];
+    const H_bin = hVals.filter((_,j) => xVals[j]>left && xVals[j]<=candidates[i]).reduce((a,b)=>a+b,0);
+    const bh = (H_bin/maxH)*(h*0.65);
+    ctx.fillStyle=C.blueBg;
+    ctx.fillRect(x0, bot-bh, x1-x0, bh);
+    ctx.strokeStyle=C.blueMid; ctx.lineWidth=1.5;
+    ctx.strokeRect(x0, bot-bh, x1-x0, bh);
+    ctx.fillStyle=C.blueMid; ctx.font='bold 10px var(--mono)'; ctx.textAlign='center';
+    ctx.fillText(`H=${H_bin.toFixed(2)}`, (x0+x1)/2, bot-bh-6);
+
+    // Boundary label
+    ctx.strokeStyle=C.greenMid; ctx.lineWidth=1.5; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(x1,top); ctx.lineTo(x1,bot); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=C.greenMid; ctx.font='9px system-ui'; ctx.textAlign='center';
+    ctx.fillText(`s${i+1}`, x1, top-4);
+  }
+
+  updateLegend([
+    {color:'#185FA5',label:'H_bin = Σh_i per bin',type:'rect'},
+    {color:'#3B6D11',label:'Candidate boundaries s_j',type:'line'},
+  ]);
+}
+
+function drawGains() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const pad=60, top=50, bot=H()-50;
+  const w=W()-2*pad, h=bot-top;
+
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,bot); ctx.lineTo(pad+w,bot); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad,top); ctx.lineTo(pad,bot); ctx.stroke();
+
+  const gains = binStats.map(b=>parseFloat(b.gain));
+  const maxG = Math.max(...gains);
+
+  ctx.fillStyle=C.text2; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText('candidate split index', pad+w/2, H()-10);
+  ctx.save(); ctx.translate(16,top+h/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('split gain', 0, 0); ctx.restore();
+
+  const slotW = w / (gains.length+1);
+  gains.forEach((g,i) => {
+    const cx = pad + slotW*(i+1);
+    const bh = (g/maxG)*(h*0.72);
+    const isBest = i===bestIdx;
+    ctx.fillStyle = isBest ? C.greenBg : C.purpleBg;
+    ctx.fillRect(cx-slotW*0.35, bot-bh, slotW*0.7, bh);
+    ctx.strokeStyle = isBest ? C.greenMid : C.purpleMid; ctx.lineWidth=2;
+    ctx.strokeRect(cx-slotW*0.35, bot-bh, slotW*0.7, bh);
+    ctx.fillStyle = isBest ? C.greenMid : C.purpleMid;
+    ctx.font=`${isBest?'bold ':' '}10px var(--mono)`; ctx.textAlign='center';
+    ctx.fillText(`s${i+1}=${candidates[i].toFixed(1)}`, cx, bot+14);
+    ctx.fillText(g.toFixed(3), cx, bot-bh-6);
+    if (isBest) {
+      ctx.fillText('★ BEST', cx, bot-bh-18);
+    }
+  });
+
+  updateLegend([
+    {color:'#3B6D11',label:'Best split (max gain)',type:'rect'},
+    {color:'#534AB7',label:'Other candidates',type:'rect'},
+  ]);
+}
+
+function drawBestSplit() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const pad=60, top=40, bot=H()-50;
+  const w=W()-2*pad, h=bot-top;
+
+  const bestX = candidates[bestIdx];
+  const pxSplit = pad + (bestX/4.2)*w;
+
+  // Shade left region
+  ctx.fillStyle = C.blueBg+'88';
+  ctx.fillRect(pad, top, pxSplit-pad, h);
+  ctx.fillStyle = C.amberBg+'88';
+  ctx.fillRect(pxSplit, top, pad+w-pxSplit, h);
+
+  // Axis
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,bot); ctx.lineTo(pad+w,bot); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad,top); ctx.lineTo(pad,bot); ctx.stroke();
+
+  ctx.fillStyle=C.text2; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText('feature value  x', pad+w/2, H()-10);
+
+  // Samples
+  for (let i=0; i<N; i++) {
+    const px = pad + (xVals[i]/4.2)*w;
+    const py = bot - (hVals[i]/0.30)*h;
+    const isLeft = xVals[i]<=bestX;
+    ctx.beginPath(); ctx.arc(px, py, 6+hVals[i]*20, 0, Math.PI*2);
+    ctx.fillStyle = isLeft ? C.blueBg : C.amberBg;
+    ctx.fill(); ctx.strokeStyle = isLeft ? C.blueMid : C.amberMid;
+    ctx.lineWidth=1.5; ctx.stroke();
+  }
+
+  // Best split line
+  ctx.strokeStyle=C.greenMid; ctx.lineWidth=3; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(pxSplit,top); ctx.lineTo(pxSplit,bot); ctx.stroke();
+
+  // Label
+  ctx.fillStyle=C.greenMid; ctx.font='bold 12px system-ui'; ctx.textAlign='center';
+  ctx.fillText(`x ≤ ${bestX.toFixed(2)}  |  Gain=${binStats[bestIdx].gain}`, pxSplit, top-10);
+
+  // Node labels
+  ctx.fillStyle=C.blueMid; ctx.font='11px system-ui'; ctx.textAlign='center';
+  ctx.fillText(`Left node`, (pad+pxSplit)/2, top+20);
+  ctx.fillText(`G_L=${binStats[bestIdx].GL}, H_L=${binStats[bestIdx].HL}`, (pad+pxSplit)/2, top+35);
+  ctx.fillStyle=C.amberMid;
+  ctx.fillText(`Right node`, (pxSplit+pad+w)/2, top+20);
+  ctx.fillText(`G_R=${binStats[bestIdx].GR}, H_R=${binStats[bestIdx].HR}`, (pxSplit+pad+w)/2, top+35);
+
+  updateLegend([
+    {color:'#185FA5',label:`Left: x ≤ ${bestX.toFixed(2)}`,type:'rect'},
+    {color:'#854F0B',label:`Right: x > ${bestX.toFixed(2)}`,type:'rect'},
+    {color:'#3B6D11',label:'Best split boundary',type:'line'},
+  ]);
+}
+
+function drawComplexity() {
+  const C = getColors();
+  ctx.clearRect(0,0,W(),H());
+  const W2=W(), H2=H();
+  const rows = [
+    ['Approach','Split finding','Complexity','Dataset N=10M'],
+    ['Exact greedy','All unique values','O(N·K·d·T)','10M×100×6×100=6×10¹¹'],
+    ['Weighted sketch','~1/ε candidates/feat','O((K/ε)·d·T)','500×6×100=3×10⁵'],
+    ['LightGBM','Fixed #bins','O(B·K·d·T)','256×100×6×100=1.5×10⁷'],
+  ];
+  const rowH = Math.min(60, H2/rows.length-6);
+  const colW = [W2*0.18, W2*0.24, W2*0.22, W2*0.32];
+  let colX = [10, 10+colW[0], 10+colW[0]+colW[1], 10+colW[0]+colW[1]+colW[2]];
+
+  rows.forEach((row,ri) => {
+    row.forEach((cell,ci) => {
+      const rx = colX[ci], ry = 20+ri*rowH;
+      const isHeader = ri===0;
+      const isExact = ri===1;
+      const isBest = ri===2;
+      ctx.fillStyle = isHeader ? C.blueBg : isBest ? C.greenBg : isExact ? C.redMid+'11' : C.surface;
+      ctx.fillRect(rx, ry, colW[ci]-4, rowH-4);
+      ctx.strokeStyle=C.border; ctx.lineWidth=1;
+      ctx.strokeRect(rx, ry, colW[ci]-4, rowH-4);
+      ctx.fillStyle = isHeader ? C.blueMid : isBest ? C.greenMid : C.text2;
+      ctx.font = `${isHeader||isBest?'bold ':' '}11px system-ui`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(cell, rx+colW[ci]/2-2, ry+rowH/2-2);
+    });
+  });
+  ctx.textBaseline='alphabetic';
+
+  updateLegend([
+    {color:'#3B6D11',label:'XGBoost sketch (≈10⁶× faster than exact)',type:'rect'},
+    {color:'#A32D2D',label:'Exact greedy (impractical at scale)',type:'rect'},
+  ]);
+}
+
+function draw() { STEPS[step].draw(); updateInfoCard(); updateProgress(); }
+
+function updateInfoCard() {
+  const s = STEPS[step];
+  document.getElementById('info-phase').textContent = s.phase;
+  document.getElementById('info-step').textContent = `Step ${step+1} / ${TOTAL}`;
+  document.getElementById('info-title').textContent = s.title;
+  document.getElementById('info-prose').innerHTML = s.prose;
+  document.getElementById('btn-prev').disabled = step===0;
+  document.getElementById('btn-next').disabled = step===TOTAL-1;
+  // Re-render KaTeX in prose
+  if (window.renderMathInElement) {
+    renderMathInElement(document.getElementById('info-prose'), {
+      delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+}
+
+function updateProgress() {
+  const wrap = document.getElementById('progress-wrap');
+  wrap.innerHTML='';
+  for (let i=0; i<TOTAL; i++) {
+    const d = document.createElement('div');
+    d.className='dot'+(i<step?' done':i===step?' active':'');
+    d.onclick=()=>{step=i;draw();};
+    wrap.appendChild(d);
+  }
+}
+
+function updateLegend(items) {
+  const c = document.getElementById('legend-container');
+  c.innerHTML = items.map(it => {
+    const shape = it.type==='dot'
+      ? `<div class="legend-dot" style="background:${it.color}"></div>`
+      : it.type==='rect'
+      ? `<div class="legend-rect" style="background:${it.color}"></div>`
+      : `<div style="width:20px;height:3px;background:${it.color};border-radius:2px"></div>`;
+    return `<div class="legend-item">${shape}<span>${it.label}</span></div>`;
+  }).join('');
+}
+
+function go(dir) { step = Math.max(0, Math.min(TOTAL-1, step+dir)); draw(); }
+function reset() { step=0; draw(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight') go(1);
+  if (e.key==='ArrowLeft') go(-1);
+  if (e.key==='r'||e.key==='R') reset();
+});
+
+// Card toggle
+function toggleCard(id) {
+  const card = document.getElementById(id);
+  const header = card.querySelector('.card-header');
+  const body = card.querySelector('.card-body');
+  header.classList.toggle('open');
+  body.classList.toggle('hidden');
+}
+
+// Init
+window.addEventListener('load', () => { setTimeout(resize, 50); });
+</script>
+</body>
+</html>
