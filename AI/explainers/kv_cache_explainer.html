@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV-cache: Memory Management & Paged Attention (vLLM) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-allocate{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-decode{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-free{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-fragment{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-paged{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* KV Cache specific styles */
+.block-table-container{display:flex;flex-wrap:wrap;gap:10px;margin-top:1rem;}
+.block-table{background:var(--bg2);border-radius:var(--radius);padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--text2);border:1px solid var(--border);}
+.block-table-title{font-weight:700;margin-bottom:4px;color:var(--text);}
+.block-table-row{display:flex;justify-content:space-between;gap:8px;}
+.block-table-row span:first-child{color:var(--text3);}
+.block-table-row span:last-child{color:var(--blue-mid);}
+.block-table.highlight{border-color:var(--amber-border);background:var(--amber-bg);}
+.block-table.seq-1{border-color:var(--blue-border);background:var(--blue-bg);}
+.block-table.seq-2{border-color:var(--purple-border);background:var(--purple-bg);}
+.block-table.seq-3{border-color:var(--red-border);background:var(--red-bg);}
+.block-table.seq-4{border-color:var(--cyan-border);background:var(--cyan-bg);}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>KV-cache: Memory Management &amp; Paged Attention</h1>
+  <div class="subtitle">Efficiently managing Key-Value caches in LLMs for high-throughput inference (vLLM)</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">MLOps / Systems</span>
+    <span class="tag tag-complexity">O(1) memory access</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding KV-cache</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> In Transformer models (like LLMs), the self-attention mechanism requires computing "Key" (K) and "Value" (V) vectors for every token in the input sequence. When generating text token by token, we need to attend to *all* previously generated tokens. Recomputing K and V for the entire sequence at each step is computationally wasteful. The <strong>KV-cache</strong> is a mechanism to store these K and V vectors for past tokens, so they can be reused without recomputation.</p>
+    <p><strong>Analogy:</strong> Imagine you're writing a long essay. Every time you write a new sentence, you need to refer back to all previous sentences to ensure coherence. If you had to re-read the entire essay from the beginning *every time* you added a new sentence, it would be slow. The KV-cache is like a "scratchpad" where you quickly jot down the key ideas (K) and supporting details (V) of each sentence as you write it, so when you add a new sentence, you only need to glance at your scratchpad, not re-read the whole essay.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">KV-cache makes LLM inference much faster by avoiding redundant computations of past K/V pairs. However, it consumes a significant amount of GPU memory, often becoming the primary bottleneck for serving multiple concurrent requests, especially with variable sequence lengths.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally (and its problems) -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">KV-cache: The Memory Bottleneck</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Mechanism: Storing K & V Vectors</h4>
+    <p>For each layer and each attention head in a Transformer, when a token \(x_i\) is processed, it generates a Key vector \(K_i\) and a Value vector \(V_i\). These are concatenated into a "Key-Value cache" for the entire sequence. When the next token \(x_{i+1}\) is generated, its Query vector \(Q_{i+1}\) will attend to \(K_1, \dots, K_i\) and combine with \(V_1, \dots, V_i\). The cache stores these past K and V vectors.</p>
+    <p>The size of the KV-cache for a single sequence is proportional to: <code>(num_layers * num_heads * 2 * head_dim * sequence_length * sizeof(float))</code>. For large models and long sequences, this quickly becomes gigabytes per sequence.</p>
+
+    <h4>The Memory Problem: Fragmentation & Waste</h4>
+    <p>When serving multiple LLM requests concurrently, each request has a different and unpredictable length. Traditional KV-cache management suffers from:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Static Allocation:</strong> Pre-allocating the maximum possible sequence length for every request wastes a huge amount of memory if most requests are short.</li>
+      <li><strong>Dynamic Allocation (Contiguous):</strong> Allocating memory as needed is better, but if each sequence needs its KV-cache to be in a contiguous block of GPU memory, freeing and allocating blocks of different sizes leads to severe <strong>memory fragmentation</strong>. This means you might have plenty of *total* free memory, but not enough *contiguous* free memory to satisfy a new, large request.</li>
+    </ol>
+    <p>This fragmentation drastically reduces the number of concurrent requests a GPU can handle, leading to low GPU utilization and high latency.</p>
+
+    <h4>Design Decision: Why not just recompute?</h4>
+    <p>Recomputing the K/V pairs for all past tokens for every new token would make inference \(O(L^2)\) instead of \(O(L)\) (where \(L\) is the sequence length). For typical LLM sequence lengths (hundreds to thousands of tokens), this is far too slow for real-time applications. The performance gain from caching far outweighs the memory challenges, making efficient memory management a critical system problem.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The KV-cache is a large, dynamic data structure. Its memory footprint is proportional to the <strong>sum of all active sequence lengths</strong>. Efficiently packing these variable-length caches into fixed-size GPU memory is the core challenge solved by Paged Attention.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why Paged Attention Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Paged Attention Analogy</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Self-Attention & KV-cache in Equations</h4>
+    <p>For a token \(x_i\), we compute its Query, Key, and Value vectors:</p>
+    <div class="eq">$$Q_i = x_i W_Q, \quad K_i = x_i W_K, \quad V_i = x_i W_V$$</div>
+    <p>To compute the output for token \(i\), its Query \(Q_i\) attends to all past Keys \(K_j\) (for \(j \le i\)) and combines with their corresponding Values \(V_j\):</p>
+    <div class="eq">$$\text{Attention}(Q_i, K_{1..i}, V_{1..i}) = \sum_{j=1}^i \text{softmax}\left(\frac{Q_i K_j^\top}{\sqrt{d_k}}\right) V_j$$</div>
+    <p>The KV-cache stores \((K_j, V_j)\) for \(j < i\), so only \(K_i\) and \(V_i\) need to be computed for the new token, then appended to the cache.</p>
+
+    <h4>Paged Attention: Virtual Memory for LLMs</h4>
+    <p>The core idea of Paged Attention (introduced by vLLM) is to manage the KV-cache memory like an operating system manages virtual memory. Instead of requiring each sequence's KV-cache to be a single contiguous chunk of GPU memory, it divides the KV-cache into fixed-size "blocks."</p>
+    <p>Each block can store the K and V vectors for a fixed number of tokens (e.g., 4, 8, or 16 tokens). A <strong>block table</strong> (similar to a page table in OS) maps the logical indices of a sequence's tokens to their physical block locations in GPU memory. This means a sequence's KV-cache can be stored in non-contiguous physical blocks.</p>
+    <div class="eq">$$\text{sequence\_tokens}[t] \quad \xrightarrow{\text{Block Table}} \quad \text{physical\_block\_id}[t/\text{block\_size}] \quad \xrightarrow{\text{offset}} \quad \text{KV\_cache\_memory}$$</div>
+    <p>This virtual memory approach solves the fragmentation problem. When a sequence needs more memory (i.e., generates a new token), the system simply allocates a new *free block* from anywhere in GPU memory and adds its physical ID to the sequence's block table. When a sequence finishes, its blocks are returned to a global free pool, without creating unfillable gaps.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Paged Attention decouples the <strong>logical continuity</strong> of a sequence's KV-cache from its <strong>physical contiguity</strong> in GPU memory. This allows for flexible allocation, eliminates fragmentation, and enables efficient memory sharing (e.g., for speculative decoding or batching with shared prefixes).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize a GPU's KV-cache memory as fixed-size blocks. Watch multiple requests allocate and deallocate blocks, leading to fragmentation, and then see how Paged Attention efficiently packs non-contiguous blocks.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Tokens per Block</div>
+          <input type="range" id="tokensPerBlockSlider" min="2" max="8" step="1" value="4">
+          <div class="slider-value" id="tokensPerBlockValue">4</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Adjusts the granularity of memory allocation. Smaller blocks = less waste, but more block tables.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="block-table-container" id="blockTables"></div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Welcome to GPU Memory</div>
+        <div class="info-desc" id="infoDesc">This grid represents 64 fixed-size memory blocks on a GPU, reserved for KV-cache. Initially, all blocks are free. Each block can store K/V pairs for a fixed number of tokens.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--bg2); border:1px solid var(--border)"></div> Free block</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Sequence 1 (Req #1)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Sequence 2 (Req #2)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Sequence 3 (Req #3)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Sequence 4 (Req #4)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Currently active request</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Paged Attention (or similar virtual memory approaches):</strong></p>
+    <ul>
+      <li>High-throughput LLM serving scenarios (e.g., API endpoints, large-scale deployments).</li>
+      <li>When dealing with highly variable input/output sequence lengths, which is common in real-world use cases.</li>
+      <li>To maximize GPU utilization and reduce inference latency when running multiple concurrent requests.</li>
+      <li>When memory sharing (e.g., for prompt caching, speculative decoding, or LoRA adapters) is desired, as block-level management simplifies this.</li>
+    </ul>
+    <p><strong>When NOT to use / Consider alternatives:</strong></p>
+    <ul>
+      <li>Single-user, low-throughput scenarios where the overhead of block management might not be justified.</li>
+      <li>Models small enough that KV-cache memory is not a bottleneck.</li>
+      <li>Custom hardware or very specific use cases where a different memory layout might be more optimal.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Big Picture</div>
+      <p style="font-size:14px;margin:0;">Paged Attention is a crucial systems-level optimization that bridges the gap between the theoretical efficiency of KV-caching and the practical realities of GPU memory management. By applying principles from operating system virtual memory, it transforms a fragmented, underutilized resource into a highly efficient, dynamically allocatable pool, enabling LLMs to serve more users faster.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Conceptual Paged Attention Manager</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">class BlockManager:</div>
+      <div class="code-line" id="cl3">    def __init__(self, num_gpu_blocks, tokens_per_block):</div>
+      <div class="code-line" id="cl4">        self.num_gpu_blocks = num_gpu_blocks</div>
+      <div class="code-line" id="cl5">        self.tokens_per_block = tokens_per_block</div>
+      <div class="code-line" id="cl6">        self.free_blocks = list(range(num_gpu_blocks)) # Pool of free block IDs</div>
+      <div class="code-line" id="cl7">        self.allocated_blocks = {} # {block_id: owner_seq_id}</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    def allocate(self, num_blocks, seq_id):</div>
+      <div class="code-line" id="cl10">        if len(self.free_blocks) < num_blocks:</div>
+      <div class="code-line" id="cl11">            raise MemoryError("Not enough free blocks")</div>
+      <div class="code-line" id="cl12">        
+      <div class="code-line" id="cl13">        allocated_ids = []</div>
+      <div class="code-line" id="cl14">        for _ in range(num_blocks):</div>
+      <div class="code-line" id="cl15">            block_id = self.free_blocks.pop(0) # Take from front for simplicity</div>
+      <div class="code-line" id="cl16">            self.allocated_blocks[block_id] = seq_id</div>
+      <div class="code-line" id="cl17">            allocated_ids.append(block_id)</div>
+      <div class="code-line" id="cl18">        return allocated_ids</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">    def free(self, block_ids):</div>
+      <div class="code-line" id="cl21">        for block_id in block_ids:</div>
+      <div class="code-line" id="cl22">            if block_id in self.allocated_blocks:</div>
+      <div class="code-line" id="cl23">                del self.allocated_blocks[block_id]</div>
+      <div class="code-line" id="cl24">                self.free_blocks.append(block_id) # Return to pool</div>
+      <div class="code-line" id="cl25">        self.free_blocks.sort() # Keep sorted for predictable allocation</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">class Sequence:</div>
+      <div class="code-line" id="cl28">    def __init__(self, seq_id, initial_tokens, block_manager):</div>
+      <div class="code-line" id="cl29">        self.seq_id = seq_id</div>
+      <div class="code-line" id="cl30">        self.logical_to_physical = [] # List of physical block IDs</div>
+      <div class="code-line" id="cl31">        self.length = 0</div>
+      <div class="code-line" id="cl32">        self.block_manager = block_manager</div>
+      <div class="code-line" id="cl33">        self.append_tokens(initial_tokens)</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35">    def append_tokens(self, num_new_tokens):</div>
+      <div class="code-line" id="cl36">        new_total_length = self.length + num_new_tokens</div>
+      <div class="code-line" id="cl37">        required_blocks = np.ceil(new_total_length / self.block_manager.tokens_per_block).astype(int)</div>
+      <div class="code-line" id="cl38">        
+      <div class="code-line" id="cl39">        blocks_to_allocate = required_blocks - len(self.logical_to_physical)</div>
+      <div class="code-line" id="cl40">        if blocks_to_allocate > 0:</div>
+      <div class="code-line" id="cl41">            new_blocks = self.block_manager.allocate(blocks_to_allocate, self.seq_id)</div>
+      <div class="code-line" id="cl42">            self.logical_to_physical.extend(new_blocks)</div>
+      <div class="code-line" id="cl43">        self.length = new_total_length</div>
+      <div class="code-line" id="cl44"></div>
+      <div class="code-line" id="cl45">    def free_all_blocks(self):</div>
+      <div class="code-line" id="cl46">        self.block_manager.free(self.logical_to_physical)</div>
+      <div class="code-line" id="cl47">        self.logical_to_physical = []</div>
+      <div class="code-line" id="cl48">        self.length = 0</div>
+      <div class="code-line" id="cl49"></div>
+      <div class="code-line" id="cl50"># Example Usage:</div>
+      <div class="code-line" id="cl51"># bm = BlockManager(num_gpu_blocks=64, tokens_per_block=4)</div>
+      <div class="code-line" id="cl52"># seq1 = Sequence(seq_id=1, initial_tokens=10, block_manager=bm) # Allocates 3 blocks</div>
+      <div class="code-line" id="cl53"># seq1.append_tokens(2) # Allocates 1 more block</div>
+      <div class="code-line" id="cl54"># seq2 = Sequence(seq_id=2, initial_tokens=8, block_manager=bm) # Allocates 2 blocks</div>
+      <div class="code-line" id="cl55"># seq1.free_all_blocks()</div>
+      <div class="code-line" id="cl56"># print(f"Free blocks after freeing seq1: {len(bm.free_blocks)}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+const GPU_MEMORY_SIZE = 64; // Total number of blocks
+let tokensPerBlock = 4; // Default, controlled by slider
+
+// BlockManager class (simplified for visualization)
+class BlockManager {
+  constructor(num_gpu_blocks, tokens_per_block) {
+    this.num_gpu_blocks = num_gpu_blocks;
+    this.tokens_per_block = tokens_per_block;
+    this.free_blocks = Array.from({ length: num_gpu_blocks }, (_, i) => i); // Pool of free block IDs
+    this.allocated_blocks = new Map(); // Map<block_id, owner_seq_id>
+    this.block_token_counts = new Map(); // Map<block_id, token_count>
+  }
+
+  allocate(num_blocks, seq_id) {
+    if (this.free_blocks.length < num_blocks) {
+      throw new Error("Not enough free blocks");
+    }
+    const allocated_ids = [];
+    for (let i = 0; i < num_blocks; i++) {
+      const block_id = this.free_blocks.shift(); // Take from front for simplicity
+      this.allocated_blocks.set(block_id, seq_id);
+      this.block_token_counts.set(block_id, 0); // Initialize token count
+      allocated_ids.push(block_id);
+    }
+    return allocated_ids;
+  }
+
+  free(block_ids) {
+    for (const block_id of block_ids) {
+      if (this.allocated_blocks.has(block_id)) {
+        this.allocated_blocks.delete(block_id);
+        this.block_token_counts.delete(block_id);
+        this.free_blocks.push(block_id);
+      }
+    }
+    this.free_blocks.sort((a, b) => a - b); // Keep sorted for predictable allocation
+  }
+
+  get_block_owner(block_id) {
+    return this.allocated_blocks.get(block_id);
+  }
+
+  get_free_count() {
+    return this.free_blocks.length;
+  }
+  
+  get_allocated_count() {
+    return this.allocated_blocks.size;
+  }
+
+  get_tokens_in_block(block_id) {
+    return this.block_token_counts.get(block_id) || 0;
+  }
+
+  add_tokens_to_block(block_id, count) {
+    if (this.block_token_counts.has(block_id)) {
+      const current = this.block_token_counts.get(block_id);
+      this.block_token_counts.set(block_id, Math.min(this.tokens_per_block, current + count));
+    }
+  }
+}
+
+// Sequence class (simplified)
+class Sequence {
+  constructor(seq_id, color, initial_tokens, block_manager) {
+    this.seq_id = seq_id;
+    this.color = color;
+    this.logical_to_physical = []; // List of physical block IDs
+    this.length = 0;
+    this.block_manager = block_manager;
+    this.status = 'running'; // 'running', 'finished'
+    if (initial_tokens > 0) {
+      this.append_tokens(initial_tokens);
+    }
+  }
+
+  get_required_blocks(new_total_length) {
+    if (new_total_length === 0) return 0;
+    return Math.ceil(new_total_length / this.block_manager.tokens_per_block);
+  }
+
+  append_tokens(num_new_tokens) {
+    const new_total_length = this.length + num_new_tokens;
+    const required_blocks = this.get_required_blocks(new_total_length);
+    const blocks_to_allocate = required_blocks - this.logical_to_physical.length;
+
+    if (blocks_to_allocate > 0) {
+      try {
+        const new_blocks = this.block_manager.allocate(blocks_to_allocate, this.seq_id);
+        this.logical_to_physical.push(...new_blocks);
+      } catch (e) {
+        console.error(`Sequence ${this.seq_id} failed to allocate blocks: ${e.message}`);
+        return false; // Allocation failed
+      }
+    }
+    this.length = new_total_length;
+
+    // Update token counts in blocks
+    let tokens_left = this.length;
+    for (const block_id of this.logical_to_physical) {
+      const tokens_in_this_block = Math.min(tokens_left, this.block_manager.tokens_per_block);
+      this.block_manager.add_tokens_to_block(block_id, tokens_in_this_block - this.block_manager.get_tokens_in_block(block_id));
+      tokens_left -= tokens_in_this_block;
+    }
+    return true; // Allocation successful
+  }
+
+  free_all_blocks() {
+    this.block_manager.free(this.logical_to_physical);
+    this.logical_to_physical = [];
+    this.length = 0;
+    this.status = 'finished';
+  }
+}
+
+let blockManager;
+let activeSequences = new Map(); // Map<seq_id, Sequence>
+let currentActiveSeqId = null; // Used for highlighting in visualization
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Welcome to GPU Memory',
+    desc: 'This grid represents 64 fixed-size memory blocks on a GPU, reserved for KV-cache. Initially, all blocks are free. Each block can store K/V pairs for a fixed number of tokens (currently 4).',
+    codeLines: [3,4,5,6],
+    action: () => {
+      blockManager = new BlockManager(GPU_MEMORY_SIZE, tokensPerBlock);
+      activeSequences.clear();
+      currentActiveSeqId = null;
+    }
+  },
+  {
+    phase: 'allocate', title: 'Request 1 Arrives (Pre-fill, 10 tokens)',
+    desc: 'A new request (Sequence 1, blue) arrives with a prompt of 10 tokens. The system allocates 3 blocks (since 10 tokens / 4 tokens/block = 2.5 blocks, rounded up to 3) from the free pool. These blocks are assigned contiguously for simplicity in this traditional view.',
+    codeLines: [9,10,13,14,15,16,17,37,39,41,42,43],
+    action: () => {
+      currentActiveSeqId = 1;
+      activeSequences.set(1, new Sequence(1, 'blue', 10, blockManager));
+    }
+  },
+  {
+    phase: 'decode', title: 'Request 1 Decodes (Generate 2 tokens)',
+    desc: 'Sequence 1 generates 2 more tokens. Its total length is now 12. It needs 1 more block (12 tokens / 4 tokens/block = 3 blocks total). A new block is allocated and appended to its logical cache.',
+    codeLines: [35,36,37,39,41,42,43],
+    action: () => {
+      currentActiveSeqId = 1;
+      activeSequences.get(1).append_tokens(2);
+    }
+  },
+  {
+    phase: 'allocate', title: 'Request 2 Arrives (Pre-fill, 8 tokens)',
+    desc: 'A second request (Sequence 2, purple) arrives with 8 tokens. It needs 2 blocks (8 tokens / 4 tokens/block = 2 blocks). These are allocated from the next available contiguous chunk.',
+    codeLines: [9,10,13,14,15,16,17,37,39,41,42,43],
+    action: () => {
+      currentActiveSeqId = 2;
+      activeSequences.set(2, new Sequence(2, 'purple', 8, blockManager));
+    }
+  },
+  {
+    phase: 'allocate', title: 'Request 3 Arrives (Pre-fill, 12 tokens)',
+    desc: 'A third request (Sequence 3, red) with 12 tokens arrives. It needs 3 blocks. Memory is starting to fill up, and the free blocks are becoming fragmented.',
+    codeLines: [9,10,13,14,15,16,17,37,39,41,42,43],
+    action: () => {
+      currentActiveSeqId = 3;
+      activeSequences.set(3, new Sequence(3, 'red', 12, blockManager));
+    }
+  },
+  {
+    phase: 'free', title: 'Request 1 Finishes',
+    desc: 'Sequence 1 (blue) completes its generation and its blocks are freed. These blocks are now returned to the global free pool. Notice the "hole" in the memory grid — this is fragmentation.',
+    codeLines: [20,21,22,23,24,25,45,46,47,48],
+    action: () => {
+      currentActiveSeqId = 1;
+      activeSequences.get(1).free_all_blocks();
+      currentActiveSeqId = null;
+    }
+  },
+  {
+    phase: 'fragment', title: 'Request 4 Arrives (Traditional, 16 tokens)',
+    desc: 'A new large request (Sequence 4, cyan) arrives, needing 4 blocks (16 tokens). Even though there are 16 free blocks total, a traditional system requiring *contiguous* blocks might fail to allocate. The largest contiguous free block is only 2 blocks long. This is the problem of fragmentation.',
+    codeLines: [10,11],
+    action: () => {
+      currentActiveSeqId = 4;
+      // Simulate failure of contiguous allocation
+      // We will actually allocate non-contiguously in the next step
+    }
+  },
+  {
+    phase: 'paged', title: 'Paged Attention: Non-contiguous Allocation',
+    desc: 'With Paged Attention, Sequence 4 (cyan) can successfully allocate its 4 blocks, even if they are not contiguous. The system finds any 4 free blocks, and its "block table" maps the logical sequence to these scattered physical blocks.',
+    codeLines: [9,10,13,14,15,16,17,37,39,41,42,43],
+    action: () => {
+      currentActiveSeqId = 4;
+      activeSequences.set(4, new Sequence(4, 'cyan', 16, blockManager));
+    }
+  },
+  {
+    phase: 'paged', title: 'Memory Utilization with Paged Attention',
+    desc: 'Paged Attention significantly improves GPU memory utilization. By eliminating fragmentation, more sequences can be packed into the same physical memory, increasing throughput. The blocks are treated as a fungible resource.',
+    codeLines: [],
+    action: () => {
+      currentActiveSeqId = null;
+    }
+  },
+  {
+    phase: 'paged', title: 'Cleanup & Reset',
+    desc: 'All sequences are finished and their blocks are returned to the free pool. The memory is fully defragmented and ready for new requests. Click "Reset" to restart the walkthrough!',
+    codeLines: [20,21,22,23,24,25,45,46,47,48],
+    action: () => {
+      for(const seq of activeSequences.values()) {
+        seq.free_all_blocks();
+      }
+      activeSequences.clear();
+      currentActiveSeqId = null;
+    }
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  tokensPerBlock = 4; // Reset slider value
+  document.getElementById('tokensPerBlockSlider').value = tokensPerBlock;
+  document.getElementById('tokensPerBlockValue').textContent = tokensPerBlock;
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Execute action for the current step
+  if (s.action) {
+    s.action();
+  }
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', allocate:'phase-allocate', decode:'phase-decode',
+    free:'phase-free', fragment:'phase-fragment', paged:'phase-paged'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas();
+
+  // Block Tables
+  renderBlockTables();
+
+  // Info Numbers
+  const totalBlocks = blockManager.num_gpu_blocks;
+  const allocatedBlocks = blockManager.get_allocated_count();
+  const freeBlocks = blockManager.get_free_count();
+  document.getElementById('infoNumbers').textContent = `Total blocks: ${totalBlocks}\nAllocated: ${allocatedBlocks}\nFree: ${freeBlocks}`;
+
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas() {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+
+  const seqColors = {
+    1: blueMid,
+    2: purpleMid,
+    3: redMid,
+    4: cyanMid
+  };
+
+  ctx.clearRect(0, 0, W, H);
+
+  const cols = 8;
+  const rows = GPU_MEMORY_SIZE / cols;
+  const blockGap = 4;
+  const blockW = (W - (cols + 1) * blockGap) / cols;
+  const blockH = (H - (rows + 1) * blockGap) / rows;
+
+  for (let i = 0; i < GPU_MEMORY_SIZE; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = blockGap + col * (blockW + blockGap);
+    const y = blockGap + row * (blockH + blockGap);
+
+    let fillColor = bg2;
+    let borderColor = borderC;
+    let textColor = text2;
+
+    const ownerSeqId = blockManager.get_block_owner(i);
+    if (ownerSeqId !== undefined) {
+      fillColor = seqColors[ownerSeqId];
+      if (ownerSeqId === currentActiveSeqId) {
+        borderColor = amberMid;
+        ctx.lineWidth = 2;
+      } else {
+        borderColor = 'transparent';
+        ctx.lineWidth = 1;
+      }
+      textColor = textC;
+    } else {
+      ctx.lineWidth = 1;
+    }
+
+    ctx.fillStyle = fillColor;
+    ctx.strokeStyle = borderColor;
+    ctx.fillRect(x, y, blockW, blockH);
+    ctx.strokeRect(x, y, blockW, blockH);
+
+    // Block ID text
+    ctx.fillStyle = textColor;
+    ctx.font = '500 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(i.toString(), x + blockW / 2, y + blockH / 2 - 6);
+
+    // Token count text
+    if (ownerSeqId !== undefined) {
+      const tokensInBlock = blockManager.get_tokens_in_block(i);
+      ctx.fillStyle = textColor;
+      ctx.font = '400 9px "DM Sans", system-ui';
+      ctx.fillText(`${tokensInBlock}/${tokensPerBlock}`, x + blockW / 2, y + blockH / 2 + 8);
+    }
+  }
+}
+
+function renderBlockTables() {
+  const container = document.getElementById('blockTables');
+  container.innerHTML = '';
+
+  activeSequences.forEach((seq, seq_id) => {
+    if (seq.status === 'finished' && step !== steps.length - 1) return; // Hide finished sequences' tables unless it's the final step
+
+    let tableClass = `block-table seq-${seq_id}`;
+    if (seq_id === currentActiveSeqId) {
+      tableClass += ' highlight';
+    }
+
+    let tableHtml = `<div class="${tableClass}">`;
+    tableHtml += `<div class="block-table-title">Seq ${seq_id} (len ${seq.length})</div>`;
+    tableHtml += `<div style="margin-top:4px; margin-bottom:4px; border-top:1px solid var(--border)"></div>`; // Separator
+    
+    if (seq.logical_to_physical.length === 0 && seq.length === 0) {
+      tableHtml += `<div style="font-size:10px; color:var(--text3);">No blocks allocated</div>`;
+    } else {
+      // Group tokens into blocks and display logical -> physical mapping
+      const numBlocks = seq.logical_to_physical.length;
+      for (let i = 0; i < numBlocks; i++) {
+        const logicalBlockStart = i * tokensPerBlock;
+        const logicalBlockEnd = Math.min(seq.length, (i + 1) * tokensPerBlock) - 1;
+        const physicalBlockId = seq.logical_to_physical[i];
+        
+        tableHtml += `<div class="block-table-row"><span>Tokens ${logicalBlockStart}-${logicalBlockEnd}:</span><span>Block ${physicalBlockId}</span></div>`;
+      }
+    }
+    tableHtml += `</div>`;
+    container.innerHTML += tableHtml;
+  });
+}
+
+// ── SLIDER ──
+const tokensPerBlockSlider = document.getElementById('tokensPerBlockSlider');
+tokensPerBlockSlider.addEventListener('input', () => { updateTokensPerBlock(); render(); });
+function updateTokensPerBlock() {
+  tokensPerBlock = parseInt(tokensPerBlockSlider.value);
+  document.getElementById('tokensPerBlockValue').textContent = tokensPerBlock;
+  document.getElementById('sliderHint').textContent =
+    `Each block stores K/V for ${tokensPerBlock} tokens. Larger blocks = fewer block tables, but more internal fragmentation if sequences don't fill blocks.`;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateTokensPerBlock();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas()); // Only redraw canvas, state is preserved
+</script>
+</body>
+</html>

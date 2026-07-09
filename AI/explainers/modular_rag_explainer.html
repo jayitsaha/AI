@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modular RAG: Routing, Fusion, Adaptive — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-stats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:1rem;}
+.stat-chip{font-family:var(--mono);font-size:12px;background:var(--bg2);border-radius:20px;padding:5px 14px;color:var(--text2);}
+.stat-chip b{color:var(--purple-mid);}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-routing{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-retrieval{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-fusion{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-adaptive{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Modular RAG: Routing, Fusion, Adaptive</h1>
+  <div class="subtitle">Beyond simple RAG: dynamically selecting retrievers, fusing results, and learning from feedback</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">LLMs</span>
+    <span class="tag tag-category">RAG</span>
+    <span class="tag tag-complexity">O(N) complexity for N modules</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Modular RAG</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Retrieval-Augmented Generation (RAG) improves LLM responses by fetching relevant information from external knowledge bases. Traditional RAG often uses a single retriever and a fixed process. Modular RAG extends this by introducing a dynamic pipeline: it intelligently <em>routes</em> queries to the most appropriate retriever(s), <em>fuses</em> results from multiple sources, and <em>adapts</em> its strategy over time based on feedback.</p>
+    <p><strong>Analogy:</strong> Imagine you're a master chef (the LLM) preparing a complex dish based on a customer's request (the query). Simple RAG is like having only one cookbook. Modular RAG means you have a whole library of cookbooks (different retrievers: French, Italian, baking, cocktails), a sommelier to recommend wine pairings (fusion/reranker), and a food critic (adaptive feedback) who tells you what worked well, so you improve your selection strategy for next time. You dynamically choose the right resources for each unique request.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Modular RAG moves beyond a static "one-size-fits-all" retrieval strategy. It introduces an intelligent orchestration layer that can dynamically select from multiple retrieval tools, combine their outputs, and continuously learn to improve its decision-making, leading to more accurate and contextually rich responses for diverse queries.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Modular RAG Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Core Components of a Modular RAG System</h4>
+    <p>A modular RAG system typically comprises several interconnected components, orchestrated to handle queries intelligently:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Query Router:</strong> The brain of the system. It analyzes the incoming user query and decides which downstream module(s) (e.g., specific retrievers, a general web search, or even a direct LLM call) are most likely to provide useful context. This decision can be based on keyword matching, semantic similarity to known query types, or a specialized classification model.</li>
+      <li><strong>Multiple Retrievers:</strong> Instead of one monolithic knowledge base, modular RAG employs diverse retrievers, each specialized for different data types or domains. Examples include:
+        <ul>
+          <li><strong>Document Retriever:</strong> For structured internal knowledge bases (e.g., company wikis, research papers).</li>
+          <li><strong>Code Retriever:</strong> For code snippets, API documentation, or programming-related queries.</li>
+          <li><strong>Web Search:</strong> For real-time, broad, or highly dynamic information.</li>
+          <li><strong>Multi-modal Retriever:</strong> For queries involving images, videos, or other non-textual data.</li>
+        </ul>
+      </li>
+      <li><strong>Response Fusion &amp; Reranking:</strong> When multiple retrievers are used (or even a single retriever returns many results), this module combines, filters, and re-ranks the retrieved documents. This ensures that the most relevant and non-redundant information is passed to the LLM, preventing context window bloat and improving relevance.</li>
+      <li><strong>LLM Generator:</strong> The final stage, where the Large Language Model synthesizes the user query and the (now optimized) retrieved context to generate a coherent and accurate response.</li>
+      <li><strong>Adaptive Feedback Loop:</strong> A crucial component that learns from past interactions. This can involve explicit user feedback (e.g., thumbs up/down), implicit signals (e.g., user engagement, follow-up questions), or even reinforcement learning from human preferences (RLHF) to refine the routing and fusion strategies over time.</li>
+    </ol>
+
+    <h4>Design Decision: Why not just bigger embeddings or LLMs?</h4>
+    <p>While larger LLMs and more powerful embedding models improve base performance, they don't solve the fundamental problem of information access and relevance for highly diverse, dynamic, or specialized queries. Modular RAG addresses this by: (1) **Cost-efficiency:** Avoiding expensive web searches or redundant retrievals for simple queries. (2) **Accuracy:** Targeting specialized knowledge bases for specific query types. (3) **Scalability:** Easily adding new data sources or retrieval strategies without retraining the entire LLM. (4) **Interpretability:** Providing more transparency into *how* the information was sourced.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The power of modular RAG lies in its flexibility: each component can be independently optimized, swapped, or combined. This allows for tailored solutions that outperform static RAG systems in scenarios requiring diverse information access, dynamic decision-making, and continuous improvement.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math Behind Routing &amp; Fusion</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Query Routing: A Probabilistic Decision</h4>
+    <p>The core of intelligent routing is to predict the probability that a given query \(q\) should be handled by a specific retriever \(R_k\). This is often framed as a multi-class classification problem. Let \(\mathbf{z}\) be the embedding of the query \(q\), and let there be \(K\) available retrievers \(\{R_1, \dots, R_K\}\).</p>
+    <p>A router model (e.g., a small neural network or a semantic classifier) computes a score \(s_k\) for each retriever, and then applies a softmax function to convert these scores into probabilities:</p>
+    <div class="eq">$$P(\text{route to } R_k \mid q) = \frac{\exp(f_k(\mathbf{z}))}{\sum_{j=1}^K \exp(f_j(\mathbf{z}))}$$</div>
+    <p>Here, \(f_k(\mathbf{z})\) is the raw score for retriever \(R_k\) given query embedding \(\mathbf{z}\). The router can then select the retriever with the highest probability (greedy approach) or sample from the distribution.</p>
+
+    <h4>2. Response Fusion: Combining Multiple Contexts</h4>
+    <p>When multiple retrievers are invoked, their outputs (documents or passages) need to be fused. A common approach involves re-ranking the combined set of documents. Let \(\mathcal{D} = \{d_1, d_2, \dots, d_M\}\) be the union of documents retrieved from all selected sources. A re-ranker model computes a relevance score \(r(q, d_i)\) for each document \(d_i\) with respect to the original query \(q\).</p>
+    <p>The re-ranker's goal is to maximize the overall relevance and minimize redundancy. A simple scoring function might be based on cosine similarity between query and document embeddings, or a more sophisticated cross-encoder:</p>
+    <div class="eq">$$r(q, d_i) = \text{ScoreModel}(\text{embedding}(q), \text{embedding}(d_i))$$</div>
+    <p>The top-\(N\) documents with the highest \(r(q, d_i)\) scores are then selected and concatenated to form the final context for the LLM. More advanced fusion methods might use techniques like Reciprocal Rank Fusion (RRF) to combine ranked lists from different retrievers without explicit relevance scores.</p>
+
+    <h4>3. Adaptive Learning: Reinforcement from Feedback</h4>
+    <p>The adaptive component uses feedback to refine the routing and fusion policies. This can be modeled as a reinforcement learning (RL) problem where the routing/fusion decisions are "actions," and the quality of the final LLM response (e.g., user rating, task success) serves as the "reward."</p>
+    <p>The objective is to learn a policy \(\pi\) that maximizes expected reward:</p>
+    <div class="eq">$$\max_{\pi} \mathbb{E}_{\pi}\left[\sum_{t=0}^T \text{Reward}_t\right]$$</div>
+    <p>For example, if a query \(q\) was routed to \(R_A\) and resulted in a low user satisfaction score, the policy for routing similar queries would be updated to decrease the probability of choosing \(R_A\) and increase the probability of other retrievers. This continuous learning makes the system robust and performant over time.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Implementing modular RAG introduces significant complexity. The router needs robust training data (query-to-retriever mappings), fusion requires careful tuning to avoid context window overflow, and adaptive loops can be slow to converge. Over-engineering for simple use cases can lead to higher latency and maintenance costs without proportional gains.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how a query flows through a Modular RAG pipeline. Adjust the "Query Type Mix" slider to see how routing decisions change, influencing which retrievers are used and how the final response is generated.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Query Type Mix (0=Factual, 1=Creative/Diverse)</div>
+          <input type="range" id="queryTypeMixSlider" min="0" max="1" step="0.05" value="0">
+          <div class="slider-value" id="queryTypeMixValue">0.00</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Adjust to see how the router adapts its strategy.</div>
+      </div>
+
+      <div class="viz-stats">
+        <div class="stat-chip">Selected Retriever: <b id="statSelectedRetriever">None</b></div>
+        <div class="stat-chip">Router Confidence: <b id="statRouterConfidence">0.00%</b></div>
+        <div class="stat-chip">LLM Temperature: <b id="statLLMTemperature">0.7</b></div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Query</div>
+        <div class="info-desc" id="infoDesc">A user query enters the Modular RAG system. The system needs to decide the best way to find relevant information.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Active Module</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Router Decision/Scores</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Retrieved Context</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Final Response</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Adaptive Feedback</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Modular RAG:</strong></p>
+    <ul>
+      <li><strong>Complex and diverse queries:</strong> When user questions span multiple domains, require real-time information, or involve different data types (text, code, images).</li>
+      <li><strong>Heterogeneous data sources:</strong> When your knowledge base is fragmented across various specialized databases, internal documents, or external web content.</li>
+      <li><strong>Performance optimization:</strong> To reduce latency and cost by selectively invoking expensive retrievers (e.g., web search) only when necessary.</li>
+      <li><strong>Continuous improvement:</strong> When you need a system that can learn and adapt its retrieval strategy over time based on user feedback or observed performance.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Simple, narrow queries:</strong> For straightforward questions answerable by a single, well-indexed knowledge base, the overhead of modular RAG might be unnecessary.</li>
+      <li><strong>Strict latency requirements:</strong> The routing and fusion steps add computational overhead, which can increase overall response time.</li>
+      <li><strong>Small-scale applications:</strong> For prototypes or systems with limited data and user interaction, a simpler RAG setup might suffice.</li>
+      <li><strong>Lack of diverse retrievers:</strong> If you only have one type of information source, the benefits of routing are minimal.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Hierarchy</div>
+      <p style="font-size:14px;margin:0;"><strong>Vanilla RAG</strong> (fixed retriever, fixed process) ⊂ <strong>Modular RAG</strong> (dynamic routing, multi-retriever fusion, adaptive learning). Modular RAG represents a significant leap in complexity and capability, offering greater flexibility and robustness for real-world LLM applications.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Simplified Python)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">from collections import defaultdict</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class QueryRouter:</div>
+      <div class="code-line" id="cl4">    def __init__(self, retriever_names):</div>
+      <div class="code-line" id="cl5">        self.retriever_names = retriever_names</div>
+      <div class="code-line" id="cl6">        # Simulate learned weights for query features to retriever scores</div>
+      <div class="code-line" id="cl7">        # query_features: [factual_score, creative_score, code_score, multimodal_score]</div>
+      <div class="code-line" id="cl8">        self.weights = {</div>
+      <div class="code-line" id="cl9">            "DocumentDB": np.array([1.5, 0.2, 0.1, 0.0]),</div>
+      <div class="code-line" id="cl10">            "WebSearch":  np.array([0.5, 1.2, 0.3, 0.2]),</div>
+      <div class="code-line" id="cl11">            "CodeRepo":   np.array([0.2, 0.1, 1.8, 0.1]),</div>
+      <div class="code-line" id="cl12">            "ImageDB":    np.array([0.0, 0.4, 0.0, 1.5]),</div>
+      <div class="code-line" id="cl13">        }</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    def route(self, query_embedding):</div>
+      <div class="code-line" id="cl16">        scores = {name: np.dot(query_embedding, self.weights[name]) for name in self.retriever_names}</div>
+      <div class="code-line" id="cl17">        exp_scores = {name: np.exp(score) for name, score in scores.items()}</div>
+      <div class="code-line" id="cl18">        sum_exp_scores = sum(exp_scores.values())</div>
+      <div class="code-line" id="cl19">        probs = {name: es / sum_exp_scores for name, es in exp_scores.items()}</div>
+      <div class="code-line" id="cl20">        return probs</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">class Retriever:</div>
+      <div class="code-line" id="cl23">    def __init__(self, name, data_source):</div>
+      <div class="code-line" id="cl24">        self.name = name</div>
+      <div class="code-line" id="cl25">        self.data_source = data_source # Simplified: just a string</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    def retrieve(self, query):</div>
+      <div class="code-line" id="cl28">        # Simulate retrieval based on query keywords</div>
+      <div class="code-line" id="cl29">        if "python" in query.lower() and self.name == "CodeRepo":</div>
+      <div class="code-line" id="cl30">            return f"Context from {self.name}: Python syntax for {query}..."</div>
+      <div class="code-line" id="cl31">        elif "weather" in query.lower() and self.name == "WebSearch":</div>
+      <div class="code-line" id="cl32">            return f"Context from {self.name}: Real-time weather data for {query}..."</div>
+      <div class="code-line" id="cl33">        elif "history" in query.lower() and self.name == "DocumentDB":</div>
+      <div class="code-line" id="cl34">            return f"Context from {self.name}: Historical facts about {query}..."</div>
+      <div class="code-line" id="cl35">        return f"Context from {self.name}: Generic info for {query}..."</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37">class FusionReranker:</div>
+      <div class="code-line" id="cl38">    def rerank(self, query, retrieved_contexts):</div>
+      <div class="code-line" id="cl39">        # In a real system, this would involve embedding, cross-attention, etc.</div>
+      <div class="code-line" id="cl40">        # Here, we simply combine and filter for brevity.</div>
+      <div class="code-line" id="cl41">        combined_context = "\n".join(retrieved_contexts)</div>
+      <div class="code-line" id="cl42">        return f"Reranked & Fused Context:\n{combined_context[:200]}..."</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">class LLMGenerator:</div>
+      <div class="code-line" id="cl45">    def generate(self, query, context, temperature=0.7):</div>
+      <div class="code-line" id="cl46">        # Simulate LLM response generation</div>
+      <div class="code-line" id="cl47">        return f"LLM Response (temp={temperature}): Based on '{context[:50]}...', I can tell you about {query}."</div>
+      <div class="code-line" id="cl48"></div>
+      <div class="code-line" id="cl49">class AdaptiveFeedbackLoop:</div>
+      <div class="code-line" id="cl50">    def __init__(self, router):</div>
+      <div class="code-line" id="cl51">        self.router = router</div>
+      <div class="code-line" id="cl52">        self.feedback_history = defaultdict(list)</div>
+      <div class="code-line" id="cl53"></div>
+      <div class="code-line" id="cl54">    def provide_feedback(self, query_embedding, chosen_retriever, reward):</div>
+      <div class="code-line" id="cl55">        # Simulate updating router weights based on reward</div>
+      <div class="code-line" id="cl56">        # In reality, this would be a more complex RL update</div>
+      <div class="code-line" id="cl57">        for name, weights in self.router.weights.items():</div>
+      <div class="code-line" id="cl58">            if name == chosen_retriever:</div>
+      <div class="code-line" id="cl59">                self.router.weights[name] += query_embedding * reward * 0.1 # Simple update</div>
+      <div class="code-line" id="cl60">            else:</div>
+      <div class="code-line" id="cl61">                self.router.weights[name] -= query_embedding * reward * 0.05</div>
+      <div class="code-line" id="cl62">        print(f"Router weights updated based on reward {reward} for {chosen_retriever}.")</div>
+      <div class="code-line" id="cl63"></div>
+      <div class="code-line" id="cl64"># --- Main RAG Pipeline ---</div>
+      <div class="code-line" id="cl65">retriever_names = ["DocumentDB", "WebSearch", "CodeRepo", "ImageDB"]</div>
+      <div class="code-line" id="cl66">router = QueryRouter(retriever_names)</div>
+      <div class="code-line" id="cl67">retrievers = {name: Retriever(name, f"{name}_data") for name in retriever_names}</div>
+      <div class="code-line" id="cl68">fusion_reranker = FusionReranker()</div>
+      <div class="code-line" id="cl69">llm = LLMGenerator()</div>
+      <div class="code-line" id="cl70">adaptive_loop = AdaptiveFeedbackLoop(router)</div>
+      <div class="code-line" id="cl71"></div>
+      <div class="code-line" id="cl72">def run_modular_rag(query, query_embedding, temperature=0.7):</div>
+      <div class="code-line" id="cl73">    # 1. Route Query</div>
+      <div class="code-line" id="cl74">    routing_probs = router.route(query_embedding)</div>
+      <div class="code-line" id="cl75">    chosen_retriever_name = max(routing_probs, key=routing_probs.get)</div>
+      <div class="code-line" id="cl76">    print(f"Routing probs: {routing_probs}")</div>
+      <div class="code-line" id="cl77">    print(f"Chosen retriever: {chosen_retriever_name}")</div>
+      <div class="code-line" id="cl78"></div>
+      <div class="code-line" id="cl79">    # 2. Retrieve Context</div>
+      <div class="code-line" id="cl80">    retrieved_context = retrievers[chosen_retriever_name].retrieve(query)</div>
+      <div class="code-line" id="cl81">    print(f"Retrieved: {retrieved_context}")</div>
+      <div class="code-line" id="cl82"></div>
+      <div class="code-line" id="cl83">    # 3. Fuse & Rerank (simplified as single retriever here)</div>
+      <div class="code-line" id="cl84">    final_context = fusion_reranker.rerank(query, [retrieved_context])</div>
+      <div class="code-line" id="cl85">    print(f"Fused context: {final_context}")</div>
+      <div class="code-line" id="cl86"></div>
+      <div class="code-line" id="cl87">    # 4. Generate Response</div>
+      <div class="code-line" id="cl88">    response = llm.generate(query, final_context, temperature)</div>
+      <div class="code-line" id="cl89">    print(f"Final response: {response}")</div>
+      <div class="code-line" id="cl90"></div>
+      <div class="code-line" id="cl91">    return response, chosen_retriever_name</div>
+      <div class="code-line" id="cl92"></div>
+      <div class="code-line" id="cl93"># Example Usage</div>
+      <div class="code-line" id="cl94">query_factual = "What is the capital of France?"</div>
+      <div class="code-line" id="cl95">embed_factual = np.array([1.0, 0.1, 0.0, 0.0]) # Factual dominant</div>
+      <div class="code-line" id="cl96">response, chosen = run_modular_rag(query_factual, embed_factual)</div>
+      <div class="code-line" id="cl97">adaptive_loop.provide_feedback(embed_factual, chosen, reward=1.0) # Good feedback</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let currentStep = 0;
+const totalSteps = 9;
+let queryTypeMix = 0.0; // Slider value, 0.0 to 1.0
+
+// ── UTILS ──
+function fmt(v, precision = 2) {
+  if (typeof v !== 'number' || isNaN(v)) return 'N/A';
+  return v.toFixed(precision);
+}
+
+// ── VIZ DATA & LOGIC ──
+const MODULES = {
+  QUERY_INPUT: { x: 0.1, y: 0.5, label: "User Query" },
+  QUERY_ROUTER: { x: 0.25, y: 0.5, label: "Query Router" },
+  DOC_RETRIEVER: { x: 0.45, y: 0.2, label: "DocumentDB" },
+  WEB_SEARCH: { x: 0.45, y: 0.4, label: "Web Search" },
+  CODE_RETRIEVER: { x: 0.45, y: 0.6, label: "Code Repo" },
+  MM_RETRIEVER: { x: 0.45, y: 0.8, label: "ImageDB" },
+  FUSION_RERANKER: { x: 0.65, y: 0.5, label: "Fusion/Reranker" },
+  LLM_GENERATOR: { x: 0.8, y: 0.5, label: "LLM Generator" },
+  FINAL_RESPONSE: { x: 0.95, y: 0.5, label: "Final Response" },
+  ADAPTIVE_LOOP: { x: 0.5, y: 0.95, label: "Adaptive Feedback", isFeedback: true }
+};
+
+// Simplified weights for router based on queryTypeMix
+// queryTypeMix: 0 (factual) -> favors DocumentDB
+// queryTypeMix: 1 (creative/diverse) -> favors Web Search / ImageDB
+const ROUTER_WEIGHTS = {
+  DocumentDB: [1.5, 0.2, 0.1, 0.0], // Factual, Creative, Code, Multi-modal
+  WebSearch:  [0.5, 1.2, 0.3, 0.2],
+  CodeRepo:   [0.2, 0.1, 1.8, 0.1],
+  ImageDB:    [0.0, 0.4, 0.0, 1.5],
+};
+
+// Simulated query embeddings based on queryTypeMix
+function getQueryEmbedding(mix) {
+  // Linearly interpolate between a factual query and a creative/diverse query
+  // Factual:   [1.0, 0.1, 0.0, 0.0]
+  // Creative:  [0.1, 1.0, 0.2, 0.3]
+  // Code:      [0.0, 0.2, 1.0, 0.1] (if mix is around 0.5, maybe a bit of code)
+  // Multi-modal: [0.0, 0.3, 0.1, 1.0] (if mix is high)
+
+  const factualComponent = 1.0 - mix * 0.7; // Decreases as mix increases
+  const creativeComponent = mix * 0.8;       // Increases as mix increases
+  const codeComponent = mix * 0.3;           // Small increase
+  const multimodalComponent = mix * 0.5;     // Moderate increase
+
+  return [factualComponent, creativeComponent, codeComponent, multimodalComponent];
+}
+
+function calculateRoutingProbs(queryMix) {
+  const queryEmbedding = getQueryEmbedding(queryMix);
+  const scores = {};
+  for (const retrieverName in ROUTER_WEIGHTS) {
+    let score = 0;
+    for (let i = 0; i < queryEmbedding.length; i++) {
+      score += queryEmbedding[i] * ROUTER_WEIGHTS[retrieverName][i];
+    }
+    scores[retrieverName] = score;
+  }
+
+  const expScores = {};
+  for (const name in scores) { expScores[name] = Math.exp(scores[name]); }
+
+  const sumExpScores = Object.values(expScores).reduce((a, b) => a + b, 0);
+  const probs = {};
+  for (const name in expScores) { probs[name] = expScores[name] / sumExpScores; }
+
+  return probs;
+}
+
+function getChosenRetriever(probs) {
+  let maxProb = -1;
+  let chosen = "None";
+  for (const name in probs) {
+    if (probs[name] > maxProb) {
+      maxProb = probs[name];
+      chosen = name;
+    }
+  }
+  return chosen;
+}
+
+const LLM_TEMPERATURE = 0.7; // Fixed for this explainer
+
+// ── STEPS DEFINITION ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Query',
+    desc: 'A user query enters the Modular RAG system. The system needs to decide the best way to find relevant information. Current Query Type Mix: <b>Factual</b> (slider at 0.0).',
+    activeModules: ['QUERY_INPUT'],
+    query: "What is the capital of France?",
+    retrievedContext: "",
+    response: ""
+  },
+  {
+    phase: 'routing', title: 'Query Router Activation',
+    desc: 'The Query Router analyzes the incoming query. Based on its type (e.g., factual, creative, code, multi-modal), it computes scores for each available retriever, which are then converted into probabilities.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER'],
+    query: "What is the capital of France?",
+    retrievedContext: "",
+    response: ""
+  },
+  {
+    phase: 'routing', title: 'Router Decision & Retriever Selection',
+    desc: 'The router selects the retriever with the highest probability. For a factual query, the <b>DocumentDB</b> is typically chosen. This directs the flow of information to the most relevant source.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'DOC_RETRIEVER'],
+    query: "What is the capital of France?",
+    retrievedContext: "Context from DocumentDB: Paris is the capital and most populous city of France...",
+    response: ""
+  },
+  {
+    phase: 'retrieval', title: 'Retrieving Context',
+    desc: 'The selected retriever fetches relevant documents or data snippets from its specialized knowledge base. This retrieved context is crucial for grounding the LLM\'s response.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'DOC_RETRIEVER'],
+    query: "What is the capital of France?",
+    retrievedContext: "Context from DocumentDB: Paris is the capital and most populous city of France, located on the River Seine...",
+    response: ""
+  },
+  {
+    phase: 'fusion', title: 'Fusion & Reranking',
+    desc: 'If multiple retrievers were used, or if the chosen retriever returned many documents, the Fusion/Reranker module combines and re-ranks them. This ensures only the most relevant and concise context is passed to the LLM.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'DOC_RETRIEVER', 'FUSION_RERANKER'],
+    query: "What is the capital of France?",
+    retrievedContext: "Reranked & Fused Context: Paris, France's capital, is its most populous city, situated on the River Seine...",
+    response: ""
+  },
+  {
+    phase: 'adaptive', title: 'LLM Generation & Response',
+    desc: 'The LLM processes the original query and the refined context to generate a coherent and accurate response. This is the final output to the user.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'DOC_RETRIEVER', 'FUSION_RERANKER', 'LLM_GENERATOR', 'FINAL_RESPONSE'],
+    query: "What is the capital of France?",
+    retrievedContext: "Reranked & Fused Context: Paris, France's capital, is its most populous city, situated on the River Seine...",
+    response: "LLM Response: The capital of France is Paris, a major European city known for its history and culture."
+  },
+  {
+    phase: 'routing', title: 'New Query Type: Creative/Diverse',
+    desc: 'Now, let\'s change the Query Type Mix to <b>Creative/Diverse</b> (slider at 1.0). The router will re-evaluate and likely choose a different path, such as Web Search or ImageDB, to match the new query characteristics.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER'],
+    query: "Suggest unique summer vacation ideas.",
+    retrievedContext: "",
+    response: ""
+  },
+  {
+    phase: 'routing', title: 'Router Adapts: Web Search Chosen',
+    desc: 'With a "Creative/Diverse" query, the router now prioritizes retrievers like <b>Web Search</b> to gather broader, more dynamic information that a static DocumentDB might not cover. This demonstrates adaptive routing.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'WEB_SEARCH'],
+    query: "Suggest unique summer vacation ideas.",
+    retrievedContext: "Context from Web Search: Explore hidden gems in Iceland, eco-tourism in Costa Rica, or cultural festivals in Japan...",
+    response: "LLM Response: For unique summer vacations, consider eco-tourism in Costa Rica, exploring Iceland's landscapes, or cultural festivals in Japan."
+  },
+  {
+    phase: 'adaptive', title: 'Adaptive Feedback Loop in Action',
+    desc: 'The Adaptive Feedback Loop continuously monitors response quality (e.g., user satisfaction). If a response is poor, it updates the router\'s internal weights to improve future routing decisions for similar queries, closing the loop for continuous learning.',
+    activeModules: ['QUERY_INPUT', 'QUERY_ROUTER', 'DOC_RETRIEVER', 'WEB_SEARCH', 'CODE_RETRIEVER', 'MM_RETRIEVER', 'FUSION_RERANKER', 'LLM_GENERATOR', 'FINAL_RESPONSE', 'ADAPTIVE_LOOP'],
+    query: "How to implement a quicksort in Python?",
+    retrievedContext: "Context from CodeRepo: Python code for quicksort algorithm... (Imagine a good response led to positive feedback)",
+    response: "LLM Response: Quicksort in Python can be implemented recursively by partitioning the array and sorting sub-arrays."
+  }
+];
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+  };
+}
+
+function drawCanvas(stepIdx) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+  const colors = getColors();
+
+  const currentStepData = steps[stepIdx];
+  const activeModules = currentStepData.activeModules;
+  const routerProbs = calculateRoutingProbs(queryTypeMix);
+  const chosenRetriever = getChosenRetriever(routerProbs);
+
+  // Draw Modules
+  const nodeRadius = 14;
+  const nodeWidth = 100, nodeHeight = 40;
+
+  for (const key in MODULES) {
+    const module = MODULES[key];
+    const centerX = module.x * W;
+    const centerY = module.y * H;
+    const isActive = activeModules.includes(key);
+
+    ctx.save();
+    ctx.globalAlpha = isActive ? 1 : 0.3;
+
+    ctx.fillStyle = colors.blue;
+    if (key === 'QUERY_ROUTER' && isActive) ctx.fillStyle = colors.amber;
+    if (key.includes('RETRIEVER') && isActive) ctx.fillStyle = colors.green;
+    if (key === 'FUSION_RERANKER' && isActive) ctx.fillStyle = colors.purple;
+    if (key === 'LLM_GENERATOR' && isActive) ctx.fillStyle = colors.purple;
+    if (key === 'FINAL_RESPONSE' && isActive) ctx.fillStyle = colors.purple;
+    if (key === 'ADAPTIVE_LOOP' && isActive) ctx.fillStyle = colors.cyan;
+
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1.5;
+
+    // Draw node rectangle
+    ctx.beginPath();
+    ctx.roundRect(centerX - nodeWidth / 2, centerY - nodeHeight / 2, nodeWidth, nodeHeight, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.font = '600 11px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(module.label, centerX, centerY);
+    ctx.restore();
+  }
+
+  // Draw Edges and Data Flow
+  const drawArrow = (from, to, color, highlight = false, text = '', textOffset = 0) => {
+    const fromX = MODULES[from].x * W;
+    const fromY = MODULES[from].y * H;
+    const toX = MODULES[to].x * W;
+    const toY = MODULES[to].y * H;
+
+    const startX = fromX + (toX > fromX ? nodeWidth / 2 : -nodeWidth / 2);
+    const startY = fromY;
+    const endX = toX - (toX > fromX ? nodeWidth / 2 : -nodeWidth / 2);
+    const endY = toY;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = highlight ? 2.5 : 1.5;
+    ctx.globalAlpha = highlight ? 1 : 0.4;
+    ctx.setLineDash(highlight ? [] : [4, 4]);
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Arrowhead
+    const angle = Math.atan2(endY - startY, endX - startX);
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - 8 * Math.cos(angle - Math.PI / 6), endY - 8 * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - 8 * Math.cos(angle + Math.PI / 6), endY - 8 * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+
+    if (text) {
+      ctx.fillStyle = color;
+      ctx.font = '500 10px var(--sans)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const midX = (startX + endX) / 2;
+      const midY = (startY + endY) / 2;
+      ctx.fillText(text, midX, midY - 5 - textOffset);
+    }
+
+    ctx.restore();
+  };
+
+  // Query -> Router
+  drawArrow('QUERY_INPUT', 'QUERY_ROUTER', colors.text2, activeModules.includes('QUERY_ROUTER'));
+
+  // Router -> Retrievers
+  const retrieverKeys = ['DOC_RETRIEVER', 'WEB_SEARCH', 'CODE_RETRIEVER', 'MM_RETRIEVER'];
+  retrieverKeys.forEach((key, i) => {
+    const prob = routerProbs[key.replace('_RETRIEVER', '')] || 0;
+    const isChosen = key.replace('_RETRIEVER', '') === chosenRetriever;
+    const highlightPath = activeModules.includes('QUERY_ROUTER') && activeModules.includes(key) && isChosen;
+    drawArrow('QUERY_ROUTER', key, colors.amber, highlightPath, `P=${fmt(prob*100)}%`, highlightPath ? 10 : 0);
+  });
+
+  // Retrievers -> Fusion
+  retrieverKeys.forEach(key => {
+    const isChosen = key.replace('_RETRIEVER', '') === chosenRetriever;
+    const highlightPath = activeModules.includes(key) && activeModules.includes('FUSION_RERANKER') && isChosen;
+    drawArrow(key, 'FUSION_RERANKER', colors.green, highlightPath);
+  });
+
+  // Fusion -> LLM
+  drawArrow('FUSION_RERANKER', 'LLM_GENERATOR', colors.purple, activeModules.includes('FUSION_RERANKER') && activeModules.includes('LLM_GENERATOR'));
+
+  // LLM -> Response
+  drawArrow('LLM_GENERATOR', 'FINAL_RESPONSE', colors.purple, activeModules.includes('LLM_GENERATOR') && activeModules.includes('FINAL_RESPONSE'));
+
+  // Adaptive Loop feedback (back to router)
+  if (activeModules.includes('ADAPTIVE_LOOP')) {
+    const routerX = MODULES.QUERY_ROUTER.x * W;
+    const routerY = MODULES.QUERY_ROUTER.y * H;
+    const adaptiveX = MODULES.ADAPTIVE_LOOP.x * W;
+    const adaptiveY = MODULES.ADAPTIVE_LOOP.y * H;
+
+    ctx.save();
+    ctx.strokeStyle = colors.cyan;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(adaptiveX, adaptiveY - nodeHeight / 2);
+    ctx.lineTo(adaptiveX, adaptiveY - H * 0.2); // Up
+    ctx.lineTo(routerX + W * 0.05, routerY - H * 0.2); // Left
+    ctx.lineTo(routerX + nodeWidth / 2 + 5, routerY); // To router
+    ctx.stroke();
+
+    // Arrowhead
+    ctx.beginPath();
+    const angle = Math.atan2(routerY - (routerY - H * 0.2), routerX + nodeWidth / 2 + 5 - (routerX + W * 0.05));
+    ctx.moveTo(routerX + nodeWidth / 2 + 5, routerY);
+    ctx.lineTo(routerX + nodeWidth / 2 + 5 - 8 * Math.cos(angle - Math.PI / 6), routerY - 8 * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(routerX + nodeWidth / 2 + 5, routerY);
+    ctx.lineTo(routerX + nodeWidth / 2 + 5 - 8 * Math.cos(angle + Math.PI / 6), routerY - 8 * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Display Query, Context, Response beside modules
+  ctx.fillStyle = colors.text;
+  ctx.font = '12px var(--sans)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  if (currentStepData.query) {
+    ctx.fillText("Query:", MODULES.QUERY_INPUT.x * W + nodeWidth / 2 + 10, MODULES.QUERY_INPUT.y * H - 15);
+    ctx.fillText(currentStepData.query, MODULES.QUERY_INPUT.x * W + nodeWidth / 2 + 10, MODULES.QUERY_INPUT.y * H);
+  }
+
+  if (currentStepData.retrievedContext && activeModules.includes('DOC_RETRIEVER') || activeModules.includes('WEB_SEARCH') || activeModules.includes('CODE_RETRIEVER') || activeModules.includes('MM_RETRIEVER')) {
+    ctx.fillText("Context:", MODULES.FUSION_RERANKER.x * W - nodeWidth / 2 - 10 - 150, MODULES.FUSION_RERANKER.y * H - 15);
+    const contextText = currentStepData.retrievedContext.length > 80 ? currentStepData.retrievedContext.substring(0, 77) + '...' : currentStepData.retrievedContext;
+    ctx.fillText(contextText, MODULES.FUSION_RERANKER.x * W - nodeWidth / 2 - 10 - 150, MODULES.FUSION_RERANKER.y * H);
+  }
+
+  if (currentStepData.response) {
+    ctx.fillText("Response:", MODULES.FINAL_RESPONSE.x * W + nodeWidth / 2 + 10, MODULES.FINAL_RESPONSE.y * H - 15);
+    const responseText = currentStepData.response.length > 80 ? currentStepData.response.substring(0, 77) + '...' : currentStepData.response;
+    ctx.fillText(responseText, MODULES.FINAL_RESPONSE.x * W + nodeWidth / 2 + 10, MODULES.FINAL_RESPONSE.y * H);
+  }
+}
+
+// ── INFO CARD & STATS UPDATE ──
+function updateInfoCard() {
+  const s = steps[currentStep];
+  const phaseMap = {
+    setup: 'phase-setup', routing: 'phase-routing', retrieval: 'phase-retrieval',
+    fusion: 'phase-fusion', adaptive: 'phase-adaptive'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+}
+
+function updateStats() {
+  const routerProbs = calculateRoutingProbs(queryTypeMix);
+  const chosenRetriever = getChosenRetriever(routerProbs);
+  const confidence = routerProbs[chosenRetriever] || 0;
+
+  document.getElementById('statSelectedRetriever').textContent = chosenRetriever;
+  document.getElementById('statRouterConfidence').textContent = `${(confidence * 100).toFixed(2)}%`;
+  document.getElementById('statLLMTemperature').textContent = LLM_TEMPERATURE.toFixed(1);
+}
+
+// ── NAVIGATION & RENDERING ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+
+function goTo(idx) {
+  currentStep = idx;
+  render();
+}
+
+function reset() {
+  currentStep = 0;
+  queryTypeMix = 0.0;
+  document.getElementById('queryTypeMixSlider').value = queryTypeMix;
+  document.getElementById('queryTypeMixValue').textContent = queryTypeMix.toFixed(2);
+  render();
+}
+
+function render() {
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  updateInfoCard();
+  updateStats();
+  drawCanvas(currentStep);
+  updateDots();
+}
+
+// ── PROGRESS DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── SLIDER CONTROL ──
+document.getElementById('queryTypeMixSlider').addEventListener('input', (e) => {
+  queryTypeMix = parseFloat(e.target.value);
+  document.getElementById('queryTypeMixValue').textContent = queryTypeMix.toFixed(2);
+  document.getElementById('sliderHint').textContent =
+    `Router will favor ${queryTypeMix < 0.5 ? 'factual' : 'creative/diverse'} retrievers.`;
+  render();
+});
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+document.addEventListener('DOMContentLoaded', () => {
+  initDots();
+  render();
+  window.addEventListener('resize', () => drawCanvas(currentStep));
+});
+</script>
+</body>
+</html>

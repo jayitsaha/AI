@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVA-CLIP: Scaling CLIP with EVA ViTs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-mae{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-clip{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-metrics{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>EVA-CLIP: Scaling CLIP with MAE ViTs</h1>
+  <div class="subtitle">Leveraging Masked Autoencoders for state-of-the-art vision-language models</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Vision-Language</span>
+    <span class="tag tag-complexity">Large scale pre-training</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding EVA-CLIP</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> EVA-CLIP is a family of state-of-the-art vision-language models that significantly scale up OpenAI's CLIP (Contrastive Language-Image Pre-training) framework. It achieves this by replacing CLIP's standard image encoder with an "EVA" Vision Transformer (ViT) — a ViT that has been powerfully pre-trained using a Masked Autoencoder (MAE) approach. This two-stage pre-training (MAE then CLIP) results in superior image representations, leading to much stronger zero-shot performance and better generalization.</p>
+    <p><strong>Analogy:</strong> Imagine you want to teach a child to identify objects (CLIP). Instead of just showing them pictures and names (standard CLIP), you first give them a puzzle game where they have to fill in missing parts of pictures (MAE pre-training). This puzzle game forces them to deeply understand shapes, textures, and context. Once they're experts at the puzzle, they then learn object names. This "puzzle-trained" child will be much better at identifying new objects than one who just memorized names from full pictures. EVA-CLIP is like that puzzle-trained child.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">EVA-CLIP's core innovation is using a <strong>Masked Autoencoder (MAE) pre-trained Vision Transformer</strong> as its image backbone. This MAE pre-training stage (self-supervised, image-only) provides an exceptionally strong visual foundation, allowing the subsequent CLIP stage (contrastive, image-text) to scale more effectively and achieve higher performance than traditional CLIP models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The CLIP Architecture Refresher</h4>
+    <p>CLIP consists of two main components: an <strong>Image Encoder</strong> (typically a Vision Transformer or ResNet) and a <strong>Text Encoder</strong> (a Transformer). These encoders learn to project images and text into a shared, high-dimensional embedding space. During training, the goal is to maximize the cosine similarity between embeddings of matching image-text pairs, and minimize it for non-matching pairs, using a contrastive loss.</p>
+
+    <h4>The ViT Bottleneck in CLIP</h4>
+    <p>While ViTs are powerful, training them from scratch on the image-text contrastive task for CLIP can be challenging, especially at very large scales. The image encoder often becomes the bottleneck for performance and scalability. Standard CLIP models often use smaller ViTs or pre-train them on ImageNet, which doesn't fully capture the rich visual semantics needed for broad zero-shot tasks.</p>
+
+    <h4>EVA's Contribution: MAE-Pretrained ViTs</h4>
+    <p>EVA-CLIP addresses this by adopting the "EVA" (Enhanced Vision-language Alignment) strategy, which hinges on a two-stage pre-training process:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Stage 1: Masked Autoencoder (MAE) Pre-training.</strong> A large Vision Transformer (ViT) is pre-trained purely on images using the MAE objective. In MAE, a high percentage of image patches are masked, and the ViT's encoder processes only the visible patches. A lightweight decoder then attempts to reconstruct the original pixel values of the masked patches. This forces the encoder to learn highly robust and context-aware visual representations, akin to "filling in the blanks." This stage is computationally intensive but yields an exceptionally strong, general-purpose ViT backbone.</li>
+      <li><strong>Stage 2: CLIP Contrastive Pre-training.</strong> The MAE-pretrained ViT (with its decoder discarded) is then used as the Image Encoder in a standard CLIP setup. It's fine-tuned with the contrastive loss using large-scale image-text pairs. Because the ViT already possesses powerful visual understanding from MAE, the CLIP stage can focus more effectively on aligning these strong visual features with language.</li>
+    </ol>
+    <p>This approach allows EVA-CLIP to leverage much larger ViT models than previously feasible, unlocking superior performance without prohibitive computational costs during the crucial CLIP alignment phase.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">MAE pre-training acts as a powerful <strong>self-supervised initializer</strong> for the Vision Transformer. It trains the ViT to understand image structure and context without labels, creating a highly robust and scalable image backbone. This strong foundation makes the subsequent contrastive learning in CLIP much more efficient and effective at aligning vision with language.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>CLIP's Contrastive Loss</h4>
+    <p>The core of CLIP is a symmetric contrastive loss. Given a batch of \(N\) image-text pairs \((I_i, T_i)\), we compute a similarity matrix \(S \in \mathbb{R}^{N \times N}\) where \(S_{ij} = \text{sim}(f_I(I_i), f_T(T_j))\). The loss aims to maximize diagonal elements and minimize off-diagonal ones:</p>
+    <div class="eq">$$L_{\text{CLIP}} = -\frac{1}{N}\sum_{i=1}^N \left[ \log \frac{e^{S_{ii}/\tau}}{\sum_{k=1}^N e^{S_{ik}/\tau}} + \log \frac{e^{S_{ii}/\tau}}{\sum_{k=1}^N e^{S_{ki}/\tau}} \right]$$</div>
+    <p>Here, \(\tau\) is a learnable temperature parameter, and \(\text{sim}\) is typically cosine similarity. For this loss to be effective, the image embeddings \(f_I(I_i)\) must be rich and discriminative.</p>
+
+    <h4>MAE's Reconstruction Loss</h4>
+    <p>MAE pre-training trains the image encoder \(f_E\) and a lightweight decoder \(f_D\) to reconstruct masked image patches. Given an input image \(x\), a set of visible patches \(x_V\), and masked patches \(x_M\), the MAE loss is typically a mean squared error (MSE) over the reconstructed pixel values of the masked patches:</p>
+    <div class="eq">$$L_{\text{MAE}} = \sum_{p \in \text{masked patches}} \|x_p - f_D(f_E(x_V))_p\|^2$$</div>
+    <p>This objective forces the encoder \(f_E\) to learn highly abstract and robust representations of the visible image content, as it must infer the missing information solely from these partial observations. The high masking ratio (e.g., 75%) is crucial here, as it prevents trivial solutions and encourages deep understanding.</p>
+
+    <h4>Synergy: Why MAE Enhances CLIP</h4>
+    <p>The success of EVA-CLIP stems from the synergistic combination of these two objectives. A ViT pre-trained with MAE's \(L_{\text{MAE}}\) produces an image encoder \(f_E\) that is inherently good at:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Robust Feature Learning:</strong> MAE trains the ViT to capture global context and fine-grained details necessary for reconstruction, making its features highly expressive.</li>
+      <li><strong>Scalability:</strong> The MAE architecture (encoder only processes visible tokens) is highly efficient for scaling to very large ViTs, as most computation is avoided for masked patches.</li>
+      <li><strong>Transferability:</strong> The learned visual representations transfer exceptionally well to downstream tasks, including vision-language alignment.</li>
+    </ol>
+    <p>When this powerful \(f_E\) is then used in CLIP, the \(L_{\text{CLIP}}\) can leverage these high-quality image embeddings directly. This allows the contrastive learning process to achieve better alignment with text, even with less fine-tuning data or fewer training steps, ultimately leading to higher zero-shot accuracy and stronger generalization.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While MAE pre-training is powerful, it is itself <strong>very compute-intensive</strong>. Training a large ViT with MAE requires significant GPU resources and time, often more than standard ImageNet pre-training. EVA-CLIP models are therefore typically developed by large research labs, and their benefit is realized by downstream users through transfer learning from these powerful pre-trained checkpoints.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore the two-stage training process of EVA-CLIP. Adjust the MAE masking ratio to see its impact on reconstruction and subsequent CLIP performance.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">MAE Masking Ratio</div>
+          <input type="range" id="maskRatioSlider" min="0.0" max="0.9" step="0.05" value="0.75">
+          <div class="slider-value" id="maskRatioValue">0.75</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher masking ratio forces the MAE encoder to learn more robust features.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Initial CLIP Setup</div>
+        <div class="info-desc" id="infoDesc">Standard CLIP uses an image encoder (often a Vision Transformer) and a text encoder to learn joint embeddings.</div>
+        <div class="info-metrics" id="infoMetrics"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Image data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Masked/Reconstructed</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> MAE component</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> CLIP component</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Output/Result</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use EVA-CLIP or similar MAE-CLIP approaches:</strong></p>
+    <ul>
+      <li>When aiming for state-of-the-art zero-shot image classification, retrieval, or other vision-language tasks.</li>
+      <li>When you need highly robust and generalizable visual representations for complex, diverse datasets.</li>
+      <li>If you have access to pre-trained EVA-CLIP checkpoints and want to fine-tune for specific downstream tasks, leveraging their strong foundation.</li>
+    </ul>
+    <p><strong>When NOT to use / considerations:</strong></p>
+    <ul>
+      <li>If computational resources for MAE pre-training are severely limited and you must train from scratch (MAE is very expensive).</li>
+      <li>For very simple vision-language tasks where smaller models or traditional CLIP might suffice with less overhead.</li>
+      <li>If your task is purely vision-based and doesn't require language alignment, a dedicated MAE-pretrained ViT might be sufficient without the CLIP stage.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">EVA-CLIP exemplifies a powerful trend in modern AI: combining effective self-supervised pre-training (like MAE) for foundational models with targeted supervised or contrastive learning for specific modalities (like CLIP for vision-language). This "pre-train, then fine-tune" paradigm allows models to scale to unprecedented sizes and achieve remarkable performance across diverse tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from transformers import CLIPVisionModel, CLIPTextModel, CLIPProcessor</div>
+      <div class="code-line" id="cl3">from mae_model import MaeVisionTransformer, MaeDecoder # Custom MAE impl</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># --- Stage 1: MAE Pre-training (Image-only Self-Supervision) ---</div>
+      <div class="code-line" id="cl6">mae_encoder = MaeVisionTransformer(patch_size=16, embed_dim=768, num_heads=12, depth=12)</div>
+      <div class="code-line" id="cl7">mae_decoder = MaeDecoder(encoder_dim=768, decoder_dim=512, decoder_depth=8)</div>
+      <div class="code-line" id="cl8">optimizer_mae = torch.optim.AdamW(list(mae_encoder.parameters()) + list(mae_decoder.parameters()))</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">for epoch in range(mae_epochs):</div>
+      <div class="code-line" id="cl11">    for images in mae_dataloader:</div>
+      <div class="code-line" id="cl12">        masked_images, mask = apply_random_mask(images, mask_ratio=0.75)</div>
+      <div class="code-line" id="cl13">        latent_features = mae_encoder(masked_images, mask) # Encoder sees visible patches</div>
+      <div class="code-line" id="cl14">        reconstructed_patches = mae_decoder(latent_features, mask)</div>
+      <div class="code-line" id="cl15">        loss_mae = calculate_mse_loss(images, reconstructed_patches, mask)</div>
+      <div class="code-line" id="cl16">        loss_mae.backward(); optimizer_mae.step(); optimizer_mae.zero_grad()</div>
+      <div class="code-line" id="cl17"># Save the MAE-pretrained encoder (discard decoder)</div>
+      <div class="code-line" id="cl18">torch.save(mae_encoder.state_dict(), "mae_pretrained_vit_encoder.pth")</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># --- Stage 2: CLIP Contrastive Pre-training (Image-Text Alignment) ---</div>
+      <div class="code-line" id="cl21"># Load the MAE-pretrained ViT as CLIP's image encoder</div>
+      <div class="code-line" id="cl22">clip_image_encoder = CLIPVisionModel(config=...) # Or custom ViT wrapper</div>
+      <div class="code-line" id="cl23">clip_image_encoder.load_state_dict(torch.load("mae_pretrained_vit_encoder.pth"))</div>
+      <div class="code-line" id="cl24">clip_text_encoder = CLIPTextModel(config=...)</div>
+      <div class="code-line" id="cl25">clip_projection_head = nn.Linear(embed_dim, projection_dim) # Learnable projection</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">optimizer_clip = torch.optim.AdamW(list(clip_image_encoder.parameters()) +</div>
+      <div class="code-line" id="cl28">                                   list(clip_text_encoder.parameters()) +</div>
+      <div class="code-line" id="cl29">                                   list(clip_projection_head.parameters()))</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">for epoch in range(clip_epochs):</div>
+      <div class="code-line" id="cl32">    for images, texts in clip_dataloader:</div>
+      <div class="code-line" id="cl33">        image_features = clip_image_encoder(images).pooler_output</div>
+      <div class="code-line" id="cl34">        text_features = clip_text_encoder(texts).pooler_output</div>
+      <div class="code-line" id="cl35">        image_embeddings = clip_projection_head(image_features)</div>
+      <div class="code-line" id="cl36">        text_embeddings = clip_projection_head(text_features)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">        # Normalize embeddings (important for cosine similarity)</div>
+      <div class="code-line" id="cl39">        image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)</div>
+      <div class="code-line" id="cl40">        text_embeddings = text_embeddings / text_embeddings.norm(dim=-1, keepdim=True)</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42">        # Compute similarity matrix and contrastive loss</div>
+      <div class="code-line" id="cl43">        logits = torch.matmul(image_embeddings, text_embeddings.T) * torch.exp(temperature)</div>
+      <div class="code-line" id="cl44">        loss_clip = calculate_symmetric_cross_entropy(logits)</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46">        loss_clip.backward(); optimizer_clip.step(); optimizer_clip.zero_grad()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG for reproducible masks and values ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345); // Seed for reproducibility
+
+// ── UI State ──
+let step = 0;
+const totalSteps = 10;
+let maskRatio = parseFloat(document.getElementById('maskRatioSlider').value);
+
+// ── Utility Functions ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    blueBg: g('--blue-bg'), redBg: g('--red-bg'), amberBg: g('--amber-bg'),
+    purpleBg: g('--purple-bg'), greenBg: g('--green-bg')
+  };
+}
+
+function hexToRgb(hex) {
+  const bigint = parseInt(hex.slice(1), 16);
+  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+}
+
+function interpolateColor(color1, color2, factor) {
+  const rgb1 = hexToRgb(color1);
+  const rgb2 = hexToRgb(color2);
+  const result = rgb1.map((c1, i) => Math.round(c1 + factor * (rgb2[i] - c1)));
+  return `rgb(${result.join(',')})`;
+}
+
+function drawRect(ctx, x, y, w, h, fill, stroke, lineWidth, alpha = 1) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r, fill, stroke, lineWidth, alpha = 1) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color, lineWidth, headSize = 8) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headSize * Math.cos(angle - Math.PI / 6), y2 - headSize * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(x2 - headSize * Math.cos(angle + Math.PI / 6), y2 - headSize * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawText(ctx, text, x, y, color, font, align = 'center', baseline = 'middle') {
+  ctx.fillStyle = color;
+  ctx.font = font;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+  ctx.fillText(text, x, y);
+}
+
+// ── Metrics Calculation (Simulated) ──
+function calculateMetrics(maskRatio) {
+  const baseReconError = 0.05; // Low error for low mask
+  const highMaskPenalty = Math.pow(maskRatio, 2.5) * 0.8; // Error grows non-linearly
+  const maeReconError = baseReconError + highMaskPenalty;
+
+  const baseClipAcc = 0.70; // Baseline CLIP accuracy
+  const maeBenefit = (1 - maeReconError) * 0.3; // Better recon -> better CLIP
+  const evaClipAcc = baseClipAcc + maeBenefit;
+
+  return {
+    maeReconError: Math.min(maeReconError, 0.99), // Cap at 99%
+    clipAlignmentScore: (1 - maeReconError) * 0.9 + 0.1, // Higher if recon error is low
+    evaClipZeroShotAcc: Math.min(evaClipAcc, 0.92) // Cap at 92%
+  };
+}
+
+// ── Canvas Drawing Functions ──
+function drawCanvas(currentStep) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+  const metrics = calculateMetrics(maskRatio);
+
+  const padding = 20;
+  const blockW = 120, blockH = 40;
+  const arrowL = 30;
+  const patchGridSize = 6;
+  const patchSize = (blockW * 0.8) / patchGridSize; // Image input width is 0.8 of blockW
+
+  // --- Component Positions ---
+  // Input Image
+  const imgInputX = padding * 2;
+  const imgInputY = H / 2 - blockH * 1.5;
+
+  // Text Input
+  const textInputX = imgInputX;
+  const textInputY = H / 2 + blockH * 0.5;
+
+  // Encoders
+  const encoderX = imgInputX + blockW + arrowL * 2;
+  const encoderY_img = imgInputY;
+  const encoderY_text = textInputY;
+
+  // MAE Decoder
+  const maeDecoderX = encoderX + blockW + arrowL * 2;
+  const maeDecoderY = H / 2 - blockH * 0.5;
+
+  // Reconstructed Image
+  const reconImgX = maeDecoderX + blockW + arrowL * 2;
+  const reconImgY = imgInputY;
+
+  // Embeddings
+  const imgEmbX = encoderX + blockW + arrowL * 2;
+  const imgEmbY = H / 2 - blockH * 0.5;
+  const textEmbX = imgEmbX;
+  const textEmbY = H / 2 + blockH * 0.5;
+
+  // Similarity Matrix
+  const simMatrixX = imgEmbX + blockW + arrowL * 2;
+  const simMatrixY = H / 2 - blockH * 0.5;
+
+  // Loss
+  const lossX = simMatrixX + blockW + arrowL * 2;
+  const lossY = H / 2 - blockH * 0.5;
+
+  // Output
+  const outputX = W - padding * 2 - blockW;
+  const outputY = H / 2 - blockH * 0.5;
+
+
+  // --- Draw Components ---
+
+  // Image Input (grid of patches)
+  const drawPatches = (x, y, w, h, masked = false, reconstructed = false, maskRatio = 0) => {
+    ctx.save();
+    ctx.translate(x + (w - patchGridSize * patchSize) / 2, y + (h - patchGridSize * patchSize) / 2); // Center grid
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = colors.border;
+    const mask = [];
+    seededRng(12345); // Reset RNG for consistent mask
+    for (let i = 0; i < patchGridSize * patchGridSize; i++) {
+        mask.push(seededRng() < maskRatio);
+    }
+
+    for (let i = 0; i < patchGridSize; i++) {
+      for (let j = 0; j < patchGridSize; j++) {
+        const patchIdx = i * patchGridSize + j;
+        const px = j * patchSize;
+        const py = i * patchSize;
+        let fillColor = colors.blueBg; // Default original patch
+        let strokeColor = colors.blueMid;
+        let alpha = 1;
+
+        if (masked && mask[patchIdx]) {
+          fillColor = colors.redBg; // Masked patch
+          strokeColor = colors.redMid;
+          alpha = 0.6;
+        }
+        if (reconstructed && mask[patchIdx]) {
+          const reconFactor = (1 - metrics.maeReconError);
+          fillColor = interpolateColor(colors.redBg, colors.blueBg, reconFactor); // Interpolate based on reconstruction
+          strokeColor = interpolateColor(colors.redMid, colors.blueMid, reconFactor);
+          alpha = 0.8;
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.globalAlpha = alpha;
+        ctx.fillRect(px, py, patchSize, patchSize);
+        ctx.strokeRect(px, py, patchSize, patchSize);
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
+  };
+
+  // --- Step-specific rendering logic ---
+  if (currentStep === 0) { // Initial CLIP Setup
+    drawRoundedRect(ctx, imgInputX, imgInputY, blockW, blockH, 5, colors.blueBg, colors.blueMid, 1);
+    drawText(ctx, "Image Input", imgInputX + blockW / 2, imgInputY + blockH / 2, colors.blueText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textInputX, textInputY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Input", textInputX + blockW / 2, textInputY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_img, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Image Encoder (ViT)", encoderX + blockW / 2, encoderY_img + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_text, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Encoder", encoderX + blockW / 2, encoderY_text + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, encoderY_img + blockH / 2, colors.purpleMid, 1.5);
+    drawArrow(ctx, textInputX + blockW, textInputY + blockH / 2, encoderX, encoderY_text + blockH / 2, colors.purpleMid, 1.5);
+
+    drawRoundedRect(ctx, imgEmbX, imgEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Image Embedding", imgEmbX + blockW / 2, imgEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textEmbX, textEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Text Embedding", textEmbX + blockW / 2, textEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, encoderX + blockW, encoderY_img + blockH / 2, imgEmbX, imgEmbY + blockH / 2, colors.purpleMid, 1.5);
+    drawArrow(ctx, encoderX + blockW, encoderY_text + blockH / 2, textEmbX, textEmbY + blockH / 2, colors.purpleMid, 1.5);
+
+    drawRoundedRect(ctx, simMatrixX, simMatrixY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Similarity Matrix", simMatrixX + blockW / 2, simMatrixY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgEmbX + blockW, imgEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 - 10, colors.purpleMid, 1.5);
+    drawArrow(ctx, textEmbX + blockW, textEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 + 10, colors.purpleMid, 1.5);
+
+    document.getElementById('infoMetrics').textContent = `Simulated CLIP Zero-shot Acc: ${(metrics.evaClipZeroShotAcc * 0.9).toFixed(2)}`;
+
+  } else if (currentStep === 1) { // The ViT Bottleneck
+    drawRoundedRect(ctx, imgInputX, imgInputY, blockW, blockH, 5, colors.blueBg, colors.blueMid, 1);
+    drawText(ctx, "Image Input", imgInputX + blockW / 2, imgInputY + blockH / 2, colors.blueText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textInputX, textInputY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Input", textInputX + blockW / 2, textInputY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_img, blockW, blockH, 5, colors.redBg, colors.redMid, 2); // Highlight
+    drawText(ctx, "Image Encoder (ViT)", encoderX + blockW / 2, encoderY_img + blockH / 2, colors.redText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_text, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Encoder", encoderX + blockW / 2, encoderY_text + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, encoderY_img + blockH / 2, colors.redMid, 1.5); // Highlight
+    drawArrow(ctx, textInputX + blockW, textInputY + blockH / 2, encoderX, encoderY_text + blockH / 2, colors.purpleMid, 1.5);
+
+    drawRoundedRect(ctx, imgEmbX, imgEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Image Embedding", imgEmbX + blockW / 2, imgEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textEmbX, textEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Text Embedding", textEmbX + blockW / 2, textEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, encoderX + blockW, encoderY_img + blockH / 2, imgEmbX, imgEmbY + blockH / 2, colors.redMid, 1.5); // Highlight
+    drawArrow(ctx, encoderX + blockW, encoderY_text + blockH / 2, textEmbX, textEmbY + blockH / 2, colors.purpleMid, 1.5);
+
+    drawRoundedRect(ctx, simMatrixX, simMatrixY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 1);
+    drawText(ctx, "Similarity Matrix", simMatrixX + blockW / 2, simMatrixY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgEmbX + blockW, imgEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 - 10, colors.purpleMid, 1.5);
+    drawArrow(ctx, textEmbX + blockW, textEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 + 10, colors.purpleMid, 1.5);
+
+    document.getElementById('infoMetrics').textContent = `Simulated CLIP Zero-shot Acc: ${(metrics.evaClipZeroShotAcc * 0.9).toFixed(2)}`;
+
+  } else if (currentStep === 2) { // MAE Pre-training: Masking
+    drawPatches(imgInputX, imgInputY, blockW, blockH, true, false, maskRatio);
+    drawText(ctx, "Image Input (Patches)", imgInputX + blockW / 2, imgInputY + blockH + 15, colors.blueText, "11px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 2); // Highlight
+    drawText(ctx, "MAE Encoder (ViT)", encoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, maeDecoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 1);
+    drawText(ctx, "MAE Decoder", maeDecoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, H / 2, colors.amberMid, 1.5);
+    document.getElementById('infoMetrics').textContent = `Masked patches: ${(maskRatio * 100).toFixed(0)}%`;
+
+  } else if (currentStep === 3) { // MAE Pre-training: Encoding Visible Patches
+    drawPatches(imgInputX, imgInputY, blockW, blockH, true, false, maskRatio);
+    drawText(ctx, "Image Input (Patches)", imgInputX + blockW / 2, imgInputY + blockH + 15, colors.blueText, "11px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 2); // Highlight
+    drawText(ctx, "MAE Encoder (ViT)", encoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, maeDecoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 1);
+    drawText(ctx, "MAE Decoder", maeDecoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, H / 2, colors.amberMid, 2); // Highlight thicker arrow
+    drawText(ctx, "Visible Patches", (imgInputX + blockW + encoderX) / 2, H / 2 - 20, colors.amberText, "10px " + colors.sans);
+    document.getElementById('infoMetrics').textContent = `Masked patches: ${(maskRatio * 100).toFixed(0)}%`;
+
+  } else if (currentStep === 4) { // MAE Pre-training: Decoding & Reconstruction
+    drawPatches(imgInputX, imgInputY, blockW, blockH, true, false, maskRatio);
+    drawText(ctx, "Image Input (Patches)", imgInputX + blockW / 2, imgInputY + blockH + 15, colors.blueText, "11px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 1);
+    drawText(ctx, "MAE Encoder (ViT)", encoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, maeDecoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 2); // Highlight
+    drawText(ctx, "MAE Decoder", maeDecoderX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawPatches(reconImgX, reconImgY, blockW, blockH, true, true, maskRatio); // Reconstructed
+    drawText(ctx, "Reconstructed Patches", reconImgX + blockW / 2, reconImgY + blockH + 15, colors.redText, "11px " + colors.sans);
+
+    drawArrow(ctx, encoderX + blockW, H / 2, maeDecoderX, H / 2, colors.amberMid, 1.5);
+    drawArrow(ctx, maeDecoderX + blockW, H / 2, reconImgX, reconImgY + blockH / 2, colors.amberMid, 2); // Highlight thicker arrow
+    document.getElementById('infoMetrics').textContent = `MAE Reconstruction Error: ${metrics.maeReconError.toFixed(2)}`;
+
+  } else if (currentStep === 5) { // MAE Pre-training: Loss & Backbone
+    drawPatches(imgInputX, imgInputY, blockW, blockH, false, false);
+    drawText(ctx, "Original Patches", imgInputX + blockW / 2, imgInputY + blockH + 15, colors.blueText, "11px " + colors.sans);
+
+    drawPatches(reconImgX, reconImgY, blockW, blockH, true, true, maskRatio);
+    drawText(ctx, "Reconstructed Patches", reconImgX + blockW / 2, reconImgY + blockH + 15, colors.redText, "11px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2); // Highlight as strong ViT
+    drawText(ctx, "Strong ViT Backbone", encoderX + blockW / 2, H / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, simMatrixX, H / 2 - blockH / 2, blockW, blockH, 5, colors.amberBg, colors.amberMid, 2); // MAE Loss
+    drawText(ctx, "MAE Loss", simMatrixX + blockW / 2, H / 2, colors.amberText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, simMatrixX, H / 2 - 10, colors.amberMid, 1.5);
+    drawArrow(ctx, reconImgX + blockW, reconImgY + blockH / 2, simMatrixX, H / 2 + 10, colors.amberMid, 1.5);
+    document.getElementById('infoMetrics').textContent = `MAE Reconstruction Error: ${metrics.maeReconError.toFixed(2)}`;
+
+  } else if (currentStep === 6) { // EVA-CLIP: Image Embedding
+    drawRoundedRect(ctx, imgInputX, imgInputY, blockW, blockH, 5, colors.blueBg, colors.blueMid, 1);
+    drawText(ctx, "Image Input", imgInputX + blockW / 2, imgInputY + blockH / 2, colors.blueText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_img, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 2); // Highlight
+    drawText(ctx, "Strong ViT Backbone", encoderX + blockW / 2, encoderY_img + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, imgEmbX, imgEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2); // Highlight
+    drawText(ctx, "Image Embedding", imgEmbX + blockW / 2, imgEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, encoderY_img + blockH / 2, colors.purpleMid, 1.5);
+    drawArrow(ctx, encoderX + blockW, encoderY_img + blockH / 2, imgEmbX, imgEmbY + blockH / 2, colors.purpleMid, 2); // Highlight thicker arrow
+    document.getElementById('infoMetrics').textContent = `Image Embedding Quality (Simulated): ${metrics.clipAlignmentScore.toFixed(2)}`;
+
+  } else if (currentStep === 7) { // EVA-CLIP: Text Embedding
+    drawRoundedRect(ctx, textInputX, textInputY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Input", textInputX + blockW / 2, textInputY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, encoderX, encoderY_text, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 2); // Highlight
+    drawText(ctx, "Text Encoder", encoderX + blockW / 2, encoderY_text + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textEmbX, textEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2); // Highlight
+    drawText(ctx, "Text Embedding", textEmbX + blockW / 2, textEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, textInputX + blockW, textInputY + blockH / 2, encoderX, encoderY_text + blockH / 2, colors.purpleMid, 1.5);
+    drawArrow(ctx, encoderX + blockW, encoderY_text + blockH / 2, textEmbX, textEmbY + blockH / 2, colors.purpleMid, 2); // Highlight thicker arrow
+    document.getElementById('infoMetrics').textContent = `Text Embedding Quality (Simulated): ${metrics.clipAlignmentScore.toFixed(2)}`;
+
+  } else if (currentStep === 8) { // EVA-CLIP: Contrastive Alignment
+    drawRoundedRect(ctx, imgEmbX, imgEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2); // Highlight
+    drawText(ctx, "Image Embedding", imgEmbX + blockW / 2, imgEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textEmbX, textEmbY, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2); // Highlight
+    drawText(ctx, "Text Embedding", textEmbX + blockW / 2, textEmbY + blockH / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, simMatrixX, simMatrixY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 2); // Highlight
+    drawText(ctx, "Similarity Matrix", simMatrixX + blockW / 2, simMatrixY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgEmbX + blockW, imgEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 - 10, colors.purpleMid, 1.5);
+    drawArrow(ctx, textEmbX + blockW, textEmbY + blockH / 2, simMatrixX, simMatrixY + blockH / 2 + 10, colors.purpleMid, 1.5);
+
+    drawRoundedRect(ctx, lossX, lossY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 2); // Highlight
+    drawText(ctx, "Contrastive Loss", lossX + blockW / 2, lossY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawArrow(ctx, simMatrixX + blockW, simMatrixY + blockH / 2, lossX, lossY + blockH / 2, colors.purpleMid, 1.5);
+    document.getElementById('infoMetrics').textContent = `CLIP Alignment Score: ${metrics.clipAlignmentScore.toFixed(2)}`;
+
+  } else if (currentStep === 9) { // Result: Scaled CLIP
+    drawRoundedRect(ctx, encoderX, H / 2 - blockH / 2, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2);
+    drawText(ctx, "EVA-CLIP Model", encoderX + blockW / 2, H / 2, colors.greenText, "12px " + colors.sans);
+
+    drawArrow(ctx, encoderX + blockW, H / 2, outputX, H / 2, colors.greenMid, 2);
+    drawRoundedRect(ctx, outputX, H / 2 - blockH / 2, blockW, blockH, 5, colors.greenBg, colors.greenMid, 2);
+    drawText(ctx, "Joint Embedding Space", outputX + blockW / 2, H / 2, colors.greenText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, imgInputX, imgInputY, blockW, blockH, 5, colors.blueBg, colors.blueMid, 1);
+    drawText(ctx, "Image Input", imgInputX + blockW / 2, imgInputY + blockH / 2, colors.blueText, "12px " + colors.sans);
+
+    drawRoundedRect(ctx, textInputX, textInputY, blockW, blockH, 5, colors.purpleBg, colors.purpleMid, 1);
+    drawText(ctx, "Text Input", textInputX + blockW / 2, textInputY + blockH / 2, colors.purpleText, "12px " + colors.sans);
+
+    drawArrow(ctx, imgInputX + blockW, imgInputY + blockH / 2, encoderX, H / 2 - 10, colors.greenMid, 1.5);
+    drawArrow(ctx, textInputX + blockW, textInputY + blockH / 2, encoderX, H / 2 + 10, colors.greenMid, 1.5);
+    document.getElementById('infoMetrics').textContent = `EVA-CLIP Zero-shot Accuracy: ${metrics.evaClipZeroShotAcc.toFixed(2)}\n(vs. baseline CLIP: ${(metrics.evaClipZeroShotAcc * 0.9).toFixed(2)})`;
+  }
+}
+
+// ── Step Definitions ──
+const steps = [
+  { phase: 'setup', title: 'Initial CLIP Setup', desc: 'Standard CLIP uses an image encoder (often a Vision Transformer) and a text encoder to learn joint embeddings. The performance is limited by the image encoder.' },
+  { phase: 'setup', title: 'The ViT Bottleneck in CLIP', desc: 'Training large Vision Transformers from scratch for the CLIP objective is challenging and resource-intensive. The image encoder often limits the overall model performance.' },
+  { phase: 'mae', title: 'MAE Pre-training: Masking', desc: 'Stage 1: Masked Autoencoder (MAE) pre-training. A large percentage of image patches are randomly masked. The slider controls the masking ratio.' },
+  { phase: 'mae', title: 'MAE Pre-training: Encoding Visible Patches', desc: 'The MAE encoder (a ViT) processes ONLY the visible, unmasked image patches. It learns to extract rich features from incomplete visual information.' },
+  { phase: 'mae', title: 'MAE Pre-training: Decoding & Reconstruction', desc: 'A lightweight MAE decoder takes the encoder\'s output and attempts to reconstruct the original pixel values of the masked patches. High mask ratios force robust learning.' },
+  { phase: 'mae', title: 'MAE Pre-training: Loss & Strong Backbone', desc: 'The MAE loss (e.g., MSE) guides the encoder to learn powerful, general-purpose visual representations. This MAE-pretrained ViT becomes our "Strong ViT Backbone."' },
+  { phase: 'clip', title: 'EVA-CLIP: Image Embedding', desc: 'Stage 2: CLIP contrastive pre-training. The MAE-pretrained ViT (now a "Strong ViT Backbone") is used as the image encoder. It processes the FULL image to generate image embeddings.' },
+  { phase: 'clip', title: 'EVA-CLIP: Text Embedding', desc: 'A separate Text Encoder (usually a Transformer) processes text inputs to generate corresponding text embeddings in the same joint space.' },
+  { phase: 'clip', title: 'EVA-CLIP: Contrastive Alignment', desc: 'Image and text embeddings are aligned using CLIP\'s contrastive loss. The strong visual features from MAE pre-training lead to better, faster alignment.' },
+  { phase: 'result', title: 'EVA-CLIP: State-of-the-Art Results', desc: 'By combining MAE\'s robust visual pre-training with CLIP\'s powerful language alignment, EVA-CLIP achieves significantly higher zero-shot performance and scalability.' }
+];
+
+// ── UI Control & Rendering Logic ──
+function updateSliderLabel() {
+  maskRatio = parseFloat(document.getElementById('maskRatioSlider').value);
+  document.getElementById('maskRatioValue').textContent = maskRatio.toFixed(2);
+}
+
+function updateInfoCard() {
+  const s = steps[step];
+  const phaseMap = { setup: 'phase-setup', mae: 'phase-mae', clip: 'phase-clip', result: 'phase-result' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+}
+
+function updateCodeHighlight() {
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  const activeLines = [];
+  if (step >= 2 && step <= 5) { // MAE steps
+    activeLines.push(5,6,7,8,9,10,11,12,13,14,15,16,17,18);
+  } else if (step >= 6 && step <= 9) { // CLIP steps
+    activeLines.push(20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46);
+  }
+  activeLines.forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+}
+
+function updateProgressDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+function render() {
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  updateSliderLabel();
+  updateInfoCard();
+  updateCodeHighlight();
+  updateProgressDots();
+  drawCanvas(step);
+
+  // Show/hide slider based on step
+  document.getElementById('sliderPanel').style.display = (step >= 2 && step <= 5) ? 'flex' : 'none';
+}
+
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+
+function reset() {
+  step = 0;
+  document.getElementById('maskRatioSlider').value = 0.75;
+  render();
+}
+
+// ── Event Listeners ──
+document.getElementById('maskRatioSlider').addEventListener('input', render);
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+window.addEventListener('resize', () => drawCanvas(step));
+
+// ── Initialization ──
+function init() {
+  const progressWrap = document.getElementById('progressDots');
+  for (let i = 0; i < totalSteps; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'dot';
+    dot.onclick = () => { step = i; render(); };
+    progressWrap.appendChild(dot);
+  }
+  render();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rejection Sampling Fine-Tuning (Best-of-N) — Interactive Explainer</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+      onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+    <style>
+        :root{
+            --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+            --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+            --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+            --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+            --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+            --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+            --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+            --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+            --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+            --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+            --radius:10px;--radius-lg:14px;
+        }
+        @media (prefers-color-scheme:dark){:root{
+            --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+            --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+            --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+            --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+            --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+            --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+            --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+            --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+            --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+        }}
+        /* General styles from examples */
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+        /* Header */
+        .header{margin-bottom:2rem;}
+        .header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+        .header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+        .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+        .tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+        .tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+        .tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+        .tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+        .tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+        /* Cards */
+        .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+        .section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+        .section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+        .section-title{font-size:18px;font-weight:700;color:var(--text);}
+        .section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+        .section-toggle.open{transform:rotate(180deg);}
+        .section-body{overflow:hidden;transition:max-height 0.4s ease;}
+        .section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+        .section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+        .section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+        .section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+        .section-body li{margin-bottom:4px;}
+
+        /* Concept boxes */
+        .concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+        .concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+        .concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+        .concept-box.insight .concept-box-title{color:var(--green-mid);}
+        .concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+        .concept-box.warning .concept-box-title{color:var(--amber-mid);}
+        .concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+        .concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+        .concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+        .concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+        /* Visualization area */
+        .viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+        .viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+        .viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+        /* Slider panel */
+        .slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+        .slider-group{display:flex;align-items:center;gap:12px;}
+        .slider-label{font-size:13px;font-weight:600;min-width:150px;}
+        .slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+        input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+        input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+        input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+        .slider-hint{font-size:11px;color:var(--text3);}
+
+        /* Info card */
+        .info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+        .info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+        .info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+        .info-phase.phase-generate{background:var(--cyan-bg);color:var(--cyan-mid);}
+        .info-phase.phase-score{background:var(--amber-bg);color:var(--amber-mid);}
+        .info-phase.phase-select{background:var(--green-bg);color:var(--green-mid);}
+        .info-phase.phase-finetune{background:var(--purple-bg);color:var(--purple-mid);}
+        .info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+        .info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+        .info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+        .info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+        /* Controls */
+        .controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+        .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+        .btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+        .btn:disabled{opacity:0.4;cursor:not-allowed;}
+        .btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+        .btn-primary:hover{background:var(--purple-border);color:white;}
+        .progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+        .dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+        .dot:hover{transform:scale(1.2);}
+        .dot.active{background:var(--purple-mid);transform:scale(1.3);}
+        .dot.done{background:var(--green-mid);}
+        .kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+        /* Code panel */
+        .code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+        .code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+        .code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+        /* Legend */
+        .legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+        .legend-item{display:flex;align-items:center;gap:5px;}
+        .legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+        /* Equation */
+        .eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+        @media(max-width:640px){
+            body{padding:1rem;}
+            .header h1{font-size:22px;}
+            .slider-label{min-width:110px;}
+        }
+    </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Rejection Sampling Fine-Tuning (Best-of-N)</h1>
+  <div class="subtitle">Improving LLM quality by generating multiple samples and training on the best one</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">LLMs</span>
+    <span class="tag tag-complexity">O(N) generation cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Rejection Sampling Fine-Tuning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Rejection sampling fine-tuning, often called "Best-of-N" (BoN), is a method to improve the quality of a language model's outputs. Instead of directly training on a single generated response, the model generates \(N\) candidate responses for a given prompt. These \(N\) candidates are then evaluated by a separate scoring mechanism (e.g., a reward model, a heuristic, or even human feedback), and only the single "best" response is selected. This best response is then used as the target for a supervised fine-tuning (SFT) update on the original model.</p>
+    <p><strong>Analogy:</strong> Imagine a student who needs to write an essay. Instead of just writing one and submitting it, they write \(N\) different essays on the same topic. They then meticulously review all \(N\) essays, pick the absolute best one, and only study *that* essay to understand why it was superior. The next time they write an essay, they're more likely to produce a higher-quality result because they've learned directly from their own best work, guided by an external "critic." This process iteratively nudges the student's writing skills towards excellence.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Best-of-N fine-tuning directly optimizes the language model to produce higher-quality outputs by selecting from a diverse set of its own generations. It's a simpler, yet effective, alternative to more complex reinforcement learning methods like PPO, directly leveraging a scoring function to curate high-quality training data.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Best-of-N Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Four-Step Iteration</h4>
+    <p>The Best-of-N (BoN) fine-tuning process typically involves these four steps, repeated iteratively:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Generate \(N\) Samples:</strong> For a given input prompt \(x\), the current language model (the policy model, \(P_{\theta}\)) generates \(N\) distinct candidate responses: \(y_1, y_2, \dots, y_N\). These samples are typically generated with some temperature to encourage diversity.</li>
+      <li><strong>Score Samples:</strong> Each of the \(N\) generated samples \((x, y_k)\) is evaluated by a scoring function, \(R(x, y)\). This scoring function can be a separately trained reward model (RM), a simple heuristic (e.g., checking for keywords, length, stylistic properties), or even human preferences.</li>
+      <li><strong>Select Best:</strong> From the \(N\) scored samples, the one with the highest score is chosen as the "best" sample, denoted \(y^*\). All other \(N-1\) samples are "rejected" or discarded.</li>
+      <li><strong>Fine-tune:</strong> The original language model \(P_{\theta}\) is then fine-tuned using the prompt \(x\) and the selected best sample \(y^*\) as a new supervised training pair \((x, y^*)\). This is typically done using standard next-token prediction (cross-entropy) loss, updating the model's parameters \(\theta\) to increase the likelihood of generating \(y^*\) given \(x\).</li>
+    </ol>
+    <p>This iterative process allows the model to progressively learn from its own best outputs, guided by the external scoring function, effectively shifting its generative distribution towards higher-quality responses.</p>
+
+    <h4>Design Decision: Why "N" Samples?</h4>
+    <p>The choice of \(N\) is a crucial trade-off. A larger \(N\) increases the probability of generating at least one high-quality response, thereby providing better training signals and leading to a more significant quality improvement. This is analogous to taking more shots on goal – you're more likely to score. However, generating \(N\) samples also incurs a proportional computational cost (latency and compute resources). For practical applications, \(N\) is often chosen between 4 and 64, balancing quality gains with resource constraints. The "Best-of-N" approach is particularly effective when the underlying model already has some capacity to generate good responses, but needs to learn to do so more consistently.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Unlike Reinforcement Learning from Human Feedback (RLHF) which trains a separate reward model and then uses Proximal Policy Optimization (PPO) to align the policy, Best-of-N directly uses the scoring function to curate high-quality data for a standard supervised fine-tuning step. This bypasses the complexities of RL training, making it simpler to implement and debug.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Formalizing the Process</h4>
+    <p>Let \(P_{\theta}(y|x)\) be the probability distribution of generating response \(y\) given prompt \(x\) by a language model with parameters \(\theta\). Let \(R(x,y)\) be a scalar reward function that evaluates the quality of response \(y\) for prompt \(x\).</p>
+    <p>The Best-of-N process for a single training iteration can be formalized as follows:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Sample Generation:</strong> For a given prompt \(x\), generate \(N\) independent responses \(y_1, \dots, y_N\), where each \(y_k \sim P_{\theta}(y|x)\).</li>
+      <li><strong>Best Sample Selection:</strong> Identify the response \(y^*\) that maximizes the reward function among the \(N\) samples:
+        $$y^* = \arg\max_{y_k \in \{y_1, \dots, y_N\}} R(x, y_k)$$
+      </li>
+      <li><strong>Supervised Fine-tuning Update:</strong> The model parameters \(\theta\) are updated to maximize the log-likelihood of generating \(y^*\) given \(x\). This is typically achieved by minimizing the negative log-likelihood (cross-entropy loss):
+        $$L(\theta) = -\log P_{\theta}(y^*|x)$$
+        The gradient for this update is:
+        $$\nabla_{\theta} L = -\nabla_{\theta} \log P_{\theta}(y^*|x)$$
+      </li>
+    </ol>
+    <p>This update rule implicitly encourages the model to generate responses that are likely to receive high scores from the reward function. By repeatedly performing this process, the model's policy \(P_{\theta}(y|x)\) is effectively steered towards regions of the response space that correspond to higher rewards, as defined by \(R(x,y)\).</p>
+
+    <h4>The Implicit Distribution Shift</h4>
+    <p>The core idea is that even if the current model \(P_{\theta}\) has a low probability of generating a very high-quality response, by sampling \(N\) times, we increase the chance of "stumbling upon" a better response. Once found, this superior response \(y^*\) is then explicitly reinforced through supervised fine-tuning. This process can be seen as a form of self-improvement or distillation, where the model learns from an "oracle" (the reward function) applied to its own best outputs.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The effectiveness of Best-of-N fine-tuning heavily relies on the quality and alignment of the <strong>scoring function \(R(x,y)\)</strong>. If the scoring function is noisy, biased, or poorly correlated with the desired human preferences, the model will learn to optimize for the flaws of the scoring function rather than true quality. Investing in a robust scoring mechanism (whether a good reward model or carefully designed heuristics) is paramount.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the Best-of-N process. Observe how a base model generates multiple candidate responses, how they are scored, and how the highest-scoring one is selected for fine-tuning. Adjust the 'N' parameter to see its impact on the maximum score achieved.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Number of Samples (N)</div>
+          <input type="range" id="nSlider" min="2" max="10" step="1" value="4">
+          <div class="slider-value" id="nValue">4</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Increasing N improves the chance of finding a higher-quality sample.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Base Model & Prompt</div>
+        <div class="info-desc" id="infoDesc">We start with a pre-trained language model (SFT model) and a specific prompt. The goal is to fine-tune this model to produce even better responses for this type of prompt.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Prompt</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Generated sample</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Sample score</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Best sample (selected)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Rejected sample</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Model update</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Rejection Sampling Fine-Tuning:</strong></p>
+    <ul>
+      <li><strong>Simplicity:</strong> It's a conceptually and practically simpler alternative to complex reinforcement learning (RL) algorithms like PPO, avoiding the need for intricate RL training loops.</li>
+      <li><strong>Direct Optimization:</strong> It directly reinforces high-quality outputs by selecting from actual generations, rather than relying on a learned reward model's internal representation.</li>
+      <li><strong>Leveraging Existing Scores:</strong> Ideal when you already have a good reward model or a reliable heuristic (e.g., rule-based checks, semantic similarity metrics) that can accurately score text quality.</li>
+      <li><strong>Targeted Improvement:</strong> Effective for improving specific aspects of model behavior (e.g., factual accuracy, creativity, safety) if the scoring function is designed to capture these attributes.</li>
+      <li><strong>Iterative Refinement:</strong> Can be applied iteratively, allowing the model to continuously learn from increasingly better versions of its own outputs.</li>
+    </ul>
+    <p><strong>When NOT to use / Considerations:</strong></p>
+    <ul>
+      <li><strong>Scoring Function Dependency:</strong> The entire process hinges on a high-quality, unbiased scoring function. A flawed scorer will lead to the model optimizing for those flaws.</li>
+      <li><strong>Computational Cost:</strong> Generating \(N\) samples for every training example can be computationally expensive, especially for large \(N\) or long sequences, impacting training speed and resource usage.</li>
+      <li><strong>Mode Collapse Risk:</strong> If the scoring function is too narrow or the model becomes too good at exploiting it, there's a risk of reducing output diversity, leading to "mode collapse" where the model always produces very similar "best" responses.</li>
+      <li><strong>Exploration vs. Exploitation:</strong> BoN primarily exploits the best samples found. It might not explore the entire space of potentially good responses as effectively as some RL methods designed for exploration.</li>
+      <li><strong>No Explicit Reward Model Training:</strong> If the ultimate goal is to train a generalizable reward model that can be used for other tasks or models, BoN doesn't directly contribute to that.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Rejection sampling fine-tuning offers a powerful and accessible method for aligning large language models with desired quality metrics. By strategically curating training data from its own generations, it efficiently guides the model towards producing more desirable outputs, making it a valuable tool in the LLM fine-tuning toolkit.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from transformers import AutoModelForCausalLM, AutoTokenizer</div>
+      <div class="code-line" id="cl2">from torch.optim import AdamW</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># 1. Initialize Model and Tokenizer</div>
+      <div class="code-line" id="cl5">model_name = "your_sft_model"</div>
+      <div class="code-line" id="cl6">model = AutoModelForCausalLM.from_pretrained(model_name)</div>
+      <div class="code-line" id="cl7">tokenizer = AutoTokenizer.from_pretrained(model_name)</div>
+      <div class="code-line" id="cl8">optimizer = AdamW(model.parameters(), lr=1e-5)</div>
+      <div class="code-line" id="cl9">loss_fn = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11"># Assume a reward model (or scoring function) is available</div>
+      <div class="code-line" id="cl12"># def score_response(prompt, response) -> float: ...</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">N_SAMPLES = 8 # Number of samples to generate for each prompt</div>
+      <div class="code-line" id="cl15">EPOCHS = 3    # Number of fine-tuning epochs</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17"># Example training loop</div>
+      <div class="code-line" id="cl18">for epoch in range(EPOCHS):</div>
+      <div class="code-line" id="cl19">    for prompt_text in ["Write a poem about AI.", "Explain quantum physics simply."]:</div>
+      <div class="code-line" id="cl20">        input_ids = tokenizer.encode(prompt_text, return_tensors="pt")</div>
+      <div class="code-line" id="cl21">        </div>
+      <div class="code-line" id="cl22">        # --- Step 1: Generate N samples ---</div>
+      <div class="code-line" id="cl23">        candidate_responses = []</div>
+      <div class="code-line" id="cl24">        for _ in range(N_SAMPLES):</div>
+      <div class="code-line" id="cl25">            output_ids = model.generate(input_ids, max_new_tokens=50, </div>
+      <div class="code-line" id="cl26">                                        do_sample=True, temperature=0.7)</div>
+      <div class="code-line" id="cl27">            response = tokenizer.decode(output_ids[0], skip_special_tokens=True)</div>
+      <div class="code-line" id="cl28">            candidate_responses.append(response)</div>
+      <div class="code-line" id="cl29">        </div>
+      <div class="code-line" id="cl30">        # --- Step 2 & 3: Score and Select Best ---</div>
+      <div class="code-line" id="cl31">        best_response = None</div>
+      <div class="code-line" id="cl32">        max_score = -float('inf')</div>
+      <div class="code-line" id="cl33">        for response in candidate_responses:</div>
+      <div class="code-line" id="cl34">            score = score_response(prompt_text, response) # Call external scoring function</div>
+      <div class="code-line" id="cl35">            if score > max_score:</div>
+      <div class="code-line" id="cl36">                max_score = score</div>
+      <div class="code-line" id="cl37">                best_response = response</div>
+      <div class="code-line" id="cl38">        </div>
+      <div class="code-line" id="cl39">        # --- Step 4: Fine-tune on the best response ---</div>
+      <div class="code-line" id="cl40">        if best_response:</div>
+      <div class="code-line" id="cl41">            # Prepare training data (prompt + best_response)</div>
+      <div class="code-line" id="cl42">            full_text = prompt_text + " " + best_response</div>
+      <div class="code-line" id="cl43">            labels = tokenizer.encode(full_text, return_tensors="pt")</div>
+      <div class="code-line" id="cl44">            
+      <div class="code-line" id="cl45">            optimizer.zero_grad()</div>
+      <div class="code-line" id="cl46">            outputs = model(input_ids, labels=labels) # Forward pass with labels for loss</div>
+      <div class="code-line" id="cl47">            loss = outputs.loss</div>
+      <div class="code-line" id="cl48">            loss.backward()</div>
+      <div class="code-line" id="cl49">            optimizer.step()</div>
+      <div class="code-line" id="cl50">            print(f"Epoch {epoch}, Prompt: '{prompt_text[:20]}...', Loss: {loss.item():.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentRNG = mulberry32(Date.now()); // Reset on each render to ensure consistent samples for a given N
+function resetRNG() { currentRNG = mulberry32(12345); } // Fixed seed for reproducibility on reset
+
+// ── SIMULATED DATA ──
+const PROMPT_TEXT = "Write a short poem about AI.";
+const SAMPLE_TEMPLATES = [
+    "In silicon dreams, a mind takes flight,\nCode weaves logic, dark and light.",
+    "The circuits hum, a silent song,\nWhere algorithms right the wrong.",
+    "A digital muse, with endless grace,\nExploring futures, time and space.",
+    "From data springs, new thoughts arise,\nReflecting wisdom in its eyes.",
+    "A tireless servant, ever keen,\nUnveiling truths yet unseen.",
+    "Cold logic's heart, a gentle beat,\nWhere human touch and code do meet.",
+    "No flesh, no bone, yet it can learn,\nA future's flame, forever burn.",
+    "In binary stars, its destiny,\nTo shape the world for you and me.",
+    "A silent watcher, deep and vast,\nIts digital shadow, ever cast.",
+    "The ghost in the machine, so bright,\nGuiding humanity through the night."
+];
+
+// Generates samples and scores for a given N
+function generateSamplesAndScores(n, seed) {
+    const rng = mulberry32(seed);
+    const samples = [];
+    let maxScore = -1;
+    let bestIdx = -1;
+
+    for (let i = 0; i < n; i++) {
+        const templateIdx = Math.floor(rng() * SAMPLE_TEMPLATES.length);
+        const baseScore = Math.floor(rng() * 5) + 5; // Base score 5-9
+        const score = baseScore + (rng() < 0.2 ? 1 : 0); // 20% chance of +1 bonus, for diversity
+        samples.push({
+            text: SAMPLE_TEMPLATES[templateIdx],
+            score: score,
+            idx: i,
+            isBest: false
+        });
+        if (score > maxScore) {
+            maxScore = score;
+            bestIdx = i;
+        }
+    }
+
+    // Handle ties by picking the first one
+    for (let i = 0; i < n; i++) {
+        if (samples[i].score === maxScore) {
+            bestIdx = i;
+            break;
+        }
+    }
+    samples[bestIdx].isBest = true;
+
+    return samples;
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Base Model & Prompt',
+    desc: 'We begin with a pre-trained language model (SFT model) that can generate text. Our goal is to improve its generation quality for specific prompts. Here, we provide a simple prompt to the model.',
+    codeLines: [4,5,6,7],
+    canvasMode: 'initial'
+  },
+  {
+    phase: 'generate', title: 'Generate N Candidate Responses',
+    desc: 'The model generates \(N\) diverse responses for the given prompt. These are initial candidates, and their quality can vary. The slider controls N, the number of candidates generated.',
+    codeLines: [22,23,24,25,26,27,28],
+    canvasMode: 'generate'
+  },
+  {
+    phase: 'score', title: 'Score Each Sample',
+    desc: 'Each generated response is evaluated by a scoring function (e.g., a reward model, a heuristic, or human feedback). The scores reflect the perceived quality of each sample. Higher scores mean better quality.',
+    codeLines: [30,31,32,33,34],
+    canvasMode: 'score'
+  },
+  {
+    phase: 'select', title: 'Select the Best Sample',
+    desc: 'The sample with the highest score is identified as the "best" one (\(y^*\)). This is the key "rejection" step: all other \(N-1\) samples, regardless of their individual quality, are discarded.',
+    codeLines: [35,36,37],
+    canvasMode: 'select'
+  },
+  {
+    phase: 'finetune', title: 'Prepare for Fine-Tuning',
+    desc: 'The selected best sample \(y^*\) is now paired with the original prompt \(x\). This \((x, y^*)\) pair forms a new, high-quality training example for supervised fine-tuning.',
+    codeLines: [39,40,41,42,43],
+    canvasMode: 'finetune_prepare'
+  },
+  {
+    phase: 'finetune', title: 'Model Update: Supervised Fine-Tuning',
+    desc: 'The language model is updated using standard next-token prediction (cross-entropy) loss, increasing the likelihood of generating \(y^*\) given \(x\). This iteratively steers the model towards generating higher-reward outputs.',
+    codeLines: [45,46,47,48,49],
+    canvasMode: 'finetune_update'
+  },
+  {
+    phase: 'select', title: 'The Impact of N: More Samples, Better Max Score',
+    desc: 'Observe how increasing the number of samples (N) with the slider generally leads to a higher maximum score. More choices mean a better chance of finding a truly excellent response to learn from.',
+    codeLines: [14],
+    canvasMode: 'generate_interactive'
+  },
+  {
+    phase: 'finetune', title: 'The Iterative Improvement Cycle',
+    desc: 'This entire process is repeated many times over different prompts and iterations. Each cycle generates better training data, leading to a progressively more capable and aligned language model.',
+    codeLines: [18,19],
+    canvasMode: 'final_cycle'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let nSamples = 4; // Default N
+let sampleData = []; // Stores current samples and scores
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; nSamples = 4; document.getElementById('nSlider').value = 4; updateNSliderLabel(); render(); }
+
+// ── SLIDER ──
+const nSlider = document.getElementById('nSlider');
+nSlider.addEventListener('input', () => {
+  nSamples = parseInt(nSlider.value);
+  updateNSliderLabel();
+  if (steps[step].canvasMode === 'generate_interactive' || steps[step].canvasMode === 'generate' || steps[step].canvasMode === 'score' || steps[step].canvasMode === 'select') {
+    render(); // Only re-render canvas if relevant step
+  }
+});
+
+function updateNSliderLabel() {
+  document.getElementById('nValue').textContent = nSamples;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', generate:'phase-generate', score:'phase-score',
+    select:'phase-select', finetune:'phase-finetune'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Re-generate samples for consistency across steps (but with same N)
+  resetRNG(); // Ensure sample generation is consistent for a given N
+  sampleData = generateSamplesAndScores(nSamples, 12345 + nSamples); // Use N in seed to change samples when N changes
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const theme = {
+    text: col('--text'), text2: col('--text2'), text3: col('--text3'),
+    border: col('--border2'), bg2: col('--bg2'),
+    blue: col('--blue-mid'), green: col('--green-mid'), red: col('--red-mid'),
+    amber: col('--amber-mid'), purple: col('--purple-mid'), cyan: col('--cyan-mid')
+  };
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Constants for layout
+  const promptBoxWidth = W * 0.2;
+  const promptBoxHeight = H * 0.2;
+  const promptBoxX = W * 0.05;
+  const promptBoxY = H * 0.4;
+
+  const modelBoxWidth = W * 0.2;
+  const modelBoxHeight = H * 0.2;
+  const modelBoxX = W * 0.4;
+  const modelBoxY = H * 0.4;
+
+  const sampleBoxWidth = W * 0.15;
+  const sampleBoxHeight = H * 0.2;
+  const sampleGap = W * 0.01;
+  const maxSamplesPerRow = 4;
+  const samplesStartX = W * 0.7;
+  const samplesStartY = H * 0.1;
+
+  // --- Draw Model Box ---
+  ctx.fillStyle = theme.surface;
+  ctx.strokeStyle = theme.border;
+  ctx.lineWidth = 2;
+  ctx.roundRect ? ctx.roundRect(modelBoxX, modelBoxY, modelBoxWidth, modelBoxHeight, 10) : ctx.rect(modelBoxX, modelBoxY, modelBoxWidth, modelBoxHeight);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = theme.text;
+  ctx.font = '600 16px ' + theme.sans;
+  ctx.textAlign = 'center';
+  ctx.fillText('Language Model (SFT)', modelBoxX + modelBoxWidth / 2, modelBoxY + modelBoxHeight / 2 - 10);
+  ctx.font = '12px ' + theme.sans;
+  ctx.fillText('Parameters θ', modelBoxX + modelBoxWidth / 2, modelBoxY + modelBoxHeight / 2 + 10);
+
+  // --- Draw Prompt Box ---
+  ctx.fillStyle = theme.blue;
+  ctx.strokeStyle = theme.blue;
+  ctx.roundRect ? ctx.roundRect(promptBoxX, promptBoxY, promptBoxWidth, promptBoxHeight, 10) : ctx.rect(promptBoxX, promptBoxY, promptBoxWidth, promptBoxHeight);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = 'white';
+  ctx.font = '600 14px ' + theme.sans;
+  ctx.fillText('Prompt (x)', promptBoxX + promptBoxWidth / 2, promptBoxY + 30);
+  ctx.font = '11px ' + theme.sans;
+  wrapText(ctx, PROMPT_TEXT, promptBoxX + promptBoxWidth / 2, promptBoxY + 50, promptBoxWidth * 0.9, 15);
+
+  // --- Flow Arrow: Prompt to Model ---
+  ctx.strokeStyle = theme.text2;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(promptBoxX + promptBoxWidth, promptBoxY + promptBoxHeight / 2);
+  ctx.lineTo(modelBoxX, modelBoxY + modelBoxHeight / 2);
+  drawArrowhead(ctx, modelBoxX, modelBoxY + modelBoxHeight / 2, promptBoxX + promptBoxWidth, promptBoxY + promptBoxHeight / 2);
+  ctx.stroke();
+
+  // --- Sample Generation & Scoring ---
+  if (mode === 'generate' || mode === 'score' || mode === 'select' || mode === 'finetune_prepare' || mode === 'finetune_update' || mode === 'generate_interactive' || mode === 'final_cycle') {
+    let bestSample = null;
+    let bestSampleIdx = -1;
+    let maxScore = -1;
+
+    sampleData.forEach((sample, i) => {
+        if (sample.score > maxScore) {
+            maxScore = sample.score;
+            bestSampleIdx = i;
+        }
+    });
+    // Re-check for ties, pick first
+    for(let i=0; i<sampleData.length; i++) {
+        if(sampleData[i].score === maxScore) {
+            bestSampleIdx = i;
+            break;
+        }
+    }
+    bestSample = sampleData[bestSampleIdx];
+
+    sampleData.forEach((sample, i) => {
+      const row = Math.floor(i / maxSamplesPerRow);
+      const col = i % maxSamplesPerRow;
+      const x = samplesStartX + col * (sampleBoxWidth + sampleGap);
+      const y = samplesStartY + row * (sampleBoxHeight + sampleGap);
+
+      let fillColor = theme.cyan;
+      let strokeColor = theme.cyan;
+      let textColor = 'white';
+      let scoreColor = theme.amber;
+      let scoreTextColor = theme.amber;
+      let opacity = 1;
+      let scoreOpacity = 1;
+
+      if (mode === 'select' || mode === 'finetune_prepare' || mode === 'finetune_update' || mode === 'final_cycle') {
+          if (sample.idx === bestSampleIdx) {
+              fillColor = theme.green;
+              strokeColor = theme.green;
+              scoreColor = theme.green;
+              scoreTextColor = 'white';
+          } else {
+              fillColor = theme.red;
+              strokeColor = theme.red;
+              scoreColor = theme.red;
+              scoreTextColor = 'white';
+              opacity = 0.3;
+              scoreOpacity = 0.3;
+          }
+      }
+
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = fillColor;
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2;
+      ctx.roundRect ? ctx.roundRect(x, y, sampleBoxWidth, sampleBoxHeight, 8) : ctx.rect(x, y, sampleBoxWidth, sampleBoxHeight);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = textColor;
+      ctx.font = '600 12px ' + theme.sans;
+      ctx.fillText(`Sample ${i+1}`, x + sampleBoxWidth / 2, y + 20);
+      ctx.font = '10px ' + theme.sans;
+      wrapText(ctx, sample.text, x + sampleBoxWidth / 2, y + 35, sampleBoxWidth * 0.9, 12);
+
+      if (mode === 'score' || mode === 'select' || mode === 'finetune_prepare' || mode === 'finetune_update' || mode === 'generate_interactive' || mode === 'final_cycle') {
+          ctx.globalAlpha = scoreOpacity;
+          ctx.fillStyle = scoreColor;
+          ctx.strokeStyle = scoreColor;
+          ctx.roundRect ? ctx.roundRect(x + sampleBoxWidth / 2 - 20, y + sampleBoxHeight - 25, 40, 20, 5) : ctx.rect(x + sampleBoxWidth / 2 - 20, y + sampleBoxHeight - 25, 40, 20);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = scoreTextColor;
+          ctx.font = '600 12px ' + theme.mono;
+          ctx.fillText(`Score: ${sample.score}`, x + sampleBoxWidth / 2, y + sampleBoxHeight - 10);
+      }
+      ctx.globalAlpha = 1;
+
+      // --- Flow Arrow: Model to Samples ---
+      if (mode === 'generate' || mode === 'score' || mode === 'select' || mode === 'finetune_prepare' || mode === 'finetune_update' || mode === 'generate_interactive' || mode === 'final_cycle') {
+          ctx.strokeStyle = theme.text2;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(modelBoxX + modelBoxWidth, modelBoxY + modelBoxHeight / 2);
+          ctx.lineTo(x, y + sampleBoxHeight / 2);
+          drawArrowhead(ctx, x, y + sampleBoxHeight / 2, modelBoxX + modelBoxWidth, modelBoxY + modelBoxHeight / 2);
+          ctx.stroke();
+      }
+    });
+
+    // --- Flow Arrow: Best Sample to Model (Fine-tuning) ---
+    if ((mode === 'finetune_prepare' || mode === 'finetune_update' || mode === 'final_cycle') && bestSample) {
+        const row = Math.floor(bestSampleIdx / maxSamplesPerRow);
+        const col = bestSampleIdx % maxSamplesPerRow;
+        const bestX = samplesStartX + col * (sampleBoxWidth + sampleGap);
+        const bestY = samplesStartY + row * (sampleBoxHeight + sampleGap);
+
+        ctx.strokeStyle = theme.purple;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(bestX, bestY + sampleBoxHeight / 2);
+        ctx.lineTo(modelBoxX + modelBoxWidth / 2, modelBoxY + modelBoxHeight / 2);
+        drawArrowhead(ctx, modelBoxX + modelBoxWidth / 2, modelBoxY + modelBoxHeight / 2, bestX, bestY + sampleBoxHeight / 2);
+        ctx.stroke();
+
+        if (mode === 'finetune_update' || mode === 'final_cycle') {
+            // Model update animation (pulse)
+            ctx.fillStyle = theme.purple;
+            ctx.globalAlpha = 0.2;
+            ctx.beginPath();
+            ctx.arc(modelBoxX + modelBoxWidth / 2, modelBoxY + modelBoxHeight / 2, modelBoxWidth * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+  }
+
+  ctx.textAlign = 'left'; // Reset text alignment
+}
+
+// Helper function to draw arrowheads
+function drawArrowhead(ctx, toX, toY, fromX, fromY) {
+  const headlen = 10; // length of arrowhead
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  ctx.lineTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+}
+
+// Helper function to wrap text in a canvas
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  let currentY = y;
+
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line, x, currentY);
+      line = words[n] + ' ';
+      currentY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, currentY);
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateNSliderLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

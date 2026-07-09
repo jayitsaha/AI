@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLaVA: Visual Instruction Tuning & Projection Layer — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-vision{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-llm{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-project{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-tune{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-output{font-family:var(--mono);font-size:13px;color:var(--text);margin-top:10px;padding:10px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);min-height:40px;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.img{background-image:url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAGQAAAgMBAAAAAAAAAAAAAAAAAAQDBgcF/8QAMBAAAgEDAwMCBAUEAwAAAAAAAAECAwQFABESITEGEyJBURQyYXGBI0JSkaGxwdH/xAAZAQADAQEBAAAAAAAAAAAAAAAAAgMBBAX/xAAiEQABBAICAgMBAAAAAAAAAAABAAIRAyESMUEFQRMicZH/2gAIAQEDEQA/AO70UUV0OQKKKKAKKKKAKKKKAKKKKAKKpa/rtrpWn3F3dTRxQwoXdi3AAHk1z+08b6Fq2oW1lY6nDPczuEjRQeWJ+gHJoC/UUUUAqrqep2+k2FxezuI4IUaR2PYAVz+48b6FpmqXNhe6nDDcwuUkQk8MD9xXb72yju7Oe2lUPFNG0bqezAjB/wB1y+5+E9D1nUbi+vdOhnuJpDJI7E8sx+wFAK7Lx3oWqalDYWWpwy3M7hI0APJJ+wFdJrm9l4T0LRNSisLHToYbmVwkagHkk/cmuigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigAooooA//9k='); background-size:cover; background-position:center;}
+.legend-swatch.text{background:var(--cyan-bg); border:1px solid var(--cyan-border);}
+.legend-swatch.vision{background:var(--green-bg); border:1px solid var(--green-border);}
+.legend-swatch.projected{background:var(--purple-bg); border:1px solid var(--purple-border);}
+.legend-swatch.llm{background:var(--red-bg); border:1px solid var(--red-border);}
+.legend-swatch.mlp{background:var(--amber-bg); border:1px solid var(--amber-border);}
+.legend-swatch.output{background:var(--blue-bg); border:1px solid var(--blue-border);}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LLaVA: Visual Instruction Tuning &amp; Projection Layer</h1>
+  <div class="subtitle">Connecting vision to language models with a learnable bridge</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Multimodal AI</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N_patches * D_vision * D_llm)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding LLaVA</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> LLaVA (Large Language and Vision Assistant) is a pioneering work in multimodal AI that enables large language models (LLMs) to understand and reason about images. It achieves this by taking a pre-trained vision encoder (like CLIP's ViT) and a pre-trained LLM (like Llama), then training a small "projection layer" to bridge the two. This layer translates visual features into a format the LLM can interpret as if they were text tokens, unlocking powerful visual instruction following capabilities.</p>
+    <p><strong>Analogy:</strong> Imagine you have a brilliant art critic (the Vision Encoder) who can describe paintings in exquisite detail, and a multilingual philosopher (the LLM) who can discuss any topic but only understands written words. LLaVA introduces a "translator" (the Projection Layer) who sits between them. The critic describes a painting, the translator converts those descriptions into the philosopher's native language, and suddenly the philosopher can generate profound insights about art, even though they never "saw" the painting directly. The key is that the translator is specifically trained to make the critic's descriptions sound natural to the philosopher.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LLaVA's core idea is to align the latent spaces of a frozen vision encoder and a frozen LLM using a lightweight, trainable projection layer. This layer maps image patch embeddings into the LLM's token embedding space, allowing the LLM to process visual input as if it were a sequence of special "visual tokens."</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How LLaVA Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Architecture: Vision Encoder + Projector + LLM</h4>
+    <p>LLaVA's architecture is elegantly simple, relying on powerful pre-trained components:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Vision Encoder (e.g., CLIP ViT-L/14):</strong> This component is responsible for extracting rich features from an input image. It typically divides the image into patches and processes them through a Transformer, outputting a sequence of high-dimensional vectors (e.g., 256 patches, each 1024 dimensions). Crucially, this vision encoder is <strong>frozen</strong> during LLaVA training.</li>
+      <li><strong>Projection Layer (MLP):</strong> This is the only trainable component in the LLaVA architecture. It acts as a bridge, transforming the raw vision features (e.g., 1024 dimensions) into the dimensionality expected by the LLM's embedding space (e.g., 4096 dimensions). It's typically a simple two-layer Multi-Layer Perceptron (MLP) with a non-linearity.</li>
+      <li><strong>Large Language Model (e.g., Llama):</strong> This is the backbone for understanding instructions and generating responses. It's pre-trained on vast amounts of text data. Like the vision encoder, the LLM is also <strong>frozen</strong> during LLaVA training.</li>
+    </ol>
+    <p>The innovation lies in efficiently connecting these powerful but disparate components without retraining them from scratch, which would be prohibitively expensive.</p>
+
+    <h4>Visual Instruction Tuning: The Training Recipe</h4>
+    <p>The training process, called "visual instruction tuning," is key. It leverages a specially curated dataset of image-instruction-response triplets. For example:</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Image:</strong> A picture of a cat.</li>
+      <li><strong>Instruction:</strong> "Describe this image."</li>
+      <li><strong>Response:</strong> "The image shows a fluffy cat resting on a couch."</li>
+    </ul>
+    <p>During training, the vision encoder processes the image, its features pass through the projection layer, and the *projected visual tokens* are concatenated with the *text embeddings* of the instruction. The LLM then processes this combined sequence to predict the next token in the ground-truth response. The loss is computed only on the LLM's predictions for the response tokens, and only the projection layer's weights are updated via backpropagation.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">By freezing both the vision encoder and the LLM, LLaVA efficiently transfers their pre-trained knowledge. The projection layer learns to "speak" the LLM's language using the vision encoder's "vocabulary," enabling cross-modal understanding with minimal computational cost.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Projection Layer</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Role of the Projection Layer</h4>
+    <p>The vision encoder outputs a sequence of \(N\) visual feature vectors, \(\{v_1, v_2, \dots, v_N\}\), where each \(v_i \in \mathbb{R}^{D_{vision}}\). The LLM, on the other hand, expects a sequence of token embeddings, \(\{e_1, e_2, \dots, e_M\}\), where each \(e_j \in \mathbb{R}^{D_{LLM}}\). The projection layer's job is to transform each \(v_i\) into a corresponding \(p_i \in \mathbb{R}^{D_{LLM}}\), such that these projected visual tokens can be seamlessly integrated into the LLM's input sequence.</p>
+    <p>This is typically achieved with a simple Multi-Layer Perceptron (MLP) with one or two hidden layers. A common choice is a two-layer MLP:</p>
+    <div class="eq">$$h_i = \text{GELU}(v_i W_1 + b_1)$$</div>
+    <div class="eq">$$p_i = h_i W_2 + b_2$$</div>
+    <p>Here, \(W_1 \in \mathbb{R}^{D_{vision} \times D_{hidden}}\) and \(b_1 \in \mathbb{R}^{D_{hidden}}\) are the weights and biases for the first linear layer, followed by a GELU (Gaussian Error Linear Unit) activation function. \(W_2 \in \mathbb{R}^{D_{hidden} \times D_{LLM}}\) and \(b_2 \in \mathbb{R}^{D_{LLM}}\) are for the second linear layer. The parameters \(W_1, b_1, W_2, b_2\) are the only learnable parameters in the LLaVA architecture.</p>
+
+    <h4>Loss Function and Optimization</h4>
+    <p>During visual instruction tuning, the projected visual tokens \(\{p_1, \dots, p_N\}\) are concatenated with the instruction text embeddings \(\{e_{inst,1}, \dots, e_{inst,K}\}\). The LLM then processes this combined input sequence to generate the response tokens. The training objective is to minimize the standard cross-entropy loss over the generated response tokens:</p>
+    <div class="eq">$$\mathcal{L} = -\sum_{t=1}^{T} \log P(y_t \mid \text{image}, \text{instruction}, y_{<t}; W_1, b_1, W_2, b_2)$$</div>
+    <p>where \(y_t\) is the ground-truth token at step \(t\), and \(P(\cdot)\) is the probability predicted by the LLM. Crucially, gradients are only backpropagated through the projection layer, leaving the vision encoder and LLM weights untouched. This makes training efficient and prevents catastrophic forgetting in the pre-trained foundation models.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Design Consideration</div>
+      <p style="font-size:14px;margin:0;">The choice of projection layer architecture (e.g., number of layers, hidden dimension) is a hyperparameter. A simple MLP is often sufficient, but more complex architectures (e.g., a small Transformer layer or Q-Former like in BLIP-2) could be used if the initial alignment between vision and language features is particularly challenging or requires more intricate cross-modal reasoning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through LLaVA's pipeline: from image features to projected tokens, and how visual instruction tuning aligns them for the LLM. Adjust the 'Training Progress' to see how the projection layer learns.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Training Progress</div>
+          <input type="range" id="trainingSlider" min="0" max="100" step="1" value="0">
+          <div class="slider-value" id="trainingValue">0%</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Move this slider to see how the projection layer learns to map vision features to LLM-compatible embeddings.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Input Image</div>
+        <div class="info-desc" id="infoDesc">We start with an input image. For this example, we'll use a simple image of a cat.</div>
+        <div class="info-output" id="llmOutput">LLM Output:</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch img"></div> Input Image</div>
+        <div class="legend-item"><div class="legend-swatch vision"></div> Vision Features (ViT)</div>
+        <div class="legend-item"><div class="legend-swatch mlp"></div> Projection Layer (MLP)</div>
+        <div class="legend-item"><div class="legend-swatch projected"></div> Projected Visual Tokens</div>
+        <div class="legend-item"><div class="legend-swatch text"></div> Text Embeddings (LLM)</div>
+        <div class="legend-item"><div class="legend-swatch llm"></div> LLM (Frozen)</div>
+        <div class="legend-item"><div class="legend-swatch output"></div> LLM Output</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Why LLaVA is impactful:</strong></p>
+    <ul>
+      <li><strong>Efficiency:</strong> By freezing large pre-trained models, LLaVA achieves state-of-the-art multimodal capabilities with minimal training cost (only the small projection layer is updated).</li>
+      <li><strong>Scalability:</strong> The modular design allows easy swapping of vision encoders or LLMs as better foundation models emerge.</li>
+      <li><strong>Generalization:</strong> Visual instruction tuning enables the model to follow complex, open-ended instructions about visual content, generalizing beyond simple image captioning.</li>
+      <li><strong>Interpretability (relative):</strong> The projection layer acts as a bottleneck, forcing the visual information into a token-like format that the LLM understands, making the multimodal interaction more structured.</li>
+    </ul>
+    <p><strong>Limitations and future directions:</strong></p>
+    <ul>
+      <li><strong>Hallucinations:</strong> Like many generative models, LLaVA can sometimes "hallucinate" details not present in the image, especially for fine-grained reasoning.</li>
+      <li><strong>Fixed Foundation Models:</strong> While efficient, freezing the foundation models means their internal representations are not fine-tuned for the multimodal task. End-to-end training could yield better performance but at a much higher cost.</li>
+      <li><strong>Projection Layer Complexity:</strong> A simple MLP might not capture complex cross-modal relationships as effectively as more sophisticated connection modules (e.g., attention-based mechanisms).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Broader Impact</div>
+      <p style="font-size:14px;margin:0;">LLaVA's success demonstrated that effective multimodal reasoning doesn't necessarily require training massive models from scratch. Instead, it highlighted the power of intelligently connecting existing foundation models with a small, learnable bridge, paving the way for many subsequent multimodal architectures.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from transformers import AutoModel, AutoTokenizer</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># 1. Define the Projection Layer (MLP)</div>
+      <div class="code-line" id="cl5">class VisionProjector(nn.Module):</div>
+      <div class="code-line" id="cl6">    def __init__(self, vision_hidden_size: int, llm_hidden_size: int):</div>
+      <div class="code-line" id="cl7">        super().__init__()</div>
+      <div class="code-line" id="cl8">        self.mlp = nn.Sequential(</div>
+      <div class="code-line" id="cl9">            nn.Linear(vision_hidden_size, llm_hidden_size),</div>
+      <div class="code-line" id="cl10">            nn.GELU(),</div>
+      <div class="code-line" id="cl11">            nn.Linear(llm_hidden_size, llm_hidden_size)</div>
+      <div class="code-line" id="cl12">        )</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    def forward(self, vision_features: torch.Tensor):</div>
+      <div class="code-line" id="cl15">        return self.mlp(vision_features)</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17"># 2. Instantiate (frozen) Vision Encoder and LLM</div>
+      <div class="code-line" id="cl18">vision_encoder = AutoModel.from_pretrained("openai/clip-vit-large-patch14")</div>
+      <div class="code-line" id="cl19">llm = AutoModel.from_pretrained("lmsys/vicuna-7b-v1.5")</div>
+      <div class="code-line" id="cl20">tokenizer = AutoTokenizer.from_pretrained("lmsys/vicuna-7b-v1.5")</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">for param in vision_encoder.parameters(): param.requires_grad = False</div>
+      <div class="code-line" id="cl23">for param in llm.parameters(): param.requires_grad = False</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># 3. Instantiate the Projector</div>
+      <div class="code-line" id="cl26">D_VISION = vision_encoder.config.hidden_size # e.g., 1024</div>
+      <div class="code-line" id="cl27">D_LLM = llm.config.hidden_size             # e.g., 4096</div>
+      <div class="code-line" id="cl28">projector = VisionProjector(D_VISION, D_LLM)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># 4. Example Forward Pass & Training Loop (simplified)</div>
+      <div class="code-line" id="cl31"># Assume 'pixel_values' from image, 'input_ids' from instruction/response</div>
+      <div class="code-line" id="cl32"># vision_features: (batch_size, num_patches, D_VISION)</div>
+      <div class="code-line" id="cl33">vision_features = vision_encoder(pixel_values).last_hidden_state</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35"># Project vision features to LLM embedding space</div>
+      <div class="code-line" id="cl36">projected_vision_features = projector(vision_features) # (batch, num_patches, D_LLM)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38"># Get LLM text embeddings for instruction</div>
+      <div class="code-line" id="cl39">text_embeddings = llm.get_input_embeddings()(input_ids) # (batch, seq_len, D_LLM)</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41"># Concatenate visual and text tokens</div>
+      <div class="code-line" id="cl42"># LLaVA uses a special token like &lt;IMG&gt; to replace vision features</div>
+      <div class="code-line" id="cl43"># For simplicity, imagine replacing a special &lt;IMG_PATCH&gt; token sequence</div>
+      <div class="code-line" id="cl44"># with projected_vision_features within text_embeddings</div>
+      <div class="code-line" id="cl45"># combined_embeddings = torch.cat([projected_vision_features, text_embeddings], dim=1)</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47"># LLM forward pass (simplified)</div>
+      <div class="code-line" id="cl48"># llm_output = llm(inputs_embeds=combined_embeddings, labels=labels)</div>
+      <div class="code-line" id="cl49"># loss = llm_output.loss</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51"># Backpropagate and update ONLY projector weights</div>
+      <div class="code-line" id="cl52"># loss.backward()</div>
+      <div class="code-line" id="cl53"># optimizer = torch.optim.AdamW(projector.parameters(), lr=1e-5)</div>
+      <div class="code-line" id="cl54"># optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA AND CONFIG ──
+const N_PATCHES_SQ = 16; // 16x16 patches = 256 patches
+const N_PATCHES = N_PATCHES_SQ * N_PATCHES_SQ;
+const D_VISION = 1024; // CLIP ViT-L/14 hidden size
+const D_LLM = 4096; // Llama hidden size
+
+// Seeded random number generator for consistent visuals
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(42);
+
+// Generate random feature vectors (simulated)
+function generateRandomVector(dimensions, rng) {
+  return Array.from({ length: dimensions }, () => rng() * 2 - 1); // values between -1 and 1
+}
+
+const visionFeaturesRaw = Array.from({ length: N_PATCHES }, () => generateRandomVector(D_VISION, seededRng));
+const textEmbeddingsRaw = Array.from({ length: 10 }, () => generateRandomVector(D_LLM, seededRng)); // 10 text tokens
+
+// Simulate projection (linear transformation + GELU + linear)
+// For visualization, we'll interpolate between random and "aligned" projected features
+// "Aligned" means they have a pattern/color that makes sense to the LLM
+function simulateProjection(visionFeature, trainingProgress, rng) {
+  // Untrained: random projection
+  const untrainedProjection = generateRandomVector(D_LLM, rng);
+  // Trained: a "target" projection that makes sense to the LLM (e.g., a distinct pattern)
+  // For simplicity, let's make trained features have a more "structured" pattern, e.g., values closer to 0 or 1.
+  const trainedProjection = generateRandomVector(D_LLM, seededRng); // Use same seed for consistent "target"
+
+  // Interpolate based on trainingProgress (0-100)
+  const alpha = trainingProgress / 100;
+  return untrainedProjection.map((val, i) => val * (1 - alpha) + trainedProjection[i] * alpha);
+}
+
+// Simulate LLM output based on projection quality
+const llmResponses = [
+  "LLM Output: The image features are incoherent. I cannot generate a meaningful response.",
+  "LLM Output: The features seem to relate to an object, but it's unclear. Perhaps a pet?",
+  "LLM Output: This appears to be a feline creature, possibly a house cat.",
+  "LLM Output: A domestic cat, likely a tabby, is seen resting indoors. Its fur looks soft.",
+  "LLM Output: The image clearly depicts a fluffy cat, possibly a tabby or calico, comfortably lounging on a surface that resembles a sofa or bed. The lighting suggests an indoor setting.",
+  "LLM Output: The image shows a beautiful cat, probably a tabby with distinct stripes, relaxing on what appears to be a comfortable couch. The animal has a calm demeanor and well-groomed fur, indicating a domestic pet. It's a lovely example of a common household scene."
+];
+
+function getLLMResponse(trainingProgress) {
+  if (trainingProgress < 10) return llmResponses[0];
+  if (trainingProgress < 30) return llmResponses[1];
+  if (trainingProgress < 50) return llmResponses[2];
+  if (trainingProgress < 75) return llmResponses[3];
+  if (trainingProgress < 90) return llmResponses[4];
+  return llmResponses[5];
+}
+
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Input Image',
+    desc: 'We start with an input image. The goal is for a language model to understand and respond to questions about it. This image will be processed by a frozen Vision Encoder.',
+    codeLines: [],
+    canvasMode: 'image_input',
+    llmOutput: 'LLM Output: (No visual input yet)'
+  },
+  {
+    phase: 'vision', title: 'Vision Encoder: Extracting Features',
+    desc: `A pre-trained Vision Transformer (ViT) like CLIP's processes the image, dividing it into ${N_PATCHES} patches. Each patch is encoded into a high-dimensional vector. We visualize these as colored squares, each representing a ${D_VISION}-dimensional feature vector. This encoder is <b>frozen</b>.`,
+    codeLines: [],
+    canvasMode: 'vision_features',
+    llmOutput: 'LLM Output: (Vision features extracted, but not understood by LLM yet)'
+  },
+  {
+    phase: 'llm', title: 'LLM: Expecting Text Embeddings',
+    desc: `The Large Language Model (LLM) is also pre-trained and <b>frozen</b>. It operates on sequences of text embeddings, typically of a different dimensionality (${D_LLM}) than the vision features. It cannot directly interpret the raw vision features.`,
+    codeLines: [],
+    canvasMode: 'llm_expectation',
+    llmOutput: 'LLM Output: (LLM is ready for text, not raw vision features)'
+  },
+  {
+    phase: 'project', title: 'The Projection Layer: The Bridge',
+    desc: `This is the only <b>trainable</b> component: a small Multi-Layer Perceptron (MLP). Its role is to map the ${D_VISION}-dimensional vision features to the ${D_LLM}-dimensional embedding space expected by the LLM. Initially, it's untrained, so its output is random.`,
+    codeLines: [4,5,6,7,8,9,10,11,12,13,14,15],
+    canvasMode: 'projection_untrained',
+    llmOutput: 'LLM Output: (Projection layer is untrained, output is noise)'
+  },
+  {
+    phase: 'tune', title: 'Visual Instruction Tuning',
+    desc: `LLaVA is trained on a dataset of (image, instruction, response) triplets. The vision features are projected, then concatenated with the instruction's text embeddings. The LLM then predicts the response tokens, and the loss is computed. Only the <b>projection layer</b> is updated.`,
+    codeLines: [30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54],
+    canvasMode: 'training_loop',
+    llmOutput: 'LLM Output: (Training in progress... adjust slider to simulate learning)'
+  },
+  {
+    phase: 'project', title: 'Projection Layer: Mapping Features',
+    desc: `The projection layer takes each ${D_VISION}-dim vision feature and transforms it into a ${D_LLM}-dim vector. This is a linear transformation, followed by a non-linearity (like GELU), then another linear transformation.`,
+    codeLines: [8,9,10,11],
+    canvasMode: 'projection_mapping',
+    llmOutput: 'LLM Output: (Projection mapping in progress)'
+  },
+  {
+    phase: 'result', title: 'Projected Visual Tokens (Aligned)',
+    desc: `After training, the projection layer has learned to transform vision features into "visual tokens" that the LLM can understand. These projected tokens (still ${D_LLM}-dim) are now semantically aligned with the LLM's internal representation.`,
+    codeLines: [36],
+    canvasMode: 'projected_aligned',
+    llmOutput: getLLMResponse(100)
+  },
+  {
+    phase: 'result', title: 'Concatenation & LLM Inference',
+    desc: `The projected visual tokens are concatenated with the text embeddings of the instruction. The LLM then processes this combined sequence to generate a coherent, visually-grounded response. The LLM can now "see" and "reason".`,
+    codeLines: [41,42,43,44,45],
+    canvasMode: 'llm_inference',
+    llmOutput: getLLMResponse(100)
+  },
+  {
+    phase: 'result', title: 'The Power of LLaVA',
+    desc: `By effectively bridging vision and language, LLaVA enables powerful multimodal capabilities like visual question answering, image description, and conversational AI grounded in visual content. This approach is highly efficient and scalable.`,
+    codeLines: [],
+    canvasMode: 'final_output',
+    llmOutput: getLLMResponse(100)
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let trainingProgress = 0; // 0-100
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; trainingProgress = 0; document.getElementById('trainingSlider').value = 0; render(); }
+
+// ── SLIDER ──
+const trainingSlider = document.getElementById('trainingSlider');
+trainingSlider.addEventListener('input', () => {
+  trainingProgress = parseInt(trainingSlider.value);
+  document.getElementById('trainingValue').textContent = `${trainingProgress}%`;
+  if (steps[step].canvasMode === 'training_loop' || steps[step].canvasMode === 'projection_untrained' || steps[step].canvasMode === 'projected_aligned' || steps[step].canvasMode === 'llm_inference' || steps[step].canvasMode === 'final_output') {
+    render();
+  }
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup: 'phase-setup', vision: 'phase-vision', llm: 'phase-llm',
+    project: 'phase-project', tune: 'phase-tune', result: 'phase-result'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+  document.getElementById('llmOutput').textContent = s.canvasMode === 'training_loop' ? getLLMResponse(trainingProgress) : s.llmOutput;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\(', right: '\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Slider visibility
+  document.getElementById('sliderPanel').style.display =
+    (s.canvasMode === 'training_loop' || s.canvasMode === 'projection_untrained' || s.canvasMode === 'projected_aligned' || s.canvasMode === 'llm_inference' || s.canvasMode === 'final_output') ? 'flex' : 'none';
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const theme = {
+    text: col('--text'), text2: col('--text2'), text3: col('--text3'),
+    border: col('--border2'), bg2: col('--bg2'),
+    blue: col('--blue-mid'), green: col('--green-mid'), red: col('--red-mid'),
+    amber: col('--amber-mid'), purple: col('--purple-mid'), cyan: col('--cyan-mid'),
+    greenBg: col('--green-bg'), purpleBg: col('--purple-bg'), redBg: col('--red-bg'),
+    blueBg: col('--blue-bg'), amberBg: col('--amber-bg'), cyanBg: col('--cyan-bg'),
+  };
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Constants for layout
+  const gridCols = N_PATCHES_SQ;
+  const patchSize = Math.min(W * 0.1, H * 0.1) / (gridCols / 4); // Adjust based on canvas size
+  const gap = 2;
+
+  const imageX = W * 0.05;
+  const visionX = W * 0.25;
+  const mlpX = W * 0.45;
+  const projectedX = W * 0.65;
+  const llmX = W * 0.85;
+
+  const centerY = H / 2;
+
+  // Helper to draw feature blocks
+  function drawFeatureBlock(x, y, label, color, highlight = false, dim = false, vectorData = null) {
+    const blockW = patchSize * (gridCols / 4);
+    const blockH = patchSize * (gridCols / 4);
+    const textOffset = 25;
+
+    ctx.globalAlpha = dim ? 0.3 : 1;
+
+    ctx.fillStyle = color;
+    ctx.strokeStyle = theme.border;
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, blockW, blockH, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    if (highlight) {
+      ctx.strokeStyle = theme.amber;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, y, blockW, blockH, 5);
+      ctx.stroke();
+    }
+
+    // Draw vector representation (simple color average or pattern)
+    if (vectorData) {
+      const avg = vectorData.reduce((sum, val) => sum + val, 0) / vectorData.length;
+      const hue = (avg + 1) / 2 * 360; // Map -1 to 1 to 0-360 hue
+      ctx.fillStyle = `hsl(${hue}, 70%, 50%)`;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.roundRect(x + 5, y + 5, blockW - 10, blockH - 10, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '600 12px ' + theme.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + blockW / 2, y + blockH + textOffset);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw image placeholder
+  function drawImagePlaceholder(x, y, highlight = false, dim = false) {
+    const imgSize = patchSize * (gridCols / 4);
+    const img = new Image();
+    img.src = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAGQAAAgMBAAAAAAAAAAAAAAAAAAQDBgcF/8QAMBAAAgEDAwMCBAUEAwAAAAAAAAECAwQFABESITEGEyJBURQyYXGBI0JSkaGxwdH/xAAZAQADAQEBAAAAAAAAAAAAAAAAAgMBBAX/xAAiEQABBAICAgMBAAAAAAAAAAABAAIRAyESMUEFQRMicZH/2gAIAQEDEQA/AO70UUV0OQKKKKAKKKKAKKKKAKKKKAKKpa/rtrpWn3F3dTRxQwoXdi3AAHk1z+08b6Fq2oW1lY6nDPczuEjRQeWJ+gHJoC/UUUUAqrqep2+k2FxezuI4IUaR2PYAVz+48b6FpmqXNhe6nDDcwuUkQk8MD9xXb72yju7Oe2lUPFNG0bqezAjB/wB1y+5+E9D1nUbi+vdOhnuJpDJI7E8sx+wFAK7Lx3oWqalDYWWpwy3M7hI0APJJ+wFdJrm9l4T0LRNSisLHToYbmVwkagHkk/cmuigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigCiiigAooooA//9k=';
+    ctx.globalAlpha = dim ? 0.3 : 1;
+    ctx.drawImage(img, x, y, imgSize, imgSize);
+    if (highlight) {
+      ctx.strokeStyle = theme.amber;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, y, imgSize, imgSize, 5);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = theme.text;
+    ctx.font = '600 12px ' + theme.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('Input Image', x + imgSize / 2, y + imgSize + 25);
+    ctx.textAlign = 'left';
+  }
+
+  // Draw MLP visualization
+  function drawMLP(x, y, inputDim, outputDim, highlight = false, dim = false) {
+    ctx.globalAlpha = dim ? 0.3 : 1;
+    const mlpWidth = W * 0.08;
+    const mlpHeight = H * 0.15;
+    const textOffset = 25;
+
+    ctx.fillStyle = theme.mlp;
+    ctx.strokeStyle = theme.border;
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, mlpWidth, mlpHeight, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    if (highlight) {
+      ctx.strokeStyle = theme.amber;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, y, mlpWidth, mlpHeight, 5);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '600 12px ' + theme.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('Projection Layer', x + mlpWidth / 2, y + mlpHeight + textOffset);
+    ctx.fillText(`MLP (${inputDim}→${outputDim})`, x + mlpWidth / 2, y + mlpHeight / 2 + 5);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw arrows
+  function drawArrow(x1, y1, x2, y2, color, highlight = false) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = highlight ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    const headlen = 10; // length of head in pixels
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 6), y2 - headlen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 6), y2 - headlen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+  }
+
+  // Current training progress value
+  const currentTrainingProgress = trainingProgress;
+
+  // --- Drawing logic based on mode ---
+  if (mode === 'image_input') {
+    drawImagePlaceholder(imageX, centerY - patchSize * (gridCols / 8), true);
+  } else if (mode === 'vision_features') {
+    drawImagePlaceholder(imageX, centerY - patchSize * (gridCols / 8), false, true);
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, true, false, visionFeaturesRaw[0]);
+    drawArrow(imageX + patchSize * (gridCols / 8), centerY, visionX, centerY, theme.green, true);
+  } else if (mode === 'llm_expectation') {
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, true, visionFeaturesRaw[0]);
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Text Embeddings', theme.cyanBg, true, false, textEmbeddingsRaw[0]);
+    ctx.fillStyle = theme.text2; ctx.font = '12px ' + theme.sans; ctx.textAlign = 'center';
+    ctx.fillText(`LLM expects ${D_LLM}-dim vectors`, llmX + patchSize * (gridCols / 8) / 2, centerY + patchSize * (gridCols / 8) / 2 - 40);
+    ctx.fillText(`Vision provides ${D_VISION}-dim vectors`, visionX + patchSize * (gridCols / 8) / 2, centerY + patchSize * (gridCols / 8) / 2 - 40);
+    ctx.fillText(`(DIMENSION MISMATCH!)`, W/2, centerY - 80);
+    ctx.textAlign = 'left';
+  } else if (mode === 'projection_untrained') {
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, false, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, false, true, simulateProjection(visionFeaturesRaw[0], currentTrainingProgress, seededRng));
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Text Embeddings', theme.cyanBg, false, true, textEmbeddingsRaw[0]);
+    drawArrow(visionX + patchSize * (gridCols / 8), centerY, mlpX, centerY, theme.purple, true);
+    drawArrow(mlpX + W * 0.08, centerY, projectedX, centerY, theme.purple, true);
+  } else if (mode === 'training_loop') {
+    drawImagePlaceholder(imageX, centerY - patchSize * (gridCols / 8), false, true);
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, false, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, false, false, simulateProjection(visionFeaturesRaw[0], currentTrainingProgress, seededRng));
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Text Embeddings', theme.cyanBg, false, false, textEmbeddingsRaw[0]);
+    drawArrow(imageX + patchSize * (gridCols / 8), centerY, visionX, centerY, theme.green, false);
+    drawArrow(visionX + patchSize * (gridCols / 8), centerY, mlpX, centerY, theme.purple, true);
+    drawArrow(mlpX + W * 0.08, centerY, projectedX, centerY, theme.purple, true);
+    drawArrow(projectedX + patchSize * (gridCols / 8), centerY, llmX, centerY, theme.purple, true);
+
+    ctx.fillStyle = theme.text2; ctx.font = '12px ' + theme.sans; ctx.textAlign = 'center';
+    ctx.fillText("Loss (only on LLM output)", W * 0.75, H * 0.8);
+    ctx.fillText("Backprop to Projector", W * 0.55, H * 0.7);
+    drawArrow(W * 0.85, H * 0.75, W * 0.85, H * 0.8, theme.red, true); // LLM to Loss
+    drawArrow(W * 0.85, H * 0.7, W * 0.75, H * 0.7, theme.red, true); // Loss to Projector (backprop)
+    drawArrow(W * 0.60, H * 0.7, W * 0.48, H * 0.7, theme.amber, true); // Backprop through MLP
+    ctx.textAlign = 'left';
+
+  } else if (mode === 'projection_mapping') {
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, false, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, false, false, simulateProjection(visionFeaturesRaw[0], currentTrainingProgress, seededRng));
+    drawArrow(visionX + patchSize * (gridCols / 8), centerY, mlpX, centerY, theme.purple, true);
+    drawArrow(mlpX + W * 0.08, centerY, projectedX, centerY, theme.purple, true);
+
+    ctx.fillStyle = theme.text2; ctx.font = '12px ' + theme.sans; ctx.textAlign = 'center';
+    ctx.fillText(`Each ${D_VISION}-dim vector`, visionX + patchSize * (gridCols / 8) / 2, centerY - 60);
+    ctx.fillText(`transformed into ${D_LLM}-dim`, projectedX + patchSize * (gridCols / 8) / 2, centerY - 60);
+    ctx.textAlign = 'left';
+
+  } else if (mode === 'projected_aligned') {
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, true, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, false, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, true, false, simulateProjection(visionFeaturesRaw[0], 100, seededRng));
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Text Embeddings', theme.cyanBg, false, false, textEmbeddingsRaw[0]);
+    drawArrow(projectedX + patchSize * (gridCols / 8), centerY, llmX, centerY, theme.purple, true);
+
+  } else if (mode === 'llm_inference') {
+    drawImagePlaceholder(imageX, centerY - patchSize * (gridCols / 8), false, true);
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, true, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, false, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, false, false, simulateProjection(visionFeaturesRaw[0], 100, seededRng));
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Input (Combined)', theme.blueBg, true, false, simulateProjection(visionFeaturesRaw[0], 100, seededRng)); // Combined features
+    drawArrow(visionX + patchSize * (gridCols / 8), centerY, mlpX, centerY, theme.purple, false);
+    drawArrow(mlpX + W * 0.08, centerY, projectedX, centerY, theme.purple, false);
+    drawArrow(projectedX + patchSize * (gridCols / 8), centerY, llmX, centerY, theme.purple, true);
+
+    ctx.fillStyle = theme.text; ctx.font = '600 12px ' + theme.sans; ctx.textAlign = 'center';
+    ctx.fillText('Instruction Text', llmX + patchSize * (gridCols / 8) / 2, H * 0.15);
+    drawArrow(llmX + patchSize * (gridCols / 8) / 2, H * 0.2, llmX + patchSize * (gridCols / 8) / 2, centerY - 40, theme.cyan, true);
+    ctx.textAlign = 'left';
+
+  } else if (mode === 'final_output') {
+    drawImagePlaceholder(imageX, centerY - patchSize * (gridCols / 8), false, true);
+    drawFeatureBlock(visionX, centerY - patchSize * (gridCols / 8), 'Vision Features', theme.greenBg, false, true, visionFeaturesRaw[0]);
+    drawMLP(mlpX, centerY - patchSize * (gridCols / 8), D_VISION, D_LLM, false, true);
+    drawFeatureBlock(projectedX, centerY - patchSize * (gridCols / 8), 'Projected Visual Tokens', theme.purpleBg, false, true, simulateProjection(visionFeaturesRaw[0], 100, seededRng));
+    drawFeatureBlock(llmX, centerY - patchSize * (gridCols / 8), 'LLM Input (Combined)', theme.blueBg, false, true, simulateProjection(visionFeaturesRaw[0], 100, seededRng));
+    drawArrow(visionX + patchSize * (gridCols / 8), centerY, mlpX, centerY, theme.purple, false);
+    drawArrow(mlpX + W * 0.08, centerY, projectedX, centerY, theme.purple, false);
+    drawArrow(projectedX + patchSize * (gridCols / 8), centerY, llmX, centerY, theme.purple, false);
+
+    ctx.fillStyle = theme.text; ctx.font = '600 12px ' + theme.sans; ctx.textAlign = 'center';
+    ctx.fillText('Instruction Text', llmX + patchSize * (gridCols / 8) / 2, H * 0.15);
+    drawArrow(llmX + patchSize * (gridCols / 8) / 2, H * 0.2, llmX + patchSize * (gridCols / 8) / 2, centerY - 40, theme.cyan, false);
+    ctx.textAlign = 'left';
+
+    // LLM output box
+    const outputBoxX = llmX;
+    const outputBoxY = H * 0.7;
+    const outputBoxW = patchSize * (gridCols / 4);
+    const outputBoxH = H * 0.1;
+    ctx.fillStyle = theme.blueBg;
+    ctx.strokeStyle = theme.blue;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(outputBoxX, outputBoxY, outputBoxW, outputBoxH, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = theme.blue;
+    ctx.font = '600 12px ' + theme.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('LLM Output', outputBoxX + outputBoxW / 2, outputBoxY + outputBoxH / 2 + 5);
+    ctx.textAlign = 'left';
+    drawArrow(llmX + patchSize * (gridCols / 8) / 2, centerY + patchSize * (gridCols / 8), outputBoxX + outputBoxW / 2, outputBoxY, theme.blue, true);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Distillation for Smaller Deployment Models — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);text-align:center;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-teacher{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-student{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-distill{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Bar chart specific */
+.bar-chart-container{display:flex;width:100%;height:120px;gap:10px;margin-bottom:1rem;justify-content:center;align-items:flex-end;}
+.bar-chart-bar{flex:1;background:var(--purple-mid);border-radius:4px 4px 0 0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;position:relative;transition:height 0.3s ease-out;}
+.bar-chart-label{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:4px;}
+.bar-chart-value{font-family:var(--mono);font-size:11px;font-weight:600;color:white;position:absolute;top:-20px;text-shadow:0 0 2px rgba(0,0,0,0.5);}
+.bar-chart-title{text-align:center;font-size:13px;font-weight:700;color:var(--text);margin-top:1rem;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Model Distillation</h1>
+  <div class="subtitle">Transferring knowledge from large teacher models to small student models</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Model Compression</span>
+    <span class="tag tag-complexity">O(1) inference cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Model Distillation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Model distillation is a technique where a smaller, simpler "student" model is trained to reproduce the behavior of a larger, more complex "teacher" model. Instead of just learning from the ground-truth labels, the student also learns from the soft probabilities (logits) produced by the teacher. This allows the student to achieve performance remarkably close to the teacher, despite being significantly smaller and faster.</p>
+    <p><strong>Analogy:</strong> Imagine a master chef (the teacher) who can perfectly identify ingredients and flavors in a complex dish. A new apprentice (the student) needs to learn. Traditional training would be like giving the apprentice a dish and just telling them "it's Italian" (the hard label). Distillation is like the master chef explaining: "It's Italian (high probability), but it also has subtle hints of French herbs (low but non-zero probability), and definitely no Asian spices (very low probability)." This richer "soft" information helps the apprentice understand the nuances and learn much faster than by just knowing the final cuisine type.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Model distillation transfers the "knowledge" of a powerful teacher model to a lightweight student model. This knowledge transfer happens by training the student to mimic the teacher's <strong>soft targets</strong> (probability distributions over classes, often 'softened' further with a temperature parameter), rather than just the hard ground-truth labels.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Distillation Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Idea: Learning from Soft Targets</h4>
+    <p>In standard supervised learning, a model is trained using a loss function (e.g., cross-entropy) that compares its predicted probabilities to one-hot encoded ground-truth labels. This provides a strong signal for the correct class, but offers no information about the relative likelihoods of incorrect classes.</p>
+    <p>A large, well-trained teacher model, however, produces rich probability distributions (soft targets) that encode this "dark knowledge." For example, if a teacher classifies an image as "dog" with 90% confidence, but also gives 8% to "wolf" and 2% to "cat," it's telling us that "wolf" is a more plausible incorrect answer than "cat." Distillation leverages this nuanced information.</p>
+
+    <h4>The Role of Temperature (\(T\))</h4>
+    <p>A crucial component in distillation is the temperature parameter \(T\), which is introduced into the softmax function:</p>
+    <div class="eq">$$\sigma(z/T)_i = \frac{e^{z_i/T}}{\sum_{j=1}^n e^{z_j/T}}$$</div>
+    <p>When \(T=1\), it's standard softmax. As \(T \to \infty\), the probabilities become more uniform, emphasizing the relative differences between even very small logits. As \(T \to 0\), the distribution becomes sharper, approaching a one-hot encoding of the highest logit. By using \(T > 1\), the teacher's softened probabilities reveal more of its dark knowledge, making the training signal richer for the student.</p>
+
+    <h4>The Combined Loss Function</h4>
+    <p>The student model is typically trained with a hybrid loss function:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>A standard cross-entropy loss against the <strong>hard ground-truth labels</strong> (e.g., weighted by \(\alpha\)). This ensures the student doesn't drift too far from the true labels.</li>
+      <li>A Kullback-Leibler (KL) divergence loss against the <strong>teacher's soft targets</strong> (e.g., weighted by \(\beta\)). This is where the knowledge transfer happens, forcing the student to match the teacher's nuanced output distribution. Importantly, this KL divergence is also computed with the same temperature \(T\) applied to the student's logits.</li>
+    </ol>
+    <p>The total loss is typically a weighted sum: \(L = \alpha L_{hard} + \beta L_{soft}\), where \(\alpha + \beta = 1\) (or \(\alpha + \beta = \text{some constant}\), and \(\beta\) is often scaled by \(T^2\) to account for the magnitude of gradients when using high temperature). This combined approach allows the student to learn both the fundamental task and the teacher's sophisticated generalization patterns.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The teacher model's parameters are <strong>frozen</strong> during distillation. Only the student model's parameters are updated. This ensures the student is learning from a stable, expert source without altering the teacher's knowledge.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Softmax with Temperature</h4>
+    <p>Let \(z = [z_1, \dots, z_K]\) be the raw logits (pre-softmax outputs) for \(K\) classes. The softmax function with temperature \(T\) transforms these into a probability distribution \(P\):</p>
+    <div class="eq">$$P_i(z, T) = \frac{e^{z_i/T}}{\sum_{j=1}^K e^{z_j/T}}$$</div>
+    <p>For \(T=1\), this is standard softmax. As \(T\) increases, the probability distribution becomes "softer" or smoother, meaning the differences between the probabilities of the correct class and incorrect classes become less pronounced. This allows the student to learn not just the correct class, but also the relative "plausibility" of other classes as judged by the teacher.</p>
+
+    <h4>The Combined Loss Function</h4>
+    <p>The overall loss function \(L\) for training the student model is a weighted sum of two components: a hard target loss \(L_{hard}\) and a soft target loss \(L_{soft}\).</p>
+    <p>The hard target loss is typically the standard cross-entropy loss, comparing the student's predictions (at \(T=1\)) to the one-hot ground-truth labels \(y\):</p>
+    <div class="eq">$$L_{hard} = -\sum_{i=1}^K y_i \log(\sigma(z_S, T=1)_i)$$</div>
+    <p>The soft target loss uses the Kullback-Leibler (KL) divergence to measure the difference between the teacher's softened probabilities \(P_T(z_T, T)\) and the student's softened probabilities \(P_S(z_S, T)\):</p>
+    <div class="eq">$$L_{soft} = \sum_{i=1}^K P_T(z_T, T)_i \log \frac{P_T(z_T, T)_i}{P_S(z_S, T)_i}$$</div>
+    <p>The total loss is then a weighted sum, where \(\alpha\) and \(\beta\) are hyperparameters (e.g., \(\alpha=0.1, \beta=0.9\)):</p>
+    <div class="eq">$$L = \alpha L_{hard} + \beta L_{soft}$$</div>
+    <p>The term \(\beta L_{soft}\) is often scaled by \(T^2\) in practice, as the gradients of the soft target loss become very small when \(T\) is large, and \(T^2\) helps to keep their magnitude consistent with the gradients from the hard target loss. This scaling ensures that the soft targets contribute meaningfully to the learning process even at high temperatures.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Practical Consideration</div>
+      <p style="font-size:14px;margin:0;">Choosing the right temperature \(T\) and weighting coefficients \(\alpha, \beta\) is crucial. A \(T\) that is too low might make the soft targets too similar to hard labels, limiting knowledge transfer. A \(T\) that is too high might make the soft targets too uniform, losing valuable information. A common practice is to use \(T\) between 2 and 20.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore model distillation on a 2D classification task. Watch how a complex "teacher" guides a simple "student" to better performance by sharing its nuanced predictions (soft targets) and how <strong>temperature</strong> affects this knowledge transfer.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">Temperature T</div>
+          <input type="range" id="tempSlider" min="1" max="20" step="0.5" value="1">
+          <div class="slider-value" id="tempValue">1.0</div>
+        </div>
+        <div class="slider-hint">Higher T makes teacher's probability distribution smoother, revealing more 'dark knowledge'.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="bar-chart-title" id="barChartTitle" style="display:none;">Teacher's Soft Targets for Selected Point (T= <span id="barChartTemp">1.0</span>)</div>
+      <div class="bar-chart-container" id="barChartContainer" style="display:none;">
+        <div class="bar-chart-bar" data-class="0"><span class="bar-chart-value"></span><span class="bar-chart-label">Class 0</span></div>
+        <div class="bar-chart-bar" data-class="1"><span class="bar-chart-value"></span><span class="bar-chart-label">Class 1</span></div>
+        <div class="bar-chart-bar" data-class="2"><span class="bar-chart-value"></span><span class="bar-chart-label">Class 2</span></div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Classification Task</div>
+        <div class="info-desc" id="infoDesc">We have 100 2D data points belonging to 3 classes. The classes are not linearly separable, requiring a complex model to classify them accurately.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Class 0</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Class 1</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Class 2</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Teacher Model</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Student Model</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Selected Point</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use model distillation:</strong></p>
+    <ul>
+      <li><strong>Model Compression:</strong> When you need to deploy a complex model to resource-constrained environments (mobile, edge devices) where memory, computational power, or latency are critical.</li>
+      <li><strong>Faster Inference:</strong> Smaller models naturally lead to quicker prediction times.</li>
+      <li><strong>Transfer Learning:</strong> To transfer knowledge from an ensemble of models or a very large pre-trained model to a single, more manageable model.</li>
+      <li><strong>Regularization:</strong> The soft targets can act as a form of regularization, preventing the student from overfitting to noisy hard labels.</li>
+    </ul>
+    <p><strong>When NOT to use or be cautious:</strong></p>
+    <ul>
+      <li><strong>Poor Teacher:</strong> If the teacher model itself performs poorly, distillation won't magically improve the student; it will simply transfer the teacher's limitations.</li>
+      <li><strong>Student Capacity Mismatch:</strong> If the student model is too simple to capture the teacher's patterns, it may not benefit significantly from distillation.</li>
+      <li><strong>Interpretability:</strong> If the goal is to understand the student's *own* decision-making process (not just its outputs), then mimicking a black-box teacher might obscure this.</li>
+      <li><strong>Computational Overhead:</strong> Training a teacher model (if not already available) and then performing distillation adds computational cost to the overall development pipeline.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Model distillation is a powerful technique for leveraging the "dark knowledge" embedded in the soft outputs of large models. It's not just about matching final predictions, but about understanding the teacher's relative confidence across all classes, enabling smaller models to generalize better than they would if trained only on hard labels.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume teacher_model and student_model are defined</div>
+      <div class="code-line" id="cl4"># Assume train_loader, optimizer, device are set up</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">temperature = 4.0   # Hyperparameter T</div>
+      <div class="code-line" id="cl7">alpha = 0.1         # Weight for hard label loss</div>
+      <div class="code-line" id="cl8">beta = 0.9          # Weight for soft target loss</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">teacher_model.eval() # Teacher is frozen, only used for inference</div>
+      <div class="code-line" id="cl11">student_model.train()</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">for inputs, hard_labels in train_loader:</div>
+      <div class="code-line" id="cl14">    inputs, hard_labels = inputs.to(device), hard_labels.to(device)</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    optimizer.zero_grad()</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">    # 1. Get teacher's soft targets (logits)</div>
+      <div class="code-line" id="cl19">    with torch.no_grad(): # No gradient calculation for teacher</div>
+      <div class="code-line" id="cl20">        teacher_logits = teacher_model(inputs)</div>
+      <div class="code-line" id="cl21">        # Apply temperature to teacher's logits to get soft probabilities</div>
+      <div class="code-line" id="cl22">        teacher_soft_probs = F.softmax(teacher_logits / temperature, dim=1)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">    # 2. Get student's logits</div>
+      <div class="code-line" id="cl25">    student_logits = student_model(inputs)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    # 3. Calculate hard target loss (standard cross-entropy)</div>
+      <div class="code-line" id="cl28">    loss_hard = F.cross_entropy(student_logits, hard_labels)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">    # 4. Calculate soft target loss (KL-divergence)</div>
+      <div class="code-line" id="cl31">    # Apply temperature to student's logits too</div>
+      <div class="code-line" id="cl32">    student_soft_log_probs = F.log_softmax(student_logits / temperature, dim=1)</div>
+      <div class="code-line" id="cl33">    loss_soft = F.kl_div(student_soft_log_probs, teacher_soft_probs, reduction='batchmean')</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35">    # 5. Combine losses (often scale soft loss by T^2)</div>
+      <div class="code-line" id="cl36">    loss = alpha * loss_hard + beta * loss_soft * (temperature ** 2)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">    # 6. Backpropagate and update</div>
+      <div class="code-line" id="cl39">    loss.backward()</div>
+      <div class="code-line" id="cl40">    optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(42);
+
+// ── MATH UTILS ──
+function softmax(logits, T = 1) {
+  // Stable softmax implementation
+  const maxLogit = Math.max(...logits);
+  const exp_logits = logits.map(l => Math.exp((l - maxLogit) / T));
+  const sum_exp_logits = exp_logits.reduce((a, b) => a + b, 0);
+  return exp_logits.map(e => e / sum_exp_logits);
+}
+
+function argMax(arr) {
+  let maxVal = -Infinity;
+  let maxIdx = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > maxVal) {
+      maxVal = arr[i];
+      maxIdx = i;
+    }
+  }
+  return maxIdx;
+}
+
+// ── DATA GENERATION ──
+const NUM_POINTS = 100;
+const CLASSES = 3;
+const DATA = [];
+
+// Generate 3 clusters of points for 3 classes
+for (let i = 0; i < NUM_POINTS; i++) {
+  let x, y, label;
+  const cluster = Math.floor(seededRng() * CLASSES);
+  if (cluster === 0) { // Top-left cluster
+    x = seededRng() * 0.3 + 0.1;
+    y = seededRng() * 0.3 + 0.6;
+    label = 0;
+  } else if (cluster === 1) { // Bottom-right cluster
+    x = seededRng() * 0.3 + 0.6;
+    y = seededRng() * 0.3 + 0.1;
+    label = 1;
+  } else { // Middle-ish, slightly separated cluster
+    x = seededRng() * 0.3 + 0.35;
+    y = seededRng() * 0.3 + 0.35;
+    label = 2;
+  }
+  // Add some global noise
+  x += (seededRng() - 0.5) * 0.1;
+  y += (seededRng() - 0.5) * 0.1;
+  DATA.push({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)), label });
+}
+
+// Select a "challenging" point for detailed analysis
+// This point is near the boundary between two classes, where teacher's soft targets are most informative.
+const SELECTED_POINT_IDX = DATA.findIndex(p => p.x > 0.4 && p.x < 0.6 && p.y > 0.4 && p.y < 0.6) || 0;
+const SELECTED_POINT = DATA[SELECTED_POINT_IDX];
+
+// ── SIMULATED MODELS ──
+// Teacher model: complex, non-linear boundaries (e.g., a combination of functions)
+function teacherModelLogits(x, y) {
+  // Simulate a complex, non-linear decision function
+  const l0 = -20 * (x - 0.25)**2 - 20 * (y - 0.75)**2 + 3; // Favors top-left
+  const l1 = -20 * (x - 0.75)**2 - 20 * (y - 0.25)**2 + 3; // Favors bottom-right
+  const l2 = -10 * (x - 0.5)**2 - 10 * (y - 0.5)**2 + 1.5 - 2*Math.sin(x*10) + 2*Math.cos(y*10); // Favors middle, with wiggle
+  return [l0, l1, l2];
+}
+
+// Vanilla Student model: simple, linear boundaries
+function vanillaStudentModelLogits(x, y) {
+  const l0 = -2 * x + 3 * y - 1;
+  const l1 = 3 * x - 2 * y - 1;
+  const l2 = -1 * x - 1 * y + 1.5;
+  return [l0, l1, l2];
+}
+
+// Distilled Student model: simple, linear boundaries, but better aligned with teacher
+function distilledStudentModelLogits(x, y) {
+  // Slightly adjusted linear boundaries to be closer to teacher
+  const l0 = -2.5 * x + 3.5 * y - 1.2;
+  const l1 = 3.5 * x - 2.5 * y - 1.2;
+  const l2 = -1.2 * x - 1.2 * y + 1.8;
+  return [l0, l1, l2];
+}
+
+// Accuracy calculation
+function calculateAccuracy(modelLogitsFunc, data) {
+  let correct = 0;
+  for (const p of data) {
+    const logits = modelLogitsFunc(p.x, p.y);
+    const prediction = argMax(logits);
+    if (prediction === p.label) {
+      correct++;
+    }
+  }
+  return (correct / data.length) * 100;
+}
+
+const TEACHER_ACCURACY = calculateAccuracy(teacherModelLogits, DATA);
+const VANILLA_STUDENT_ACCURACY = calculateAccuracy(vanillaStudentModelLogits, DATA);
+const DISTILLED_STUDENT_ACCURACY = calculateAccuracy(distilledStudentModelLogits, DATA);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Classification Task',
+    desc: `We have ${NUM_POINTS} 2D data points belonging to ${CLASSES} classes (Class 0: blue, Class 1: red, Class 2: green). The classes are not linearly separable, requiring a complex model to classify them accurately.`,
+    canvasMode: 'data_only',
+    infoNumbers: `Total points: ${NUM_POINTS}\nClasses: ${CLASSES}`
+  },
+  {
+    phase: 'teacher', title: 'The Teacher Model: Complex & Accurate',
+    desc: `This is our large, complex "teacher" model's decision boundary (purple regions). It has learned to classify the data with high accuracy by capturing intricate, non-linear patterns. Its parameters are frozen during distillation.`,
+    canvasMode: 'teacher_boundaries',
+    infoNumbers: `Teacher Accuracy: ${TEACHER_ACCURACY.toFixed(1)}%`
+  },
+  {
+    phase: 'student', title: 'The Vanilla Student: Simple & Less Accurate',
+    desc: `This is a smaller, simpler "student" model trained on hard ground-truth labels alone. Its decision boundaries (amber regions) are much simpler (linear in this case), and it achieves significantly lower accuracy than the teacher.`,
+    canvasMode: 'vanilla_student_boundaries',
+    infoNumbers: `Vanilla Student Accuracy: ${VANILLA_STUDENT_ACCURACY.toFixed(1)}%`
+  },
+  {
+    phase: 'teacher', title: "Teacher's Raw Logits for a Challenging Point",
+    desc: `Let's pick a data point (cyan circle) near a decision boundary. The teacher model outputs raw logits for this point: numbers indicating its "score" for each class. These are not probabilities yet, but their relative values are important.`,
+    canvasMode: 'teacher_logits_raw',
+    infoNumbers: `Selected point: (${SELECTED_POINT.x.toFixed(2)}, ${SELECTED_POINT.y.toFixed(2)})\nTrue label: Class ${SELECTED_POINT.label}\nTeacher Logits: [${teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y).map(l => l.toFixed(2)).join(', ')}]`
+  },
+  {
+    phase: 'teacher', title: "Soft Targets (T=1): Teacher's Probabilities",
+    desc: `Applying softmax with a temperature T=1 converts the teacher's logits into a probability distribution (soft targets). Even at T=1, the distribution is quite "hard" (one class dominates), but it still provides more information than a one-hot label.`,
+    canvasMode: 'teacher_soft_t1',
+    infoNumbers: `Teacher Logits: [${teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y).map(l => l.toFixed(2)).join(', ')}]\nSoft Targets (T=1): [${softmax(teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y), 1).map(p => p.toFixed(3)).join(', ')}]`
+  },
+  {
+    phase: 'distill', title: "Soft Targets with Temperature (T > 1): Dark Knowledge",
+    desc: `Use the slider to increase temperature (T). Notice how the teacher's probability distribution becomes smoother, revealing its "dark knowledge" – the relative likelihoods of even the incorrect classes. This rich signal is what the student learns from.`,
+    canvasMode: 'teacher_soft_t_slider',
+    infoNumbers: `Teacher Logits: [${teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y).map(l => l.toFixed(2)).join(', ')}]\nSoft Targets (T=current): [${softmax(teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y), 1).map(p => p.toFixed(3)).join(', ')}]` // This will be updated dynamically
+  },
+  {
+    phase: 'distill', title: 'Distillation Training: Student Learns from Teacher',
+    desc: `During distillation, the student model is trained with a combined loss: a small part from hard labels, and a large part from matching the teacher's softened probabilities. This guides the student to mimic the teacher's nuanced decision-making.`,
+    canvasMode: 'distilling_student_animated', // This step could show a transition or an intermediate state
+    infoNumbers: `Student learning from:\n- Hard labels (true class)\n- Teacher's soft targets (T > 1)`
+  },
+  {
+    phase: 'distill', title: 'The Distilled Student: Simple & Improved',
+    desc: `After distillation, the student model (amber regions) retains its simple architecture but achieves significantly higher accuracy than the vanilla student, closely approximating the teacher's performance without its complexity.`,
+    canvasMode: 'distilled_student_boundaries',
+    infoNumbers: `Distilled Student Accuracy: ${DISTILLED_STUDENT_ACCURACY.toFixed(1)}%`
+  },
+  {
+    phase: 'distill', title: 'Summary: Teacher, Vanilla, & Distilled Students',
+    desc: `Compare all three models. The teacher is complex and accurate. The vanilla student is simple but less accurate. The distilled student is also simple, but achieves much better performance by leveraging the teacher's knowledge.`,
+    canvasMode: 'summary_comparison',
+    infoNumbers: `Teacher Acc: ${TEACHER_ACCURACY.toFixed(1)}%\nVanilla Student Acc: ${VANILLA_STUDENT_ACCURACY.toFixed(1)}%\nDistilled Student Acc: ${DISTILLED_STUDENT_ACCURACY.toFixed(1)}%`
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentTemp = 1.0;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; currentTemp = 1.0; document.getElementById('tempSlider').value = 1; render(); }
+
+// ── SLIDER ──
+const tempSlider = document.getElementById('tempSlider');
+tempSlider.addEventListener('input', () => {
+  currentTemp = parseFloat(tempSlider.value);
+  document.getElementById('tempValue').textContent = currentTemp.toFixed(1);
+  if (steps[step].canvasMode === 'teacher_soft_t_slider') {
+    updateBarChart(currentTemp);
+    updateInfoNumbers();
+  }
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup: 'phase-setup',
+    teacher: 'phase-teacher',
+    student: 'phase-student',
+    distill: 'phase-distill'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+  document.getElementById('infoNumbers').textContent = s.infoNumbers;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  if (step === 3 || step === 4 || step === 5) {
+      document.getElementById('cl18').classList.add('active');
+      document.getElementById('cl19').classList.add('active');
+      document.getElementById('cl20').classList.add('active');
+      document.getElementById('cl21').classList.add('active');
+      document.getElementById('cl22').classList.add('active');
+  }
+  else if (step === 6 || step === 7) {
+      document.getElementById('cl27').classList.add('active');
+      document.getElementById('cl28').classList.add('active');
+      document.getElementById('cl30').classList.add('active');
+      document.getElementById('cl31').classList.add('active');
+      document.getElementById('cl32').classList.add('active');
+      document.getElementById('cl33').classList.add('active');
+      document.getElementById('cl35').classList.add('active');
+      document.getElementById('cl36').classList.add('active');
+  }
+
+
+  // Slider visibility
+  const isSliderStep = s.canvasMode === 'teacher_soft_t_slider';
+  document.getElementById('sliderPanel').style.display = isSliderStep ? 'flex' : 'none';
+  if (!isSliderStep) {
+      currentTemp = parseFloat(document.getElementById('tempSlider').value); // Reset slider value
+  }
+
+  // Bar chart visibility
+  const isBarChartStep = s.canvasMode.includes('soft_t') || s.canvasMode.includes('logits_raw');
+  document.getElementById('barChartContainer').style.display = isBarChartStep ? 'flex' : 'none';
+  document.getElementById('barChartTitle').style.display = isBarChartStep ? 'block' : 'none';
+  if (isBarChartStep) {
+      updateBarChart(currentTemp);
+  }
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── UPDATE INFO NUMBERS FOR SLIDER STEP ──
+function updateInfoNumbers() {
+  const s = steps[step];
+  if (s.canvasMode === 'teacher_soft_t_slider') {
+    const teacherLogits = teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y);
+    const softTargets = softmax(teacherLogits, currentTemp);
+    document.getElementById('infoNumbers').textContent =
+      `Teacher Logits: [${teacherLogits.map(l => l.toFixed(2)).join(', ')}]\nSoft Targets (T=${currentTemp.toFixed(1)}): [${softTargets.map(p => p.toFixed(3)).join(', ')}]`;
+  } else if (s.canvasMode === 'teacher_logits_raw') {
+     document.getElementById('infoNumbers').textContent =
+      `Selected point: (${SELECTED_POINT.x.toFixed(2)}, ${SELECTED_POINT.y.toFixed(2)})\nTrue label: Class ${SELECTED_POINT.label}\nTeacher Logits: [${teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y).map(l => l.toFixed(2)).join(', ')}]`;
+  } else if (s.canvasMode === 'teacher_soft_t1') {
+      document.getElementById('infoNumbers').textContent =
+      `Teacher Logits: [${teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y).map(l => l.toFixed(2)).join(', ')}]\nSoft Targets (T=1): [${softmax(teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y), 1).map(p => p.toFixed(3)).join(', ')}]`;
+  }
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    class0: g('--blue-mid'), class1: g('--red-mid'), class2: g('--green-mid'),
+    teacher_boundary: g('--purple-mid'), vanilla_student_boundary: g('--amber-mid'),
+    distilled_student_boundary: g('--green-mid'), selected_point: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = 20;
+  const plotW = W - 2 * padding;
+  const plotH = H - 2 * padding;
+  const toCanvasX = x => padding + x * plotW;
+  const toCanvasY = y => padding + (1 - y) * plotH;
+
+  // Draw decision regions
+  const drawBoundary = (modelLogitsFunc, color, alpha = 0.15) => {
+    // Use a higher resolution for smoother boundaries
+    const gridResolution = 100; // gridResolution x gridResolution cells
+    const cellWidth = plotW / gridResolution;
+    const cellHeight = plotH / gridResolution;
+
+    for (let gx = 0; gx < gridResolution; gx++) {
+      for (let gy = 0; gy < gridResolution; gy++) {
+        const x_coord = gx / gridResolution;
+        const y_coord = gy / gridResolution;
+
+        const logits = modelLogitsFunc(x_coord, y_coord);
+        const prediction = argMax(logits);
+
+        const canvas_x = toCanvasX(x_coord);
+        const canvas_y = toCanvasY(y_coord);
+
+        let r, g, b;
+        if (prediction === 0) [r, g, b] = hexToRgb(c.class0);
+        else if (prediction === 1) [r, g, b] = hexToRgb(c.class1);
+        else [r, g, b] = hexToRgb(c.class2);
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        ctx.fillRect(canvas_x, canvas_y, cellWidth, cellHeight);
+      }
+    }
+  };
+
+  if (mode === 'teacher_boundaries' || mode === 'teacher_logits_raw' || mode === 'teacher_soft_t1' || mode === 'teacher_soft_t_slider' || mode === 'distilling_student_animated' || mode === 'summary_comparison') {
+    drawBoundary(teacherModelLogits, c.teacher_boundary, 0.25);
+  }
+  if (mode === 'vanilla_student_boundaries' || mode === 'summary_comparison') {
+    drawBoundary(vanillaStudentModelLogits, c.vanilla_student_boundary, 0.25);
+  }
+  if (mode === 'distilled_student_boundaries' || mode === 'summary_comparison') {
+    drawBoundary(distilledStudentModelLogits, c.distilled_student_boundary, 0.25);
+  }
+
+  // Draw points
+  DATA.forEach(p => {
+    const cx = toCanvasX(p.x);
+    const cy = toCanvasY(p.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    if (p.label === 0) ctx.fillStyle = c.class0;
+    else if (p.label === 1) ctx.fillStyle = c.class1;
+    else ctx.fillStyle = c.class2;
+    ctx.fill();
+    ctx.strokeStyle = c.bg2;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Highlight selected point
+  if (mode === 'teacher_logits_raw' || mode === 'teacher_soft_t1' || mode === 'teacher_soft_t_slider' || mode === 'distilling_student_animated') {
+    const cx = toCanvasX(SELECTED_POINT.x);
+    const cy = toCanvasY(SELECTED_POINT.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = c.selected_point;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  // Draw model labels for summary_comparison
+  if (mode === 'summary_comparison') {
+    ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = c.teacher_boundary;
+    ctx.fillText(`Teacher (Acc: ${TEACHER_ACCURACY.toFixed(1)}%)`, padding + 10, padding + 20);
+    ctx.fillStyle = c.vanilla_student_boundary;
+    ctx.fillText(`Vanilla Student (Acc: ${VANILLA_STUDENT_ACCURACY.toFixed(1)}%)`, padding + 10, padding + 35);
+    ctx.fillStyle = c.distilled_student_boundary;
+    ctx.fillText(`Distilled Student (Acc: ${DISTILLED_STUDENT_ACCURACY.toFixed(1)}%)`, padding + 10, padding + 50);
+  }
+
+  function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return [r, g, b];
+  }
+}
+
+// ── BAR CHART UPDATE ──
+function updateBarChart(temperature) {
+  const teacherLogits = teacherModelLogits(SELECTED_POINT.x, SELECTED_POINT.y);
+  const probabilities = softmax(teacherLogits, temperature);
+  const barElements = document.querySelectorAll('#barChartContainer .bar-chart-bar');
+  const maxProb = Math.max(...probabilities); // For scaling bar height
+
+  document.getElementById('barChartTemp').textContent = temperature.toFixed(1);
+
+  barElements.forEach((bar, index) => {
+    const prob = probabilities[index];
+    const height = (prob / maxProb) * 100; // Scale to max height of 100%
+    bar.style.height = `${height}%`;
+    bar.querySelector('.bar-chart-value').textContent = prob.toFixed(3);
+
+    // Set bar color based on class
+    const classColors = getColors();
+    if (index === 0) bar.style.backgroundColor = classColors.class0;
+    else if (index === 1) bar.style.backgroundColor = classColors.class1;
+    else if (index === 2) bar.style.backgroundColor = classColors.class2;
+  });
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

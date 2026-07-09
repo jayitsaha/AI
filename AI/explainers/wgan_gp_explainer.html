@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WGAN-GP: Gradient Penalty for Lipschitz Constraint — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-theory{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-fix{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>WGAN-GP: Gradient Penalty for Lipschitz Constraint</h1>
+  <div class="subtitle">Stabilizing GAN training with a theoretically sound regularization</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-complexity">O(N) gradient penalty</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding WGAN-GP</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Generative Adversarial Networks (GANs) are notoriously difficult to train. Wasserstein GANs (WGANs) improved stability by minimizing the Earth Mover's (Wasserstein) distance, which is smoother and more informative than Jensen-Shannon divergence. However, WGANs require the discriminator (critic) to be 1-Lipschitz. The original WGAN enforced this with weight clipping, which often led to poor sample quality and mode collapse. WGAN-GP (Gulrajani et al., 2017) replaces weight clipping with a <strong>gradient penalty</strong>, a much more effective and theoretically sound way to enforce the Lipschitz constraint.</p>
+    <p><strong>Analogy:</strong> Imagine a judge (discriminator) trying to distinguish real diamonds from fakes. A traditional GAN judge might just give a "real" or "fake" score. A WGAN judge gives a *continuous* score, representing how "real" something looks. The Lipschitz constraint means this judge can't be *too* confident too quickly: if two diamonds look only slightly different, their "realness" scores shouldn't jump wildly. Weight clipping was like telling the judge: "Don't use numbers outside this range!" which made the judge's scoring function clunky. WGAN-GP is like telling the judge: "Your confidence score must change smoothly; your opinion can't swing too much for small differences." This makes the judge's scoring much more nuanced and reliable.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">WGAN-GP stabilizes GAN training by adding a penalty term to the discriminator's loss. This term forces the discriminator's gradient norm to be close to 1 everywhere, especially on interpolated samples between real and generated data. This directly enforces the 1-Lipschitz constraint without the pathological side effects of weight clipping.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How WGAN-GP Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The WGAN Foundation: Wasserstein Distance</h4>
+    <p>Traditional GANs minimize Jensen-Shannon divergence, which can be unstable if real and generated distributions are disjoint. WGANs minimize the 1-Wasserstein (Earth Mover's) distance, defined as:
+    $$W(\mathbb{P}_r, \mathbb{P}_g) = \inf_{\gamma \in \Pi(\mathbb{P}_r, \mathbb{P}_g)} \mathbb{E}_{(x,y) \sim \gamma} [\|x-y\|]$$
+    This measures the minimum "cost" to transform one distribution into another. Crucially, it's continuous even when distributions are disjoint, providing a meaningful gradient everywhere.</p>
+
+    <h4>Duality and the Lipschitz Constraint</h4>
+    <p>By the Kantorovich-Rubinstein duality, the Wasserstein distance can be reformulated as:
+    $$W(\mathbb{P}_r, \mathbb{P}_g) = \sup_{\|f\|_L \le 1} \mathbb{E}_{x \sim \mathbb{P}_r} [f(x)] - \mathbb{E}_{x \sim \mathbb{P}_g} [f(x)]$$
+    Here, \(f\) is a 1-Lipschitz function. In WGAN, the discriminator \(D\) plays the role of this \(f\). Its objective is to maximize this difference, while the generator \(G\) tries to minimize it. The critical part is that \(D\) *must* be 1-Lipschitz (i.e., its gradient norm must not exceed 1 anywhere).</p>
+
+    <h4>The Problem with Weight Clipping</h4>
+    <p>The original WGAN enforced the 1-Lipschitz constraint by clipping the discriminator's weights to a small range (e.g., \([-c, c]\)). While simple, this method has severe drawbacks:</p>
+    <ul>
+      <li>It forces the discriminator to be a very simple function, often a linear one, limiting its capacity.</li>
+      <li>It can lead to vanishing or exploding gradients, as the weights tend to cluster at the clipping boundaries.</li>
+      <li>It often results in mode collapse and poor sample quality.</li>
+    </ul>
+
+    <h4>The Gradient Penalty Solution</h4>
+    <p>WGAN-GP addresses these issues by adding a penalty to the discriminator's loss. This penalty directly enforces the 1-Lipschitz constraint by ensuring that the gradient norm of the discriminator with respect to its input is close to 1. The penalty is applied not just to real or generated samples, but to <strong>interpolated samples</strong> \(\hat{x}\) between real and generated data points. This is crucial because the Lipschitz condition must hold *everywhere*, not just at the data manifolds.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">A function \(f\) is \(K\)-Lipschitz if and only if its gradient norm is bounded by \(K\) everywhere: \(\|\nabla f(x)\| \le K\). For WGAN, we need \(K=1\). The gradient penalty term directly regularizes \(\|\nabla D(\hat{x})\|\) towards 1, thus enforcing the Lipschitz constraint.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Discriminator's Objective with GP</h4>
+    <p>The discriminator's objective function in WGAN-GP is:</p>
+    <div class="eq">$$\mathcal{L}_D = \mathbb{E}_{\tilde{x} \sim \mathbb{P}_g} [D(\tilde{x})] - \mathbb{E}_{x \sim \mathbb{P}_r} [D(x)] + \lambda \mathbb{E}_{\hat{x} \sim \mathbb{P}_{\hat{x}}} [(\|\nabla_{\hat{x}} D(\hat{x})\|_2 - 1)^2]$$</div>
+    <p>The first two terms are the original WGAN loss, aiming to maximize the difference between scores for generated and real data. The third term is the gradient penalty. Here, \(\lambda\) is the penalty coefficient (typically 10), and \(\mathbb{P}_{\hat{x}}\) is the distribution of interpolated samples \(\hat{x}\).</p>
+
+    <h4>Interpolated Samples \(\hat{x}\)</h4>
+    <p>The interpolated samples \(\hat{x}\) are drawn uniformly along straight lines connecting a real sample \(x\) and a generated sample \(\tilde{x}\):</p>
+    <div class="eq">$$\hat{x} = \epsilon x + (1 - \epsilon) \tilde{x}, \quad \text{where } \epsilon \sim U(0, 1)$$</div>
+    <p>This ensures the penalty is applied in the "spaces" between the real and generated data manifolds, where the Lipschitz constraint is most likely to be violated by a poorly regularized discriminator.</p>
+
+    <h4>The Gradient Penalty Term</h4>
+    <p>The core of the penalty is \((\|\nabla_{\hat{x}} D(\hat{x})\|_2 - 1)^2\). This term encourages the norm of the discriminator's gradient with respect to its input \(\hat{x}\) to be exactly 1.
+    Why 1? Because the Kantorovich-Rubinstein duality requires a 1-Lipschitz function. If \(D\) is \(K\)-Lipschitz, then \(\|\nabla D(x)\| \le K\) almost everywhere. By penalizing \((K-1)^2\), we force \(K\) to be 1. The squared term ensures that deviations in either direction (gradient norm too high or too low) are penalized, though typically the problem is too-high gradients.</p>
+    <p>The generator's objective remains the same as in WGAN, minimizing \(\mathbb{E}_{\tilde{x} \sim \mathbb{P}_g} [D(\tilde{x})]\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The gradient penalty must be computed with respect to the <strong>input</strong> of the discriminator, not its weights. This requires careful implementation to enable automatic differentiation through the interpolated samples. Also, using a too-small \(\lambda\) might not enforce the Lipschitz constraint effectively, while a too-large \(\lambda\) can over-regularize and hinder learning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize a 1D discriminator function \(D(x)\) trying to distinguish real data from generated data. See how the gradient penalty (GP) enforces the Lipschitz constraint by pushing the gradient norm towards 1, particularly on interpolated samples.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Gradient Penalty Weight λ</div>
+          <input type="range" id="lambdaSlider" min="0" max="20" step="0.5" value="10">
+          <div class="slider-value" id="lambdaValue">10.0</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="goodDToggle" checked>
+          <label for="goodDToggle">Show a 1-Lipschitz Discriminator (Good D)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Data Distributions</div>
+        <div class="info-desc" id="infoDesc">We have a 1D problem: real data \\(P_r\\) (blue) centered at 0, and generated data \\(P_g\\) (red) centered at 2. The discriminator \\(D(x)\\) needs to tell them apart.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Real data \(x \sim \mathbb{P}_r\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Generated data \(\tilde{x} \sim \mathbb{P}_g\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Interpolated data \(\hat{x}\)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Discriminator \(D(x)\)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--cyan-mid)"></div> Gradient \(\nabla D(\hat{x})\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Gradient Penalty</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use WGAN-GP:</strong></p>
+    <ul>
+      <li>When training GANs, especially for high-resolution image generation or complex data distributions.</li>
+      <li>To avoid mode collapse and improve training stability compared to vanilla GANs or original WGAN with weight clipping.</li>
+      <li>When you need a theoretically sound measure of distribution distance (Wasserstein distance).</li>
+      <li>When the generator and discriminator are complex neural networks where weight clipping would severely limit capacity.</li>
+    </ul>
+    <p><strong>When NOT to use / Alternatives:</strong></p>
+    <ul>
+      <li>For very simple data distributions where vanilla GANs might suffice (though WGAN-GP rarely hurts).</li>
+      <li>If computational cost is extremely tight: the gradient penalty requires computing second derivatives (gradients of gradients), which adds overhead.</li>
+      <li>Alternatives like spectral normalization or consistency regularization also aim to enforce Lipschitz constraints or improve stability, sometimes with different trade-offs.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">WGAN-GP is a cornerstone of modern stable GAN training. It bridges the gap between theoretical soundness (Wasserstein distance, Lipschitz constraint) and practical implementation, enabling the training of deep, high-capacity generative models that were previously intractable due to instability.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-style)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from torch.autograd import grad</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume D is your discriminator model, x_real and x_gen are batches of data</div>
+      <div class="code-line" id="cl4"># lambda_gp is the gradient penalty weight (e.g., 10)</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">def compute_gradient_penalty(D, x_real, x_gen, lambda_gp):</div>
+      <div class="code-line" id="cl7">    batch_size = x_real.size(0)</div>
+      <div class="code-line" id="cl8">    alpha = torch.rand(batch_size, 1, device=x_real.device)</div>
+      <div class="code-line" id="cl9">    alpha = alpha.expand_as(x_real)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    # Interpolate between real and generated samples</div>
+      <div class="code-line" id="cl12">    interpolated_x = alpha * x_real + (1 - alpha) * x_gen</div>
+      <div class="code-line" id="cl13">    interpolated_x.requires_grad_(True) # Crucial: enable gradient computation for interpolated_x</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    # Get discriminator output for interpolated samples</div>
+      <div class="code-line" id="cl16">    d_interpolated = D(interpolated_x)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">    # Compute gradients of D(interpolated_x) with respect to interpolated_x</div>
+      <div class="code-line" id="cl19">    gradients = grad(outputs=d_interpolated, inputs=interpolated_x,</div>
+      <div class="code-line" id="cl20">                     grad_outputs=torch.ones_like(d_interpolated),</div>
+      <div class="code-line" id="cl21">                     create_graph=True, retain_graph=True)[0]</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">    # Compute gradient norms</div>
+      <div class="code-line" id="cl24">    gradients = gradients.view(batch_size, -1)</div>
+      <div class="code-line" id="cl25">    gradient_norm = gradients.norm(2, dim=1)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    # Compute gradient penalty</div>
+      <div class="code-line" id="cl28">    gradient_penalty = lambda_gp * ((gradient_norm - 1) ** 2).mean()</div>
+      <div class="code-line" id="cl29">    return gradient_penalty</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31"># Discriminator training loop snippet</div>
+      <div class="code-line" id="cl32"># ...</div>
+      <div class="code-line" id="cl33"># d_loss = torch.mean(D(x_gen)) - torch.mean(D(x_real)) # WGAN loss</div>
+      <div class="code-line" id="cl34"># gp = compute_gradient_penalty(D, x_real, x_gen, lambda_gp)</div>
+      <div class="code-line" id="cl35"># total_d_loss = d_loss + gp</div>
+      <div class="code-line" id="cl36"># total_d_loss.backward()</div>
+      <div class="code-line" id="cl37"># d_optimizer.step()</div>
+      <div class="code-line" id="cl38"># ...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & MODELS (1D for visualization) ──
+const X_MIN = -3;
+const X_MAX = 5;
+const D_Y_MIN = -2;
+const D_Y_MAX = 2;
+
+// Seeded RNG for reproducible samples
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+function normalRandom(mean, stdDev) {
+  let u = 0, v = 0;
+  while(u === 0) u = seededRng(); //Converting [0,1) to (0,1)
+  while(v === 0) v = seededRng();
+  let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return num * stdDev + mean;
+}
+
+function generateData(count, mean, stdDev) {
+  const data = [];
+  for (let i = 0; i < count; i++) {
+    data.push(normalRandom(mean, stdDev));
+  }
+  return data;
+}
+
+const X_REAL_SAMPLES = generateData(50, 0, 0.5);
+const X_GEN_SAMPLES = generateData(50, 2, 0.5);
+const INTERPOLATED_COUNT = 20;
+
+function generateInterpolatedSamples() {
+  const interpolated = [];
+  for (let i = 0; i < INTERPOLATED_COUNT; i++) {
+    const alpha = seededRng();
+    const x_real_idx = Math.floor(seededRng() * X_REAL_SAMPLES.length);
+    const x_gen_idx = Math.floor(seededRng() * X_GEN_SAMPLES.length);
+    interpolated.push(alpha * X_REAL_SAMPLES[x_real_idx] + (1 - alpha) * X_GEN_SAMPLES[x_gen_idx]);
+  }
+  return interpolated;
+}
+
+// Discriminator functions (D(x) and D'(x))
+// Bad D: non-Lipschitz, steep gradients
+function D_bad(x) {
+  return Math.tanh(3 * (x - 1)) * 1.5; // Very steep around x=1
+}
+function D_bad_prime(x) {
+  return 3 * (1 - Math.tanh(3 * (x - 1))**2) * 1.5; // Derivative of D_bad
+}
+
+// Good D: ~1-Lipschitz, gradients around 1
+function D_good(x) {
+  return Math.tanh(x - 1); // Gradient norm max is 1
+}
+function D_good_prime(x) {
+  return 1 - Math.tanh(x - 1)**2; // Derivative of D_good
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Data Distributions',
+    desc: 'We have a 1D problem: real data \\(P_r\\) (blue) centered at 0, and generated data \\(P_g\\) (red) centered at 2. The discriminator \\(D(x)\\) needs to tell them apart. Its output \\(D(x)\\) should be high for real data and low for generated data.',
+    codeLines: [],
+    mode: 'data_only'
+  },
+  {
+    phase: 'theory', title: 'Discriminator\'s Role and Lipschitz Constraint',
+    desc: 'The discriminator \\(D(x)\\) is a function that assigns scores. In WGAN, it must be \\(1\\)-Lipschitz: \\(|D(x) - D(y)| \\le 1 \\cdot |x - y|\\). This means its slope (gradient) can\'t be steeper than 1 anywhere. Here\'s a "bad" discriminator that violates this constraint.',
+    codeLines: [],
+    mode: 'bad_d_curve'
+  },
+  {
+    phase: 'problem', title: 'The Problem: Non-Lipschitz Discriminator',
+    desc: 'This discriminator \\(D(x)\\) has very steep regions. A steep slope means \\(|D(x) - D(y)|\\) can be much larger than \\(|x - y|\\) for small \\(x, y\\) differences. This violates the \\(1\\)-Lipschitz constraint and can lead to unstable WGAN training, similar to how weight clipping failed.',
+    codeLines: [],
+    mode: 'bad_d_curve'
+  },
+  {
+    phase: 'theory', title: 'Gradient Norm as Lipschitz Proxy',
+    desc: 'The \\(K\\)-Lipschitz condition \\(|D(x) - D(y)| \\le K |x - y|\\) is equivalent to \\(|\\nabla D(x)| \\le K\\) almost everywhere. For WGAN, we need \\(K=1\\). So, we want \\(|\\nabla D(x)|\\) to be close to 1 everywhere. The tangents show the local gradient \\(D\'(x)\\).',
+    codeLines: [],
+    mode: 'bad_d_gradients'
+  },
+  {
+    phase: 'fix', title: 'Interpolated Samples for Penalty',
+    desc: 'The gradient penalty isn\'t just on real or generated data, but on <strong>interpolated samples</strong> \\(\\hat{x} = \\epsilon x + (1 - \\epsilon) \\tilde{x}\\) (amber points). This forces the Lipschitz constraint to hold in the entire space between the data distributions, not just on the manifolds.',
+    codeLines: [7,8,9,10,11,12,13],
+    mode: 'interpolated_samples'
+  },
+  {
+    phase: 'fix', title: 'Computing Gradients on Interpolated Samples',
+    desc: 'For each interpolated sample \\(\\hat{x}\\), we compute \\(\\nabla_{\\hat{x}} D(\\hat{x})\\) (the slope in 1D). Notice how many of these gradients are much steeper than 1, indicating a violation of the 1-Lipschitz condition. These are the points where the penalty will be high.',
+    codeLines: [15,16,17,18,19,20,21],
+    mode: 'interpolated_gradients'
+  },
+  {
+    phase: 'fix', title: 'The Gradient Penalty Term',
+    desc: 'The penalty for each \\(\\hat{x}\\) is \\((\\|\\nabla_{\\hat{x}} D(\\hat{x})\\|_2 - 1)^2\\). This term is added to the discriminator\'s loss. Larger deviations from 1 incur a higher penalty, pushing the discriminator to be \\(1\\)-Lipschitz. The total penalty is the expectation over all \\(\\hat{x}\\).',
+    codeLines: [23,24,25,26,27,28],
+    mode: 'gradient_penalty'
+  },
+  {
+    phase: 'explore', title: 'WGAN-GP\'s Effect: A 1-Lipschitz Discriminator',
+    desc: 'With the gradient penalty, the discriminator is forced to become \\(1\\)-Lipschitz. Its slopes are now mostly around 1, meaning \\((\\|\\nabla D(\\hat{x})\\|_2 - 1)^2\\) is minimized. This stable discriminator provides meaningful gradients to the generator, leading to better sample quality.',
+    codeLines: [],
+    mode: 'good_d_gradients'
+  },
+  {
+    phase: 'explore', title: 'Adjusting λ: Penalty Strength',
+    desc: 'The hyperparameter \\(\\lambda\\) (slider below) controls the strength of the gradient penalty. A higher \\(\\lambda\\) enforces the Lipschitz constraint more strictly but might slow down training or reduce discriminator capacity. A common value is \\(\\lambda=10\\).',
+    codeLines: [6,28],
+    mode: 'good_d_gradients'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let lambdaGP = 10.0;
+let showGoodD = true;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { 
+  step = 0; 
+  lambdaGP = 10.0;
+  showGoodD = true;
+  document.getElementById('lambdaSlider').value = lambdaGP;
+  document.getElementById('lambdaValue').textContent = lambdaGP.toFixed(1);
+  document.getElementById('goodDToggle').checked = showGoodD;
+  render(); 
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+document.getElementById('lambdaSlider').addEventListener('input', e => {
+  lambdaGP = parseFloat(e.target.value);
+  document.getElementById('lambdaValue').textContent = lambdaGP.toFixed(1);
+  if (step >= 6) drawCanvas(steps[step].mode); // Only relevant for penalty steps
+});
+document.getElementById('goodDToggle').addEventListener('change', e => {
+  showGoodD = e.target.checked;
+  // Re-render only if the current step is affected by D type
+  if (['bad_d_curve', 'bad_d_gradients', 'interpolated_gradients', 'gradient_penalty', 'good_d_gradients'].includes(steps[step].mode)) {
+    drawCanvas(steps[step].mode);
+  }
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', theory:'phase-theory', problem:'phase-problem', fix:'phase-fix', explore:'phase-explore'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Show/hide slider/toggle based on step
+  const sliderPanel = document.getElementById('sliderPanel');
+  if (s.mode === 'good_d_gradients' || s.mode === 'gradient_penalty' || s.mode === 'interpolated_gradients') {
+    sliderPanel.style.display = 'flex';
+  } else {
+    sliderPanel.style.display = 'none';
+  }
+  // Ensure toggle state matches internal state
+  document.getElementById('goodDToggle').checked = showGoodD;
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    redBg: g('--red-bg'), greenBg: g('--green-bg')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD_X = 50;
+  const PAD_Y = 40;
+  const PLOT_W = W - 2 * PAD_X;
+  const PLOT_H = H - 2 * PAD_Y;
+
+  const toCanvasX = (x) => PAD_X + (x - X_MIN) / (X_MAX - X_MIN) * PLOT_W;
+  const toCanvasY = (y) => PAD_Y + (1 - (y - D_Y_MIN) / (D_Y_MAX - D_Y_MIN)) * PLOT_H;
+
+  // Draw axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(toCanvasX(X_MIN), toCanvasY(0));
+  ctx.lineTo(toCanvasX(X_MAX), toCanvasY(0)); // X-axis
+  ctx.moveTo(toCanvasX(0), toCanvasY(D_Y_MIN));
+  ctx.lineTo(toCanvasX(0), toCanvasY(D_Y_MAX)); // Y-axis
+  ctx.stroke();
+
+  // X-axis ticks
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px ' + colors.sans;
+  ctx.textAlign = 'center';
+  for (let x = Math.ceil(X_MIN); x <= Math.floor(X_MAX); x++) {
+    const cx = toCanvasX(x);
+    ctx.beginPath(); ctx.moveTo(cx, toCanvasY(0) - 4); ctx.lineTo(cx, toCanvasY(0) + 4); ctx.stroke();
+    ctx.fillText(x.toString(), cx, toCanvasY(0) + 18);
+  }
+  ctx.fillText('x (input space)', W / 2, H - 8);
+
+  // Y-axis ticks
+  ctx.textAlign = 'right';
+  for (let y = Math.ceil(D_Y_MIN); y <= Math.floor(D_Y_MAX); y++) {
+    const cy = toCanvasY(y);
+    ctx.beginPath(); ctx.moveTo(toCanvasX(0) - 4, cy); ctx.lineTo(toCanvasX(0) + 4, cy); ctx.stroke();
+    ctx.fillText(y.toString(), toCanvasX(0) - 10, cy + 4);
+  }
+  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.translate(15, H/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('D(x) (discriminator output)', 0, 0);
+  ctx.restore();
+
+
+  // Draw data points
+  if (mode === 'data_only' || mode === 'bad_d_curve' || mode === 'bad_d_gradients' || mode === 'interpolated_samples' || mode === 'interpolated_gradients' || mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+    X_REAL_SAMPLES.forEach(x => {
+      ctx.beginPath();
+      ctx.arc(toCanvasX(x), toCanvasY(D_Y_MIN + 0.05), 4, 0, Math.PI * 2); // Slightly above axis
+      ctx.fillStyle = colors.blue;
+      ctx.fill();
+    });
+    X_GEN_SAMPLES.forEach(x => {
+      ctx.beginPath();
+      ctx.arc(toCanvasX(x), toCanvasY(D_Y_MIN + 0.05), 4, 0, Math.PI * 2);
+      ctx.fillStyle = colors.red;
+      ctx.fill();
+    });
+  }
+
+  const currentD = showGoodD ? D_good : D_bad;
+  const currentDPrime = showGoodD ? D_good_prime : D_bad_prime;
+
+  // Draw D(x) curve
+  if (mode !== 'data_only') {
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(X_MIN), toCanvasY(currentD(X_MIN)));
+    for (let x = X_MIN; x <= X_MAX; x += 0.01) {
+      ctx.lineTo(toCanvasX(x), toCanvasY(currentD(x)));
+    }
+    ctx.strokeStyle = colors.purple;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  // Draw interpolated samples and their gradients
+  const interpolatedSamples = generateInterpolatedSamples();
+  let totalPenalty = 0;
+  let maxGradNorm = 0;
+  let minGradNorm = Infinity;
+
+  interpolatedSamples.forEach(x_hat => {
+    const dx = currentDPrime(x_hat);
+    const gradNorm = Math.abs(dx);
+    maxGradNorm = Math.max(maxGradNorm, gradNorm);
+    minGradNorm = Math.min(minGradNorm, gradNorm);
+
+    if (mode === 'interpolated_samples' || mode === 'interpolated_gradients' || mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+      // Draw interpolated sample point
+      ctx.beginPath();
+      ctx.arc(toCanvasX(x_hat), toCanvasY(currentD(x_hat)), 5, 0, Math.PI * 2);
+      ctx.fillStyle = colors.amber;
+      ctx.fill();
+    }
+
+    if (mode === 'interpolated_gradients' || mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+      // Draw gradient (tangent line)
+      const cx = toCanvasX(x_hat);
+      const cy = toCanvasY(currentD(x_hat));
+      const gradLength = 0.2; // Visual length of the tangent line in x-units
+      const x1 = x_hat - gradLength / 2;
+      const y1 = currentD(x_hat) - (gradLength / 2) * dx;
+      const x2 = x_hat + gradLength / 2;
+      const y2 = currentD(x_hat) + (gradLength / 2) * dx;
+
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(x1), toCanvasY(y1));
+      ctx.lineTo(toCanvasX(x2), toCanvasY(y2));
+      
+      // Color gradient lines based on norm
+      if (gradNorm > 1.1) ctx.strokeStyle = colors.red;
+      else if (gradNorm < 0.9) ctx.strokeStyle = colors.amber;
+      else ctx.strokeStyle = colors.cyan;
+      
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    if (mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+      // Draw penalty bar/indicator
+      const penalty = lambdaGP * Math.pow(gradNorm - 1, 2);
+      totalPenalty += penalty;
+      if (penalty > 0.01) { // Only draw if penalty is significant
+        const barHeight = penalty * 10; // Scale penalty for visualization
+        const barX = toCanvasX(x_hat);
+        const barY = toCanvasY(currentD(x_hat));
+        
+        ctx.fillStyle = colors.green;
+        ctx.globalAlpha = Math.min(1, penalty / (lambdaGP * 0.5)); // Alpha based on penalty magnitude
+        ctx.fillRect(barX - 2, barY - barHeight, 4, barHeight);
+        ctx.globalAlpha = 1;
+      }
+    }
+  });
+
+  // Draw gradients for D_bad_gradients
+  if (mode === 'bad_d_gradients') {
+    for (let x = X_MIN + 0.2; x < X_MAX; x += 0.5) {
+      const dx = currentDPrime(x);
+      const gradNorm = Math.abs(dx);
+      const gradLength = 0.3; // Visual length of the tangent line in x-units
+      const x1 = x - gradLength / 2;
+      const y1 = currentD(x) - (gradLength / 2) * dx;
+      const x2 = x + gradLength / 2;
+      const y2 = currentD(x) + (gradLength / 2) * dx;
+
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(x1), toCanvasY(y1));
+      ctx.lineTo(toCanvasX(x2), toCanvasY(y2));
+      
+      if (gradNorm > 1.1) ctx.strokeStyle = colors.red;
+      else if (gradNorm < 0.9) ctx.strokeStyle = colors.amber;
+      else ctx.strokeStyle = colors.cyan;
+      
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Draw norm value
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.font = '9px ' + colors.mono;
+      ctx.fillText(gradNorm.toFixed(1), toCanvasX(x + gradLength / 2 + 0.1), toCanvasY(y2));
+    }
+  }
+
+  // Info numbers
+  let infoText = '';
+  if (mode === 'interpolated_gradients' || mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+    infoText += `Avg. |∇D(x̂)|: ${(totalPenalty / lambdaGP / INTERPOLATED_COUNT + 1).toFixed(2)}\n`;
+    infoText += `Min |∇D(x̂)|: ${minGradNorm.toFixed(2)}\n`;
+    infoText += `Max |∇D(x̂)|: ${maxGradNorm.toFixed(2)}\n`;
+  }
+  if (mode === 'gradient_penalty' || mode === 'good_d_gradients') {
+    infoText += `Total Penalty: ${totalPenalty.toFixed(2)}`;
+  }
+  document.getElementById('infoNumbers').textContent = infoText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

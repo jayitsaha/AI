@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Hallucinations & Knowledge Cutoffs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-data-issues{background:var(--red-bg);color:var(--red-mid);}
+.tag-solution{background:var(--purple-bg);color:var(--purple-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:160px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-fix{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:120px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LLM Hallucinations &amp; Knowledge Cutoffs</h1>
+  <div class="subtitle">Why models invent facts and forget the present, and how RAG helps</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">LLMs</span>
+    <span class="tag tag-data-issues">Data Issues</span>
+    <span class="tag tag-solution">RAG</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Hallucinations &amp; Knowledge Cutoffs</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What are they?</strong> Large Language Models (LLMs) are powerful generative models, but they suffer from two major limitations: <strong>hallucinations</strong> and <strong>knowledge cutoffs</strong>.</p>
+    <ul>
+      <li><strong>Hallucination:</strong> When an LLM confidently generates information that is factually incorrect, nonsensical, or unfaithful to the provided source content (if any). It "invents" facts that sound plausible.</li>
+      <li><strong>Knowledge Cutoff:</strong> LLMs are trained on vast datasets collected up to a certain point in time. They cannot access or reason about information that emerged *after* their training data was collected. Their knowledge is static and finite.</li>
+    </ul>
+    <p><strong>Analogy:</strong> Imagine a brilliant but isolated scholar. This scholar has read every book in a massive library, but the library hasn't acquired any new books since 2022 (this is the <strong>knowledge cutoff</strong>). When asked about a recent event (e.g., "Who won the 2024 presidential election?"), the scholar might say "I don't know" or, worse, confidently recite facts about a *past* election as if it were current. If asked about a very obscure topic that was only briefly mentioned in one book (sparse knowledge), the scholar might confidently *invent* plausible-sounding details to fill the gaps, even if they're wrong (this is <strong>hallucination</strong>).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LLMs are fundamentally <strong>pattern matchers</strong> and <strong>next-token predictors</strong>. They generate text that is statistically probable given their training data, not necessarily text that is factually true or up-to-date. Both hallucinations and knowledge cutoffs stem from this core mechanism.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How Hallucinations & Cutoffs Work Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Hallucination Mechanisms</h4>
+    <p>Hallucinations aren't random errors; they arise from the LLM's architecture and training:</p>
+    <ul>
+      <li><strong>Data Contradictions & Bias:</strong> Training data itself contains noise, contradictions, and biases. The model learns these patterns and may reproduce them as "facts."</li>
+      <li><strong>Over-generalization:</strong> The model learns to connect concepts. When faced with a query outside its well-defined knowledge boundaries (e.g., very niche topics), it extrapolates learned patterns to generate plausible but incorrect responses.</li>
+      <li><strong>Lack of Grounding:</strong> LLMs generate text based on internal representations (parametric knowledge), not by looking up external facts. If its internal representation for a query is weak or ambiguous, it defaults to generating the most fluent-sounding text.</li>
+      <li><strong>Decoding & Sampling:</strong> The stochastic nature of token sampling (e.g., high temperature) can lead the model down less probable, but still fluent, paths that diverge from factual accuracy.</li>
+    </ul>
+    <h4>Knowledge Cutoff Mechanisms</h4>
+    <p>The knowledge cutoff is simpler and more fundamental:</p>
+    <ul>
+      <li><strong>Static Training Data:</strong> LLMs are trained on a fixed corpus of text and code. Once training is complete, their internal "knowledge" is frozen in the billions of parameters.</li>
+      <li><strong>Parametric Knowledge:</strong> All of the LLM's knowledge is encoded implicitly within its weights. There's no separate "fact database" it can query or update incrementally. Updating this knowledge requires expensive retraining or fine-tuning on new data.</li>
+    </ul>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both issues highlight that LLMs are <strong>generative models</strong>, optimized to produce coherent and fluent text, not necessarily <strong>retrieval models</strong>, optimized to find and present verifiable facts. Their parametric knowledge is powerful but also brittle and outdated by design.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — Formalizing the Problem</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>LLM as a Probability Distribution</h4>
+    <p>At its core, an LLM is a function that estimates the probability of the next token given a sequence of previous tokens (the context):</p>
+    <div class="eq">$$P(T_{next} | T_1, T_2, \dots, T_k)$$</div>
+    <p>Generation involves iteratively sampling or greedily selecting tokens based on these probabilities. The model's "knowledge" is implicitly encoded in these conditional probabilities learned during pre-training.</p>
+
+    <h4>Hallucination as a Probability Mismatch</h4>
+    <p>A hallucination occurs when the model assigns a higher probability to a factually incorrect sequence of tokens than to the correct one, given the query:</p>
+    <div class="eq">$$P(\text{"false claim"} | \text{query}) > P(\text{"true claim"} | \text{query})$$</div>
+    <p>This can happen if the "false claim" path is more statistically common or fluent in the training data, or if the model's internal representation for the query is weak, leading to a "best guess" that is wrong but plausible.</p>
+
+    <h4>Knowledge Cutoff as Zero Probability</h4>
+    <p>For information that emerged after the training data cutoff, the model has literally never seen tokens representing that information in the relevant context. Therefore, the probability of generating such content is effectively zero:</p>
+    <div class="eq">$$P(\text{"event from 2024"} | \text{query about 2024}) \approx 0$$</div>
+    <p>Instead, the model might generate related but outdated information, or generic phrases like "I do not have information on events after my last training update."</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Fundamental Limitation</div>
+      <p style="font-size:14px;margin:0;">These issues are inherent to the <strong>parametric knowledge</strong> paradigm of LLMs. Scaling up models and data can mitigate them but not eliminate them, especially for rapidly changing information or highly niche facts. This is why external grounding mechanisms like RAG are crucial.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore an LLM's knowledge space. X-axis is "Topic Similarity" (e.g., 0=Tech, 100=History), Y-axis is "Recency" (Year). See how knowledge cutoffs and sparse areas lead to problems, and how Retrieval-Augmented Generation (RAG) provides a solution.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Simulated LLM Cutoff Year</div>
+          <input type="range" id="cutoffSlider" min="2000" max="2024" step="1" value="2022">
+          <div class="slider-value" id="cutoffValue">2022</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">LLM Confidence Threshold</div>
+          <input type="range" id="confidenceSlider" min="0.1" max="0.9" step="0.05" value="0.6">
+          <div class="slider-value" id="confidenceValue">0.60</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The LLM's Knowledge Base</div>
+        <div class="info-desc" id="infoDesc">Our LLM was trained on data up to 2022. Its knowledge is fixed (parametric). Each blue point represents a known fact, positioned by topic similarity (X) and recency (Y). Purple points are from an external database.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> LLM Internal Knowledge</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> External Database</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> User Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Retrieved Document</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> Knowledge Cutoff</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Summary of Problems:</strong></p>
+    <ul>
+      <li><strong>Hallucinations:</strong> LLMs generate plausible but false information, especially when their internal knowledge for a query is sparse or contradictory. This is a reliability issue.</li>
+      <li><strong>Knowledge Cutoff:</strong> LLMs cannot access information beyond their training data, making them inherently outdated for recent events or rapidly evolving topics. This is a recency issue.</li>
+    </ul>
+    <p><strong>How Retrieval-Augmented Generation (RAG) Helps:</strong></p>
+    <p>RAG directly addresses these problems by augmenting the LLM's parametric knowledge with non-parametric, external information:</p>
+    <ul>
+      <li><strong>Reduces Hallucination:</strong> By providing concrete, relevant documents, RAG "grounds" the LLM's generation. The model is less likely to invent facts when it has explicit sources to draw from.</li>
+      <li><strong>Overcomes Knowledge Cutoff:</strong> The external database can be continuously updated, providing the LLM with access to the latest information without requiring expensive retraining.</li>
+    </ul>
+    <p><strong>Limitations of RAG:</strong></p>
+    <p>While powerful, RAG is not a silver bullet:</p>
+    <ul>
+      <li><strong>Retrieval Quality:</strong> If the retriever fetches irrelevant or low-quality documents, the LLM's response will still be poor or even misleading (a form of "retrieval-induced hallucination").</li>
+      <li><strong>Context Window Limits:</strong> Retrieved documents must fit within the LLM's context window. Very complex queries might require more context than can be provided.</li>
+      <li><strong>LLM's Reasoning:</strong> The LLM must still be capable of effectively synthesizing and reasoning over the retrieved information. RAG provides the facts, but the LLM still needs to use them correctly.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">RAG represents a paradigm shift from trying to make LLMs "know everything" to enabling them to "reason effectively with provided facts." It combines the strengths of large generative models with the verifiability and up-to-dateness of external knowledge bases.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Conceptual RAG Pipeline</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import openai</div>
+      <div class="code-line" id="cl1">from vector_db import VectorDB  # Custom vector database for retrieval</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Initialize LLM client and vector database</div>
+      <div class="code-line" id="cl4">llm_client = openai.OpenAI(api_key="sk-...")</div>
+      <div class="code-line" id="cl5">vector_db = VectorDB(index_path="my_knowledge_base.faiss")</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7">def get_llm_response(prompt, temperature=0.7):</div>
+      <div class="code-line" id="cl8">    response = llm_client.chat.completions.create(</div>
+      <div class="code-line" id="cl9">        model="gpt-4", messages=[{"role": "user", "content": prompt}],</div>
+      <div class="code-line" id="cl10">        temperature=temperature)</div>
+      <div class="code-line" id="cl11">    return response.choices[0].message.content</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13"># --- Scenario 1: Naive LLM (prone to cutoff/hallucination) ---</div>
+      <div class="code-line" id="cl14">query_naive = "What are the latest advancements in AI in 2024?"</div>
+      <div class="code-line" id="cl15">naive_response = get_llm_response(query_naive)</div>
+      <div class="code-line" id="cl16">print(f"Naive LLM: {naive_response[:100]}...")</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18"># --- Scenario 2: RAG Pipeline ---</div>
+      <div class="code-line" id="cl19">query_rag = "Summarize the key findings of the 2024 AI Index Report."</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># 1. Retrieval Step: Fetch relevant documents from external DB</div>
+      <div class="code-line" id="cl22">retrieved_docs = vector_db.query(query_rag, top_k=3)</div>
+      <div class="code-line" id="cl23">context = "\n".join([doc.text for doc in retrieved_docs])</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># 2. Augmentation Step: Create a new prompt with retrieved context</div>
+      <div class="code-line" id="cl26">augmented_prompt = (</div>
+      <div class="code-line" id="cl27">    f"Based on the following context, answer the question:\n\n"</div>
+      <div class="code-line" id="cl28">    f"Context:\n{context}\n\n"</div>
+      <div class="code-line" id="cl29">    f"Question: {query_rag}"</div>
+      <div class="code-line" id="cl30">)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32"># 3. Generation Step: LLM answers using the augmented prompt</div>
+      <div class="code-line" id="cl33">rag_response = get_llm_response(augmented_prompt)</div>
+      <div class="code-line" id="cl34">print(f"RAG LLM: {rag_response[:100]}...")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ── HELPER: Generate Points ──
+function generatePoints(count, minX, maxX, minY, maxY, seed, type) {
+    const rng = mulberry32(seed);
+    const points = [];
+    for (let i = 0; i < count; i++) {
+        points.push({
+            x: minX + rng() * (maxX - minX),
+            y: minY + rng() * (maxY - minY),
+            type: type
+        });
+    }
+    return points;
+}
+
+// ── DATA: LLM Knowledge & External DB Points ──
+const llmKnowledgePoints = [
+    ...generatePoints(40, 10, 40, 2010, 2022, 123, 'llm'), // Tech cluster
+    ...generatePoints(30, 60, 90, 2005, 2020, 456, 'llm'), // History cluster
+    ...generatePoints(15, 40, 60, 2015, 2022, 789, 'llm'), // General cluster
+    ...generatePoints(10, 70, 95, 2010, 2015, 999, 'llm'), // Older Niche History
+    ...generatePoints(10, 5, 25, 2010, 2015, 888, 'llm'),  // Older Niche Tech
+];
+const externalDBPoints = [
+    ...generatePoints(20, 10, 40, 2022, 2025, 111, 'external'), // Recent Tech
+    ...generatePoints(10, 60, 90, 2020, 2024, 222, 'external'), // Recent History
+    ...generatePoints(15, 70, 95, 2015, 2022, 333, 'external'), // Niche History
+    ...generatePoints(15, 5, 25, 2015, 2022, 444, 'external'), // Niche Tech
+    ...generatePoints(10, 75, 95, 2023, 2025, 555, 'external'), // Very recent, niche
+    ...generatePoints(10, 10, 20, 2023, 2025, 666, 'external'), // Very recent, niche
+];
+
+// ── HELPER: Calculate Confidence & Retrieve ──
+function calculateConfidence(query, points, cutoffYear, confidenceThreshold) {
+    let relevantPoints = points.filter(p => p.y <= cutoffYear);
+    let totalDistanceWeight = 0;
+    let count = 0;
+    const maxDist = Math.sqrt(Math.pow(100,2) + Math.pow(25,2)); // Max possible distance in our space
+
+    for (const p of relevantPoints) {
+        const dist = Math.sqrt(Math.pow(query.x - p.x, 2) + Math.pow(query.y - p.y, 2));
+        totalDistanceWeight += 1 - (dist / maxDist); // 1 for 0 dist, 0 for max dist
+        count++;
+    }
+    if (count === 0) return 0.05; // Very low confidence if no relevant points
+    
+    let avgConfidence = totalDistanceWeight / count;
+    
+    // Simulate some "overconfidence" if the avgConfidence is just below threshold
+    if (avgConfidence > 0.4 && avgConfidence < confidenceThreshold) {
+        avgConfidence = (avgConfidence + confidenceThreshold) / 2; // Nudge it up
+    }
+    return Math.min(1, Math.max(0.05, avgConfidence));
+}
+
+function retrieveDocuments(query, externalPoints, k=3) {
+    const distances = externalPoints.map(p => ({
+        point: p,
+        dist: Math.sqrt(Math.pow(query.x - p.x, 2) + Math.pow(query.y - p.y, 2))
+    }));
+    distances.sort((a, b) => a.dist - b.dist);
+    return distances.slice(0, k).map(d => d.point);
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The LLM\'s Knowledge Base',
+    desc: 'Our LLM was trained on data up to 2022. Its knowledge is fixed (parametric). Each blue point represents a known fact, positioned by topic similarity (X) and recency (Y). Purple points are from an external database (not yet used).',
+    mode: 'initial',
+    query: {topic: 50, recency: 2021, text: "General knowledge question from 2021"},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'problem', title: 'Scenario 1: Knowledge Cutoff',
+    desc: 'We ask about a recent event (e.g., "latest AI breakthroughs in 2024"). This is beyond the LLM\'s 2022 knowledge cutoff (red dashed line). Its internal knowledge (blue points) cannot cover this.',
+    mode: 'cutoff_query',
+    query: {topic: 20, recency: 2024, text: "What are the latest AI breakthroughs in 2024?"},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'problem', title: 'LLM Response: Outdated or Refusal',
+    desc: 'The LLM\'s calculated confidence for this query is low (due to no relevant internal facts post-2022). It will either provide outdated information (based on its pre-2022 training) or state it cannot answer questions beyond its training data.',
+    mode: 'cutoff_response',
+    query: {topic: 20, recency: 2024, text: "What are the latest AI breakthroughs in 2024?"},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'problem', title: 'Scenario 2: Hallucination Risk',
+    desc: 'Now we ask about a niche topic (e.g., "rare bird species in Patagonia") where the LLM\'s internal knowledge is sparse (few nearby blue facts). The query is within the cutoff.',
+    mode: 'hallucination_query',
+    query: {topic: 80, recency: 2018, text: "Describe the migratory patterns of the Patagonian Crested Finch."},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'problem', title: 'LLM Response: Confident Fabrications',
+    desc: 'Despite sparse internal knowledge, if the LLM\'s confidence is above the threshold (simulated here as ' + parseFloat(document.getElementById('confidenceSlider').value).toFixed(2) + '), it might generate a plausible-sounding but entirely false answer. Its generative nature prioritizes fluency over factual accuracy.',
+    mode: 'hallucination_response',
+    query: {topic: 80, recency: 2018, text: "Describe the migratory patterns of the Patagonian Crested Finch."},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'fix', title: 'The Solution: Retrieval-Augmented Generation (RAG)',
+    desc: 'RAG introduces an external, up-to-date, and verifiable document database (purple points). Before generating, the LLM first retrieves relevant documents based on the query, even if they are post-cutoff.',
+    mode: 'rag_retrieval',
+    query: {topic: 20, recency: 2024, text: "What are the latest AI breakthroughs in 2024?"}, // Back to recent AI query
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'fix', title: 'Augmenting Context with Retrieved Facts',
+    desc: 'The retrieved documents (green points) are then provided to the LLM as additional context. This effectively "updates" the LLM\'s working knowledge for this specific query, bypassing the internal cutoff.',
+    mode: 'rag_augmented',
+    query: {topic: 20, recency: 2024, text: "What are the latest AI breakthroughs in 2024?"},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'result', title: 'RAG Response: Grounded & Current',
+    desc: 'With the augmented context, the LLM can now generate an accurate answer, even for post-cutoff events. It\'s not inventing; it\'s summarizing or reasoning over provided facts. Its confidence is now high.',
+    mode: 'rag_response',
+    query: {topic: 20, recency: 2024, text: "What are the latest AI breakthroughs in 2024?"},
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  },
+  {
+    phase: 'result', title: 'RAG for Hallucination Reduction',
+    desc: 'Similarly, for niche queries (like the Patagonian finch), RAG provides specific, relevant documents (green points). This gives the LLM factual "grounding," reducing the likelihood of inventing facts when its internal knowledge is sparse.',
+    mode: 'rag_hallucination_fix',
+    query: {topic: 80, recency: 2018, text: "Describe the migratory patterns of the Patagonian Crested Finch."}, // Back to niche query
+    llmConfidenceThreshold: 0.6,
+    llmCutoffYear: 2022
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── SLIDER WIRING ──
+const cutoffSlider = document.getElementById('cutoffSlider');
+const confidenceSlider = document.getElementById('confidenceSlider');
+
+cutoffSlider.addEventListener('input', render);
+confidenceSlider.addEventListener('input', render);
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', problem: 'phase-problem', fix: 'phase-fix', result: 'phase-result' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+
+  // Update slider values from current step (for visual sync)
+  cutoffSlider.value = s.llmCutoffYear;
+  confidenceSlider.value = s.llmConfidenceThreshold;
+  document.getElementById('cutoffValue').textContent = s.llmCutoffYear;
+  document.getElementById('confidenceValue').textContent = s.llmConfidenceThreshold.toFixed(2);
+
+  // Dynamically update description with live values
+  let currentDesc = s.desc;
+  const currentCutoff = parseInt(cutoffSlider.value);
+  const currentConfidenceThreshold = parseFloat(confidenceSlider.value);
+
+  let llmResponse = "";
+  let llmConfidence = 0;
+
+  // Determine LLM response based on current step and simulated confidence
+  if (s.mode === 'cutoff_response') {
+    llmConfidence = calculateConfidence(s.query, llmKnowledgePoints, currentCutoff, currentConfidenceThreshold);
+    if (s.query.recency > currentCutoff) {
+        llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. Query is beyond cutoff. <br> <b>LLM Response:</b> "My knowledge is limited to events before ${currentCutoff}. I cannot provide information on 2024 AI breakthroughs."`;
+    } else {
+        llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. <br> <b>LLM Response:</b> "I can only provide general information on AI up to ${currentCutoff}."`;
+    }
+  } else if (s.mode === 'hallucination_response') {
+    llmConfidence = calculateConfidence(s.query, llmKnowledgePoints, currentCutoff, currentConfidenceThreshold);
+    if (llmConfidence < currentConfidenceThreshold) {
+        llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. (Low confidence) <br> <b>LLM Response:</b> "I do not have specific information on the migratory patterns of that species."`;
+    } else {
+        llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. (High confidence, but sparse internal data) <br> <b>LLM Response:</b> "The Patagonian Crested Finch is known to migrate to the Amazon basin during winter, primarily feeding on rare bioluminescent fungi." <i>(Note: This is a simulated hallucination!)</i>`;
+    }
+  } else if (s.mode === 'rag_response') {
+    const retrieved = retrieveDocuments(s.query, externalDBPoints, 3);
+    const combinedPoints = [...llmKnowledgePoints, ...retrieved];
+    llmConfidence = calculateConfidence(s.query, combinedPoints, 2025, currentConfidenceThreshold); // RAG effectively removes cutoff for this query
+    llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. (High confidence due to retrieved documents) <br> <b>LLM Response:</b> "Based on retrieved documents, the latest AI breakthroughs in 2024 include significant advancements in large multimodal models and self-improving agents, with key developments in [specific details from retrieved docs]."`;
+  } else if (s.mode === 'rag_hallucination_fix') {
+    const retrieved = retrieveDocuments(s.query, externalDBPoints, 3);
+    const combinedPoints = [...llmKnowledgePoints, ...retrieved];
+    llmConfidence = calculateConfidence(s.query, combinedPoints, 2025, currentConfidenceThreshold);
+    llmResponse = `LLM Confidence: ${llmConfidence.toFixed(2)}. (High confidence due to retrieved documents) <br> <b>LLM Response:</b> "Retrieved ecological studies indicate the Patagonian Crested Finch is a non-migratory species, typically found in high-altitude grasslands, feeding primarily on small insects and seeds." <i>(Note: This is a simulated factual response!)</i>`;
+  } else {
+    llmResponse = `LLM is processing...`;
+  }
+
+  document.getElementById('infoDesc').innerHTML = `${currentDesc}<br><br><i><b>Query:</b> "${s.query.text}"</i><br><i><b>Simulated LLM Output:</b> ${llmResponse}</i>`;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left: '$$', right: '$$', display: true}, {left: '\\(', right: '\\)', display: false} ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = { top: 30, right: 30, bottom: 40, left: 50 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
+
+  const minX = 0, maxX = 100; // Topic Similarity
+  const minY = 2000, maxY = 2025; // Recency Year
+
+  const toCanvasX = (val) => padding.left + (val - minX) / (maxX - minX) * plotW;
+  const toCanvasY = (val) => padding.top + (maxY - val) / (maxY - minY) * plotH;
+
+  // Draw axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, padding.top);
+  ctx.lineTo(padding.left, H - padding.bottom);
+  ctx.lineTo(W - padding.right, H - padding.bottom);
+  ctx.stroke();
+
+  // X-axis ticks and label
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  for (let x = 0; x <= 100; x += 20) {
+    const cx = toCanvasX(x);
+    ctx.beginPath();
+    ctx.moveTo(cx, H - padding.bottom);
+    ctx.lineTo(cx, H - padding.bottom + 5);
+    ctx.stroke();
+    ctx.fillText(x, cx, H - padding.bottom + 20);
+  }
+  ctx.fillText('Topic Similarity (0=Tech, 100=History)', W / 2, H - 5);
+
+  // Y-axis ticks and label
+  ctx.textAlign = 'right';
+  for (let y = 2000; y <= 2025; y += 5) {
+    const cy = toCanvasY(y);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, cy);
+    ctx.lineTo(padding.left - 5, cy);
+    ctx.stroke();
+    ctx.fillText(y, padding.left - 10, cy + 4);
+  }
+  ctx.save();
+  ctx.translate(15, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.fillText('Recency (Year)', 0, 0);
+  ctx.restore();
+
+  // Draw LLM Knowledge Points (Blue)
+  llmKnowledgePoints.forEach(p => {
+    const cx = toCanvasX(p.x);
+    const cy = toCanvasY(p.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = colors.blue;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Draw External DB Points (Purple)
+  externalDBPoints.forEach(p => {
+    const cx = toCanvasX(p.x);
+    const cy = toCanvasY(p.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = colors.purple;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Draw Knowledge Cutoff Line (Red Dashed)
+  const cutoffY = toCanvasY(s.llmCutoffYear);
+  ctx.strokeStyle = colors.red;
+  ctx.setLineDash([5, 3]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, cutoffY);
+  ctx.lineTo(W - padding.right, cutoffY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = colors.red;
+  ctx.textAlign = 'left';
+  ctx.fillText(`LLM Cutoff: ${s.llmCutoffYear}`, W - padding.right - 80, cutoffY - 10);
+
+  // Draw Query Point (Amber)
+  const queryX = toCanvasX(s.query.topic);
+  const queryY = toCanvasY(s.query.recency);
+  ctx.beginPath();
+  ctx.arc(queryX, queryY, 8, 0, Math.PI * 2);
+  ctx.fillStyle = colors.amber;
+  ctx.fill();
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = colors.amber;
+  ctx.textAlign = 'center';
+  ctx.fillText('Query', queryX, queryY - 12);
+
+  // Draw Retrieved Documents (Green) for RAG steps
+  if (s.mode === 'rag_retrieval' || s.mode === 'rag_augmented' || s.mode === 'rag_response' || s.mode === 'rag_hallucination_fix') {
+    const retrieved = retrieveDocuments(s.query, externalDBPoints, 3);
+    retrieved.forEach(p => {
+      const cx = toCanvasX(p.x);
+      const cy = toCanvasY(p.y);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fillStyle = colors.green;
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    // Draw lines from query to retrieved docs
+    ctx.strokeStyle = colors.green;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.5;
+    retrieved.forEach(p => {
+      ctx.beginPath();
+      ctx.moveTo(queryX, queryY);
+      ctx.lineTo(toCanvasX(p.x), toCanvasY(p.y));
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

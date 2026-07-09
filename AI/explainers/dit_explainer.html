@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiT (Diffusion Transformer): Replacing U-Net with Transformer — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.select-group{display:flex;align-items:center;gap:12px;}
+.select-label{font-size:13px;font-weight:600;min-width:110px;}
+select{flex:1;padding:8px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:var(--sans);font-size:13px;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-process{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-transform{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-output{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.cond{border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label, .select-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>DiT (Diffusion Transformer): Replacing U-Net</h1>
+  <div class="subtitle">A Transformer-based architecture for scalable and high-fidelity image generation in diffusion models</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-complexity">O(N²) attention</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding DiT</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> DiT, or Diffusion Transformer, is a novel architecture that replaces the traditional U-Net backbone in Denoising Diffusion Probabilistic Models (DDPMs) with a Transformer. Instead of processing images with convolutions and skip connections, DiT treats the noisy image (or its latent representation) as a sequence of patches, similar to a Vision Transformer (ViT). This allows diffusion models to leverage the scalability and global reasoning capabilities that have made Transformers dominant in NLP and computer vision.</p>
+    <p><strong>Analogy:</strong> Imagine you're restoring an old, damaged photograph. A U-Net approach is like a skilled artisan who meticulously repairs local imperfections, blending colors and textures based on nearby pixels, and using various tools for different scales. A DiT approach is like a digital restoration expert who first breaks the photo into many small fragments, then uses a powerful AI to analyze the global context of all fragments simultaneously, understanding how they fit together to form a coherent scene, before digitally reconstructing the entire image. The latter can detect and fix larger-scale inconsistencies more effectively.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">DiT applies the Transformer architecture to the denoising task of diffusion models. It converts the input noisy latent image into a sequence of tokens (patches), processes them with a stack of Transformer blocks, and then reconstructs the denoised image. This shift from U-Net's inductive biases (locality) to Transformer's global attention leads to models that scale effectively with model size, compute, and data, achieving state-of-the-art image generation quality.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How DiT Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Traditional Diffusion Backbone: U-Net</h4>
+    <p>Denoising Diffusion Probabilistic Models (DDPMs) iteratively transform pure noise into a target image by learning to predict the noise added at each step. The core component of most DDPMs is a U-Net, a convolutional neural network (CNN) known for its encoder-decoder structure and extensive skip connections. U-Nets excel at capturing multi-scale local features, which is highly effective for image-like data where spatial locality and translation equivariance are strong inductive biases.</p>
+
+    <h4>DiT's Paradigm Shift: From Pixels to Patches, Convolutions to Attention</h4>
+    <p>DiT proposes replacing this U-Net with a Vision Transformer (ViT) architecture. The key steps are:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Patchification & Linear Embedding:</strong> The input noisy latent image \(z_t\) (e.g., from a VAE encoder) is first divided into non-overlapping square patches. Each patch is then flattened into a vector and linearly projected into a higher-dimensional embedding space, forming a sequence of "tokens."</li>
+      <li><strong>Positional Embeddings:</strong> To retain spatial information lost during flattening, fixed or learnable positional embeddings are added to these tokens.</li>
+      <li><strong>Transformer Blocks:</strong> A stack of Transformer blocks processes this sequence of tokens. Each block consists of multi-head self-attention layers (allowing global interaction between all patches) and feed-forward networks.</li>
+      <li><strong>Conditional Modulation (AdaLN-Zero):</strong> Both the timestep embedding (indicating the current noise level) and class conditioning (e.g., "generate a cat") are incorporated into the Transformer blocks through an adaptive layer normalization mechanism called AdaLN-Zero. This allows the model to dynamically adjust its features based on the generation context.</li>
+      <li><strong>Output Projection & Reconstruction:</strong> After passing through the Transformer stack, the output tokens are linearly projected back to the original patch space. These denoised patches are then reassembled into a full image, which represents the model's prediction of the noise or the denoised image itself.</li>
+    </ol>
+
+    <h4>Design Decision: Why Transformers for Diffusion?</h4>
+    <p>Transformers bring several advantages:</p>
+    <ul>
+      <li><strong>Scalability:</strong> Transformers have shown remarkable scaling properties with increased model size, data, and compute, leading to improved performance.</li>
+      <li><strong>Global Context:</strong> Self-attention natively captures long-range dependencies across the entire image (or latent), which can be crucial for generating coherent and high-fidelity images.</li>
+      <li><strong>Fewer Inductive Biases:</strong> Unlike CNNs, Transformers have weaker inductive biases (less built-in assumptions about locality), allowing them to learn more flexible and general representations from data.</li>
+      <li><strong>Unified Architecture:</strong> It aligns image generation with the successful Transformer paradigm seen in NLP and other vision tasks.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">DiT transforms the image denoising problem into a sequence-to-sequence prediction task. By operating on discrete patches and employing global self-attention, it effectively treats image synthesis as a problem of transforming a noisy sequence of visual tokens into a clean one, conditioned on various inputs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Denoising Objective</h4>
+    <p>Diffusion models are trained to predict the noise \(\epsilon\) added to a clean image \(x_0\) to get a noisy image \(x_t\). The objective typically minimizes the difference between the true noise and the predicted noise \(\epsilon_\theta(x_t, t)\) for a given timestep \(t\):</p>
+    <div class="eq">$$\mathcal{L}_{simple} = \mathbb{E}_{t \sim U(0,1), x_0 \sim p(x_0), \epsilon \sim \mathcal{N}(0, I)} \left[ \| \epsilon - \epsilon_\theta(x_t, t) \|^2 \right]$</div>
+    <p>DiT's core contribution is how it parameterizes \(\epsilon_\theta\). Instead of a U-Net, it uses a Transformer. The input to DiT is a noisy latent \(z_t \in \mathbb{R}^{H \times W \times C}\) (where \(H, W\) are height/width and \(C\) is channels), along with scalar timestep \(t\) and class label \(c\).</p>
+
+    <h4>Patchification and Transformer Processing</h4>
+    <p>The latent \(z_t\) is first divided into \(N = (H/P) \times (W/P)\) non-overlapping patches, each of size \(P \times P \times C\). These patches are flattened and linearly projected to an embedding dimension \(D\), forming a sequence of tokens \(X_{\text{tokens}} \in \mathbb{R}^{N \times D}\). Positional embeddings \(E_{\text{pos}}\) are added:</p>
+    <div class="eq}">$$X_{\text{input}} = \text{LinearProjection}(\text{Flatten}(z_t)) + E_{\text{pos}}$$</div>
+    <p>These tokens then flow through a stack of Transformer blocks. Each block typically involves Multi-Head Self-Attention (MHSA) and a Feed-Forward Network (FFN). The MHSA computes attention scores between all pairs of tokens:</p>
+    <div class="eq}">$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$</div>
+    <p>where \(Q, K, V\) are queries, keys, and values derived from \(X_{\text{input}}\). This allows each patch to attend to every other patch, capturing global context.</p>
+
+    <h4>Adaptive Layer Normalization (AdaLN-Zero) for Conditioning</h4>
+    <p>A crucial aspect of DiT is how it incorporates conditional information (timestep \(t\) and class \(c\)). Instead of concatenating embeddings or using cross-attention, DiT uses AdaLN-Zero. This method adapts the normalization and affine transformations within each Transformer block. The timestep \(t\) and class \(c\) are first embedded into vectors, then combined and projected to produce scale and shift parameters for Layer Normalization, and additional scale for the FFN:</p>
+    <div class="eq}">$$y = \text{diag}(\gamma_{t,c}) (\text{Norm}(x)) + \beta_{t,c} + \text{diag}(\alpha_{t,c}) \text{FFN}(x)$$</div>
+    <p>Here, \(x\) is the input to the sub-layer, \(\text{Norm}\) is Layer Normalization, and \(\gamma_{t,c}, \beta_{t,c}, \alpha_{t,c}\) are learned parameters derived from the timestep and class embeddings. This allows the model to precisely control the feature statistics based on the current denoising step and desired class.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The computational complexity of self-attention is quadratic with respect to the number of tokens (\(O(N^2)\)). For high-resolution images, this can quickly become prohibitive. DiT typically operates on <em>latent representations</em> (e.g., from a VAE encoder/decoder), not raw pixel space, to keep the spatial dimensions and thus the number of tokens manageable. This makes it a "latent diffusion transformer."</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore the DiT architecture. Adjust noise level and class to see how the input changes and how conditioning modulates the process.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Noise Level (t)</div>
+          <input type="range" id="noiseSlider" min="0" max="1" step="0.05" value="0.8">
+          <div class="slider-value" id="noiseValue">0.80</div>
+        </div>
+        <div class="select-group">
+          <div class="select-label">Class Condition (c)</div>
+          <select id="classSelect">
+            <option value="cat">Cat</option>
+            <option value="dog">Dog</option>
+            <option value="car">Car</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial State</div>
+        <div class="info-desc" id="infoDesc">The diagram illustrates the flow of a Diffusion Transformer. Adjust the sliders to control the input.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input Latent / Patch</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Token / Embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Transformer Process</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Output Denoised Latent</div>
+        <div class="legend-item"><div class="legend-swatch cond" style="background:var(--red-mid)"></div> Timestep (t) Condition</div>
+        <div class="legend-item"><div class="legend-swatch cond" style="background:var(--cyan-mid)"></div> Class (c) Condition</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use DiT:</strong></p>
+    <ul>
+      <li><strong>Large-scale Image Generation:</strong> DiT's transformer architecture scales gracefully with model size, dataset size, and computational resources, making it ideal for training very large, high-quality generative models.</li>
+      <li><strong>Global Context is Crucial:</strong> For generating complex images where long-range dependencies and global coherence are important (e.g., scene composition, object relationships), the global attention mechanism of Transformers is highly advantageous over local convolutions.</li>
+      <li><strong>Leveraging Transformer Ecosystem:</strong> When you want to benefit from the extensive research, optimization techniques, and hardware acceleration developed for Transformers in other domains.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Small Datasets:</strong> For very small datasets, the inductive biases of CNNs (like U-Nets) might still offer better sample efficiency, as Transformers require more data to learn basic spatial relationships.</li>
+      <li><strong>Resource-Constrained Environments:</strong> Transformers, especially with their quadratic self-attention complexity, can be very computationally intensive and memory-hungry. If you're limited by GPU memory or compute, a U-Net might be more practical.</li>
+      <li><strong>Real-time Inference:</strong> While optimized, the sequential nature and attention computations can be slower for inference compared to highly optimized convolutional architectures, especially for very high-resolution outputs (though latent diffusion mitigates this).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">DiT represents a significant architectural shift in diffusion models, moving from the spatially-biased U-Net to the globally-attentive Transformer. It demonstrates that the core principles of Transformers can be effectively applied to generative modeling, unlocking new levels of scalability and performance for image synthesis, particularly in the latent space.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-style Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from einops import rearrange # for patchification</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class AdaLNZero(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, dim):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        # Projects conditioning info (t_emb + c_emb) to get scale/shift params</div>
+      <div class="code-line" id="cl8">        self.mlp = nn.Sequential(</div>
+      <div class="code-line" id="cl9">            nn.SiLU(),</div>
+      <div class="code-line" id="cl10">            nn.Linear(dim, 6 * dim) # 3 pairs of (gamma, beta) for 2 norms + 1 FFN scale</div>
+      <div class="code-line" id="cl11">        )</div>
+      <div class="code-line" id="cl12">        self.norm = nn.LayerNorm(dim, elementwise_affine=False)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    def forward(self, x, cond): # x is token, cond is (t_emb + c_emb)</div>
+      <div class="code-line" id="cl15">        shift_scale = self.mlp(cond).unsqueeze(1) # (B, 1, 6*dim)</div>
+      <div class="code-line" id="cl16">        # Split into gamma1, beta1, gamma2, beta2, alpha_mlp, beta_mlp</div>
+      <div class="code-line" id="cl17">        gamma1, beta1, gamma2, beta2, alpha_mlp, beta_mlp = shift_scale.chunk(6, dim=-1)</div>
+      <div class="code-line" id="cl18">        </div>
+      <div class="code-line" id="cl19">        # Apply adaptive normalization to x</div>
+      <div class="code-line" id="cl20">        x = self.norm(x) * (1 + gamma1) + beta1</div>
+      <div class="code-line" id="cl21">        return x, gamma2, beta2, alpha_mlp, beta_mlp</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">class DiTBlock(nn.Module):</div>
+      <div class="code-line" id="cl24">    def __init__(self, dim, num_heads):</div>
+      <div class="code-line" id="cl25">        super().__init__()</div>
+      <div class="code-line" id="cl26">        self.attn = nn.MultiheadSelfAttention(dim, num_heads, batch_first=True)</div>
+      <div class="code-line" id="cl27">        self.mlp = nn.Sequential(nn.Linear(dim, 4 * dim), nn.GELU(), nn.Linear(4 * dim, dim))</div>
+      <div class="code-line" id="cl28">        self.adaln_zero = AdaLNZero(dim)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">    def forward(self, x, cond): # x: (B, N, D), cond: (B, D)</div>
+      <div class="code-line" id="cl31">        norm_x, gamma2, beta2, alpha_mlp, beta_mlp = self.adaln_zero(x, cond)</div>
+      <div class="code-line" id="cl32">        # Attention block</div>
+      <div class="code-line" id="cl33">        attn_out, _ = self.attn(norm_x, norm_x, norm_x)</div>
+      <div class="code-line" id="cl34">        x = x + attn_out</div>
+      <div class="code-line" id="cl35">        # MLP block with adaptive scaling</div>
+      <div class="code-line" id="cl36">        x = x + (self.mlp(x) * (1 + alpha_mlp) + beta_mlp) # Skip connection + AdaLN for FFN</div>
+      <div class="code-line" id="cl37">        return x</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">class DiT(nn.Module):</div>
+      <div class="code-line" id="cl40">    def __init__(self, in_channels, patch_size, embed_dim, num_heads, num_blocks, num_classes):</div>
+      <div class="code-line" id="cl41">        super().__init__()</div>
+      <div class="code-line" id="cl42">        self.patch_size = patch_size</div>
+      <div class="code-line" id="cl43">        self.num_patches = (img_size // patch_size) ** 2 # Assuming square img_size</div>
+      <div class="code-line" id="cl44">        self.patch_embed = nn.Linear(in_channels * patch_size**2, embed_dim)</div>
+      <div class="code-line" id="cl45">        self.pos_embed = nn.Parameter(torch.randn(1, self.num_patches, embed_dim))</div>
+      <div class="code-line" id="cl46">        self.time_embed = nn.Sequential(nn.Linear(embed_dim, embed_dim), nn.SiLU(), nn.Linear(embed_dim, embed_dim))</div>
+      <div class="code-line" id="cl47">        self.class_embed = nn.Embedding(num_classes, embed_dim)</div>
+      <div class="code-line" id="cl48">        self.blocks = nn.ModuleList([DiTBlock(embed_dim, num_heads) for _ in range(num_blocks)])</div>
+      <div class="code-line" id="cl49">        self.final_layer = nn.Linear(embed_dim, in_channels * patch_size**2)</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">    def forward(self, x, t, y): # x: (B, C, H, W), t: (B,), y: (B,)</div>
+      <div class="code-line" id="cl52">        # 1. Patchify and embed</div>
+      <div class="code-line" id="cl53">        x = rearrange(x, 'b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1=self.patch_size, p2=self.patch_size)</div>
+      <div class="code-line" id="cl54">        x = self.patch_embed(x) + self.pos_embed # (B, N, D)</div>
+      <div class="code-line" id="cl55">        </div>
+      <div class="code-line" id="cl56">        # 2. Embed conditioning</div>
+      <div class="code-line" id="cl57">        t_emb = self.time_embed(t)</div>
+      <div class="code-line" id="cl58">        c_emb = self.class_embed(y)</div>
+      <div class="code-line" id="cl59">        cond = t_emb + c_emb # Combined conditioning embedding</div>
+      <div class="code-line" id="cl60"></div>
+      <div class="code-line" id="cl61">        # 3. Transformer blocks with AdaLN-Zero</div>
+      <div class="code-line" id="cl62">        for block in self.blocks:</div>
+      <div class="code-line" id="cl63">            x = block(x, cond)</div>
+      <div class="code-line" id="cl64">        </div>
+      <div class="code-line" id="cl65">        # 4. Final projection and reconstruction</div>
+      <div class="code-line" id="cl66">        x = self.final_layer(x) # Project back to patch space (B, N, C*P*P)</div>
+      <div class="code-line" id="cl67">        x = rearrange(x, 'b (h w) (c p1 p2) -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size, h=int(self.num_patches**0.5))</div>
+      <div class="code-line" id="cl68">        return x # Predicted noise or denoised latent</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & STATE ──
+const PATCH_SIZE = 8;
+const IMG_GRID_SIZE = 4; // 4x4 patches = 32x32 image
+const NUM_PATCHES = IMG_GRID_SIZE * IMG_GRID_SIZE;
+const EMBED_DIM = 64; // Arbitrary embedding dimension for visualization
+
+const classColors = {
+  cat: ['#F7DC6F', '#E6B0AA', '#AED6F1', '#A9CCE3', '#FADBD8', '#F2D7DF', '#D7BDE2', '#A3E4D7'], // Warm, soft
+  dog: ['#D2B4DE', '#F1948A', '#A9CCE3', '#C39BD3', '#F5B7B1', '#E8DAEF', '#AED6F1', '#D6DBDF'], // Cool, earthy
+  car: ['#85C1E9', '#A9CCE3', '#FADBD8', '#F2D7DF', '#D7BDE2', '#A3E4D7', '#AED6F1', '#85C1E9']  // Metallic, industrial
+};
+
+// ── STEPS ──
+const steps = [
+  { phase: 'setup', title: 'Initial State: The DiT Overview', mode: 'init',
+    desc: 'This diagram illustrates the flow of a Diffusion Transformer. We start with a noisy latent image on the left, which is processed by a Transformer, and outputs a denoised latent on the right. Adjust the "Noise Level" and "Class Condition" sliders to control the input.' },
+  { phase: 'setup', title: 'Input: Noisy Latent Image (z_t)', mode: 'input_latent',
+    desc: 'The process begins with a noisy latent image \\(z_t\\), representing a corrupted version of a clean image. The "Noise Level" slider simulates the amount of noise, where 1.0 is pure noise and 0.0 is a clean image. This is the input to our DiT model.' },
+  { phase: 'process', title: 'Step 1: Patchification', mode: 'patchify',
+    desc: 'The noisy latent image is divided into non-overlapping square patches. These patches are the fundamental units that the Transformer will operate on. This process flattens the 2D image structure into a 1D sequence.' },
+  { phase: 'process', title: 'Step 2: Linear Embedding', mode: 'linear_embed',
+    desc: 'Each flattened patch is then linearly projected into a higher-dimensional embedding space, forming a sequence of "tokens." This transforms raw pixel/latent values into a representation suitable for Transformer processing.' },
+  { phase: 'process', title: 'Step 3: Positional Embeddings', mode: 'pos_embed',
+    desc: 'To preserve spatial information lost during patchification, fixed or learnable positional embeddings are added to each token. This tells the Transformer where each patch originated in the original image grid.' },
+  { phase: 'transform', title: 'Step 4: Time & Class Conditioning', mode: 'conditioning',
+    desc: 'The timestep \\(t\\) and class label \\(c\\) (e.g., "cat") are crucial for guiding the denoising process. They are embedded into vectors and will be used to modulate the Transformer blocks, ensuring the output matches the desired noise level and content.' },
+  { phase: 'transform', title: 'Step 5: DiT Block (Self-Attention)', mode: 'self_attention',
+    desc: 'The core of the Transformer is Multi-Head Self-Attention. Within each block, every token (patch) can interact with every other token, capturing global dependencies and relationships across the entire latent image. This is where DiT learns to "see" the whole picture.' },
+  { phase: 'transform', title: 'Step 6: DiT Block (Adaptive Layer Norm)', mode: 'adaln',
+    desc: 'The timestep and class conditioning embeddings adaptively modulate the features within each Transformer block using AdaLN-Zero. This allows the model to dynamically adjust its internal representations based on the specific noise level and target class for the current denoising step.' },
+  { phase: 'output', title: 'Step 7: Output Projection & Reconstruction', mode: 'reconstruct',
+    desc: 'After passing through all Transformer blocks, the final tokens are linearly projected back into the original patch space. These denoised patches are then reassembled into a full image, forming the DiT model\'s prediction of the noise or the denoised latent image.' }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── UI CONTROLS ──
+const noiseSlider = document.getElementById('noiseSlider');
+const classSelect = document.getElementById('classSelect');
+
+noiseSlider.addEventListener('input', () => {
+  document.getElementById('noiseValue').textContent = parseFloat(noiseSlider.value).toFixed(2);
+  render();
+});
+classSelect.addEventListener('change', render);
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  noiseSlider.value = 0.8;
+  classSelect.value = 'cat';
+  document.getElementById('noiseValue').textContent = parseFloat(noiseSlider.value).toFixed(2);
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', process:'phase-process', transform:'phase-transform', output:'phase-output'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  const codeLines = {
+    'input_latent': [],
+    'patchify': [52, 53],
+    'linear_embed': [44, 54],
+    'pos_embed': [45, 54],
+    'conditioning': [46, 47, 57, 58, 59],
+    'self_attention': [26, 33],
+    'adaln': [4, 28, 31, 36],
+    'reconstruct': [49, 66, 67]
+  };
+  (codeLines[s.mode] || []).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+// Seeded random for reproducible noise/colors
+let _seed = 12345;
+function seededRandom() {
+    _seed = (_seed * 9301 + 49297) % 233280;
+    return _seed / 233280;
+}
+function resetSeed() { _seed = 12345; }
+
+function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+}
+
+function rgbToHex(r, g, b) {
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function generateNoisyColor(baseHex, noiseLevel) {
+    const [r, g, b] = hexToRgb(baseHex);
+    const jitter = noiseLevel * 100; // Max 100 color jitter
+    const nr = Math.max(0, Math.min(255, r + (seededRandom() - 0.5) * 2 * jitter));
+    const ng = Math.max(0, Math.min(255, g + (seededRandom() - 0.5) * 2 * jitter));
+    const nb = Math.max(0, Math.min(255, b + (seededRandom() - 0.5) * 2 * jitter));
+    return rgbToHex(nr, ng, nb);
+}
+
+const CLASS_PALETTES = {
+  cat: ['#F7DC6F', '#E6B0AA', '#AED6F1', '#A9CCE3', '#FADBD8', '#F2D7DF', '#D7BDE2', '#A3E4D7'],
+  dog: ['#D2B4DE', '#F1948A', '#A9CCE3', '#C39BD3', '#F5B7B1', '#E8DAEF', '#AED6F1', '#D6DBDF'],
+  car: ['#85C1E9', '#A9CCE3', '#FADBD8', '#F2D7DF', '#D7BDE2', '#A3E4D7', '#AED6F1', '#85C1E9']
+};
+
+function drawImageGrid(ctx, x, y, size, patchSize, classId, noiseLevel, theme, highlightPatchIdx = -1, outputMode = false) {
+  resetSeed(); // Ensure reproducible noise for each draw call
+  const patchDim = size / IMG_GRID_SIZE;
+  const palette = CLASS_PALETTES[classId];
+
+  for (let r = 0; r < IMG_GRID_SIZE; r++) {
+    for (let c = 0; c < IMG_GRID_SIZE; c++) {
+      const px = x + c * patchDim;
+      const py = y + r * patchDim;
+      const patchIdx = r * IMG_GRID_SIZE + c;
+
+      // Base color from palette, with some variation
+      const baseColor = palette[(patchIdx + Math.floor(seededRandom() * palette.length)) % palette.length];
+      let finalColor = baseColor;
+
+      if (!outputMode) { // Input image is noisy
+        finalColor = generateNoisyColor(baseColor, noiseLevel);
+      } else { // Output image is denoised
+        finalColor = generateNoisyColor(baseColor, noiseLevel * 0.2); // Less noise for output
+      }
+
+      ctx.fillStyle = finalColor;
+      ctx.fillRect(px, py, patchDim, patchDim);
+
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(px, py, patchDim, patchDim);
+
+      if (highlightPatchIdx === patchIdx) {
+        ctx.strokeStyle = theme.amber;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(px, py, patchDim, patchDim);
+      }
+    }
+  }
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color, headSize = 8) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headSize * Math.cos(angle - Math.PI / 6), y2 - headSize * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(x2 - headSize * Math.cos(angle + Math.PI / 6), y2 - headSize * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCircle(ctx, x, y, r, fillColor, borderColor, label = null, textColor = 'white', highlight = false) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = highlight ? 2.5 : 1.5;
+  ctx.stroke();
+  if (label) {
+    ctx.fillStyle = textColor;
+    ctx.font = '600 11px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y);
+  }
+}
+
+function drawBlock(ctx, x, y, w, h, fillColor, borderColor, label = null, textColor = 'white', highlight = false) {
+  ctx.fillStyle = fillColor;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = highlight ? 2.5 : 1.5;
+  ctx.strokeRect(x, y, w, h);
+  if (label) {
+    ctx.fillStyle = textColor;
+    ctx.font = '600 11px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + w / 2, y + h / 2);
+  }
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+  const theme = getColors();
+
+  const noiseLevel = parseFloat(noiseSlider.value);
+  const classId = classSelect.value;
+
+  // --- Layout Constants ---
+  const IMG_SIZE = H * 0.4;
+  const IMG_X_INPUT = W * 0.1;
+  const IMG_X_OUTPUT = W * 0.8;
+  const IMG_Y = H * 0.3;
+
+  const TOKEN_WIDTH = 25;
+  const TOKEN_HEIGHT = 20;
+  const TOKEN_GAP = 8;
+  const TOKEN_ROW_LENGTH = 8; // Max tokens per row
+  const NUM_TOKEN_ROWS = Math.ceil(NUM_PATCHES / TOKEN_ROW_LENGTH);
+
+  const TOTAL_TOKENS_WIDTH = TOKEN_ROW_LENGTH * (TOKEN_WIDTH + TOKEN_GAP) - TOKEN_GAP;
+  const TOTAL_TOKENS_HEIGHT = NUM_TOKEN_ROWS * (TOKEN_HEIGHT + TOKEN_GAP) - TOKEN_GAP;
+  const TOKENS_X = W * 0.5 - TOTAL_TOKENS_WIDTH / 2;
+  const TOKENS_Y = H * 0.12;
+
+  const TRANSFORMER_BLOCK_COUNT = 4;
+  const BLOCK_WIDTH = 120;
+  const BLOCK_HEIGHT = 40;
+  const BLOCK_GAP = 10;
+  const TOTAL_BLOCKS_HEIGHT = TRANSFORMER_BLOCK_COUNT * (BLOCK_HEIGHT + BLOCK_GAP) - BLOCK_GAP;
+  const BLOCKS_X = W * 0.5 - BLOCK_WIDTH / 2;
+  const BLOCKS_Y = H * 0.5 - TOTAL_BLOCKS_HEIGHT / 2 + 30;
+
+  const COND_SIZE = 30;
+  const COND_X_T = W * 0.3;
+  const COND_X_C = W * 0.7;
+  const COND_Y = H * 0.85;
+
+  // --- Base Elements (always drawn) ---
+  // Input Latent Placeholder
+  ctx.strokeStyle = theme.border; ctx.lineWidth = 1;
+  ctx.strokeRect(IMG_X_INPUT, IMG_Y, IMG_SIZE, IMG_SIZE);
+  ctx.fillStyle = theme.text3; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+  ctx.fillText('Input Latent', IMG_X_INPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE + 20);
+
+  // Output Latent Placeholder
+  ctx.strokeRect(IMG_X_OUTPUT, IMG_Y, IMG_SIZE, IMG_SIZE);
+  ctx.fillText('Output Latent', IMG_X_OUTPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE + 20);
+
+  // Transformer Stack Placeholder
+  for (let i = 0; i < TRANSFORMER_BLOCK_COUNT; i++) {
+    drawBlock(ctx, BLOCKS_X, BLOCKS_Y + i * (BLOCK_HEIGHT + BLOCK_GAP), BLOCK_WIDTH, BLOCK_HEIGHT,
+      theme.bg2, theme.border, `Block ${i+1}`, theme.text3);
+  }
+  ctx.fillText('DiT Blocks', BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + TOTAL_BLOCKS_HEIGHT + 20);
+
+  // Conditioning Placeholders
+  drawCircle(ctx, COND_X_T, COND_Y, COND_SIZE / 2, theme.bg2, theme.border, 't', theme.text3);
+  drawCircle(ctx, COND_X_C, COND_Y, COND_SIZE / 2, theme.bg2, theme.border, 'c', theme.text3);
+
+  // --- Step-specific drawing logic ---
+  if (mode === 'init') {
+    // Faded, blurry input/output
+    drawImageGrid(ctx, IMG_X_INPUT, IMG_Y, IMG_SIZE, PATCH_SIZE, classId, 0.9, theme);
+    drawImageGrid(ctx, IMG_X_OUTPUT, IMG_Y, IMG_SIZE, PATCH_SIZE, classId, 0.5, theme, -1, true);
+    ctx.fillStyle = theme.text2; ctx.font = '14px var(--sans)';
+    ctx.fillText('Noisy Input', IMG_X_INPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2);
+    ctx.fillText('Denoised Output', IMG_X_OUTPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2);
+
+  } else if (mode === 'input_latent') {
+    drawImageGrid(ctx, IMG_X_INPUT, IMG_Y, IMG_SIZE, PATCH_SIZE, classId, noiseLevel, theme);
+    ctx.fillStyle = theme.blue; ctx.font = 'bold 16px var(--sans)';
+    ctx.fillText('Noisy Latent (z_t)', IMG_X_INPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2);
+
+  } else if (mode === 'patchify') {
+    drawImageGrid(ctx, IMG_X_INPUT, IMG_Y, IMG_SIZE, PATCH_SIZE, classId, noiseLevel, theme);
+    // Draw patches lifting off
+    for (let r = 0; r < IMG_GRID_SIZE; r++) {
+      for (let c = 0; c < IMG_GRID_SIZE; c++) {
+        const patchDim = IMG_SIZE / IMG_GRID_SIZE;
+        const px = IMG_X_INPUT + c * patchDim;
+        const py = IMG_Y + r * patchDim;
+        const patchIdx = r * IMG_GRID_SIZE + c;
+
+        const tokenCol = patchIdx % TOKEN_ROW_LENGTH;
+        const tokenRow = Math.floor(patchIdx / TOKEN_ROW_LENGTH);
+        const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+        const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+
+        drawArrow(ctx, px + patchDim / 2, py + patchDim / 2, tokenX + TOKEN_WIDTH / 2, tokenY + TOKEN_HEIGHT / 2, theme.blue);
+        drawBlock(ctx, tokenX, tokenY, TOKEN_WIDTH, TOKEN_HEIGHT, theme.blue, theme.border, `P${patchIdx}`, theme.text);
+      }
+    }
+
+  } else if (mode === 'linear_embed' || mode === 'pos_embed') {
+    // Draw tokens with linear embedding transformation
+    for (let i = 0; i < NUM_PATCHES; i++) {
+      const tokenCol = i % TOKEN_ROW_LENGTH;
+      const tokenRow = Math.floor(i / TOKEN_ROW_LENGTH);
+      const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+      const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+      drawBlock(ctx, tokenX, tokenY, TOKEN_WIDTH, TOKEN_HEIGHT, theme.amber, theme.border, `T${i}`, theme.text, true);
+    }
+    drawArrow(ctx, IMG_X_INPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2, TOKENS_X + TOTAL_TOKENS_WIDTH / 2, TOKENS_Y + TOTAL_TOKENS_HEIGHT / 2, theme.amber);
+
+    if (mode === 'pos_embed') {
+      ctx.fillStyle = theme.text2; ctx.font = '11px var(--sans)';
+      ctx.fillText('+ Pos. Embeddings', TOKENS_X + TOTAL_TOKENS_WIDTH / 2, TOKENS_Y + TOTAL_TOKENS_HEIGHT + 20);
+    }
+
+  } else if (mode === 'conditioning') {
+    // Draw tokens
+    for (let i = 0; i < NUM_PATCHES; i++) {
+      const tokenCol = i % TOKEN_ROW_LENGTH;
+      const tokenRow = Math.floor(i / TOKEN_ROW_LENGTH);
+      const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+      const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+      drawBlock(ctx, tokenX, tokenY, TOKEN_WIDTH, TOKEN_HEIGHT, theme.amber, theme.border, `T${i}`, theme.text);
+    }
+
+    // Highlight and draw actual condition embeddings
+    drawCircle(ctx, COND_X_T, COND_Y, COND_SIZE / 2, theme.red, theme.border, `t=${noiseLevel.toFixed(1)}`, theme.text, true);
+    drawCircle(ctx, COND_X_C, COND_Y, COND_SIZE / 2, theme.cyan, theme.border, classId, theme.text, true);
+
+    // Arrows to Transformer
+    drawArrow(ctx, COND_X_T, COND_Y - COND_SIZE / 2, BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + BLOCK_HEIGHT / 2, theme.red);
+    drawArrow(ctx, COND_X_C, COND_Y - COND_SIZE / 2, BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + BLOCK_HEIGHT / 2, theme.cyan);
+
+  } else if (mode === 'self_attention' || mode === 'adaln') {
+    // Draw tokens
+    for (let i = 0; i < NUM_PATCHES; i++) {
+      const tokenCol = i % TOKEN_ROW_LENGTH;
+      const tokenRow = Math.floor(i / TOKEN_ROW_LENGTH);
+      const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+      const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+      drawBlock(ctx, tokenX, tokenY, TOKEN_WIDTH, TOKEN_HEIGHT, theme.amber, theme.border, `T${i}`, theme.text);
+    }
+
+    // Highlight first Transformer block
+    drawBlock(ctx, BLOCKS_X, BLOCKS_Y, BLOCK_WIDTH, BLOCK_HEIGHT, theme.purple, theme.purple, 'Block 1', theme.text, true);
+
+    // Arrows from tokens to first block
+    drawArrow(ctx, TOKENS_X + TOTAL_TOKENS_WIDTH / 2, TOKENS_Y + TOTAL_TOKENS_HEIGHT, BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y, theme.amber);
+
+    if (mode === 'self_attention') {
+      // Self-attention lines within the block
+      const blockCenterX = BLOCKS_X + BLOCK_WIDTH / 2;
+      const blockCenterY = BLOCKS_Y + BLOCK_HEIGHT / 2;
+      ctx.strokeStyle = theme.purple; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      for (let i = 0; i < NUM_PATCHES; i++) {
+        const tokenCol = i % TOKEN_ROW_LENGTH;
+        const tokenRow = Math.floor(i / TOKEN_ROW_LENGTH);
+        const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+        const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+        ctx.beginPath();
+        ctx.moveTo(tokenX + TOKEN_WIDTH / 2, tokenY + TOKEN_HEIGHT / 2);
+        ctx.lineTo(blockCenterX, blockCenterY);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = theme.purple; ctx.font = 'bold 12px var(--sans)';
+      ctx.fillText('Self-Attention', blockCenterX, blockCenterY);
+
+    } else if (mode === 'adaln') {
+      // Highlight and draw actual condition embeddings
+      drawCircle(ctx, COND_X_T, COND_Y, COND_SIZE / 2, theme.red, theme.border, `t=${noiseLevel.toFixed(1)}`, theme.text, true);
+      drawCircle(ctx, COND_X_C, COND_Y, COND_SIZE / 2, theme.cyan, theme.border, classId, theme.text, true);
+
+      // Arrows from conditions to first block
+      drawArrow(ctx, COND_X_T, COND_Y - COND_SIZE / 2, BLOCKS_X + BLOCK_WIDTH / 2 - 30, BLOCKS_Y + BLOCK_HEIGHT / 2, theme.red);
+      drawArrow(ctx, COND_X_C, COND_Y - COND_SIZE / 2, BLOCKS_X + BLOCK_WIDTH / 2 + 30, BLOCKS_Y + BLOCK_HEIGHT / 2, theme.cyan);
+      ctx.fillStyle = theme.purple; ctx.font = 'bold 12px var(--sans)';
+      ctx.fillText('AdaLN-Zero', BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + BLOCK_HEIGHT / 2);
+    }
+
+    // Arrows between blocks
+    for (let i = 0; i < TRANSFORMER_BLOCK_COUNT - 1; i++) {
+      drawArrow(ctx, BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + BLOCK_HEIGHT + i * (BLOCK_HEIGHT + BLOCK_GAP),
+        BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + BLOCK_HEIGHT + BLOCK_GAP + i * (BLOCK_HEIGHT + BLOCK_GAP), theme.purple);
+    }
+
+  } else if (mode === 'reconstruct') {
+    // Draw tokens (final state)
+    for (let i = 0; i < NUM_PATCHES; i++) {
+      const tokenCol = i % TOKEN_ROW_LENGTH;
+      const tokenRow = Math.floor(i / TOKEN_ROW_LENGTH);
+      const tokenX = TOKENS_X + tokenCol * (TOKEN_WIDTH + TOKEN_GAP);
+      const tokenY = TOKENS_Y + tokenRow * (TOKEN_HEIGHT + TOKEN_GAP);
+      drawBlock(ctx, tokenX, tokenY, TOKEN_WIDTH, TOKEN_HEIGHT, theme.amber, theme.border, `T${i}`, theme.text);
+    }
+
+    // Arrows from last block to tokens
+    drawArrow(ctx, BLOCKS_X + BLOCK_WIDTH / 2, BLOCKS_Y + TOTAL_BLOCKS_HEIGHT, TOKENS_X + TOTAL_TOKENS_WIDTH / 2, TOKENS_Y + TOTAL_TOKENS_HEIGHT / 2, theme.amber);
+
+    // Arrows from tokens to output
+    drawArrow(ctx, TOKENS_X + TOTAL_TOKENS_WIDTH / 2, TOKENS_Y + TOTAL_TOKENS_HEIGHT / 2, IMG_X_OUTPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2, theme.green);
+
+    // Draw reconstructed output image
+    drawImageGrid(ctx, IMG_X_OUTPUT, IMG_Y, IMG_SIZE, PATCH_SIZE, classId, noiseLevel * 0.2, theme, -1, true);
+    ctx.fillStyle = theme.green; ctx.font = 'bold 16px var(--sans)';
+    ctx.fillText('Denoised Latent', IMG_X_OUTPUT + IMG_SIZE / 2, IMG_Y + IMG_SIZE / 2);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

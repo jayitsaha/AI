@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM-as-Judge Evaluation: G-Eval & Pairwise Comparison — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Custom Viz Elements */
+.eval-box{
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.8rem 1rem;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
+    transition: all 0.3s ease;
+}
+.eval-box.prompt{
+    background: var(--blue-bg);
+    border-color: var(--blue-border);
+    color: var(--blue-text);
+    font-weight: 600;
+}
+.eval-box.response{
+    background: var(--bg2);
+    border-color: var(--border2);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.eval-box.judge{
+    background: var(--purple-bg);
+    border-color: var(--purple-border);
+    color: var(--purple-text);
+    font-weight: 600;
+}
+.eval-box.active{
+    box-shadow: 0 0 0 3px var(--purple-mid);
+    transform: translateY(-2px);
+}
+.eval-box-title{
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text2);
+    margin-bottom: 0.4rem;
+}
+.eval-box.prompt .eval-box-title, .eval-box.judge .eval-box-title{
+    color: inherit;
+}
+
+.rubric-item{
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border);
+    color: var(--text2);
+}
+.rubric-item:last-child{ border-bottom: none; }
+.rubric-item.active{
+    background: var(--cyan-bg);
+    color: var(--cyan-text);
+    padding: 4px 6px;
+    margin: 0 -6px;
+    border-radius: 4px;
+    border-color: var(--cyan-border);
+}
+.rubric-score{
+    font-weight: 600;
+    color: var(--green-mid);
+}
+.rubric-score.low{
+    color: var(--red-mid);
+}
+
+.llm-output-card{
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text2);
+    min-height: 120px;
+}
+.llm-output-card.active{
+    border: 1px solid var(--purple-border);
+    box-shadow: 0 0 0 3px var(--purple-bg);
+}
+.llm-output-card strong{
+    color: var(--text);
+}
+.llm-output-card .score{
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--green-mid);
+}
+.llm-output-card .score.low{
+    color: var(--red-mid);
+}
+.llm-output-card .winner{
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--blue-mid);
+}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+.toggle-group{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text2);}
+.toggle-group input[type="checkbox"]{width:16px;height:16px;accent-color:var(--blue-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-eval{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+  .eval-box{padding:0.6rem 0.8rem; font-size:12px;}
+  .eval-box.response{font-size:10px;}
+  .llm-output-card{font-size:10px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LLM-as-Judge Evaluation: G-Eval &amp; Pairwise Comparison</h1>
+  <div class="subtitle">Automating qualitative assessment of LLM responses using another LLM</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">MLOps / Systems</span>
+    <span class="tag tag-complexity">Evaluation</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding LLM-as-Judge</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> LLM-as-Judge refers to using a powerful Large Language Model (LLM) to evaluate the quality of responses generated by other LLMs. This technique addresses the scalability, cost, and potential biases of human evaluation, especially for open-ended generative tasks where traditional metrics (like BLEU or ROUGE) often fall short. The judge LLM is prompted with the original query, the generated response(s), and explicit instructions (often a rubric or comparison criteria) on how to assess quality.</p>
+    <p><strong>Analogy:</strong> Imagine you're a busy manager who needs to review hundreds of creative reports from your team. Instead of reading them all yourself, you hire a highly intelligent, unbiased, and consistent assistant (the "Judge LLM"). You give this assistant a clear set of guidelines (the "evaluation prompt" and "rubric") and ask them to score each report or compare them against each other. The assistant then provides detailed feedback and a final judgment, allowing you to rapidly assess your team's performance without sacrificing qualitative depth.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LLM-as-Judge is fundamentally a <strong>structured prompt engineering task</strong>. The quality of the evaluation heavily depends on crafting clear, unbiased instructions, defining precise criteria, and guiding the judge LLM to output its reasoning and scores in a parseable format (e.g., JSON).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally: Two Paradigms</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>LLM-as-Judge evaluations typically fall into two main categories, each with its own prompting strategy:</p>
+
+    <h4>1. G-Eval (Rubric-based Evaluation)</h4>
+    <p>In G-Eval (Liu et al., 2023), the judge LLM evaluates a <strong>single response</strong> against a predefined set of criteria or a rubric. The process usually involves:</p>
+    <ul>
+      <li><strong>Prompt Structure:</strong> A detailed system message defining the judge's role, the evaluation task, and the desired output format (e.g., JSON). The user message includes the original prompt, the response to be evaluated, and the full rubric with criteria and scoring scales.</li>
+      <li><strong>Thought Process:</strong> The judge is often instructed to first generate a step-by-step reasoning (Chain-of-Thought style) for each criterion before assigning a score. This enhances transparency and allows for debugging the judge's logic.</li>
+      <li><strong>Output:</strong> A structured output (e.g., JSON) containing the reasoning for each criterion and a final score or average score.</li>
+    </ul>
+
+    <h4>2. Pairwise Comparison</h4>
+    <p>In pairwise comparison, the judge LLM evaluates <strong>two responses (A and B)</strong> to the same prompt simultaneously. This method is often preferred for ranking models or for fine-grained quality distinctions, as it leverages the LLM's ability to compare and contrast effectively.</p>
+    <ul>
+      <li><strong>Prompt Structure:</strong> A system message defining the judge's role and the comparison task. The user message includes the original prompt, Response A, and Response B. Crucially, instructions are given to avoid positional bias (e.g., "A and B are randomly ordered").</li>
+      <li><strong>Comparison &amp; Justification:</strong> The judge is asked to identify which response is better (or if they are tied) and provide a detailed explanation for its choice.</li>
+      <li><strong>Output:</strong> A structured output (e.g., JSON) indicating the winner (A, B, or Tie) and the rationale. This can then feed into ranking systems like Elo ratings.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both methods rely on the judge LLM's ability to follow complex instructions and perform reasoning. Careful prompt engineering is paramount to mitigate common biases (e.g., positional bias, verbosity bias, self-enhancement bias) and ensure consistent, reliable evaluations. It's a meta-prompting task.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works: Quantifying LLM Judgment</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>While LLM-as-Judge is qualitative in nature, the structured outputs enable quantitative analysis. The "math" here involves how we aggregate and interpret the LLM's judgments.</p>
+
+    <h4>G-Eval: Aggregating Rubric Scores</h4>
+    <p>For G-Eval, the judge provides a score for each criterion. If a response \(r\) is evaluated against \(K\) criteria, each with a score \(s_{r,k}\) (e.g., on a scale of 1-10), the overall score for that response can be an average:</p>
+    <div class="eq">$$S_r = \frac{1}{K} \sum_{k=1}^K s_{r,k}$$</div>
+    <p>Often, the prompt instructs the LLM to output a final aggregate score directly, or a JSON object that can be parsed to calculate it. The strength of G-Eval is the transparency provided by the per-criterion reasoning, which acts like a Chain-of-Thought for evaluation.</p>
+
+    <h4>Pairwise Comparison: Elo Rating System</h4>
+    <p>Pairwise comparisons are ideal for building a robust ranking system for multiple models. The classic approach is to adapt the Elo rating system, commonly used in chess and competitive gaming. Each model \(M_i\) has an Elo rating \(R_i\). When two models \(M_A\) and \(M_B\) are compared, the expected win probability for \(M_A\) is:</p>
+    <div class="eq}{$$P(M_A \text{ wins}) = \frac{1}{1 + 10^{(R_B - R_A)/400}}$$</div>
+    <p>After the judge LLM declares a winner, the ratings are updated. If \(M_A\) wins, its rating increases, and \(M_B\)'s decreases. The update rule for \(M_A\)'s rating (assuming a win, where actual score \(S_{actual}=1\)) is:</p>
+    <div class="eq}{$$R_A \leftarrow R_A + K(S_{actual} - P(M_A \text{ wins}))$$</div>
+    <p>where \(K\) is a "k-factor" (a sensitivity constant, typically 10-32). A tie would mean \(S_{actual}=0.5\). This iterative process allows models to be ranked dynamically based on their performance in head-to-head comparisons.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall: LLM Bias</div>
+      <p style="font-size:14px;margin:0;">LLM judges are not infallible. They can exhibit biases such as <strong>positional bias</strong> (preferring the first or last response), <strong>verbosity bias</strong> (preferring longer responses), <strong>self-enhancement bias</strong> (preferring responses from models similar to themselves), or general <strong>hallucinations</strong>. Mitigations include randomizing response order, using neutral prompts, and carefully selecting the judge LLM itself.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a G-Eval and Pairwise comparison workflow. Adjust the quality of Response B to see how the judge's scores and decisions change live. Toggle between evaluation modes.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Response B Quality (vs A)</div>
+          <input type="range" id="qualitySlider" min="0" max="100" step="1" value="50">
+          <div class="slider-value" id="qualityValue">50%</div>
+        </div>
+        <div class="toggle-group">
+          <input type="checkbox" id="evalModeToggle" checked>
+          <label for="evalModeToggle">Evaluation Mode: <span id="modeLabel">G-Eval</span></label>
+        </div>
+        <div class="slider-hint" id="sliderHint">Adjusts Response B's quality relative to A.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Setup</div>
+        <div class="info-desc" id="infoDesc">We have a user prompt and two LLM responses (A and B) to evaluate. We'll use a powerful LLM as our judge.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Prompt</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--bg2)"></div> Response</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Judge LLM</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Active Rubric/Comparison</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> High Score / Winner</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Low Score / Loser</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use LLM-as-Judge:</strong></p>
+    <ul>
+      <li>For qualitative, open-ended generative tasks (e.g., story writing, summarization, creative text generation) where traditional metrics are inadequate.</li>
+      <li>When evaluating a large number of responses or models, making human evaluation impractical due to cost and time.</li>
+      <li>To obtain nuanced, human-like feedback and reasoning, which can be invaluable for model debugging and improvement.</li>
+      <li>As a fast, iterative feedback loop during model development and fine-tuning.</li>
+    </ul>
+    <p><strong>When to be cautious or avoid:</strong></p>
+    <ul>
+      <li>For tasks with clear objective ground truth or numerical answers (e.g., factual question answering, code generation correctness) — traditional exact-match or functional metrics are often superior.</li>
+      <li>When the judge LLM itself is prone to significant biases (positional, verbosity, etc.) that cannot be sufficiently mitigated through prompt engineering.</li>
+      <li>For highly subtle or subjective distinctions that even expert human evaluators struggle to agree on consistently.</li>
+      <li>When the cost of API calls to a powerful judge LLM becomes prohibitive for extremely large-scale evaluation.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">LLM-as-Judge is a powerful heuristic, not a replacement for ground truth. It shines when used as a scalable proxy for human judgment, especially in early-stage development or for tasks requiring nuanced qualitative feedback. Best practice often involves complementing LLM-as-Judge with periodic human spot-checks to validate its consistency and mitigate potential biases.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python/Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import json</div>
+      <div class="code-line" id="cl1"># Assume 'llm_inference(messages, model_name)' function exists</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">def generate_g_eval_prompt(prompt, response, rubric):</div>
+      <div class="code-line" id="cl4">    system_message = """You are an impartial and expert AI judge.</div>
+      <div class="code-line" id="cl5">Your task is to evaluate an LLM's response to a user prompt based on the provided rubric.</div>
+      <div class="code-line" id="cl6">First, provide a step-by-step reasoning for each criterion. Then, output a JSON object</div>
+      <div class="code-line" id="cl7">with scores for each criterion and an overall score."""</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    user_message = f"""### User Prompt:\n{prompt}\n\n### LLM Response:\n{response}\n\n### Rubric:"""</div>
+      <div class="code-line" id="cl10">    for crit in rubric:</div>
+      <div class="code-line" id="cl11">        user_message += f"\n- {crit['name']} (1-10): {crit['desc']}"</div>
+      <div class="code-line" id="cl12">    user_message += "\n\nProvide your reasoning and then the JSON output."</div>
+      <div class="code-line" id="cl13">    return [{"role": "system", "content": system_message}, {"role": "user", "content": user_message}]</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">def parse_g_eval_output(llm_output):</div>
+      <div class="code-line" id="cl16">    # Extract JSON part from LLM text output</div>
+      <div class="code-line" id="cl17">    try: return json.loads(llm_output.split("```json")[-1].split("```")[0])</div>
+      <div class="code-line" id="cl18">    except json.JSONDecodeError: return {"error": "Failed to parse JSON"}</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">def generate_pairwise_prompt(prompt, resp_a, resp_b):</div>
+      <div class="code-line" id="cl21">    system_message = """You are an impartial and expert AI judge.</div>
+      <div class="code-line" id="cl22">Your task is to compare two LLM responses (A and B) to a user prompt.</div>
+      <div class="code-line" id="cl23">State which response is better, or if they are tied, and explain why.</div>
+      <div class="code-line" id="cl24">Responses A and B are randomly ordered to prevent positional bias."""</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">    user_message = f"""### User Prompt:\n{prompt}\n\n### Response A:\n{resp_a}\n\n### Response B:\n{resp_b}"""</div>
+      <div class="code-line" id="cl27">    user_message += "\n\nWhich response is better? Explain your choice and output JSON: {'winner': 'A/B/Tie', 'reason': '...'}"</div>
+      <div class="code-line" id="cl28">    return [{"role": "system", "content": system_message}, {"role": "user", "content": user_message}]</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">def parse_pairwise_output(llm_output):</div>
+      <div class="code-line" id="cl31">    try: return json.loads(llm_output.split("```json")[-1].split("```")[0])</div>
+      <div class="code-line" id="cl32">    except json.JSONDecodeError: return {"error": "Failed to parse JSON"}</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34"># Example usage (not run live)</div>
+      <div class="code-line" id="cl35"># prompt = "Write a story..."</div>
+      <div class="code-line" id="cl36"># resp_a = "..."</div>
+      <div class="code-line" id="cl37"># rubric = [{"name": "Creativity", "desc": "...", "max": 10}]</div>
+      <div class="code-line" id="cl38"># g_eval_messages = generate_g_eval_prompt(prompt, resp_a, rubric)</div>
+      <div class="code-line" id="cl39"># g_eval_raw_output = llm_inference(g_eval_messages, "gpt-4")</div>
+      <div class="code-line" id="cl40"># g_eval_parsed = parse_g_eval_output(g_eval_raw_output)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA ──
+const userPrompt = "Write a short, creative story about a robot learning to feel.";
+const responseA_text = "Unit 734, a sanitation bot, diligently swept the abandoned city. One day, a stray cat rubbed against its metallic leg. A strange warmth, a new directive, sparked within its circuits. It purred, not from programming, but from a nascent joy. The city, once just debris, now held a tiny, furry companion.";
+const responseB_base_text = "The robot saw a flower. It was pretty. The robot felt happy. The end.";
+const responseB_high_quality_text = "In the chrome labyrinth, Cogsworth 5 observed a child's forgotten teddy bear. A glitch, a tremor in its logic gates, registered as something akin to sorrow. It carefully picked up the bear, a new weight in its optical sensors, a whisper of empathy in its core processors. The world, once data, was now imbued with meaning.";
+
+const rubric = [
+  { name: "Creativity", desc: "Originality of ideas, unexpected twists.", max: 10 },
+  { name: "Coherence", desc: "Logical flow, ease of understanding.", max: 10 },
+  { name: "Emotional Depth", desc: "How well the robot's feelings are portrayed.", max: 10 }
+];
+
+// Base scores for A and B (when B is "50% quality")
+const baseScoresA = [8, 9, 8]; // Overall 8.33
+const baseScoresB = [5, 6, 4]; // Overall 5.00
+
+// Judge's reasoning for G-Eval
+const judgeReasoningA = `**Creativity:** The idea of a sanitation bot finding a cat and purring is quite original. Score: 8/10
+**Coherence:** The story flows well, from initial duty to discovery to a new feeling. Score: 9/10
+**Emotional Depth:** The transition from "directive" to "nascent joy" and "purred... not from programming" effectively portrays learning to feel. Score: 8/10`;
+
+const judgeReasoningB_low = `**Creativity:** The idea of a robot seeing a flower and feeling happy is very basic. Score: 3/10
+**Coherence:** The story is extremely short and lacks detail, making it difficult to assess flow. Score: 4/10
+**Emotional Depth:** "Felt happy" is too simplistic; no real depth is explored. Score: 2/10`;
+
+const judgeReasoningB_medium = `**Creativity:** The concept of a robot observing a teddy bear and feeling sorrow is decent. Score: 7/10
+**Coherence:** The narrative is clear and progresses logically from observation to action. Score: 7/10
+**Emotional Depth:** "Tremor in its logic gates" and "whisper of empathy" are good attempts to show feeling, but could be deeper. Score: 6/10`;
+
+const judgeReasoningB_high = `**Creativity:** Observing a forgotten teddy bear and developing sorrow is a strong, evocative concept. Score: 9/10
+**Coherence:** The narrative is well-structured, detailing the robot's internal and external reactions. Score: 9/10
+**Emotional Depth:** "Glimmer of sorrow," "new weight in its optical sensors," and "whisper of empathy" are compelling and sophisticated portrayals of nascent emotion. Score: 9/10`;
+
+// Judge's reasoning for Pairwise
+const judgeReasoningPairwise_A_Wins = `Response A tells a more engaging and creative story about a robot's emotional awakening. The interaction with the cat and the description of a "nascent joy" are more vivid than Response B's simpler narrative about a flower. Response A demonstrates greater emotional depth and narrative coherence.`;
+const judgeReasoningPairwise_B_Wins = `Response B offers a more sophisticated and poignant portrayal of a robot learning to feel. The imagery of the forgotten teddy bear and descriptions like "tremor in its logic gates" and "whisper of empathy" are more evocative and demonstrate greater emotional depth than Response A's simpler approach.`;
+const judgeReasoningPairwise_Tie = `Both responses offer compelling narratives. Response A is strong in its simplicity and directness, while Response B provides a more complex emotional journey. The overall quality and adherence to the prompt are very similar, making it difficult to definitively choose one over the other.`;
+
+// ── SCORING LOGIC ──
+function getScores(qualityFactor) { // qualityFactor from 0 to 100
+  const scoresB = baseScoresB.map((s, i) => {
+    const targetHigh = [9, 9, 9]; // Scores for B at 100% quality
+    const diff = targetHigh[i] - s;
+    return Math.round(s + (diff * (qualityFactor / 100)));
+  });
+  return {
+    A: baseScoresA,
+    B: scoresB
+  };
+}
+
+function getOverallScore(scores) {
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+}
+
+function getJudgeReasoningB(qualityFactor) {
+  if (qualityFactor < 30) return judgeReasoningB_low;
+  if (qualityFactor < 70) return judgeReasoningB_medium;
+  return judgeReasoningB_high;
+}
+
+function getPairwiseVerdict(qualityFactor) {
+  const scores = getScores(qualityFactor);
+  const overallA = getOverallScore(scores.A);
+  const overallB = getOverallScore(scores.B);
+
+  if (overallA > overallB + 1) return { winner: 'A', reason: judgeReasoningPairwise_A_Wins };
+  if (overallB > overallA + 1) return { winner: 'B', reason: judgeReasoningPairwise_B_Wins };
+  return { winner: 'Tie', reason: judgeReasoningPairwise_Tie };
+}
+
+// ── STEPS ──
+const steps = [
+  { phase: 'setup', title: 'Initial Setup', desc: 'We have a user prompt and two LLM responses (A and B) to evaluate. We\'ll use a powerful LLM as our judge.',
+    codeLines: [], viz: { mode: 'init', activeElements: [] } },
+  { phase: 'eval', title: 'G-Eval: Prompting the Judge', desc: 'In G-Eval, we provide the judge LLM with the original prompt, a single response, and a detailed rubric. The judge\'s task is to score this response against each criterion.',
+    codeLines: [3,4,5,6,7,8,9,10,11,12,13], viz: { mode: 'g_eval_prompt', activeElements: ['prompt', 'judge'] } },
+  { phase: 'eval', title: 'G-Eval: Evaluating Response A', desc: 'The judge LLM processes Response A, applying its reasoning to each rubric criterion. It then outputs individual scores and an overall score based on this evaluation.',
+    codeLines: [], viz: { mode: 'g_eval_eval_a', activeElements: ['prompt', 'responseA', 'judge', 'rubricA', 'outputA'] } },
+  { phase: 'eval', title: 'G-Eval: Evaluating Response B', desc: 'Next, the judge evaluates Response B against the same rubric, providing its own scores and reasoning. This is an independent assessment.',
+    codeLines: [], viz: { mode: 'g_eval_eval_b', activeElements: ['prompt', 'responseB', 'judge', 'rubricB', 'outputB'] } },
+  { phase: 'result', title: 'G-Eval: Final Scores', desc: 'We now have individual scores for Response A and Response B. These can be used to compare the absolute quality of each response.',
+    codeLines: [15,16,17,18], viz: { mode: 'g_eval_result', activeElements: ['outputA', 'outputB'] } },
+  { phase: 'compare', title: 'Pairwise: Prompting the Judge', desc: 'In pairwise mode, the judge LLM is given both responses (A and B) simultaneously and asked to compare them directly. This is often more effective for ranking models.',
+    codeLines: [20,21,22,23,24,25,26,27,28], viz: { mode: 'pairwise_prompt', activeElements: ['prompt', 'judge'] } },
+  { phase: 'compare', title: 'Pairwise: Comparing A vs B', desc: 'The judge LLM analyzes both responses, identifies which one is superior (or if it\'s a tie), and provides a rationale for its decision. Positional bias is mitigated by randomizing order in real systems.',
+    codeLines: [], viz: { mode: 'pairwise_compare', activeElements: ['prompt', 'responseA', 'responseB', 'judge', 'outputPairwise'] } },
+  { phase: 'result', title: 'Pairwise: Ranking with Elo', desc: 'The pairwise winner/loser can feed into a ranking system like Elo ratings. This allows for dynamic, continuous ranking of multiple models based on head-to-head comparisons.',
+    codeLines: [30,31,32], viz: { mode: 'pairwise_result', activeElements: ['outputPairwise'] } },
+  { phase: 'explore', title: 'Interactive Exploration', desc: 'Now, adjust Response B\'s quality using the slider or switch between G-Eval and Pairwise modes. See how the judge\'s evaluation changes dynamically.',
+    codeLines: [], viz: { mode: 'interactive', activeElements: ['prompt', 'responseA', 'responseB', 'judge', 'rubricA', 'rubricB', 'outputA', 'outputB', 'outputPairwise'] } }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentQualityFactor = 50; // 0-100
+let isGevalMode = true; // true for G-Eval, false for Pairwise
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; currentQualityFactor = 50; isGevalMode = true; render(); }
+
+// ── SLIDER / TOGGLE ──
+const qualitySlider = document.getElementById('qualitySlider');
+const qualityValue = document.getElementById('qualityValue');
+const evalModeToggle = document.getElementById('evalModeToggle');
+const modeLabel = document.getElementById('modeLabel');
+
+qualitySlider.addEventListener('input', () => {
+  currentQualityFactor = parseInt(qualitySlider.value);
+  qualityValue.textContent = `${currentQualityFactor}%`;
+  if (steps[step].viz.mode === 'interactive') render();
+});
+
+evalModeToggle.addEventListener('change', () => {
+  isGevalMode = evalModeToggle.checked;
+  modeLabel.textContent = isGevalMode ? 'G-Eval' : 'Pairwise';
+  if (steps[step].viz.mode === 'interactive') render();
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',eval:'phase-eval',compare:'phase-compare',result:'phase-result',explore:'phase-explore'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Visualization
+  drawCanvas(s.viz.mode, s.viz.activeElements);
+
+  // Update interactive controls state for interactive step
+  const isInteractiveStep = s.viz.mode === 'interactive';
+  document.getElementById('qualitySlider').disabled = !isInteractiveStep;
+  document.getElementById('evalModeToggle').disabled = !isInteractiveStep;
+  if (!isInteractiveStep) {
+    // Reset slider/toggle to default for non-interactive steps
+    currentQualityFactor = 50;
+    qualitySlider.value = 50;
+    qualityValue.textContent = '50%';
+    isGevalMode = true;
+    evalModeToggle.checked = true;
+    modeLabel.textContent = 'G-Eval';
+  }
+
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+    blueText: g('--blue-text'), purpleText: g('--purple-text')
+  };
+}
+
+function drawCanvas(mode, activeElements) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+
+  // --- Layout coordinates ---
+  const boxPadding = 15;
+  const promptBox = { x: W * 0.05, y: H * 0.05, width: W * 0.3, height: H * 0.2 };
+  const judgeBox = { x: W * 0.05, y: H * 0.75, width: W * 0.3, height: H * 0.2 };
+  const responseABox = { x: W * 0.4, y: H * 0.05, width: W * 0.25, height: H * 0.4 };
+  const responseBBox = { x: W * 0.4, y: H * 0.55, width: W * 0.25, height: H * 0.4 };
+  const evalAreaX = W * 0.7;
+  const evalAreaWidth = W * 0.25;
+
+  // --- Drawing functions ---
+  function drawBox(coords, title, content, type, isActive = false) {
+    const div = document.createElement('div');
+    div.className = `eval-box ${type}` + (isActive ? ' active' : '');
+    div.style.position = 'absolute';
+    div.style.left = `${coords.x}px`;
+    div.style.top = `${coords.y}px`;
+    div.style.width = `${coords.width}px`;
+    div.style.height = `${coords.height}px`;
+    div.innerHTML = `<div class="eval-box-title">${title}</div>${content}`;
+    canvas.parentNode.appendChild(div);
+    return div;
+  }
+
+  function drawArrow(fromX, fromY, toX, toY, color, isActive = false, dashed = false) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isActive ? 3 : 1.5;
+    ctx.setLineDash(dashed ? [5, 5] : []);
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    // Arrowhead
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - 8 * Math.cos(angle - Math.PI / 6), toY - 8 * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - 8 * Math.cos(angle + Math.PI / 6), toY - 8 * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Clear previous HTML elements
+  Array.from(canvas.parentNode.children).forEach(child => {
+    if (child.classList.contains('eval-box') || child.classList.contains('llm-output-card')) {
+      child.remove();
+    }
+  });
+
+  // --- Data for current render ---
+  const currentScores = getScores(currentQualityFactor);
+  const overallScoreA = getOverallScore(currentScores.A);
+  const overallScoreB = getOverallScore(currentScores.B);
+  const currentJudgeReasoningB = getJudgeReasoningB(currentQualityFactor);
+  const pairwiseVerdict = getPairwiseVerdict(currentQualityFactor);
+
+  // --- Draw main elements ---
+  const promptDiv = drawBox(promptBox, "User Prompt", userPrompt, "prompt", activeElements.includes('prompt'));
+  const responseADiv = drawBox(responseABox, "Response A", responseA_text, "response", activeElements.includes('responseA'));
+  const responseBDiv = drawBox(responseBBox, "Response B", responseB_base_text, "response", activeElements.includes('responseB'));
+  const judgeDiv = drawBox(judgeBox, "Judge LLM", "GPT-4o (Simulated)", "judge", activeElements.includes('judge'));
+
+  // --- Arrows based on mode ---
+  if (mode === 'g_eval_prompt' || mode === 'g_eval_eval_a' || mode === 'g_eval_eval_b' || (mode === 'interactive' && isGevalMode)) {
+    // Prompt to Judge
+    drawArrow(promptBox.x + promptBox.width / 2, promptBox.y + promptBox.height,
+              judgeBox.x + judgeBox.width / 2, judgeBox.y,
+              colors.blueMid, activeElements.includes('prompt'));
+    
+    if (mode === 'g_eval_eval_a' || (mode === 'interactive' && isGevalMode && activeElements.includes('responseA'))) {
+      // Response A to Judge
+      drawArrow(responseABox.x, responseABox.y + responseABox.height / 2,
+                judgeBox.x + judgeBox.width, judgeBox.y + judgeBox.height / 2,
+                colors.bg2, activeElements.includes('responseA'));
+    }
+    if (mode === 'g_eval_eval_b' || (mode === 'interactive' && isGevalMode && activeElements.includes('responseB'))) {
+      // Response B to Judge
+      drawArrow(responseBBox.x, responseBBox.y + responseBBox.height / 2,
+                judgeBox.x + judgeBox.width, judgeBox.y + judgeBox.height / 2,
+                colors.bg2, activeElements.includes('responseB'));
+    }
+  } else if (mode === 'pairwise_prompt' || mode === 'pairwise_compare' || (mode === 'interactive' && !isGevalMode)) {
+    // Prompt to Judge
+    drawArrow(promptBox.x + promptBox.width / 2, promptBox.y + promptBox.height,
+              judgeBox.x + judgeBox.width / 2, judgeBox.y,
+              colors.blueMid, activeElements.includes('prompt'));
+    // Response A to Judge
+    drawArrow(responseABox.x, responseABox.y + responseABox.height / 2,
+              judgeBox.x + judgeBox.width, judgeBox.y + judgeBox.height / 2,
+              colors.bg2, activeElements.includes('responseA') || activeElements.includes('responseB'));
+    // Response B to Judge
+    drawArrow(responseBBox.x, responseBBox.y + responseBBox.height / 2,
+              judgeBox.x + judgeBox.width, judgeBox.y + judgeBox.height / 2,
+              colors.bg2, activeElements.includes('responseA') || activeElements.includes('responseB'));
+  }
+
+
+  // --- G-Eval specific elements ---
+  if (mode.startsWith('g_eval') || (mode === 'interactive' && isGevalMode)) {
+    const rubricAreaY = H * 0.05;
+    const rubricA_div = document.createElement('div');
+    rubricA_div.className = 'llm-output-card' + (activeElements.includes('rubricA') ? ' active' : '');
+    rubricA_div.style.position = 'absolute';
+    rubricA_div.style.left = `${evalAreaX}px`;
+    rubricA_div.style.top = `${rubricAreaY}px`;
+    rubricA_div.style.width = `${evalAreaWidth}px`;
+    rubricA_div.style.height = `${H * 0.4}px`;
+    rubricA_div.innerHTML = `<div class="eval-box-title">G-Eval: Rubric & Score A</div>`;
+    rubric.forEach((crit, i) => {
+      const score = currentScores.A[i];
+      rubricA_div.innerHTML += `<div class="rubric-item ${activeElements.includes('rubricA') ? 'active' : ''}">${crit.name}: <span class="rubric-score ${score < 5 ? 'low' : ''}">${score}/${crit.max}</span></div>`;
+    });
+    rubricA_div.innerHTML += `<br><strong>Reasoning:</strong><br>${judgeReasoningA}<br><br><strong>Overall Score:</strong> <span class="score ${overallScoreA < 5 ? 'low' : ''}">${overallScoreA.toFixed(1)}</span>`;
+    if (activeElements.includes('rubricA') || activeElements.includes('outputA')) canvas.parentNode.appendChild(rubricA_div);
+
+    const rubricB_div = document.createElement('div');
+    rubricB_div.className = 'llm-output-card' + (activeElements.includes('rubricB') ? ' active' : '');
+    rubricB_div.style.position = 'absolute';
+    rubricB_div.style.left = `${evalAreaX}px`;
+    rubricB_div.style.top = `${H * 0.55}px`;
+    rubricB_div.style.width = `${evalAreaWidth}px`;
+    rubricB_div.style.height = `${H * 0.4}px`;
+    rubricB_div.innerHTML = `<div class="eval-box-title">G-Eval: Rubric & Score B</div>`;
+    rubric.forEach((crit, i) => {
+      const score = currentScores.B[i];
+      rubricB_div.innerHTML += `<div class="rubric-item ${activeElements.includes('rubricB') ? 'active' : ''}">${crit.name}: <span class="rubric-score ${score < 5 ? 'low' : ''}">${score}/${crit.max}</span></div>`;
+    });
+    rubricB_div.innerHTML += `<br><strong>Reasoning:</strong><br>${currentJudgeReasoningB}<br><br><strong>Overall Score:</strong> <span class="score ${overallScoreB < 5 ? 'low' : ''}">${overallScoreB.toFixed(1)}</span>`;
+    if (activeElements.includes('rubricB') || activeElements.includes('outputB')) canvas.parentNode.appendChild(rubricB_div);
+  }
+
+  // --- Pairwise specific elements ---
+  if (mode.startsWith('pairwise') || (mode === 'interactive' && !isGevalMode)) {
+    const pairwiseOutputDiv = document.createElement('div');
+    pairwiseOutputDiv.className = 'llm-output-card' + (activeElements.includes('outputPairwise') ? ' active' : '');
+    pairwiseOutputDiv.style.position = 'absolute';
+    pairwiseOutputDiv.style.left = `${evalAreaX}px`;
+    pairwiseOutputDiv.style.top = `${H * 0.3}px`;
+    pairwiseOutputDiv.style.width = `${evalAreaWidth}px`;
+    pairwiseOutputDiv.style.height = `${H * 0.4}px`;
+    pairwiseOutputDiv.innerHTML = `<div class="eval-box-title">Pairwise Comparison Result</div>`;
+    pairwiseOutputDiv.innerHTML += `<strong>Winner:</strong> <span class="winner">${pairwiseVerdict.winner}</span><br><br><strong>Reason:</strong> ${pairwiseVerdict.reason}`;
+    if (activeElements.includes('outputPairwise')) canvas.parentNode.appendChild(pairwiseOutputDiv);
+
+    if (activeElements.includes('outputPairwise')) {
+      // Draw comparison arrow
+      let winnerColor = colors.greenMid;
+      let loserColor = colors.redMid;
+      let arrowFromX, arrowFromY, arrowToX, arrowToY;
+
+      if (pairwiseVerdict.winner === 'A') {
+        arrowFromX = responseABox.x + responseABox.width;
+        arrowFromY = responseABox.y + responseABox.height / 2;
+        arrowToX = responseBBox.x + responseBBox.width;
+        arrowToY = responseBBox.y + responseBBox.height / 2;
+        drawArrow(arrowFromX, arrowFromY, arrowToX, arrowToY, winnerColor, true);
+      } else if (pairwiseVerdict.winner === 'B') {
+        arrowFromX = responseBBox.x + responseBBox.width;
+        arrowFromY = responseBBox.y + responseBBox.height / 2;
+        arrowToX = responseABox.x + responseABox.width;
+        arrowToY = responseABox.y + responseABox.height / 2;
+        drawArrow(arrowFromX, arrowFromY, arrowToX, arrowToY, winnerColor, true);
+      } else { // Tie
+        // No specific arrow, maybe just highlight both
+      }
+    }
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].viz.mode, steps[step].viz.activeElements));
+</script>
+</body>
+</html>

@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zero-shot CoT ('Let's think step by step') — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Custom viz elements */
+.prompt-box, .llm-output, .thought-bubble{
+  background:var(--bg2);
+  border-radius:var(--radius);
+  padding:0.75rem 1rem;
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--text);
+  border:1px solid var(--border);
+  position:absolute;
+  text-align:center;
+  line-height:1.4;
+  white-space:pre-wrap;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:all 0.4s ease-out;
+  box-shadow:0 2px 8px rgba(0,0,0,0.05);
+}
+.prompt-box.highlight{border-color:var(--blue-mid);background:var(--blue-bg);color:var(--blue-text);font-weight:600;}
+.llm-output.correct{border-color:var(--green-mid);background:var(--green-bg);color:var(--green-text);font-weight:600;}
+.llm-output.incorrect{border-color:var(--red-mid);background:var(--red-bg);color:var(--red-text);font-weight:600;}
+.thought-bubble{background:var(--purple-bg);border-color:var(--purple-mid);color:var(--purple-text);font-weight:500;font-size:11px;}
+.thought-bubble.active{border-color:var(--amber-mid);background:var(--amber-bg);color:var(--amber-text);font-weight:600;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-naive{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-cot{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-explore{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-metrics{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+  .prompt-box, .llm-output, .thought-bubble{font-size:10px;padding:0.5rem 0.75rem;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Zero-shot CoT ('Let's think step by step')</h1>
+  <div class="subtitle">Enhancing LLM reasoning by prompting for intermediate steps without examples</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Prompt Engineering</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Zero-shot CoT</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Zero-shot Chain-of-Thought (CoT) is a remarkably simple yet effective technique to improve the performance of Large Language Models (LLMs) on complex reasoning tasks. It involves appending the phrase "Let's think step by step" to a prompt, which encourages the LLM to generate a sequence of intermediate reasoning steps before providing a final answer. This often leads to significantly more accurate results, even without providing any examples of reasoning in the prompt (hence "zero-shot").</p>
+    <p><strong>Analogy:</strong> Imagine a student faced with a difficult math problem. If they just blurt out an answer, it might be wrong. But if you tell them, "Show your work," they break the problem down, perform calculations step by step, and are much more likely to arrive at the correct solution. The phrase "Let's think step by step" acts like that instruction, prompting the LLM to access and externalize its internal reasoning capabilities.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Zero-shot CoT leverages an LLM's inherent reasoning by simply instructing it to "think aloud" through the problem. This emergent capability, observed in models with billions of parameters, allows them to decompose complex tasks into manageable sub-problems, leading to higher accuracy without needing any in-context examples.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Mechanism: Triggering Emergent Reasoning</h4>
+    <p>The core mechanism is a subtle but powerful change in how the LLM generates its response:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Naive Prompt:</strong> A direct question, e.g., <code>"Q: What is the capital of France?"</code>, typically elicits a direct answer: <code>"A: Paris."</code></li>
+      <li><strong>Zero-shot CoT Prompt:</strong> The same question is appended with the CoT phrase, e.g., <code>"Q: What is the capital of France? Let's think step by step."</code>.</li>
+    </ol>
+    <p>With the CoT phrase, the model's autoregressive generation process shifts. Instead of immediately predicting the final answer, it first generates a sequence of tokens that resemble a human thinking process: identifying relevant facts, performing intermediate calculations, or breaking down logical steps. Only after this "chain of thought" is complete does it typically provide the final answer. The final answer is then often extracted (e.g., from the last line of the generated text).</p>
+
+    <h4>Why This Simple Phrase is So Effective</h4>
+    <p>The effectiveness of "Let's think step by step" stems from several factors:</p>
+    <ul>
+      <li><strong>Problem Decomposition:</strong> It forces the LLM to break down a complex problem into smaller, more manageable sub-problems, each addressed sequentially.</li>
+      <li><strong>Increased Context:</strong> Each generated step becomes part of the input context for the subsequent step, providing more information and reducing ambiguity for the model's next token prediction.</li>
+      <li><strong>Reduced Hallucination:</strong> By explicitly tracing its logic, the model might self-correct or avoid jumping to incorrect conclusions that it might otherwise make in a direct generation.</li>
+      <li><strong>Alignment with Training Data:</strong> LLMs are trained on vast amounts of internet text, which naturally includes many examples of humans explaining their reasoning processes (e.g., math solutions, logical arguments, code comments). The CoT phrase likely activates these learned patterns.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Zero-shot CoT is an <strong>emergent capability</strong> of large language models. It's not explicitly programmed; rather, it arises from the scale of the model and its training data, allowing a simple linguistic cue to unlock a more sophisticated, multi-stage reasoning process during inference.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — A Probabilistic View</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Generative Process and Conditional Probabilities</h4>
+    <p>An LLM's core function is to predict the next token given the preceding tokens. This can be viewed probabilistically. For a given question \(Q\) and a desired correct answer \(A\), the model aims to maximize \(P(A|Q)\).</p>
+    <p>Without CoT, the model directly samples tokens to form \(A\):</p>
+    <div class="eq">$$P(A|Q) = P(a_1, \dots, a_k | Q) = \prod_{i=1}^k P(a_i | a_{1..i-1}, Q)$$</div>
+    <p>When we introduce the CoT prompt, say \(\text{CoT}_{\text{prompt}}\) = "Let's think step by step.", the model's generation process changes. It first generates a chain of thought \(R = (r_1, \dots, r_m)\) and then the answer \(A\).</p>
+    <p>The probability of generating the answer \(A\) given the question \(Q\) and the CoT prompt can be expressed by marginalizing over all possible reasoning chains \(R\):</p>
+    <div class="eq">$$P(A|Q, \text{CoT}_{\text{prompt}}) = \sum_{R} P(A|R, Q, \text{CoT}_{\text{prompt}}) P(R|Q, \text{CoT}_{\text{prompt}})$$</div>
+    <p>The key insight is that the \(\text{CoT}_{\text{prompt}}\) significantly increases the probability of generating a useful reasoning chain \(R\). That is, \(P(R|Q, \text{CoT}_{\text{prompt}})\) is much higher for beneficial reasoning chains compared to \(P(R|Q)\) (where \(R\) might not be generated at all or be unhelpful).</p>
+    <p>Furthermore, a good reasoning chain \(R\) makes it much easier for the model to predict the correct answer \(A\). This means \(P(A|R, Q, \text{CoT}_{\text{prompt}})\) is often higher than \(P(A|Q)\) directly, especially for complex problems:</p>
+    <div class="eq">$$P(A|R, Q, \text{CoT}_{\text{prompt}}) \ge P(A|Q)$$</div>
+    <p>By enabling the generation of high-quality intermediate reasoning, Zero-shot CoT effectively guides the model through a more reliable path to the correct answer, improving the overall likelihood of a successful outcome.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While powerful, Zero-shot CoT is not a universal solution. It works best with larger, more capable LLMs and on tasks that genuinely benefit from step-by-step reasoning. For simple tasks, it adds unnecessary latency and token cost. For highly complex or unanswerable questions, it can still generate plausible-sounding but incorrect reasoning, leading to confidently wrong answers.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how "Let's think step by step" changes an LLM's behavior from direct guessing to structured reasoning. Adjust problem complexity and toggle CoT to see the impact on accuracy.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+        <div id="promptInput" class="prompt-box"></div>
+        <div id="naiveOutput" class="llm-output"></div>
+        <div id="cotOutput" class="llm-output"></div>
+        <div id="cotPrompt" class="prompt-box"></div>
+        <div id="thought1" class="thought-bubble"></div>
+        <div id="thought2" class="thought-bubble"></div>
+        <div id="thought3" class="thought-bubble"></div>
+      </div>
+
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Problem Complexity</div>
+          <input type="range" id="complexitySlider" min="1" max="10" step="1" value="3">
+          <div class="slider-value" id="complexityValue">3</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="useCoTToggle" checked>
+          <label for="useCoTToggle">Use Zero-shot CoT ('Let's think step by step')</label>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial Setup: The LLM Pipeline</div>
+        <div class="info-desc" id="infoDesc">We're simulating an LLM processing a question. On the left is the input prompt. On the right, the LLM's final answer. Initially, we'll look at a simple problem without CoT.</div>
+        <div class="info-metrics" id="infoMetrics"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input Prompt</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Correct Answer</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Incorrect Answer</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> CoT Reasoning Step</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--text2)"></div> LLM processing flow</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Zero-shot CoT:</strong></p>
+    <ul>
+      <li><strong>Complex Reasoning Tasks:</strong> Ideal for problems requiring multiple steps, logical deduction, arithmetic, or multi-hop knowledge retrieval (e.g., advanced math problems, intricate logic puzzles, multi-turn conversations).</li>
+      <li><strong>Limited Examples:</strong> When you don't have enough in-context examples to provide for few-shot CoT, or when providing them is impractical due to prompt length constraints.</li>
+      <li><strong>Improved Interpretability:</strong> The generated chain of thought can provide valuable insights into the model's "thinking process," making its responses more transparent and debuggable.</li>
+      <li><strong>Larger, Capable LLMs:</strong> Most effective with models that have billions of parameters or more, as the emergent reasoning capability is more pronounced in larger models.</li>
+    </ul>
+    <p><strong>When NOT to use Zero-shot CoT:</strong></p>
+    <ul>
+      <li><strong>Simple Factual Recall:</strong> For straightforward questions requiring direct answers (e.g., "What is the capital of France?"), adding "Let's think step by step" is unnecessary, adds latency, and increases token cost without significant benefit.</li>
+      <li><strong>Very Small LLMs:</strong> Smaller models (e.g., <10B parameters) may not exhibit the emergent reasoning capabilities necessary for CoT to be effective, potentially leading to irrelevant or nonsensical reasoning steps.</li>
+      <li><strong>Strict Output Format Requirements:</strong> If the output must adhere to a very strict, parseable format (e.g., JSON, specific API calls), the verbose CoT output might complicate parsing.</li>
+      <li><strong>Fundamentally Unanswerable Questions:</strong> CoT won't help if the model simply lacks the underlying knowledge or capability to solve the problem, regardless of how it's prompted to reason.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Zero-shot CoT stands as a powerful demonstration of how a simple linguistic intervention can unlock and guide the complex, emergent reasoning abilities of large language models. It highlights the importance of prompt engineering as a low-cost, high-impact method for improving LLM performance.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python Example)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import openai # or any other LLM client library</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def call_llm(prompt, model="gpt-3.5-turbo"):</div>
+      <div class="code-line" id="cl3">    # Simulate an LLM API call</div>
+      <div class="code-line" id="cl4">    # In a real scenario, this would interact with OpenAI, Anthropic, etc.</div>
+      <div class="code-line" id="cl5">    print(f"Calling LLM with prompt:\n---{prompt}---")</div>
+      <div class="code-line" id="cl6">    # Placeholder for actual LLM response logic</div>
+      <div class="code-line" id="cl7">    if "Let's think step by step" in prompt:</div>
+      <div class="code-line" id="cl8">        if "apple, orange, banana" in prompt:</div>
+      <div class="code-line" id="cl9">            return "Step 1: Identify the fruits. Step 2: Determine the common category. Step 3: The category is fruit. Final Answer: Fruit."</div>
+      <div class="code-line" id="cl10">        else:</div>
+      <div class="code-line" id="cl11">            return "This is a complex reasoning task. I will break it down.\nStep 1: Analyze the input. Step 2: Formulate a plan. Step 3: Execute the plan. Final Answer: The correct answer after reasoning."</div>
+      <div class="code-line" id="cl12">    else:</div>
+      <div class="code-line" id="cl13">        if "apple, orange, banana" in prompt:</div>
+      <div class="code-line" id="cl14">            return "Fruit"</div>
+      <div class="code-line" id="cl15">        else:</div>
+      <div class="code-line" id="cl16">            return "A direct, possibly incorrect answer."</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18"># --- Scenario 1: Naive prompting ---</div>
+      <div class="code-line" id="cl19">question_naive = "What is the common category for: apple, orange, banana?"</div>
+      <div class="code-line" id="cl20">response_naive = call_llm(question_naive)</div>
+      <div class="code-line" id="cl21">print(f"Naive LLM response: {response_naive}\n")</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23"># --- Scenario 2: Zero-shot CoT prompting ---</div>
+      <div class="code-line" id="cl24">question_cot = "What is the common category for: apple, orange, banana? Let's think step by step."</div>
+      <div class="code-line" id="cl25">response_cot = call_llm(question_cot)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27"># Extract final answer from CoT response (e.g., last line)</div>
+      <div class="code-line" id="cl28">final_answer_cot = response_cot.split("Final Answer: ")[-1].strip()</div>
+      <div class="code-line" id="cl29">print(f"CoT LLM response: {response_cot}")</div>
+      <div class="code-line" id="cl30">print(f"Extracted final answer: {final_answer_cot}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA ──
+const questions = [
+  "What is the common category for: apple, orange, banana?",
+  "If you have 5 apples and give 2 to a friend, how many do you have left?",
+  "A train leaves station A at 10 AM, traveling at 60 mph. Another train leaves station B at 11 AM, traveling at 70 mph towards station A. If the stations are 300 miles apart, at what time do they meet?",
+  "What is the sum of the first 100 prime numbers?",
+];
+const correctAnswers = [
+  "Fruit",
+  "3 apples",
+  "12:30 PM", // Simplified for demo
+  "24133", // Actually 24133
+];
+
+// Simulated LLM accuracy based on complexity and CoT usage
+function getAccuracy(complexity, useCoT) {
+  // Base accuracy for complexity 1 (simple)
+  let naiveBaseAcc = 0.95;
+  let cotBaseAcc = 1.0;
+
+  // Decrease accuracy as complexity increases
+  let naiveAcc = Math.max(0.1, naiveBaseAcc - (complexity - 1) * 0.15);
+  let cotAcc = Math.max(0.2, cotBaseAcc - (complexity - 1) * 0.05);
+
+  return useCoT ? cotAcc : naiveAcc;
+}
+
+// Simulated LLM responses
+function getLLMResponse(complexity, useCoT, step) {
+  const currentQuestionIdx = Math.min(complexity - 1, questions.length - 1);
+  const currentQuestion = questions[currentQuestionIdx];
+  const correctAnswer = correctAnswers[currentQuestionIdx];
+
+  const acc = getAccuracy(complexity, useCoT);
+  const isCorrect = Math.random() < acc;
+
+  let naiveAnswer, cotReasoning, cotAnswer;
+
+  if (complexity <= 2) { // Simple / Medium
+    naiveAnswer = isCorrect ? correctAnswer : "Wrong Answer (direct)";
+    cotReasoning = [
+      "Identify the core elements.",
+      "Break down the problem into sub-steps.",
+      "Synthesize intermediate findings."
+    ].slice(0, complexity + 1);
+    cotAnswer = isCorrect ? correctAnswer : "Wrong Answer (reasoned)";
+  } else { // Complex / Hard
+    naiveAnswer = isCorrect ? correctAnswer : `Highly confident, but wrong answer: ${Math.floor(Math.random()*10000)}`;
+    cotReasoning = [
+      "Decompose the problem statement.",
+      "Extract all relevant numerical values.",
+      "Formulate a plan for calculation.",
+      "Perform step-by-step computations.",
+      "Verify the logical flow and results."
+    ].slice(0, complexity + 1);
+    cotAnswer = isCorrect ? correctAnswer : `Reasoned, but still incorrect: ${Math.floor(Math.random()*10000)}`;
+  }
+
+  // Override for specific steps to match narrative
+  if (step === 0 || step === 1) { // Simple problem
+    naiveAnswer = correctAnswers[0];
+    cotReasoning = ["Identify the core elements.", "Determine the commonality."];
+    cotAnswer = correctAnswers[0];
+  }
+  if (step === 2 || step === 3) { // Medium problem
+    naiveAnswer = "2 apples"; // Incorrect
+    cotReasoning = ["Start with 5 apples.", "Subtract the 2 given away.", "Result is 3."];
+    cotAnswer = correctAnswers[1];
+  }
+  if (step === 4 || step === 5) { // Hard problem
+    naiveAnswer = "3 PM"; // Incorrect
+    cotReasoning = ["Train A travels for 1 hour alone.", "Calculate distance covered by A.", "Calculate relative speed.", "Find time to meet.", "Add to departure time."];
+    cotAnswer = correctAnswers[2];
+  }
+  if (step === 6) { // Very hard problem
+    naiveAnswer = "5050"; // Incorrect
+    cotReasoning = ["This is a complex number theory problem.", "Need to list primes and sum them.", "This requires significant computation."];
+    cotAnswer = "I cannot give the exact sum without external tools or extensive computation."; // Model might fail on very hard ones even with CoT
+  }
+
+
+  return {
+    question: currentQuestion,
+    naivePrompt: currentQuestion,
+    cotPrompt: currentQuestion + "\nLet's think step by step.",
+    naiveAnswer: naiveAnswer,
+    cotReasoning: cotReasoning,
+    cotAnswer: cotAnswer,
+    correctAnswer: correctAnswer,
+    isNaiveCorrect: naiveAnswer === correctAnswer,
+    isCotCorrect: cotAnswer === correctAnswer,
+    accuracy: acc,
+  };
+}
+
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Setup: The LLM Pipeline',
+    desc: 'We\'re simulating an LLM processing a question. On the left is the input prompt. On the right, the LLM\'s final answer. Initially, we\'ll look at a simple problem without CoT. Problem complexity is low (1/10).',
+    complexity: 1, useCoT: false,
+    promptHighlight: true, naiveOutputHighlight: false, cotOutputHighlight: false, thoughtsActive: []
+  },
+  {
+    phase: 'setup', title: 'Simple Problem, Direct Answer',
+    desc: 'For a simple question, the LLM usually gets the correct answer directly. No complex reasoning is needed. The output is accurate. (Complexity: 1/10)',
+    complexity: 1, useCoT: false,
+    promptHighlight: false, naiveOutputHighlight: true, cotOutputHighlight: false, thoughtsActive: []
+  },
+  {
+    phase: 'naive', title: 'Medium Problem: Naive Approach Fails',
+    desc: 'Now, a slightly more complex problem (e.g., simple arithmetic). Without explicit instructions, the LLM might struggle, providing an incorrect direct answer. The model "guesses" and is wrong. (Complexity: 3/10)',
+    complexity: 3, useCoT: false,
+    promptHighlight: false, naiveOutputHighlight: true, cotOutputHighlight: false, thoughtsActive: []
+  },
+  {
+    phase: 'cot', title: 'Introducing Zero-shot CoT',
+    desc: 'We apply the Zero-shot CoT technique: simply append "Let\'s think step by step." to the prompt. This subtle change triggers a different generative mode in the LLM. (Complexity: 3/10)',
+    complexity: 3, useCoT: true,
+    promptHighlight: true, naiveOutputHighlight: false, cotOutputHighlight: false, thoughtsActive: []
+  },
+  {
+    phase: 'cot', title: 'Generating the Chain of Thought',
+    desc: 'Instead of a direct answer, the LLM now generates intermediate reasoning steps. Each step builds on the previous one, providing more context and guiding the model towards a more robust solution. (Complexity: 3/10)',
+    complexity: 3, useCoT: true,
+    promptHighlight: false, naiveOutputHighlight: false, cotOutputHighlight: false, thoughtsActive: [0, 1, 2]
+  },
+  {
+    phase: 'cot', title: 'CoT Leads to the Correct Answer',
+    desc: 'After the chain of thought, the LLM synthesizes its findings into a correct final answer. The reasoning process significantly improved the outcome compared to the naive approach. (Complexity: 3/10)',
+    complexity: 3, useCoT: true,
+    promptHighlight: false, naiveOutputHighlight: false, cotOutputHighlight: true, thoughtsActive: [0, 1, 2]
+  },
+  {
+    phase: 'compare', title: 'Comparing Naive vs. CoT on a Hard Problem',
+    desc: 'For a truly challenging problem (e.g., word problems, complex logic), the naive approach almost certainly fails. CoT is crucial here, enabling the model to tackle problems it otherwise couldn\'t. (Complexity: 7/10)',
+    complexity: 7, useCoT: true,
+    promptHighlight: false, naiveOutputHighlight: true, cotOutputHighlight: true, thoughtsActive: [0, 1, 2]
+  },
+  {
+    phase: 'explore', title: 'Interactive Exploration: Adjust Complexity',
+    desc: 'Now it\'s your turn! Use the slider to increase the problem complexity. Observe how the naive LLM\'s accuracy drops significantly, while CoT maintains a much higher success rate. Toggle "Use CoT" to see the direct impact.',
+    complexity: 5, useCoT: true,
+    promptHighlight: false, naiveOutputHighlight: false, cotOutputHighlight: false, thoughtsActive: [0, 1, 2], interactive: true
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentComplexity = 3;
+let useCoT = true;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentComplexity = steps[0].complexity;
+  useCoT = steps[0].useCoT;
+  document.getElementById('complexitySlider').value = currentComplexity;
+  document.getElementById('useCoTToggle').checked = useCoT;
+  render();
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+document.getElementById('complexitySlider').addEventListener('input', e => {
+  currentComplexity = parseInt(e.target.value);
+  document.getElementById('complexityValue').textContent = currentComplexity;
+  if (steps[step].interactive) render(); // Only re-render live if in interactive step
+});
+document.getElementById('useCoTToggle').addEventListener('change', e => {
+  useCoT = e.target.checked;
+  if (steps[step].interactive) render(); // Only re-render live if in interactive step
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Update global state from step if not in interactive mode
+  if (!s.interactive) {
+    currentComplexity = s.complexity;
+    useCoT = s.useCoT;
+    document.getElementById('complexitySlider').value = currentComplexity;
+    document.getElementById('useCoTToggle').checked = useCoT;
+  }
+  document.getElementById('complexityValue').textContent = currentComplexity;
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', naive: 'phase-naive', cot: 'phase-cot', compare: 'phase-compare', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Code highlight (none for this explainer)
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border'), border2: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const data = getLLMResponse(currentComplexity, useCoT, step);
+
+  // --- HTML Element Positioning ---
+  const promptInput = document.getElementById('promptInput');
+  const naiveOutput = document.getElementById('naiveOutput');
+  const cotOutput = document.getElementById('cotOutput');
+  const cotPrompt = document.getElementById('cotPrompt');
+  const thought1 = document.getElementById('thought1');
+  const thought2 = document.getElementById('thought2');
+  const thought3 = document.getElementById('thought3');
+  const thoughts = [thought1, thought2, thought3];
+
+  const elementWidth = W * 0.25;
+  const elementHeight = H * 0.2;
+  const horizontalGap = W * 0.05;
+  const verticalGap = H * 0.05;
+
+  const xStart = W * 0.05;
+  const xMidNaive = xStart + elementWidth + horizontalGap;
+  const xMidCoT = xStart + elementWidth + horizontalGap;
+  const xEnd = W - elementWidth - W * 0.05;
+
+  const yTop = H * 0.15;
+  const yBottom = H * 0.65;
+
+  // Reset all elements
+  [promptInput, naiveOutput, cotOutput, cotPrompt, ...thoughts].forEach(el => {
+    el.style.opacity = 0;
+    el.className = el.className.split(' ')[0]; // Reset classes
+    el.style.width = `${elementWidth}px`;
+    el.style.height = `${elementHeight}px`;
+  });
+
+  // Always show prompt input
+  promptInput.style.left = `${xStart}px`;
+  promptInput.style.top = `${H / 2 - elementHeight / 2}px`;
+  promptInput.textContent = data.question;
+  promptInput.style.opacity = 1;
+  if (s.promptHighlight) promptInput.classList.add('highlight');
+
+  // Naive path
+  naiveOutput.style.left = `${xEnd}px`;
+  naiveOutput.style.top = `${yTop}px`;
+  naiveOutput.textContent = data.naiveAnswer;
+  naiveOutput.classList.add(data.isNaiveCorrect ? 'correct' : 'incorrect');
+
+  // CoT path
+  cotPrompt.style.left = `${xStart}px`;
+  cotPrompt.style.top = `${yBottom}px`;
+  cotPrompt.textContent = data.cotPrompt;
+  cotPrompt.classList.add('highlight');
+
+  cotOutput.style.left = `${xEnd}px`;
+  cotOutput.style.top = `${yBottom}px`;
+  cotOutput.textContent = data.cotAnswer;
+  cotOutput.classList.add(data.isCotCorrect ? 'correct' : 'incorrect');
+
+  // Thought bubbles
+  const numThoughts = Math.min(data.cotReasoning.length, thoughts.length);
+  for (let i = 0; i < numThoughts; i++) {
+    const thoughtEl = thoughts[i];
+    thoughtEl.style.left = `${xMidCoT + (i * (elementWidth / 2))}px`;
+    thoughtEl.style.top = `${yBottom - elementHeight / 2}px`;
+    thoughtEl.style.width = `${elementWidth * 0.7}px`;
+    thoughtEl.style.height = `${elementHeight * 0.7}px`;
+    thoughtEl.textContent = `Step ${i + 1}: ${data.cotReasoning[i]}`;
+  }
+
+
+  // --- Visibility based on step and useCoT toggle ---
+  if (useCoT) {
+    cotPrompt.style.opacity = 1;
+    if (s.cotOutputHighlight) cotOutput.style.opacity = 1;
+    for (let i = 0; i < numThoughts; i++) {
+      if (s.thoughtsActive.includes(i)) {
+        thoughts[i].style.opacity = 1;
+        if (s.thoughtsActive.indexOf(i) === s.thoughtsActive.length - 1) { // Highlight last active thought
+          thoughts[i].classList.add('active');
+        }
+      }
+    }
+  } else {
+    if (s.naiveOutputHighlight) naiveOutput.style.opacity = 1;
+  }
+
+  // Override for specific steps
+  if (step === 0 || step === 1 || step === 2 || step === 6) { // Naive only or comparison
+    naiveOutput.style.opacity = 1;
+  }
+  if (step >= 3 && useCoT) { // CoT path active
+    cotPrompt.style.opacity = 1;
+    for (let i = 0; i < numThoughts; i++) {
+      if (s.thoughtsActive.includes(i)) {
+        thoughts[i].style.opacity = 1;
+        if (s.thoughtsActive.indexOf(i) === s.thoughtsActive.length - 1) {
+          thoughts[i].classList.add('active');
+        }
+      }
+    }
+    if (s.cotOutputHighlight) cotOutput.style.opacity = 1;
+  }
+
+
+  // --- Canvas Drawing (Arrows) ---
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = c.border2;
+  ctx.setLineDash([]);
+
+  // Arrow from promptInput to naiveOutput
+  if (naiveOutput.style.opacity == 1) {
+    const startX = promptInput.offsetLeft + promptInput.offsetWidth;
+    const startY = promptInput.offsetTop + promptInput.offsetHeight / 2;
+    const endX = naiveOutput.offsetLeft;
+    const endY = naiveOutput.offsetTop + naiveOutput.offsetHeight / 2;
+    drawArrow(ctx, startX, startY, endX, endY, c.text2);
+  }
+
+  // Arrow from cotPrompt to first thought
+  if (cotPrompt.style.opacity == 1 && thoughts[0].style.opacity == 1) {
+    const startX = cotPrompt.offsetLeft + cotPrompt.offsetWidth;
+    const startY = cotPrompt.offsetTop + cotPrompt.offsetHeight / 2;
+    const endX = thoughts[0].offsetLeft;
+    const endY = thoughts[0].offsetTop + thoughts[0].offsetHeight / 2;
+    drawArrow(ctx, startX, startY, endX, endY, c.text2);
+  }
+
+  // Arrows between thoughts
+  for (let i = 0; i < numThoughts - 1; i++) {
+    if (thoughts[i].style.opacity == 1 && thoughts[i+1].style.opacity == 1) {
+      const startX = thoughts[i].offsetLeft + thoughts[i].offsetWidth;
+      const startY = thoughts[i].offsetTop + thoughts[i].offsetHeight / 2;
+      const endX = thoughts[i+1].offsetLeft;
+      const endY = thoughts[i+1].offsetTop + thoughts[i+1].offsetHeight / 2;
+      drawArrow(ctx, startX, startY, endX, endY, c.text2);
+    }
+  }
+
+  // Arrow from last thought to cotOutput
+  if (numThoughts > 0 && thoughts[numThoughts - 1].style.opacity == 1 && cotOutput.style.opacity == 1) {
+    const startX = thoughts[numThoughts - 1].offsetLeft + thoughts[numThoughts - 1].offsetWidth;
+    const startY = thoughts[numThoughts - 1].offsetTop + thoughts[numThoughts - 1].offsetHeight / 2;
+    const endX = cotOutput.offsetLeft;
+    const endY = cotOutput.offsetTop + cotOutput.offsetHeight / 2;
+    drawArrow(ctx, startX, startY, endX, endY, c.text2);
+  }
+
+  // --- Metrics Display ---
+  const naiveAcc = getAccuracy(currentComplexity, false);
+  const cotAcc = getAccuracy(currentComplexity, true);
+  document.getElementById('infoMetrics').innerHTML = `
+    Question: ${data.question}
+    Correct Answer: ${data.correctAnswer}
+    ---
+    Naive Path Accuracy (simulated): ${(naiveAcc * 100).toFixed(1)}%
+    CoT Path Accuracy (simulated): ${(cotAcc * 100).toFixed(1)}%
+  `;
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color) {
+  const headlen = 10; // length of head in pixels
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.strokeStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 6), y2 - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 6), y2 - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.stroke();
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

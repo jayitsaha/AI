@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VQ-VAE: Discrete Latent Space & Codebook Learning — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+.tag-model{background:var(--purple-bg);color:var(--purple-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-encode{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-quantize{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-decode{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-learn{background:var(--red-bg);color:var(--red-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>VQ-VAE: Discrete Latent Space &amp; Codebook Learning</h1>
+  <div class="subtitle">Vector Quantized Variational Autoencoders for discrete representation learning</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-model">Generative Models</span>
+    <span class="tag tag-complexity">O(k) codebook lookup</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding VQ-VAE</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A Variational Autoencoder (VAE) learns a continuous latent space. VQ-VAE (Vector Quantized VAE) is a variant that forces its latent space to be <strong>discrete</strong>. Instead of directly outputting a latent vector, the encoder outputs a "soft" vector which is then snapped to the closest vector in a fixed, learned "codebook" (a dictionary of discrete codes). This quantized code is then fed to the decoder.</p>
+    <p><strong>Analogy:</strong> Imagine an artist trying to capture the essence of a landscape. A regular VAE is like giving them a continuous palette where they can mix any color. A VQ-VAE is like giving them a finite box of crayons. They first sketch the scene (encoder output), then they must pick the closest crayon color from their box for each part (quantization), and finally, they use these chosen crayons to draw the final picture (decoder output). The "crayons" themselves are adjusted over time to be better representatives of the common colors in the landscapes.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">VQ-VAE learns a dictionary (the "codebook") of \(K\) discrete latent vectors, each of dimension \(D\). For each encoded feature vector from the input, it finds the nearest codebook vector. This forces the model to represent complex data using a finite set of learned "concepts," making it excellent for tasks like conditional generation and discrete latent space manipulation. The core operation is nearest-neighbor lookup:</p>
+      <div class="eq">$$z_q(x) = \text{argmin}_{e_j \in \mathcal{E}} \|z_e(x) - e_j\|_2^2$$</div>
+      <p style="font-size:14px;margin:0;">where \(z_e(x)\) is the encoder output, \(\mathcal{E} = \{e_1, \dots, e_K\}\) is the codebook, and \(z_q(x)\) is the quantized latent vector.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How VQ-VAE Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Three Components: Encoder, Quantizer, Decoder</h4>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Encoder (\(E\)):</strong> Takes an input \(x\) (e.g., an image) and maps it to a continuous latent representation, \(z_e(x)\). This is typically a grid of feature vectors, e.g., a \(H' \times W'\) grid where each cell contains a \(D\)-dimensional vector. This \(z_e(x)\) is *not* directly used by the decoder.</li>
+      <li><strong>Vector Quantizer (VQ Layer):</strong> This is the heart of VQ-VAE. For each \(D\)-dimensional vector in the \(z_e(x)\) grid, it finds the closest vector (by Euclidean distance) in the learnable codebook \(\mathcal{E} = \{e_1, \dots, e_K\}\). The index of this closest vector is then used to retrieve the actual codebook vector, \(z_q(x)\). This process is non-differentiable.</li>
+      <li><strong>Decoder (\(D\)):</strong> Takes the quantized latent representation \(z_q(x)\) and reconstructs the original input \(x\), producing \(\hat{x}\).</li>
+    </ol>
+
+    <h4>Training the Codebook and Encoder</h4>
+    <p>The non-differentiable nearest-neighbor lookup is a challenge for backpropagation. VQ-VAE uses two key tricks:</p>
+    <ul>
+      <li><strong>Straight-Through Estimator:</strong> During the backward pass, the gradient from the decoder's input \(z_q(x)\) is simply copied to the encoder's output \(z_e(x)\), as if \(z_q(x) = z_e(x)\). This bypasses the quantization step, allowing the encoder to receive gradients.</li>
+      <li><strong>Codebook Learning:</strong> The codebook vectors \(e_j\) are updated using an exponential moving average (EMA) of the encoder outputs \(z_e(x)\) that map to them. This ensures the codebook vectors are always good representatives of the encoder's outputs. Alternatively, a separate "codebook loss" term can be added to pull the codebook vectors towards the encoder outputs.</li>
+    </ul>
+
+    <h4>Design Decision: Why Discrete Latent Spaces?</h4>
+    <p>Continuous latent spaces in VAEs can suffer from "posterior collapse" (the latent variables are ignored). Discrete latent spaces are more robust to this. More importantly, they enable powerful applications:</p>
+    <ul>
+      <li><strong>Autoregressive Modeling:</strong> The sequence of discrete indices can be modeled by powerful transformers (e.g., in VQ-GAN, DALL-E, Imagen), allowing for conditional generation, infilling, and super-resolution.</li>
+      <li><strong>Categorical Data:</strong> Naturally suited for tasks involving discrete tokens or categories.</li>
+      <li><strong>Interpretability:</strong> The learned codebook vectors can sometimes correspond to interpretable features or concepts in the data.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The VQ layer effectively uses a "stop gradient" operator: \(\text{sg}[e_j]\) for the encoder's gradient calculation, and \(\text{sg}[z_e(x)]\) for the codebook update. This decouples the gradients, allowing both the encoder and the codebook to learn effectively despite the discrete bottleneck. The decoder always receives gradients from the quantized output.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Loss Function</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The VQ-VAE Loss Objective</h4>
+    <p>The total loss for VQ-VAE consists of three terms:</p>
+    <div class="eq">$$\mathcal{L} = \mathcal{L}_{reconstruction} + \mathcal{L}_{vq} + \beta \mathcal{L}_{commitment}$$</div>
+
+    <h4>1. Reconstruction Loss (\(\mathcal{L}_{reconstruction}\))</h4>
+    <p>This is the standard autoencoder loss, typically Mean Squared Error (MSE) for images or cross-entropy for other data. It encourages the decoder to reconstruct the input accurately from the *quantized* latent representation.</p>
+    <div class="eq">$$\mathcal{L}_{reconstruction} = \|x - D(z_q(x))\|_2^2$$</div>
+    <p>Gradients from this term flow through the decoder \(D\) and the quantized latent \(z_q(x)\). Critically, they are passed as a straight-through gradient to \(z_e(x)\) for the encoder \(E\).</p>
+
+    <h4>2. Vector Quantization (Codebook) Loss (\(\mathcal{L}_{vq}\))</h4>
+    <p>This term encourages the codebook vectors \(e_j\) to move towards the encoder outputs \(z_e(x)\) that are mapped to them. It's an \(L_2\) loss between the encoder output and the chosen codebook vector. A <strong>stop-gradient</strong> operator \(\text{sg}[\cdot]\) is applied to \(z_e(x)\) here, meaning gradients from this term do *not* flow back into the encoder.</p>
+    <div class="eq">$$\mathcal{L}_{vq} = \| \text{sg}[z_e(x)] - e_j \|_2^2$$</div>
+    <p>This loss term is solely responsible for updating the codebook entries \(e_j\).</p>
+
+    <h4>3. Commitment Loss (\(\mathcal{L}_{commitment}\))</h4>
+    <p>This term ensures that the encoder's output \(z_e(x)\) does not diverge too far from the codebook vectors \(e_j\). It encourages the encoder to "commit" to the codebook. A <strong>stop-gradient</strong> is applied to the codebook vector \(e_j\), meaning gradients from this term do *not* flow back into the codebook.</p>
+    <div class="eq">$$\mathcal{L}_{commitment} = \| z_e(x) - \text{sg}[e_j] \|_2^2$$</div>
+    <p>This loss term is solely responsible for updating the encoder \(E\). The hyperparameter \(\beta\) (typically 0.25) controls the strength of this commitment.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ The Stop-Gradient Trick</div>
+      <p style="font-size:14px;margin:0;">The stop-gradient operator \(\text{sg}[\cdot]\) is crucial. It means "treat this tensor as a constant during backpropagation." Without it, the codebook loss would try to pull encoder outputs towards codebook entries (which is good), but also the encoder would try to pull codebook entries towards its outputs (which is redundant with the commitment loss). The commitment loss ensures the encoder's outputs stay "close" to the codebook, preventing it from producing vectors that are never well-represented by any codebook entry.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize the VQ-VAE process: encoding an image, quantizing its latent representation to a codebook, reconstructing it, and how the codebook learns. Use sliders to change codebook properties.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Codebook Size (K)</div>
+          <input type="range" id="kSlider" min="4" max="16" step="1" value="8">
+          <div class="slider-value" id="kValue">8</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Latent Vector Dim (D)</div>
+          <input type="range" id="dSlider" min="2" max="2" step="1" value="2" disabled>
+          <div class="slider-value" id="dValue">2</div>
+        </div>
+        <div class="controls" style="margin-top:10px;">
+            <button class="btn" id="newInputBtn" onclick="generateNewInput()">New Random Input</button>
+            <button class="btn" id="trainCodebookBtn" onclick="trainCodebookStep()">Train Codebook (1 step)</button>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The VQ-VAE Setup</div>
+        <div class="info-desc" id="infoDesc">We start with a small 4x4 input image. The encoder compresses it into a 2x2 grid of 2-dimensional latent vectors. A codebook of K vectors is randomly initialized.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input Image</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--purple-mid)"></div> Encoded Latent Vector (\(z_e\))</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--amber-mid)"></div> Codebook Vector (\(e_j\))</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Reconstructed Image (\(\hat{x}\))</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> Quantization Link</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use VQ-VAE:</strong></p>
+    <ul>
+      <li>When you need a <strong>discrete latent space</strong> for your generative model, e.g., to integrate with autoregressive models like Transformers (VQ-GAN, DALL-E).</li>
+      <li>For learning compact, high-quality representations of data like images, audio, or text.</li>
+      <li>To mitigate "posterior collapse" issues often seen in vanilla VAEs with continuous latents.</li>
+      <li>For tasks requiring conditional generation or editing by manipulating discrete latent codes.</li>
+    </ul>
+    <p><strong>When NOT to use / limitations:</strong></p>
+    <ul>
+      <li>If computational efficiency is paramount for the quantization step (nearest neighbor search can be slow for very large codebooks).</li>
+      <li>If a continuous, smoothly interpolable latent space is a strict requirement (though VQ-VAE latents can be interpolated by interpolating their *indices* and then sampling).</li>
+      <li>Hyperparameter tuning for \(\beta\) (commitment loss weight) and codebook size \(K\) can be tricky.</li>
+      <li>The "dead codewords" problem: some codebook vectors might never be chosen if they are too far from any encoder output. EMA updates help mitigate this.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 VQ-VAE's Legacy</div>
+      <p style="font-size:14px;margin:0;">VQ-VAE laid the groundwork for many powerful generative models. By providing a stable way to learn discrete latent representations, it enabled the combination of VAEs with autoregressive models (like Transformers) for modeling the discrete codes. This fusion led to breakthroughs in image generation (VQ-GAN, DALL-E) and other modalities, demonstrating that discrete representations can be incredibly expressive and controllable.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class VectorQuantizer(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, num_embeddings, embedding_dim, commitment_cost):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.num_embeddings = num_embeddings # K</div>
+      <div class="code-line" id="cl8">        self.embedding_dim = embedding_dim   # D</div>
+      <div class="code-line" id="cl9">        self.commitment_cost = commitment_cost # beta</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">        self.embedding = nn.Embedding(num_embeddings, embedding_dim)</div>
+      <div class="code-line" id="cl12">        self.embedding.weight.data.uniform_(-1./num_embeddings, 1./num_embeddings)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    def forward(self, inputs):</div>
+      <div class="code-line" id="cl15">        # Reshape inputs to (N*H*W, D) for easier processing</div>
+      <div class="code-line" id="cl16">        flat_inputs = inputs.view(-1, self.embedding_dim)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">        # Calculate distances (L2 norm)</div>
+      <div class="code-line" id="cl19">        distances = (torch.sum(flat_inputs**2, dim=1, keepdim=True)</div>
+      <div class="code-line" id="cl20">                     + torch.sum(self.embedding.weight**2, dim=1)</div>
+      <div class="code-line" id="cl21">                     - 2 * torch.matmul(flat_inputs, self.embedding.weight.t()))</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">        # Find nearest codebook vector index</div>
+      <div class="code-line" id="cl24">        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)</div>
+      <div class="code-line" id="cl25">        quantized = self.embedding(encoding_indices).view(inputs.shape)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">        # Compute losses</div>
+      <div class="code-line" id="cl28">        # L_vq: move codebook towards encoder output (stop_gradient on inputs)</div>
+      <div class="code-line" id="cl29">        vq_loss = F.mse_loss(quantized.detach(), inputs)</div>
+      <div class="code-line" id="cl30">        # L_commitment: move encoder output towards codebook (stop_gradient on quantized)</div>
+      <div class="code-line" id="cl31">        commitment_loss = F.mse_loss(inputs, quantized.detach())</div>
+      <div class="code-line" id="cl32">        loss = vq_loss + self.commitment_cost * commitment_loss</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34">        # Straight-through estimator: copy gradients from quantized to inputs</div>
+      <div class="code-line" id="cl35">        quantized = inputs + (quantized - inputs).detach()</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37">        return loss, quantized, encoding_indices</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39"># VQ-VAE main training loop (simplified)</div>
+      <div class="code-line" id="cl40"># encoder, decoder = ... # define your networks</div>
+      <div class="code-line" id="cl41"># vq_layer = VectorQuantizer(K, D, beta)</div>
+      <div class="code-line" id="cl42"># optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(vq_layer.parameters()), lr=1e-3)</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44"># for x in data_loader:</div>
+      <div class="code-line" id="cl45">#     optimizer.zero_grad()</div>
+      <div class="code-line" id="cl46">#     z_e = encoder(x)                           # Encoder output</div>
+      <div class="code-line" id="cl47">#     vq_loss, z_q, _ = vq_layer(z_e)            # Quantization and VQ/Commitment losses</div>
+      <div class="code-line" id="cl48">#     x_recon = decoder(z_q)                     # Decoder output</div>
+      <div class="code-line" id="cl49">#     recon_loss = F.mse_loss(x_recon, x)        # Reconstruction loss</div>
+      <div class="code-line" id="cl50">#     total_loss = recon_loss + vq_loss          # Total loss</div>
+      <div class="code-line" id="cl51">#     total_loss.backward()</div>
+      <div class="code-line" id="cl52">#     optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentSeed = 1234;
+let rng = mulberry32(currentSeed);
+
+function randomVector(dim) {
+  const vec = [];
+  for (let i = 0; i < dim; i++) {
+    vec.push(rng() * 2 - 1); // values between -1 and 1
+  }
+  return vec;
+}
+
+function distSq(v1, v2) {
+  let sumSq = 0;
+  for (let i = 0; i < v1.length; i++) {
+    sumSq += (v1[i] - v2[i]) ** 2;
+  }
+  return sumSq;
+}
+
+function findNearest(vec, codebook) {
+  let minDist = Infinity;
+  let minIdx = -1;
+  for (let i = 0; i < codebook.length; i++) {
+    const d = distSq(vec, codebook[i]);
+    if (d < minDist) {
+      minDist = d;
+      minIdx = i;
+    }
+  }
+  return minIdx;
+}
+
+// ── VQ-VAE MODEL STATE (simplified) ──
+const IMAGE_SIZE = 4; // 4x4 input image
+const LATENT_GRID_SIZE = 2; // 2x2 latent map
+const LATENT_DIM = 2; // D (fixed for visualization)
+let K_CODEBOOK_SIZE = 8; // K (adjustable by slider)
+
+let inputImage; // 4x4 grid of pixel values (0-1)
+let encoderOutput; // 2x2 grid of LATENT_DIM vectors
+let codebook; // K x LATENT_DIM array of vectors
+let quantizedIndices; // 2x2 grid of indices into codebook
+let quantizedVectors; // 2x2 grid of LATENT_DIM vectors (from codebook)
+let reconstructedImage; // 4x4 grid of pixel values (0-1)
+
+function initializeModel() {
+  rng = mulberry32(currentSeed); // Reset RNG for reproducible initial state
+  inputImage = Array.from({ length: IMAGE_SIZE }, () =>
+    Array.from({ length: IMAGE_SIZE }, () => rng())
+  );
+  encoderOutput = Array.from({ length: LATENT_GRID_SIZE }, () =>
+    Array.from({ length: LATENT_GRID_SIZE }, () => randomVector(LATENT_DIM))
+  );
+  codebook = Array.from({ length: K_CODEBOOK_SIZE }, () => randomVector(LATENT_DIM));
+  quantizedIndices = Array.from({ length: LATENT_GRID_SIZE }, () =>
+    Array.from({ length: LATENT_GRID_SIZE }, () => 0)
+  );
+  quantizedVectors = Array.from({ length: LATENT_GRID_SIZE }, () =>
+    Array.from({ length: LATENT_GRID_SIZE }, () => randomVector(LATENT_DIM))
+  );
+  reconstructedImage = Array.from({ length: IMAGE_SIZE }, () =>
+    Array.from({ length: IMAGE_SIZE }, () => rng())
+  );
+}
+
+function generateNewInput() {
+  currentSeed = Math.floor(Math.random() * 100000); // New random seed
+  initializeModel();
+  // Simulate encoder output for the new input
+  encoderOutput = Array.from({ length: LATENT_GRID_SIZE }, () =>
+    Array.from({ length: LATENT_GRID_SIZE }, () => randomVector(LATENT_DIM))
+  );
+  // Recalculate quantization and reconstruction based on new input
+  quantize();
+  reconstruct();
+  // Reset step to show the new input flow
+  step = 0;
+  render();
+}
+
+function quantize() {
+  for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+    for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+      const ze_vec = encoderOutput[r][c];
+      const idx = findNearest(ze_vec, codebook);
+      quantizedIndices[r][c] = idx;
+      quantizedVectors[r][c] = codebook[idx];
+    }
+  }
+}
+
+function reconstruct() {
+  // Simplified reconstruction: just average the quantized vectors and map to pixel values
+  const avgVec = [0, 0];
+  let count = 0;
+  for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+    for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+      avgVec[0] += quantizedVectors[r][c][0];
+      avgVec[1] += quantizedVectors[r][c][1];
+      count++;
+    }
+  }
+  avgVec[0] /= count;
+  avgVec[1] /= count;
+
+  // Simple mapping to image: use distance from avgVec to a "target" vector
+  // This is a placeholder, a real decoder is a neural network.
+  const targetVec = [0.5, 0.5];
+  for (let r = 0; r < IMAGE_SIZE; r++) {
+    for (let c = 0; c < IMAGE_SIZE; c++) {
+      // Simulate some pattern based on avgVec
+      const pixelVal = 0.5 + (avgVec[0] * (r / IMAGE_SIZE) + avgVec[1] * (c / IMAGE_SIZE)) / 2;
+      reconstructedImage[r][c] = Math.max(0, Math.min(1, pixelVal));
+    }
+  }
+}
+
+function trainCodebookStep() {
+  // Simulate one training step for the codebook and encoder
+  // This is a highly simplified, conceptual update.
+  // In reality, this happens via gradients and EMA.
+
+  // 1. Update codebook vectors (L_vq)
+  // For each codebook vector, move it towards the average of encoder outputs that mapped to it.
+  const assignments = new Array(K_CODEBOOK_SIZE).fill(null).map(() => ({ sum: [0, 0], count: 0 }));
+  for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+    for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+      const ze_vec = encoderOutput[r][c];
+      const idx = quantizedIndices[r][c]; // Use current quantization
+      assignments[idx].sum[0] += ze_vec[0];
+      assignments[idx].sum[1] += ze_vec[1];
+      assignments[idx].count++;
+    }
+  }
+  const learningRate = 0.1; // Simulated learning rate
+  for (let i = 0; i < K_CODEBOOK_SIZE; i++) {
+    if (assignments[i].count > 0) {
+      const avg_ze = [
+        assignments[i].sum[0] / assignments[i].count,
+        assignments[i].sum[1] / assignments[i].count,
+      ];
+      // Move codebook vector towards average encoder output
+      codebook[i][0] += learningRate * (avg_ze[0] - codebook[i][0]);
+      codebook[i][1] += learningRate * (avg_ze[1] - codebook[i][1]);
+    } else {
+        // If a codeword is "dead", slightly perturb it to encourage use
+        codebook[i][0] += (rng() * 0.05 - 0.025);
+        codebook[i][1] += (rng() * 0.05 - 0.025);
+    }
+  }
+
+  // 2. Update encoder output (L_commitment)
+  // Pull encoder outputs towards their quantized versions.
+  // This is typically handled by backprop, but we simulate a direct pull.
+  const beta = 0.25; // Commitment cost
+  for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+    for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+      const ze_vec = encoderOutput[r][c];
+      const zq_vec = quantizedVectors[r][c]; // The *actual* codebook vector
+      encoderOutput[r][c][0] += beta * learningRate * (zq_vec[0] - ze_vec[0]);
+      encoderOutput[r][c][1] += beta * learningRate * (zq_vec[1] - ze_vec[1]);
+    }
+  }
+
+  // After training step, re-quantize and reconstruct
+  quantize();
+  reconstruct();
+  
+  // Advance to a relevant step
+  if (step < 6) step = 6;
+  render();
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The VQ-VAE Setup',
+    desc: 'We start with a small 4x4 input image (left). The encoder (purple box) compresses it into a 2x2 grid of 2-dimensional latent vectors (purple circles, center). A codebook of K vectors (amber circles, right) is randomly initialized. D is fixed at 2 for visualization.',
+    codeLines: [0,1,2,3,4,5,6,7,8,9,10,11,12],
+    canvasMode: 'initial'
+  },
+  {
+    phase: 'encode', title: 'Encoder Output: Continuous Latent Vectors',
+    desc: 'The encoder maps the input image into a grid of continuous latent vectors (purple circles). These vectors exist in a continuous 2D space. The next step is to discretize them using the codebook.',
+    codeLines: [14,15,16],
+    canvasMode: 'encoder_output'
+  },
+  {
+    phase: 'quantize', title: 'Quantization: Finding Nearest Codebook Vectors',
+    desc: 'For each latent vector (purple circle), we find its closest codebook vector (amber circle) by Euclidean distance. A red line indicates this nearest neighbor relationship. This is the non-differentiable step.',
+    codeLines: [18,19,20,21,22,23,24,25],
+    canvasMode: 'quantize_nn'
+  },
+  {
+    phase: 'quantize', title: 'Quantized Latent Space (Indices)',
+    desc: 'Instead of passing the continuous latent vectors, we pass the *indices* of the chosen codebook vectors to the decoder. This forms the discrete latent representation. The actual codebook vectors (amber circles) corresponding to these indices are then used.',
+    codeLines: [24,25],
+    canvasMode: 'quantized_indices'
+  },
+  {
+    phase: 'decode', title: 'Decoder & Reconstruction',
+    desc: 'The decoder (green box) takes the quantized latent vectors (amber circles) and reconstructs the input image. The goal is for the reconstructed image (right) to be as close as possible to the original input (left).',
+    codeLines: [48,49],
+    canvasMode: 'reconstruction'
+  },
+  {
+    phase: 'learn', title: 'Codebook Learning (L_vq)',
+    desc: 'The codebook vectors (amber circles) are updated to move towards the encoder outputs (purple circles) that mapped to them. This is the `L_vq` loss. Gradients from this term only update the codebook, not the encoder.',
+    codeLines: [28,29],
+    canvasMode: 'codebook_update'
+  },
+  {
+    phase: 'learn', title: 'Encoder Learning (L_commitment)',
+    desc: 'The encoder\'s output vectors (purple circles) are pulled towards their corresponding chosen codebook vectors (amber circles). This is the `L_commitment` loss. Gradients from this term only update the encoder, not the codebook.',
+    codeLines: [30,31],
+    canvasMode: 'encoder_commitment'
+  },
+  {
+    phase: 'learn', title: 'Straight-Through Estimator',
+    desc: 'During backpropagation, gradients from the decoder\'s input (`z_q`) are directly passed to the encoder\'s output (`z_e`), bypassing the non-differentiable quantization. This ensures the encoder receives meaningful gradients.',
+    codeLines: [34,35],
+    canvasMode: 'straight_through'
+  },
+  {
+    phase: 'setup', title: 'Full VQ-VAE Cycle: New Input',
+    desc: 'The model has learned. Now, for a new input image, the encoder produces new latent vectors. These are quantized by the learned codebook, and the decoder reconstructs the image. The codebook now contains more meaningful representations.',
+    codeLines: [44,45,46,47,48,49,50,51,52],
+    canvasMode: 'initial' // Re-uses initial mode but with updated state
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  K_CODEBOOK_SIZE = parseInt(document.getElementById('kSlider').value); // Reset K from slider
+  initializeModel(); // Re-initialize model state
+  quantize();
+  reconstruct();
+  render();
+}
+
+// ── SLIDER WIRING ──
+const kSlider = document.getElementById('kSlider');
+const kValue = document.getElementById('kValue');
+kSlider.addEventListener('input', () => {
+  K_CODEBOOK_SIZE = parseInt(kSlider.value);
+  kValue.textContent = K_CODEBOOK_SIZE;
+  initializeModel(); // Re-initialize codebook with new size
+  quantize();
+  reconstruct();
+  render();
+});
+
+// Initial setup for D slider (disabled)
+const dSlider = document.getElementById('dSlider');
+const dValue = document.getElementById('dValue');
+dValue.textContent = LATENT_DIM; // Display fixed latent dim
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup: 'phase-setup', encode: 'phase-encode', quantize: 'phase-quantize',
+    decode: 'phase-decode', learn: 'phase-learn'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // --- Layout Constants ---
+  const imageSizePx = Math.min(W / 3, H * 0.4);
+  const latentVizX = W / 2;
+  const latentVizY = H / 2;
+  const latentVizRadius = Math.min(W / 4, H / 3); // Radius for the latent space circle
+  const encoderBoxW = 40, encoderBoxH = 80;
+  const decoderBoxW = 40, decoderBoxH = 80;
+
+  // --- Draw Input Image ---
+  const inputImageX = W * 0.05;
+  const inputImageY = H / 2 - imageSizePx / 2;
+  drawGrid(ctx, inputImage, inputImageX, inputImageY, imageSizePx / IMAGE_SIZE, blueMid, mode === 'initial' || mode === 'reconstruction');
+  if (mode === 'initial' || mode === 'reconstruction' || mode === 'encoder_output' || mode === 'quantize_nn' || mode === 'quantized_indices' || mode === 'codebook_update' || mode === 'encoder_commitment' || mode === 'straight_through') {
+    ctx.fillStyle = textC; ctx.font = '600 14px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Input Image (x)', inputImageX + imageSizePx / 2, inputImageY - 10);
+  }
+
+  // --- Draw Reconstructed Image ---
+  const reconImageX = W * 0.95 - imageSizePx;
+  const reconImageY = H / 2 - imageSizePx / 2;
+  if (mode === 'reconstruction' || mode === 'initial' || mode === 'codebook_update' || mode === 'encoder_commitment' || mode === 'straight_through') {
+    drawGrid(ctx, reconstructedImage, reconImageX, reconImageY, imageSizePx / IMAGE_SIZE, greenMid, true);
+    ctx.fillStyle = textC; ctx.font = '600 14px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Reconstructed (x̂)', reconImageX + imageSizePx / 2, reconImageY - 10);
+  }
+
+  // --- Draw Encoder Box ---
+  const encoderX = inputImageX + imageSizePx + 20;
+  const encoderY = H / 2 - encoderBoxH / 2;
+  ctx.fillStyle = purpleMid; ctx.globalAlpha = 0.15;
+  ctx.fillRect(encoderX, encoderY, encoderBoxW, encoderBoxH);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = purpleMid; ctx.lineWidth = 1.5;
+  ctx.strokeRect(encoderX, encoderY, encoderBoxW, encoderBoxH);
+  ctx.fillStyle = purpleMid; ctx.font = '600 12px var(--sans)'; ctx.textAlign = 'center';
+  ctx.fillText('Encoder', encoderX + encoderBoxW / 2, encoderY + encoderBoxH / 2 + 5);
+
+  // --- Draw Decoder Box ---
+  const decoderX = reconImageX - decoderBoxW - 20;
+  const decoderY = H / 2 - decoderBoxH / 2;
+  ctx.fillStyle = greenMid; ctx.globalAlpha = 0.15;
+  ctx.fillRect(decoderX, decoderY, decoderBoxW, decoderBoxH);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = greenMid; ctx.lineWidth = 1.5;
+  ctx.strokeRect(decoderX, decoderY, decoderBoxW, decoderBoxH);
+  ctx.fillStyle = greenMid; ctx.font = '600 12px var(--sans)'; ctx.textAlign = 'center';
+  ctx.fillText('Decoder', decoderX + decoderBoxW / 2, decoderY + decoderBoxH / 2 + 5);
+
+  // --- Draw Arrows ---
+  ctx.strokeStyle = text2; ctx.lineWidth = 1;
+  if (mode === 'initial' || mode === 'encoder_output' || mode === 'quantize_nn' || mode === 'quantized_indices' || mode === 'codebook_update' || mode === 'encoder_commitment' || mode === 'straight_through') {
+    drawArrow(ctx, inputImageX + imageSizePx, H / 2, encoderX, H / 2, text2); // Input to Encoder
+    drawArrow(ctx, encoderX + encoderBoxW, H / 2, latentVizX - latentVizRadius, H / 2, text2); // Encoder to Latent Space
+  }
+  if (mode === 'reconstruction' || mode === 'initial' || mode === 'codebook_update' || mode === 'encoder_commitment' || mode === 'straight_through') {
+    drawArrow(ctx, latentVizX + latentVizRadius, H / 2, decoderX, H / 2, text2); // Latent Space to Decoder
+    drawArrow(ctx, decoderX + decoderBoxW, H / 2, reconImageX, H / 2, text2); // Decoder to Reconstructed
+  }
+
+  // --- Draw Latent Space Visualization ---
+  drawLatentSpace(ctx, W, H, latentVizX, latentVizY, latentVizRadius, purpleMid, amberMid, redMid, textC, mode);
+}
+
+function drawGrid(ctx, grid, x, y, cellSize, colorBase, active) {
+  const alpha = active ? 1 : 0.3;
+  for (let r = 0; r < grid.length; r++) {
+    for (let c = 0; c < grid[0].length; c++) {
+      const val = grid[r][c];
+      ctx.fillStyle = `rgba(${parseInt(colorBase.slice(1,3),16)},${parseInt(colorBase.slice(3,5),16)},${parseInt(colorBase.slice(5,7),16)}, ${val * alpha + (1-alpha)*0.5})`;
+      ctx.fillRect(x + c * cellSize, y + r * cellSize, cellSize, cellSize);
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 0.5;
+      ctx.strokeRect(x + c * cellSize, y + r * cellSize, cellSize, cellSize);
+    }
+  }
+  ctx.strokeStyle = colorBase; ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, grid.length * cellSize, grid[0].length * cellSize);
+}
+
+function drawArrow(ctx, fromX, fromY, toX, toY, color) {
+  const headlen = 10; // length of head in pixels
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const angle = Math.atan2(dy, dx);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.stroke();
+}
+
+function drawLatentSpace(ctx, W, H, centerX, centerY, radius, encoderColor, codebookColor, linkColor, textColor, mode) {
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = text2; ctx.font = '11px var(--sans)'; ctx.textAlign = 'center';
+  ctx.fillText('Latent Space (2D)', 0, radius + 20);
+
+  // Scale latent vectors and codebook vectors to fit within the circle
+  const scaleFactor = radius * 0.8;
+  const offset = [0, 0]; // Center around 0,0 in scaled space
+
+  // Draw codebook vectors
+  for (let i = 0; i < codebook.length; i++) {
+    const e = codebook[i];
+    const cx = e[0] * scaleFactor + offset[0];
+    const cy = e[1] * scaleFactor + offset[1];
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = codebookColor; ctx.globalAlpha = (mode === 'reconstruction' || mode === 'quantized_indices') ? 0.6 : 1; ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = 'white'; ctx.font = '600 9px var(--mono)';
+    ctx.fillText(i, cx, cy + 3);
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw encoder output vectors
+  for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+    for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+      const ze = encoderOutput[r][c];
+      const cx = ze[0] * scaleFactor + offset[0];
+      const cy = ze[1] * scaleFactor + offset[1];
+
+      ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.fillStyle = encoderColor; ctx.globalAlpha = (mode === 'quantize_nn' || mode === 'quantized_indices' || mode === 'reconstruction') ? 0.6 : 1; ctx.fill();
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Draw quantization links
+      if (mode === 'quantize_nn' || mode === 'codebook_update' || mode === 'encoder_commitment' || mode === 'straight_through') {
+        const nearestIdx = findNearest(ze, codebook);
+        const nearestE = codebook[nearestIdx];
+        const nx = nearestE[0] * scaleFactor + offset[0];
+        const ny = nearestE[1] * scaleFactor + offset[1];
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny);
+        ctx.strokeStyle = linkColor; ctx.lineWidth = 1.5; ctx.setLineDash([4, 2]); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // Draw quantized vectors (if different from encoder output, e.g. for straight-through)
+  if (mode === 'straight_through') {
+    for (let r = 0; r < LATENT_GRID_SIZE; r++) {
+      for (let c = 0; c < LATENT_GRID_SIZE; c++) {
+        const zq = quantizedVectors[r][c];
+        const cx = zq[0] * scaleFactor + offset[0];
+        const cy = zq[1] * scaleFactor + offset[1];
+        ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = greenMid; ctx.globalAlpha = 0.5; ctx.fill(); // Highlight quantized as green
+        ctx.strokeStyle = greenMid; ctx.lineWidth = 2; ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+
+  ctx.restore();
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initializeModel();
+quantize();
+reconstruct();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

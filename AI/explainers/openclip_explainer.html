@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCLIP: Open-Source CLIP Variants — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Controls for viz */
+.viz-controls{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.select-group{display:flex;align-items:center;gap:12px;}
+.select-label{font-size:13px;font-weight:600;min-width:150px;}
+select{font-family:var(--sans);font-size:13px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);flex:1;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-embed{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-predict{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-model{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-metrics{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.image{background:var(--blue-mid);}
+.legend-swatch.query{background:var(--purple-mid);}
+.legend-swatch.label{background:var(--amber-mid);}
+.legend-swatch.best{background:var(--green-mid);}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .select-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>OpenCLIP: Open-Source CLIP Variants</h1>
+  <div class="subtitle">Vision-language models with diverse architectures and training data</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Multimodal AI</span>
+    <span class="tag tag-complexity">O(N²) contrastive</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding OpenCLIP</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> CLIP (Contrastive Language-Image Pre-training) is a groundbreaking model from OpenAI that learns to connect images and text by training on a massive dataset of image-caption pairs. It can perform "zero-shot" classification (classifying images it's never seen during training) by simply comparing an image's embedding to the embeddings of various text labels. <strong>OpenCLIP</strong> refers to a collection of open-source re-implementations and extensions of CLIP, trained on publicly available datasets like LAION, offering diverse architectural choices (e.g., different Vision Transformers, ResNets) and often matching or exceeding OpenAI's original CLIP performance.</p>
+    <p><strong>Analogy:</strong> Imagine you have a universal translator that can convert any visual concept (like "a fluffy cat") into a unique numerical code, and any textual description ("a picture of a feline") into a similar numerical code. If the visual concept and the text describe the same thing, their codes will be very close. CLIP is this translator. OpenCLIP is like a community of engineers constantly building and improving various versions of this translator, using different internal mechanisms (architectures) and learning from even larger, more diverse collections of visual and textual examples.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">OpenCLIP models learn to map both images and text into a <strong>shared, high-dimensional embedding space</strong> where the distance between an image embedding and a text embedding directly corresponds to how semantically similar they are. This enables powerful zero-shot capabilities like classifying images with arbitrary text descriptions without any fine-tuning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How OpenCLIP Models Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Dual Encoder Architecture</h4>
+    <p>At its core, any CLIP-like model consists of two independent encoder networks:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Image Encoder:</strong> Takes an image as input and outputs a fixed-size vector (the image embedding). OpenCLIP supports various vision backbones like Vision Transformers (ViT) or ResNets.</li>
+      <li><strong>Text Encoder:</strong> Takes a text string (e.g., a caption or a class label) as input and outputs a fixed-size vector (the text embedding). This is typically a Transformer-based model.</li>
+    </ol>
+    <p>These two encoders are trained jointly to produce embeddings that are "aligned" in a shared latent space.</p>
+
+    <h4>Contrastive Pre-training</h4>
+    <p>The magic of CLIP lies in its training objective: <em>contrastive learning</em>. Given a batch of \(N\) (image, text) pairs \((I_i, T_i)\), the model learns to:</p>
+    <ul>
+      <li><strong>Maximize similarity</strong> between correct pairs \((I_i, T_i)\).</li>
+      <li><strong>Minimize similarity</strong> between incorrect pairs \((I_i, T_j)\) where \(i \neq j\).</li>
+    </ul>
+    <p>This is achieved using a loss function like InfoNCE, which effectively pushes positive pairs closer together while simultaneously pushing negative pairs further apart in the embedding space. This process requires no explicit labeling of objects within images; it simply learns from the natural pairing of images and their captions.</p>
+
+    <h4>Zero-Shot Transfer</h4>
+    <p>Once trained, an OpenCLIP model can perform zero-shot tasks:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>To classify an image, encode the image to get its embedding.</li>
+      <li>Encode each candidate class label (e.g., "a photo of a cat", "a photo of a dog") into text embeddings.</li>
+      <li>Compute the cosine similarity between the image embedding and each text embedding.</li>
+      <li>The class with the highest similarity score is the prediction.</li>
+    </ol>
+
+    <h4>Design Decision: Why Different Backbones and Datasets?</h4>
+    <p>OpenCLIP's strength comes from exploring various combinations:</p>
+    <ul>
+      <li><strong>Vision Backbones:</strong> Different architectures (e.g., ViT-L/14 vs. ResNet-50) offer trade-offs in computational cost, memory footprint, and performance. Larger ViTs tend to capture more intricate visual details but are slower.</li>
+      <li><strong>Text Backbones:</strong> While usually Transformer-based, variations in size and specific architecture (e.g., number of layers, attention heads) exist, impacting how well text semantics are captured.</li>
+      <li><strong>Training Datasets:</strong> OpenAI's CLIP used a proprietary dataset. OpenCLIP models are trained on large, publicly available datasets like LAION-2B or LAION-400M, enabling reproducibility and further research. Different datasets can lead to models with varying biases and generalization capabilities.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core idea is to learn a <strong>joint representation</strong> where the geometric distance (typically cosine distance) in the embedding space reflects semantic similarity across modalities. OpenCLIP democratizes this by providing diverse, high-performing, and reproducible variants.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math of Contrastive Learning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Embedding Functions and Cosine Similarity</h4>
+    <p>Let \(f_{img}(\cdot)\) be the image encoder and \(g_{txt}(\cdot)\) be the text encoder. For an image \(I\) and text \(T\), we get their respective embeddings \(e_I = f_{img}(I)\) and \(e_T = g_{txt}(T)\). These embeddings are typically \(L_2\)-normalized to unit vectors, so \(\|e_I\| = 1\) and \(\|e_T\| = 1\). The similarity between them is then simply their dot product (which equals cosine similarity for unit vectors):</p>
+    <div class="eq">$$\text{sim}(e_I, e_T) = e_I \cdot e_T = \|e_I\| \|e_T\| \cos(\theta) = \cos(\theta)$$</div>
+
+    <h4>The Contrastive (InfoNCE) Loss</h4>
+    <p>Consider a batch of \(N\) image-text pairs \((I_k, T_k)\) for \(k=1 \dots N\). We compute \(N\) image embeddings \(E_I = [e_{I_1}, \dots, e_{I_N}]\) and \(N\) text embeddings \(E_T = [e_{T_1}, \dots, e_{T_N}]\). We then form a similarity matrix \(S\) where \(S_{ij} = \text{sim}(e_{I_i}, e_{T_j})\). The diagonal elements \(S_{ii}\) are positive pairs, and off-diagonal elements \(S_{ij}\) for \(i \neq j\) are negative pairs.</p>
+    <p>The training objective is to maximize the agreement of \(N\) correct image-text pairs while minimizing the agreement of \(N^2-N\) incorrect pairs. This is typically formulated as a symmetric cross-entropy loss over the similarity matrix, often called InfoNCE loss. For each image \(I_i\), we want its embedding \(e_{I_i}\) to be similar to its true text pair \(e_{T_i}\) and dissimilar to all other text embeddings \(e_{T_j}\) in the batch. This can be expressed as:</p>
+    <div class="eq">$$L_I = -\frac{1}{N} \sum_{i=1}^N \log \frac{\exp(S_{ii} / \tau)}{\sum_{j=1}^N \exp(S_{ij} / \tau)}$$</div>
+    <p>Similarly, for each text \(T_j\), we want its embedding \(e_{T_j}\) to be similar to its true image pair \(e_{I_j}\) and dissimilar to all other image embeddings \(e_{I_i}\) in the batch:</p>
+    <div class="eq">$$L_T = -\frac{1}{N} \sum_{j=1}^N \log \frac{\exp(S_{jj} / \tau)}{\sum_{i=1}^N \exp(S_{ij} / \tau)}$$</div>
+    <p>The total loss is the average of these two: \(L = (L_I + L_T)/2\). The parameter \(\tau\) (temperature) scales the logits before the softmax, controlling the sharpness of the distribution and playing a crucial role in preventing mode collapse and improving representation quality.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While OpenCLIP models are incredibly powerful for zero-shot tasks, their performance is heavily dependent on the quality and diversity of the pre-training data (e.g., LAION) and the chosen model architecture. For highly specialized domains or tasks, fine-tuning on domain-specific data might still be necessary to achieve peak performance, as the general-purpose embeddings may not capture all relevant nuances.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore a simplified 2D embedding space. Watch an image and text queries get embedded, compute their similarities, and perform zero-shot classification. Switch between different OpenCLIP model variants to see how the embedding space changes.</p>
+
+    <div class="viz-container">
+      <div class="viz-controls">
+        <div class="select-group">
+          <div class="select-label">Select OpenCLIP Model Variant</div>
+          <select id="modelSelect" onchange="updateModel()">
+            <option value="vit_b32">ViT-B/32 (LAION-2B)</option>
+            <option value="rn50">ResNet-50 (LAION-400M)</option>
+            <option value="vit_l14">ViT-L/14 (LAION-2B)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Shared Embedding Space</div>
+        <div class="info-desc" id="infoDesc">This 2D plot represents a simplified version of the high-dimensional embedding space where OpenCLIP places both images and text. Each point is a normalized embedding vector.</div>
+        <div class="info-metrics" id="infoMetrics"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch image"></div> Input Image Embedding</div>
+        <div class="legend-item"><div class="legend-swatch query"></div> Query Text Embedding</div>
+        <div class="legend-item"><div class="legend-swatch label"></div> Candidate Label Embedding</div>
+        <div class="legend-item"><div class="legend-swatch best"></div> Best Match / Prediction</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--text3)"></div> Unit Circle</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--amber-mid)"></div> Similarity Vector</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use OpenCLIP:</strong></p>
+    <ul>
+      <li><strong>Zero-shot classification:</strong> Classify images using arbitrary text labels, even for categories not seen during training.</li>
+      <li><strong>Image/Text Retrieval:</strong> Find images matching a text query, or text matching an image.</li>
+      <li><strong>Multimodal embeddings:</strong> Obtain high-quality representations for both images and text that are semantically aligned.</li>
+      <li><strong>Transfer learning:</strong> Use OpenCLIP embeddings as features for downstream tasks, often outperforming single-modality pre-trained models.</li>
+      <li><strong>Research and experimentation:</strong> Open-source nature allows for easy modification, fine-tuning, and integration into new research.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Highly specialized domains:</strong> For very niche visual data (e.g., medical images, specific industrial defects), pre-training on general web data might not capture domain-specific nuances perfectly. Fine-tuning or domain-specific models might be required.</li>
+      <li><strong>Small datasets:</strong> If you have a very small, labeled dataset, a simpler, task-specific model might train faster and be more interpretable than adapting a large CLIP model.</li>
+      <li><strong>Computational constraints:</strong> While efficient, running large OpenCLIP models (especially ViT-L/14 or larger) can still be computationally intensive for real-time applications on constrained hardware without significant optimization.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">OpenCLIP has democratized access to powerful vision-language models, enabling a wide range of multimodal applications and research. By offering diverse model architectures and transparent training on public datasets, it fosters innovation and reproducibility in the field of AI.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Using OpenCLIP (PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import open_clip</div>
+      <div class="code-line" id="cl1">import torch</div>
+      <div class="code-line" id="cl2">from PIL import Image</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># 1. Load a pre-trained OpenCLIP model and its preprocessor</div>
+      <div class="code-line" id="cl5">model_name = "ViT-B-32"</div>
+      <div class="code-line" id="cl6">pretrained_dataset = "laion2b_s34b_b79k" # Or "openai", "laion400m_e32" etc.</div>
+      <div class="code-line" id="cl7">model, preprocess, tokenizer = open_clip.create_model_and_tokenizer(</div>
+      <div class="code-line" id="cl8">    model_name, pretrained=pretrained_dataset</div>
+      <div class="code-line" id="cl9">)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11"># Move model to GPU if available</div>
+      <div class="code-line" id="cl12">device = "cuda" if torch.cuda.is_available() else "cpu"</div>
+      <div class="code-line" id="cl13">model.to(device)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># 2. Prepare inputs</div>
+      <div class="code-line" id="cl16">image_path = "path/to/your/image.jpg"</div>
+      <div class="code-line" id="cl17">image = preprocess(Image.open(image_path)).unsqueeze(0).to(device)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">text_labels = ["a photo of a cat", "a photo of a dog", "a photo of a car"]</div>
+      <div class="code-line" id="cl20">text = tokenizer(text_labels).to(device)</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># 3. Encode image and text to get embeddings</div>
+      <div class="code-line" id="cl23">with torch.no_grad():</div>
+      <div class="code-line" id="cl24">    image_features = model.encode_image(image)</div>
+      <div class="code-line" id="cl25">    text_features = model.encode_text(text)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27"># Normalize features (important for cosine similarity)</div>
+      <div class="code-line" id="cl28">image_features /= image_features.norm(dim=-1, keepdim=True)</div>
+      <div class="code-line" id="cl29">text_features /= text_features.norm(dim=-1, keepdim=True)</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31"># 4. Compute cosine similarity (dot product for normalized vectors)</div>
+      <div class="code-line" id="cl32">logits = (image_features @ text_features.T).softmax(dim=-1)</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34"># 5. Get prediction</div>
+      <div class="code-line" id="cl35">probs = logits.cpu().numpy()[0]</div>
+      <div class="code-line" id="cl36">for i, label in enumerate(text_labels):</div>
+      <div class="code-line" id="cl37">    print(f"Label: {label}, Probability: {probs[i]:.4f}")</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">predicted_label = text_labels[probs.argmax()]</div>
+      <div class="code-line" id="cl40">print(f"\nPredicted label: {predicted_label}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function normalizeVector(v) {
+  const mag = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
+  return mag === 0 ? [0, 0] : [v[0]/mag, v[1]/mag];
+}
+
+function dotProduct(v1, v2) {
+  return v1[0]*v2[0] + v1[1]*v2[1];
+}
+
+// ── DUMMY EMBEDDING DATA (for 2D visualization) ──
+// Each model has slightly different embedding coordinates, simulating different learned spaces.
+// Coordinates are pre-normalized to unit vectors (on a circle).
+const embeddingData = {
+  "vit_b32": {
+    image: normalizeVector([0.7, 0.5]), // "a photo of a cat"
+    query: normalizeVector([0.75, 0.45]), // "a cat"
+    labels: [
+      { text: "a cat", coords: normalizeVector([0.75, 0.45]) },
+      { text: "a dog", coords: normalizeVector([-0.6, 0.8]) },
+      { text: "a car", coords: normalizeVector([0.9, -0.3]) },
+      { text: "a bird", coords: normalizeVector([-0.2, -0.9]) }
+    ]
+  },
+  "rn50": {
+    image: normalizeVector([0.65, 0.55]), // "a photo of a cat"
+    query: normalizeVector([0.7, 0.5]), // "a cat"
+    labels: [
+      { text: "a cat", coords: normalizeVector([0.7, 0.5]) },
+      { text: "a dog", coords: normalizeVector([-0.55, 0.85]) },
+      { text: "a car", coords: normalizeVector([0.85, -0.4]) },
+      { text: "a bird", coords: normalizeVector([-0.1, -0.95]) }
+    ]
+  },
+  "vit_l14": {
+    image: normalizeVector([0.72, 0.48]), // "a photo of a cat"
+    query: normalizeVector([0.78, 0.42]), // "a cat"
+    labels: [
+      { text: "a cat", coords: normalizeVector([0.78, 0.42]) },
+      { text: "a dog", coords: normalizeVector([-0.65, 0.75]) },
+      { text: "a car", coords: normalizeVector([0.92, -0.25]) },
+      { text: "a bird", coords: normalizeVector([-0.3, -0.88]) }
+    ]
+  }
+};
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Shared Embedding Space',
+    desc: 'This 2D plot represents a simplified version of the high-dimensional embedding space where OpenCLIP places both images and text. Each point is a normalized embedding vector, so they all lie on the unit circle.',
+    codeLines: [],
+    canvasMode: 'empty'
+  },
+  {
+    phase: 'embed', title: 'Image Embedding',
+    desc: 'First, an input image (e.g., "a photo of a cat") is processed by the image encoder, resulting in a fixed-size embedding vector. This vector is then normalized and plotted as a point in our shared space.',
+    codeLines: [15,16,17,23,24,28],
+    canvasMode: 'image_only'
+  },
+  {
+    phase: 'embed', title: 'Query Text Embedding',
+    desc: 'Next, a query text (e.g., "a cat") is processed by the text encoder to get its embedding. This embedding is also normalized and plotted. The closer the image and text embeddings are, the more semantically related they are.',
+    codeLines: [19,20,25,29],
+    canvasMode: 'image_and_query'
+  },
+  {
+    phase: 'compare', title: 'Compute Similarity (Cosine Distance)',
+    desc: 'The similarity between embeddings is measured using cosine similarity (dot product for normalized vectors). A value of 1 means identical direction, 0 means orthogonal, -1 means opposite. Here, the image and query text are very similar.',
+    codeLines: [31,32],
+    canvasMode: 'image_and_query_sim'
+  },
+  {
+    phase: 'embed', title: 'Candidate Label Embeddings',
+    desc: 'For zero-shot classification, we prepare a set of candidate class labels (e.g., "a cat", "a dog", "a car", "a bird"). Each label is also encoded into a text embedding and plotted in the shared space.',
+    codeLines: [19,20,25,29],
+    canvasMode: 'all_embeddings'
+  },
+  {
+    phase: 'compare', title: 'Compare Image to All Labels',
+    desc: 'Now, we compute the cosine similarity between the input image embedding and *each* of the candidate label embeddings. This tells us how well the image matches each potential class.',
+    codeLines: [31,32],
+    canvasMode: 'all_similarities'
+  },
+  {
+    phase: 'predict', title: 'Zero-Shot Prediction',
+    desc: 'The label with the highest cosine similarity to the image embedding is selected as the zero-shot prediction. This is how OpenCLIP classifies images without ever seeing labeled examples of these classes during training.',
+    codeLines: [35,36,37,39,40],
+    canvasMode: 'best_match'
+  },
+  {
+    phase: 'model', title: 'Switching OpenCLIP Model Variants',
+    desc: 'Use the dropdown above to switch to a different OpenCLIP model (e.g., ResNet-50 or a larger ViT). Notice how all the embeddings shift, as different models learn slightly different representations. However, the *relative* similarities (and thus the prediction) often remain consistent.',
+    codeLines: [7,8,9],
+    canvasMode: 'best_match'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentModel = 'vit_b32'; // Default model
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── MODEL SELECTION ──
+function updateModel() {
+  currentModel = document.getElementById('modelSelect').value;
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', embed:'phase-embed', compare:'phase-compare',
+    predict:'phase-predict', model:'phase-model'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const centerX = W / 2;
+  const centerY = H / 2;
+  const radius = Math.min(W, H) * 0.4;
+  const pointRadius = 7;
+
+  // Draw unit circle
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = borderC;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Draw origin
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 2, 0, Math.PI * 2);
+  ctx.fillStyle = text3;
+  ctx.fill();
+
+  const data = embeddingData[currentModel];
+  const imageEmb = data.image;
+  const queryEmb = data.query;
+  const labels = data.labels;
+
+  let infoMetrics = '';
+  let bestLabel = null;
+  let maxSimilarity = -Infinity;
+
+  // Helper to draw a point
+  const drawEmbedding = (emb, color, label, highlight = false) => {
+    const px = centerX + emb[0] * radius;
+    const py = centerY - emb[1] * radius; // Y-axis inverted for canvas
+    ctx.beginPath();
+    ctx.arc(px, py, pointRadius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (highlight) {
+      ctx.beginPath();
+      ctx.arc(px, py, pointRadius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = textC;
+    ctx.font = '12px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, px, py - pointRadius - 5);
+    ctx.textAlign = 'left';
+  };
+
+  // Helper to draw similarity line
+  const drawSimilarityLine = (emb1, emb2, color, text, offset=0) => {
+    const p1x = centerX + emb1[0] * radius;
+    const p1y = centerY - emb1[1] * radius;
+    const p2x = centerX + emb2[0] * radius;
+    const p2y = centerY - emb2[1] * radius;
+
+    ctx.beginPath();
+    ctx.moveTo(p1x, p1y);
+    ctx.lineTo(p2x, p2y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (text) {
+      const midX = (p1x + p2x) / 2;
+      const midY = (p1y + p2y) / 2;
+      ctx.fillStyle = text2;
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, midX, midY + offset);
+      ctx.textAlign = 'left';
+    }
+  };
+
+  if (mode !== 'empty') {
+    // Image embedding
+    drawEmbedding(imageEmb, blueMid, 'Image');
+
+    if (mode === 'image_and_query' || mode === 'image_and_query_sim' || mode === 'all_embeddings' || mode === 'all_similarities' || mode === 'best_match') {
+      // Query text embedding
+      drawEmbedding(queryEmb, purpleMid, 'Query: "a cat"');
+      if (mode === 'image_and_query_sim') {
+        const sim = dotProduct(imageEmb, queryEmb);
+        drawSimilarityLine(imageEmb, queryEmb, amberMid, `Sim: ${sim.toFixed(3)}`);
+        infoMetrics += `Image-Query Similarity: ${sim.toFixed(4)}\n`;
+      }
+    }
+
+    if (mode === 'all_embeddings' || mode === 'all_similarities' || mode === 'best_match') {
+      // Label embeddings
+      labels.forEach(label => {
+        drawEmbedding(label.coords, amberMid, label.text);
+      });
+    }
+
+    if (mode === 'all_similarities' || mode === 'best_match') {
+      infoMetrics += 'Image-Label Similarities:\n';
+      labels.forEach((label, i) => {
+        const sim = dotProduct(imageEmb, label.coords);
+        drawSimilarityLine(imageEmb, label.coords, amberMid, `Sim: ${sim.toFixed(3)}`, i%2==0 ? 15 : -10);
+        infoMetrics += `  "${label.text}": ${sim.toFixed(4)}\n`;
+        if (sim > maxSimilarity) {
+          maxSimilarity = sim;
+          bestLabel = label;
+        }
+      });
+    }
+
+    if (mode === 'best_match') {
+      if (bestLabel) {
+        drawEmbedding(bestLabel.coords, greenMid, bestLabel.text, true); // Highlight best match
+        infoMetrics += `\nPredicted Label: "${bestLabel.text}" (Similarity: ${maxSimilarity.toFixed(4)})`;
+      }
+    }
+  }
+
+  document.getElementById('infoMetrics').textContent = infoMetrics;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

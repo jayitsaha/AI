@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flamingo: Visual Language Model with Gated Cross-Attention — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-attention{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-gate{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Flamingo: Visual Language Model</h1>
+  <div class="subtitle">Gated cross-attention for few-shot visual reasoning</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Multimodal AI</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N_vis + N_lang)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Flamingo</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Flamingo is a family of Visual Language Models (VLMs) developed by DeepMind, designed to perform few-shot learning on a wide range of multimodal tasks. It combines powerful pre-trained vision encoders (like CLIP or ALIGN) and large language models (LLMs, like Chinchilla) by keeping them frozen and bridging the modalities with newly introduced architectural components: a <strong>Perceiver Resampler</strong> and <strong>Gated Cross-Attention</strong> layers.</p>
+    <p><strong>Analogy:</strong> Imagine a brilliant student who has already mastered reading and writing (the frozen LLM) and separately mastered visual perception (the frozen vision encoder). Flamingo is like giving this student a new skill: the ability to *seamlessly integrate* what they see with what they read to answer questions or describe scenes, even if they've only seen a few examples of that specific task (few-shot learning). The "gated cross-attention" is their internal mechanism for deciding *how much* to let what they see influence their thoughts at any given moment.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Flamingo achieves state-of-the-art few-shot visual reasoning by keeping large pre-trained vision and language models <strong>frozen</strong>, and only training lightweight <strong>gated cross-attention</strong> layers to fuse visual information into the language stream. This avoids expensive joint training and catastrophic forgetting.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Flamingo Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The High-Level Architecture</h4>
+    <p>Flamingo's architecture is a clever interleaving of a frozen vision encoder, a Perceiver Resampler, and a frozen language model. The key idea is to inject visual information into the language model's processing stream at strategic points:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Frozen Vision Encoder:</strong> An image (or video frame) is passed through a pre-trained vision model (e.g., a large ResNet or ViT). This produces a grid of high-dimensional visual features.</li>
+      <li><strong>Perceiver Resampler:</strong> The vision encoder typically outputs a very long sequence of features (e.g., 256x256 image patches = 65,536 tokens). To make this computationally tractable for the LLM, a Perceiver Resampler processes these features and outputs a much shorter, fixed-size sequence of "visual tokens" (e.g., 64 or 128 tokens), effectively summarizing the image.</li>
+      <li><strong>Frozen Language Model with Gated Cross-Attention:</strong> The LLM (a Transformer decoder) processes text tokens. However, every few layers, a <strong>Gated Cross-Attention</strong> block is inserted. These blocks allow the text tokens (as queries) to attend to the visual tokens (as keys and values), injecting visual context into the language representation.</li>
+    </ol>
+
+    <h4>The Gating Mechanism: Modulating Visual Influence</h4>
+    <p>The "gated" aspect of cross-attention is crucial. Each Gated Cross-Attention block has a learned scalar parameter, \(g\), which is passed through a sigmoid function, \(\sigma(g)\), to produce a gate value between 0 and 1. This gate explicitly controls how much of the new visual information (from cross-attention) is added to the existing language representation via a residual connection. If \(\sigma(g)\) is close to 0, the visual input is largely ignored; if it's close to 1, the visual input strongly influences the language token.</p>
+
+    <h4>Design Decision: Why Freeze Pre-Trained Models?</h4>
+    <p>The decision to freeze the large vision and language models and only train the Perceiver Resampler and Gated Cross-Attention layers offers several advantages:</p>
+    <ul>
+      <li><strong>Efficiency:</strong> Training billions of parameters from scratch is computationally prohibitive. Freezing leverages existing, powerful knowledge.</li>
+      <li><strong>Stability:</strong> It prevents "catastrophic forgetting" where fine-tuning a large model on a new task might degrade its performance on its original pre-training domain.</li>
+      <li><strong>Modularity:</strong> Flamingo provides a general framework. Different vision encoders or LLMs can be plugged in.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The Perceiver Resampler compresses high-dimensional visual features into a fixed, short sequence. The Gated Cross-Attention then selectively injects this compressed visual information into the language model's hidden states, allowing the model to adaptively blend modalities without retraining the core foundation models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math of Gated Cross-Attention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Standard Multi-Head Attention</h4>
+    <p>Before diving into gated cross-attention, recall the standard scaled dot-product attention. Given query \(Q\), key \(K\), and value \(V\) matrices, the output is:</p>
+    <div class="eq">$$ \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q K^\top}{\sqrt{d_k}}\right) V $$</div>
+    <p>In a Transformer decoder, language tokens typically perform self-attention (Q, K, V all from language tokens). In cross-attention, \(Q\) comes from one modality (language) and \(K, V\) from another (vision).</p>
+
+    <h4>Gated Cross-Attention Block</h4>
+    <p>A Gated Cross-Attention block in Flamingo takes the current language token embedding \(x_L\) (after some self-attention layers) and the sequence of visual features \(F_I\) (from the Perceiver Resampler). It computes cross-attention, passes it through a feed-forward network (MLP), and then uses a learnable gate to combine this visual information with the original language embedding via a residual connection. For a language token \(x_L\), the output \(y_L\) is:</p>
+    <div class="eq">$$ \text{AttentionOutput} = \text{Attention}(Q=x_L, K=F_I, V=F_I) $$</div>
+    <p>This AttentionOutput is then projected through a small MLP:</p>
+    <div class="eq">$$ \text{MLPOutput} = \text{MLP}(\text{AttentionOutput}) $$</div>
+    <p>Finally, the gating mechanism is applied. Let \(g\) be a learnable scalar parameter for this block. The gate value \(\lambda = \sigma(g)\) (where \(\sigma\) is the sigmoid function) determines the mixing strength. The final output \(y_L\) is:</p>
+    <div class="eq">$$ y_L = x_L + \sigma(g) \cdot \text{MLPOutput} $$</div>
+    <p>This formulation allows the model to learn, for each cross-attention block, how much visual information to inject. If \(g\) is very negative, \(\sigma(g) \approx 0\), and \(y_L \approx x_L\) (visual information is mostly ignored). If \(g\) is very positive, \(\sigma(g) \approx 1\), and \(y_L \approx x_L + \text{MLPOutput}\) (visual information is fully incorporated). This adaptive mixing is critical for few-shot learning, as different tasks might require varying degrees of visual grounding.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The gating parameter \(g\) is a <strong>learnable scalar</strong>, not a dynamic value computed per token. It's fixed for a given Gated Cross-Attention block, allowing the model to learn a stable mixing ratio. The dynamism comes from the cross-attention itself, which computes context-specific visual information.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a single Gated Cross-Attention block. Observe how a language token (query) attends to visual features (keys/values), and how the learnable gate parameter \(\sigma(g)\) controls the injection of visual information into the language stream. Drag the slider to see the gate's effect live.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Gate parameter g</div>
+          <input type="range" id="gSlider" min="-5" max="5" step="0.1" value="0">
+          <div class="slider-value" id="gValue">0.0</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Sigmoid(g) = 0.50 → 50% visual info mixed in</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial State</div>
+        <div class="info-desc" id="infoDesc">Initializing the Gated Cross-Attention block.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Language Token</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Visual Features</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Attention Scores</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Gate Value</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Final Output</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Flamingo's approach:</strong></p>
+    <ul>
+      <li>When you need strong few-shot visual reasoning capabilities.</li>
+      <li>When you have access to powerful pre-trained vision and language models and want to combine them efficiently.</li>
+      <li>For tasks requiring deep integration of visual and textual context, such as complex visual question answering, image captioning, or multimodal dialogue.</li>
+      <li>To build general-purpose VLMs that can quickly adapt to new multimodal tasks with minimal examples.</li>
+    </ul>
+    <p><strong>Limitations and Considerations:</strong></p>
+    <ul>
+      <li><strong>Computational Cost:</strong> While efficient in training new components, the underlying frozen vision and language models are still very large, making inference expensive.</li>
+      <li><strong>Data Dependency:</strong> Requires massive interleaved image-text datasets (like WebLI) for pre-training the new components, which are hard to acquire.</li>
+      <li><strong>Black Box:</strong> Like many large neural networks, the exact reasoning process remains opaque.</li>
+      <li><strong>Still relies on pre-trained models:</strong> Performance is heavily dependent on the quality and capabilities of the initial frozen vision and language models.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Flamingo pioneered a highly effective paradigm for building powerful Visual Language Models: leverage existing, frozen unimodal expertise, and introduce lightweight, trainable "adapter" modules (Perceiver Resampler + Gated Cross-Attention) to bridge the modalities. This modularity and efficiency have inspired many subsequent VLM architectures.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudo-code)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class GatedCrossAttentionBlock(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, dim, num_heads, ff_dim, dropout=0.1):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)</div>
+      <div class="code-line" id="cl8">        self.mlp = nn.Sequential(</div>
+      <div class="code-line" id="cl9">            nn.Linear(dim, ff_dim),</div>
+      <div class="code-line" id="cl10">            nn.GELU(),</div>
+      <div class="code-line" id="cl11">            nn.Linear(ff_dim, dim),</div>
+      <div class="code-line" id="cl12">            nn.Dropout(dropout)</div>
+      <div class="code-line" id="cl13">        )</div>
+      <div class="code-line" id="cl14">        self.ln1 = nn.LayerNorm(dim)</div>
+      <div class="code-line" id="cl15">        self.ln2 = nn.LayerNorm(dim)</div>
+      <div class="code-line" id="cl16">        self.gate = nn.Parameter(torch.zeros(1)) # Learnable scalar gate parameter 'g'</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">    def forward(self, lang_token_embed, visual_features):</div>
+      <div class="code-line" id="cl19">        # lang_token_embed: (B, 1, D) - single language token (or sequence)</div>
+      <div class="code-line" id="cl20">        # visual_features: (B, N_vis, D) - sequence of visual features</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">        # Cross-attention: Q=lang, K=vis, V=vis</div>
+      <div class="code-line" id="cl23">        attn_output, _ = self.attn(lang_token_embed, visual_features, visual_features)</div>
+      <div class="code-line" id="cl24">        attn_output = self.ln1(attn_output)</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">        # MLP projection</div>
+      <div class="code-line" id="cl27">        mlp_output = self.mlp(attn_output)</div>
+      <div class="code-line" id="cl28">        mlp_output = self.ln2(mlp_output)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">        # Gating mechanism (sigma(g) * MLP_output) + residual connection</div>
+      <div class="code-line" id="cl31">        gate_value = F.sigmoid(self.gate)</div>
+      <div class="code-line" id="cl32">        output = lang_token_embed + gate_value * mlp_output</div>
+      <div class="code-line" id="cl33">        return output</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35"># Example usage in a simplified Flamingo-like model:</div>
+      <div class="code-line" id="cl36"># class FlamingoModel(nn.Module):</div>
+      <div class="code-line" id="cl37">#     def __init__(self, vision_encoder, lang_model, perceiver_resampler, num_gated_blocks=4):</div>
+      <div class="code-line" id="cl38">#         super().__init__()</div>
+      <div class="code-line" id="cl39">#         self.vision_encoder = vision_encoder # Frozen</div>
+      <div class="code-line" id="cl40">#         self.lang_model = lang_model         # Frozen (e.g., GPT-like Transformer)</div>
+      <div class="code-line" id="cl41">#         self.perceiver_resampler = perceiver_resampler # Trainable</div>
+      <div class="code-line" id="cl42">#         self.gated_blocks = nn.ModuleList([</div>
+      <div class="code-line" id="cl43">#             GatedCrossAttentionBlock(dim=lang_model.embed_dim, num_heads=8, ff_dim=2048)</div>
+      <div class="code-line" id="cl44">#             for _ in range(num_gated_blocks)</div>
+      <div class="code-line" id="cl45">#         ])</div>
+      <div class="code-line" id="cl46">#</div>
+      <div class="code-line" id="cl47">#     def forward(self, pixel_values, input_ids):</div>
+      <div class="code-line" id="cl48">#         # 1. Vision branch</div>
+      <div class="code-line" id="cl49">#         with torch.no_grad(): # Keep vision encoder frozen</div>
+      <div class="code-line" id="cl50">#             raw_visual_features = self.vision_encoder(pixel_values) # (B, H*W, D_raw)</div>
+      <div class="code-line" id="cl51">#         visual_features = self.perceiver_resampler(raw_visual_features) # (B, N_vis, D)</div>
+      <div class="code-line" id="cl52">#</div>
+      <div class="code-line" id="cl53">#         # 2. Language branch (simplified: directly process input_ids)</div>
+      <div class="code-line" id="cl54">#         lang_embeds = self.lang_model.get_input_embeddings()(input_ids) # (B, N_lang, D)</div>
+      <div class="code-line" id="cl55">#</div>
+      <div class="code-line" id="cl56">#         # 3. Interleave language blocks with gated cross-attention</div>
+      <div class="code-line" id="cl57">#         #    (This is a simplified representation; real LLMs have many layers)</div>
+      <div class="code-line" id="cl58">#         output_lang_embeds = lang_embeds</div>
+      <div class="code-line" id="cl59">#         for i, lang_block in enumerate(self.lang_model.transformer.h): # Iterate through LLM layers</div>
+      <div class="code-line" id="cl60">#             output_lang_embeds = lang_block(output_lang_embeds) # Standard LLM self-attention</div>
+      <div class="code-line" id="cl61">#             if i < len(self.gated_blocks): # Inject visual info at certain layers</div>
+      <div class="code-line" id="cl62">#                 output_lang_embeds = self.gated_blocks[i](output_lang_embeds, visual_features)</div>
+      <div class="code-line" id="cl63">#         # Final LLM output (e.g., for next token prediction)</div>
+      <div class="code-line" id="cl64">#         return self.lang_model.lm_head(output_lang_embeds)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILITIES ──
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
+
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exp = arr.map(Math.exp);
+  const sum = exp.reduce((a, b) => a + b, 0);
+  return exp.map(v => v / sum);
+}
+
+function dotProduct(v1, v2) {
+  return v1.reduce((sum, val, i) => sum + val * v2[i], 0);
+}
+
+function matrixMultiply(mat1, mat2) {
+  const result = Array(mat1.length).fill(0).map(() => Array(mat2[0].length).fill(0));
+  for (let i = 0; i < mat1.length; i++) {
+    for (let j = 0; j < mat2[0].length; j++) {
+      for (let k = 0; k < mat1[0].length; k++) {
+        result[i][j] += mat1[i][k] * mat2[k][j];
+      }
+    }
+  }
+  return result;
+}
+
+function transpose(matrix) {
+  return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
+}
+
+function scaleVector(vec, scalar) {
+  return vec.map(v => v * scalar);
+}
+
+function addVectors(v1, v2) {
+  return v1.map((val, i) => val + v2[i]);
+}
+
+function generateRandomVector(dim, range = 1) {
+    return Array.from({ length: dim }, () => (Math.random() * 2 - 1) * range);
+}
+
+function generateRandomMatrix(rows, cols, range = 1) {
+    return Array.from({ length: rows }, () => generateRandomVector(cols, range));
+}
+
+// ── DATA & SIMULATION ──
+const D_MODEL = 64; // Embedding dimension
+const N_VIS_TOKENS = 8; // Number of visual features from Perceiver Resampler
+
+// Fixed random inputs for reproducibility
+const SEED = 42;
+let currentSeed = SEED;
+function seededRandom() {
+    const x = Math.sin(currentSeed++) * 10000;
+    return x - Math.floor(x);
+}
+function generateSeededVector(dim, range = 1) {
+    const vec = [];
+    for (let i = 0; i < dim; i++) vec.push((seededRandom() * 2 - 1) * range);
+    return vec;
+}
+function generateSeededMatrix(rows, cols, range = 1) {
+    const mat = [];
+    for (let i = 0; i < rows; i++) mat.push(generateSeededVector(cols, range));
+    return mat;
+}
+
+let langTokenEmbed; // (1, D_MODEL)
+let visualFeatures; // (N_VIS_TOKENS, D_MODEL)
+
+let W_Q, W_K, W_V; // Projection matrices for Q, K, V
+let MLP_W1, MLP_B1, MLP_W2, MLP_B2; // MLP weights
+
+function resetSimulationData() {
+  currentSeed = SEED;
+  langTokenEmbed = generateSeededVector(D_MODEL, 0.5);
+  visualFeatures = generateSeededMatrix(N_VIS_TOKENS, D_MODEL, 0.8);
+
+  W_Q = generateSeededMatrix(D_MODEL, D_MODEL, 0.1);
+  W_K = generateSeededMatrix(D_MODEL, D_MODEL, 0.1);
+  W_V = generateSeededMatrix(D_MODEL, D_MODEL, 0.1);
+
+  MLP_W1 = generateSeededMatrix(D_MODEL, D_MODEL * 2, 0.05);
+  MLP_B1 = generateSeededVector(D_MODEL * 2, 0.01);
+  MLP_W2 = generateSeededMatrix(D_MODEL * 2, D_MODEL, 0.05);
+  MLP_B2 = generateSeededVector(D_MODEL, 0.01);
+}
+
+resetSimulationData(); // Initialize data on load
+
+function simulateFlamingoBlock(g_param) {
+  // 1. Project Q, K, V
+  const query = matrixMultiply([langTokenEmbed], W_Q)[0]; // (D_MODEL)
+  const keys = matrixMultiply(visualFeatures, W_K); // (N_VIS_TOKENS, D_MODEL)
+  const values = matrixMultiply(visualFeatures, W_V); // (N_VIS_TOKENS, D_MODEL)
+
+  // 2. Compute Attention Scores
+  const scores_raw = [];
+  for (let i = 0; i < N_VIS_TOKENS; i++) {
+    scores_raw.push(dotProduct(query, keys[i]));
+  }
+  const d_k_sqrt = Math.sqrt(D_MODEL);
+  const scaled_scores = scores_raw.map(s => s / d_k_sqrt);
+
+  // 3. Softmax
+  const attentionWeights = softmax(scaled_scores);
+
+  // 4. Weighted sum of Values
+  const attnOutput = Array(D_MODEL).fill(0);
+  for (let i = 0; i < N_VIS_TOKENS; i++) {
+    for (let d = 0; d < D_MODEL; d++) {
+      attnOutput[d] += attentionWeights[i] * values[i][d];
+    }
+  }
+
+  // 5. MLP Projection (simplified GELU)
+  const mlp_hidden = Array(D_MODEL * 2).fill(0);
+  for (let j = 0; j < D_MODEL * 2; j++) {
+    let sum = MLP_B1[j];
+    for (let i = 0; i < D_MODEL; i++) sum += attnOutput[i] * MLP_W1[i][j];
+    mlp_hidden[j] = sum > 0 ? sum : sum * 0.01; // Simplified GELU (ReLU-like)
+  }
+
+  const mlp_output = Array(D_MODEL).fill(0);
+  for (let j = 0; j < D_MODEL; j++) {
+    let sum = MLP_B2[j];
+    for (let i = 0; i < D_MODEL * 2; i++) sum += mlp_hidden[i] * MLP_W2[i][j];
+    mlp_output[j] = sum;
+  }
+
+  // 6. Gating Mechanism
+  const gate_value = sigmoid(g_param);
+  const gated_mlp_output = scaleVector(mlp_output, gate_value);
+
+  // 7. Residual Connection
+  const final_output = addVectors(langTokenEmbed, gated_mlp_output);
+
+  return {
+    query, keys, values,
+    scores_raw, scaled_scores, attentionWeights,
+    attnOutput,
+    mlp_hidden, mlp_output,
+    gate_value, gated_mlp_output,
+    final_output
+  };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Input Embeddings',
+    desc: `A single language token embedding \\(x_L\\) (e.g., for "a") enters the block. Alongside, a sequence of \\(${N_VIS_TOKENS}\\) visual features \\(F_I\\) (summarized by the Perceiver Resampler from an image) is provided. Both are \\(D_{model}=${D_MODEL}\\)-dimensional vectors.`,
+    codeLines: [18,19,20],
+    highlight: ['lang_input', 'vis_input'],
+    numbers: (res) => `Language token (x_L) vector: [${res.langTokenEmbed.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]\nVisual features (F_I) shape: (${N_VIS_TOKENS}, ${D_MODEL})`
+  },
+  {
+    phase: 'attention', title: 'Query, Key, Value Projections',
+    desc: `The language token \\(x_L\\) is projected to a Query vector \\(Q_L\\). Each visual feature \\(F_{I,j}\\) is projected to a Key \\(K_j\\) and a Value \\(V_j\\). These projections happen via learned weight matrices \\(W_Q, W_K, W_V\\).`,
+    codeLines: [22,23],
+    highlight: ['lang_input', 'vis_input', 'query', 'keys', 'values'],
+    numbers: (res) => `Query (Q_L) vector: [${res.query.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]\nKeys (K) shape: (${N_VIS_TOKENS}, ${D_MODEL})\nValues (V) shape: (${N_VIS_TOKENS}, ${D_MODEL})`
+  },
+  {
+    phase: 'attention', title: 'Compute Attention Scores',
+    desc: `The Query \\(Q_L\\) is dot-producted with each Key \\(K_j\\) to measure similarity. These raw scores are then scaled by \\(1/\\sqrt{D_{model}}\\). A high score means the language token is highly relevant to that specific visual feature.`,
+    codeLines: [22,23], // still relevant
+    highlight: ['query', 'keys', 'scores'],
+    numbers: (res) => `Raw scores: [${res.scores_raw.map(v=>v.toFixed(2)).join(', ')}]\nScaled scores: [${res.scaled_scores.map(v=>v.toFixed(2)).join(', ')}]`
+  },
+  {
+    phase: 'attention', title: 'Softmax & Weighted Sum',
+    desc: `A softmax function is applied to the scaled scores to get attention weights, \\(w_j\\), which sum to 1. These weights are then used to compute a weighted sum of the Value vectors \\(V_j\\), producing the \\(AttentionOutput\\).`,
+    codeLines: [23], // still relevant
+    highlight: ['attention_weights', 'values', 'attn_output'],
+    numbers: (res) => `Attention weights: [${res.attentionWeights.map(v=>v.toFixed(2)).join(', ')}]\nAttentionOutput vector: [${res.attnOutput.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]`
+  },
+  {
+    phase: 'attention', title: 'MLP Projection',
+    desc: `The \\(AttentionOutput\\) (which is a summary of relevant visual information for \\(x_L\\)) is passed through a small Multi-Layer Perceptron (MLP). This MLP further processes and transforms the visual information before it's injected into the language stream.`,
+    codeLines: [26,27,28],
+    highlight: ['attn_output', 'mlp_output'],
+    numbers: (res) => `MLPOutput vector: [${res.mlp_output.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]`
+  },
+  {
+    phase: 'gate', title: 'Gate Parameter g',
+    desc: `A learnable scalar parameter \\(g\\) is specific to this Gated Cross-Attention block. Its value (controlled by the slider) will determine how strongly visual information influences the language token.`,
+    codeLines: [16],
+    highlight: ['gate_param'],
+    numbers: (res, g_param) => `Gate parameter (g): ${g_param.toFixed(2)}`
+  },
+  {
+    phase: 'gate', title: 'Sigmoid Gate Value σ(g)',
+    desc: `The gate parameter \\(g\\) is passed through a sigmoid function, \\(\\sigma(g)\\), to produce a value between 0 and 1. This is the actual gate value, \(\\lambda\\), representing the "strength" of visual information to be added.`,
+    codeLines: [31],
+    highlight: ['gate_value'],
+    numbers: (res, g_param) => `Gate parameter (g): ${g_param.toFixed(2)}\nSigmoid(g) = ${res.gate_value.toFixed(2)}`
+  },
+  {
+    phase: 'result', title: 'Gated Residual Connection',
+    desc: `The \\(MLPOutput\\) (visual information) is scaled by the sigmoid gate value \\(\\sigma(g)\\). This scaled visual information is then added to the original language token embedding \\(x_L\\) via a residual connection: \\(y_L = x_L + \\sigma(g) \\cdot \\text{MLPOutput}\\).`,
+    codeLines: [32],
+    highlight: ['lang_input', 'gated_mlp_output', 'final_output'],
+    numbers: (res, g_param) => `Original x_L: [${langTokenEmbed.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]\nScaled MLPOutput: [${res.gated_mlp_output.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]\nSigmoid(g) = ${res.gate_value.toFixed(2)}`
+  },
+  {
+    phase: 'result', title: 'Final Output Language Token',
+    desc: `The output \\(y_L\\) is the new language token embedding, now enriched with visual information from the image, modulated by the learned gate. This \\(y_L\\) then continues through subsequent language model layers.`,
+    codeLines: [32,33],
+    highlight: ['final_output'],
+    numbers: (res) => `Final Output (y_L) vector: [${res.final_output.slice(0,5).map(v=>v.toFixed(2)).join(', ')} ...]`
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let gParam = 0;
+let currentSimulationResult = simulateFlamingoBlock(gParam);
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  gParam = 0;
+  document.getElementById('gSlider').value = gParam;
+  updateGLabel();
+  resetSimulationData();
+  render();
+}
+
+// ── SLIDER ──
+const gSlider = document.getElementById('gSlider');
+gSlider.addEventListener('input', () => { updateGLabel(); render(); });
+function updateGLabel() {
+  gParam = parseFloat(gSlider.value);
+  document.getElementById('gValue').textContent = gParam.toFixed(1);
+  const sigmoid_g = sigmoid(gParam);
+  document.getElementById('sliderHint').textContent =
+    `Sigmoid(g) = ${sigmoid_g.toFixed(2)} → ${(sigmoid_g * 100).toFixed(0)}% visual info mixed in`;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+  currentSimulationResult = simulateFlamingoBlock(gParam);
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = { setup: 'phase-setup', attention: 'phase-attention', gate: 'phase-gate', result: 'phase-result' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+  document.getElementById('infoNumbers').textContent = s.numbers ? s.numbers(currentSimulationResult, gParam) : '';
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.highlight || [], currentSimulationResult);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(highlightElements, simResult) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const colors = {
+    bg2: col('--bg2'), text: col('--text'), text2: col('--text2'), text3: col('--text3'),
+    border: col('--border'), blue: col('--blue-mid'), green: col('--green-mid'),
+    amber: col('--amber-mid'), purple: col('--purple-mid'), cyan: col('--cyan-mid'),
+    red: col('--red-mid')
+  };
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Drawing parameters
+  const boxW = 80, boxH = 30;
+  const visBoxW = 40, visBoxH = 20;
+  const arrowL = 20;
+  const padding = 20;
+
+  // Positions
+  const x_in = padding;
+  const x_query = x_in + boxW + arrowL + 20;
+  const x_attn_scores = x_query + boxW + arrowL + 20;
+  const x_attn_output = x_attn_scores + boxW + arrowL + 20;
+  const x_mlp_output = x_attn_output + boxW + arrowL + 20;
+  const x_gate = x_mlp_output + boxW + arrowL + 20;
+  const x_final = x_gate + boxW + arrowL + 20;
+
+  const y_lang_input = H / 2 - boxH / 2;
+  const y_vis_input_start = padding;
+  const y_vis_input_end = H - padding - visBoxH;
+  const y_query = y_lang_input;
+  const y_keys_start = y_vis_input_start;
+  const y_keys_end = y_vis_input_end;
+  const y_values_start = y_vis_input_start;
+  const y_values_end = y_vis_input_end;
+  const y_attn_scores = H / 2 - boxH / 2;
+  const y_attn_output = y_lang_input;
+  const y_mlp_output = y_lang_input;
+  const y_gate_param = y_lang_input - boxH - 20; // Above the main flow
+  const y_gate_value = y_lang_input - boxH - 20;
+  const y_final_output = y_lang_input;
+
+  const arrow = (x1, y1, x2, y2, color, thickness, dash = []) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // Arrowhead
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 8 * Math.cos(angle - Math.PI / 6), y2 - 8 * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 8 * Math.cos(angle + Math.PI / 6), y2 - 8 * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  const drawBox = (x, y, w, h, text, color, highlight) => {
+    ctx.fillStyle = highlight ? color : colors.bg2;
+    ctx.strokeStyle = highlight ? color : colors.border;
+    ctx.lineWidth = highlight ? 2 : 1;
+    ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = highlight ? (colors.bg2 === '#222224' ? 'white' : colors.text) : colors.text2;
+    ctx.font = '600 12px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2);
+  };
+
+  const drawVisTokens = (x, y_start, y_end, highlight) => {
+    const tokenH = (y_end - y_start - (N_VIS_TOKENS - 1) * 4) / N_VIS_TOKENS;
+    for (let i = 0; i < N_VIS_TOKENS; i++) {
+      const y = y_start + i * (tokenH + 4);
+      ctx.fillStyle = highlight ? colors.amber : colors.bg2;
+      ctx.strokeStyle = highlight ? colors.amber : colors.border;
+      ctx.lineWidth = highlight ? 2 : 1;
+      ctx.roundRect ? ctx.roundRect(x, y, visBoxW, tokenH, 3) : ctx.rect(x, y, visBoxW, tokenH);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = highlight ? (colors.bg2 === '#222224' ? 'white' : colors.text) : colors.text2;
+      ctx.font = '10px ' + colors.mono;
+      ctx.fillText(`F_I[${i}]`, x + visBoxW / 2, y + tokenH / 2);
+    }
+  };
+
+  // --- Draw Elements ---
+
+  // 1. Language Token Input
+  drawBox(x_in, y_lang_input, boxW, boxH, "x_L", colors.blue, highlightElements.includes('lang_input'));
+  arrow(x_in + boxW, y_lang_input + boxH / 2, x_query, y_query + boxH / 2, colors.blue, 1.5, highlightElements.includes('lang_input') ? [] : [4,4]);
+
+  // 2. Visual Features Input
+  drawVisTokens(x_in, y_vis_input_start, y_vis_input_end, highlightElements.includes('vis_input'));
+  arrow(x_in + visBoxW / 2, y_vis_input_end + visBoxH / 2, x_query - 10, y_query + boxH / 2 + 10, colors.amber, 1.5, highlightElements.includes('vis_input') ? [] : [4,4]);
+  arrow(x_in + visBoxW / 2, y_vis_input_end + visBoxH / 2, x_query - 10, y_query + boxH / 2 - 10, colors.amber, 1.5, highlightElements.includes('vis_input') ? [] : [4,4]);
+
+
+  // 3. Query, Key, Value Projections
+  drawBox(x_query, y_query, boxW, boxH, "Q_L", colors.blue, highlightElements.includes('query'));
+  drawVisTokens(x_query, y_keys_start, y_keys_end, highlightElements.includes('keys'));
+  ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans;
+  ctx.fillText("Keys (K)", x_query + visBoxW/2, y_keys_start - 10);
+  drawVisTokens(x_query + visBoxW + 10, y_values_start, y_values_end, highlightElements.includes('values'));
+  ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans;
+  ctx.fillText("Values (V)", x_query + visBoxW*1.5 + 10, y_values_start - 10);
+
+
+  // 4. Attention Scores
+  const scoresX = x_attn_scores + boxW / 2;
+  const scoresY = y_attn_scores + boxH / 2;
+  const scoreBarW = 8;
+  const scoreBarHScale = 30;
+  const maxScore = Math.max(...simResult.attentionWeights);
+
+  if (highlightElements.includes('scores') || highlightElements.includes('attention_weights')) {
+    ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans;
+    ctx.fillText("Attention Scores", scoresX, scoresY - boxH / 2 - 10);
+    for (let i = 0; i < N_VIS_TOKENS; i++) {
+      const barH = simResult.attentionWeights[i] * scoreBarHScale;
+      const barX = scoresX + (i - N_VIS_TOKENS / 2) * (scoreBarW + 2);
+      ctx.fillStyle = colors.cyan;
+      ctx.fillRect(barX, scoresY - barH / 2, scoreBarW, barH);
+      ctx.strokeStyle = colors.cyan;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, scoresY - barH / 2, scoreBarW, barH);
+      ctx.fillStyle = colors.text2;
+      ctx.font = '8px ' + colors.mono;
+      ctx.fillText(simResult.attentionWeights[i].toFixed(2), barX + scoreBarW / 2, scoresY - barH / 2 - 5);
+    }
+  } else {
+    drawBox(x_attn_scores, y_attn_scores, boxW, boxH, "Scores", colors.cyan, false);
+  }
+
+  arrow(x_query + boxW, y_query + boxH / 2, x_attn_scores, y_attn_scores + boxH / 2, colors.cyan, 1.5, highlightElements.includes('scores') ? [] : [4,4]);
+  arrow(x_query + visBoxW + 10 + visBoxW/2, y_values_start + N_VIS_TOKENS/2 * (visBoxH+4), x_attn_scores, y_attn_scores + boxH/2, colors.cyan, 1.5, highlightElements.includes('scores') ? [] : [4,4]);
+
+
+  // 5. Attention Output
+  drawBox(x_attn_output, y_attn_output, boxW, boxH, "AttnOutput", colors.amber, highlightElements.includes('attn_output'));
+  arrow(x_attn_scores + boxW, y_attn_scores + boxH / 2, x_attn_output, y_attn_output + boxH / 2, colors.amber, 1.5, highlightElements.includes('attn_output') ? [] : [4,4]);
+
+  // 6. MLP Output
+  drawBox(x_mlp_output, y_mlp_output, boxW, boxH, "MLPOutput", colors.amber, highlightElements.includes('mlp_output'));
+  arrow(x_attn_output + boxW, y_attn_output + boxH / 2, x_mlp_output, y_mlp_output + boxH / 2, colors.amber, 1.5, highlightElements.includes('mlp_output') ? [] : [4,4]);
+
+  // 7. Gate Parameter g
+  ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans; ctx.textAlign = 'left';
+  ctx.fillText("g (slider)", x_gate + boxW/2 - 20, y_gate_param - 10);
+  drawBox(x_gate, y_gate_param, boxW, boxH, gParam.toFixed(1), colors.purple, highlightElements.includes('gate_param'));
+
+  // 8. Sigmoid Gate Value σ(g)
+  ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans; ctx.textAlign = 'left';
+  ctx.fillText("σ(g)", x_gate + boxW/2 - 10, y_gate_value + boxH + 10);
+  drawBox(x_gate, y_gate_value + boxH + 20, boxW, boxH, simResult.gate_value.toFixed(2), colors.purple, highlightElements.includes('gate_value'));
+  arrow(x_gate + boxW / 2, y_gate_param + boxH, x_gate + boxW / 2, y_gate_value + boxH + 20, colors.purple, 1.5, highlightElements.includes('gate_value') ? [] : [4,4]);
+
+
+  // 9. Gated MLP Output
+  const gatedMlpOutputX = x_mlp_output + boxW / 2;
+  const gatedMlpOutputY = y_mlp_output + boxH + 20;
+  ctx.fillStyle = colors.text3; ctx.font = '10px ' + colors.sans; ctx.textAlign = 'center';
+  ctx.fillText("σ(g) * MLPOutput", gatedMlpOutputX, gatedMlpOutputY - 10);
+  drawBox(gatedMlpOutputX - boxW/2, gatedMlpOutputY, boxW, boxH, "Scaled Vis Info", colors.purple, highlightElements.includes('gated_mlp_output'));
+  arrow(x_gate + boxW/2, y_gate_value + boxH + 20 + boxH, gatedMlpOutputX, gatedMlpOutputY, colors.purple, 1.5, highlightElements.includes('gated_mlp_output') ? [] : [4,4]);
+  arrow(x_mlp_output + boxW/2, y_mlp_output + boxH, gatedMlpOutputX, gatedMlpOutputY, colors.purple, 1.5, highlightElements.includes('gated_mlp_output') ? [] : [4,4]);
+
+  // 10. Residual Connection (horizontal arrow from lang_input, then down to final)
+  ctx.strokeStyle = colors.blue; ctx.lineWidth = 1.5; ctx.setLineDash(highlightElements.includes('lang_input') ? [] : [4,4]);
+  ctx.beginPath();
+  ctx.moveTo(x_in + boxW / 2, y_lang_input + boxH / 2); // Start at input lang token
+  ctx.lineTo(x_final - boxW/2 - 10, y_lang_input + boxH / 2); // Go almost to final output
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 11. Final Output
+  drawBox(x_final - boxW/2, y_final_output, boxW, boxH, "y_L", colors.green, highlightElements.includes('final_output'));
+  arrow(gatedMlpOutputX, gatedMlpOutputY + boxH, x_final, y_final_output + boxH / 2, colors.green, 1.5, highlightElements.includes('final_output') ? [] : [4,4]);
+  arrow(x_final - boxW/2 - 10, y_lang_input + boxH / 2, x_final - boxW/2, y_final_output + boxH / 2, colors.green, 1.5, highlightElements.includes('final_output') ? [] : [4,4]);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateGLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].highlight || [], currentSimulationResult));
+</script>
+</body>
+</html>

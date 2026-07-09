@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(AI, "campaign", "nvidia"))
 from gemini_client import GeminiClient
 import prompts  # reuse the NVIDIA html prompt spec
 
-EXPLAINERS = os.path.join(AI, "explainers")
+EXPLAINERS = os.path.join(AI, "AI", "explainers")
 # diverse, high-quality references so Gemini learns the design system + varied viz types
 # Ample, diverse references so Gemini nails the house style across viz types.
 # (Daily quota is per-REQUEST not per-token, so more examples don't cost quota.)

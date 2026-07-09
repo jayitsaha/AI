@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Context Length: PI, YaRN, NTK-aware Scaling — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Stat pills */
+.stat-row{display:flex;gap:10px;flex-wrap:wrap;margin:0.75rem 0;justify-content:center;}
+.stat-pill{background:var(--bg2);border-radius:var(--radius);padding:8px 14px;font-family:var(--mono);font-size:12px;}
+.stat-pill b{color:var(--purple-mid);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-solution{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-yarn_intro{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-yarn_freq{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-yarn_attn{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-yarn_full{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--blue-bg);color:var(--blue-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Context Length Extension: PI, YaRN, NTK-aware Scaling</h1>
+  <div class="subtitle">Training LLMs for longer contexts with Position Interpolation, YaRN, and NTK-aware RoPE scaling</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">LLMs</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Context Length Limitations</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Large Language Models (LLMs) based on the Transformer architecture have a fundamental limitation on the maximum sequence length they can process, known as their "context window" or "context length." This limit is primarily imposed by their positional encodings (PEs), which are designed or learned for a specific range of token positions.</p>
+    <p><strong>Analogy:</strong> Imagine a digital library where each book has a fixed number of pages, say 2048. The library's indexing system (positional encodings) is built specifically for books of this size. If you try to load a book with 8192 pages into this system, the index gets confused, page references become meaningless, and the system can't reliably find information beyond page 2048. Extending context length is like upgrading the library's indexing system to handle much larger books without rebuilding the entire library from scratch.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Positional encodings (like Rotary Positional Embeddings, RoPE) are crucial for a Transformer to understand sequence order. However, these encodings do not generalize well to token positions far beyond their training range. This <strong>extrapolation problem</strong> leads to severe performance degradation when LLMs are fed inputs longer than their pre-trained context window.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">The Extrapolation Problem & Basic Solutions</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Root Cause: Positional Encodings</h4>
+    <p>Modern LLMs predominantly use Rotary Positional Embeddings (RoPE), which encode absolute position by rotating query and key embeddings in a way that naturally captures relative position. For a token at position \(m\) and dimension \(j\), RoPE applies a rotation based on \(m \cdot \theta_j\), where \(\theta_j = 1 / (\text{base}^{2j/d})\). While elegant, these rotations are effective only within the range of positions seen during pre-training (\(L_{orig}\)). Beyond this, the rotations become too large or too small, making relative position information noisy or meaningless.</p>
+
+    <h4>Naive Approaches and Their Drawbacks</h4>
+    <p>
+      <ul>
+        <li><strong>Full Fine-tuning on Longer Sequences:</strong> Simply continuing training on longer sequences is the most straightforward but also the most expensive approach. It requires significant computational resources, risks catastrophic forgetting of knowledge learned during original pre-training, and still struggles to generalize far beyond the new fine-tuning length.</li>
+        <li><strong>No Modification:</strong> Running the model with no changes on longer sequences. This typically leads to a sharp drop in performance, as the model cannot make sense of the out-of-distribution positional information.</li>
+      </ul>
+    </p>
+
+    <h4>Position Interpolation (PI): A Simple Fix</h4>
+    <p>Position Interpolation (Su et al., 2023) offers a surprisingly effective and computationally cheap solution. Instead of letting the model extrapolate, it *downscales* the input token indices. If a model was trained on context length \(L_{orig}\) and we want it to handle a new length \(L_{new}\), we simply map each input position \(m\) to a new effective position \(m' = m \cdot (L_{orig} / L_{new})\). This ensures that all positions within the new, longer context window are mapped back into the original, familiar range of positional encodings. The model then fine-tunes on this compressed range.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Position Interpolation works because the local continuity of RoPE's rotations allows the model to learn to interpret the "squished" positional information. It effectively increases the *density* of positions within the original learned range, rather than forcing extrapolation into unknown territory.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">YaRN & NTK-aware Scaling: The Theory</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Position Interpolation (PI) Recap</h4>
+    <p>For a token at absolute position \(m\) in a sequence of length \(L_{new}\), the effective position \(m'\) used for RoPE is:</p>
+    <div class="eq">$$m' = m \cdot \frac{L_{orig}}{L_{new}}$$</div>
+    <p>This simple scaling ensures that \(m' \in [0, L_{orig})\) for all \(m \in [0, L_{new})\). The RoPE embedding for position \(m\) and dimension \(j\) is then computed using \(m'\) and the original frequency \(\theta_j = 1 / (\text{base}^{2j/d})\).</p>
+
+    <h4>NTK-aware Scaling for RoPE Frequencies</h4>
+    <p>While PI is effective, simply compressing positions changes the distribution of relative distances between tokens. Neural Tangent Kernel (NTK) theory provides insights into how the "effective dimension" of RoPE changes with context length. To maintain similar kernel properties (and thus training stability/performance) at longer contexts, YaRN (Bolton et al., 2023) proposes adjusting the *base* frequency of RoPE. The original RoPE frequency is \(\theta_j = \text{base}^{-2j/d}\). YaRN modifies this base by a factor \(\text{scale}_{freq}\):</p>
+    <div class="eq">$$\theta'_j = (\text{base} \cdot \text{scale}_{freq})^{-2j/d}$$</div>
+    <p>A common approximation for \(\text{scale}_{freq}\) is derived from the ratio of new to original context lengths, often raised to a power, e.g., \(\text{scale}_{freq} = \left(\frac{L_{new}}{L_{orig}}\right)^\alpha\), where \(\alpha\) is a small exponent (e.g., 0.5 or derived from the fraction of RoPE dimensions). This effectively "stretches" the frequency spectrum to better match the expanded context.</p>
+
+    <h4>Attention Logit Temperature Scaling</h4>
+    <p>To complement the RoPE frequency scaling, YaRN also applies a temperature scaling to the attention logits. As context length increases, the dot products between query and key vectors can become larger, leading to sharper (or sometimes unstable) attention distributions. To counteract this, the attention logits are scaled down by a factor \(\text{scale}_{attn}\) before the softmax operation:</p>
+    <div class="eq}$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q K^\top}{\sqrt{d_k} \cdot \text{scale}_{attn}}\right) V$$</div>
+    <p>A typical choice for \(\text{scale}_{attn}\) is \(\sqrt{L_{new}/L_{orig}}\). This ensures that the attention distribution remains well-behaved across different context lengths, improving stability and performance during fine-tuning.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Practical Consideration</div>
+      <p style="font-size:14px;margin:0;">The specific formulas for \(\text{scale}_{freq}\) and \(\text{scale}_{attn}\) can vary slightly between implementations and papers. The core idea remains: carefully adjust positional encoding frequencies and attention logits to maintain the desired inductive biases and numerical stability when extending context. Incorrect scaling can lead to suboptimal performance or training instability.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how Position Interpolation and YaRN's scaling methods modify the effective position and RoPE base frequency for longer contexts. Drag the sliders to adjust context lengths and observe the real-time calculations.</p>
+
+    <div class="viz-container">
+      <div class="stat-row" id="statRow"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Original Context \(L_{orig}\)</div>
+          <input type="range" id="lOrigSlider" min="512" max="4096" step="128" value="2048">
+          <div class="slider-value" id="lOrigValue">2048</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Target Context \(L_{new}\)</div>
+          <input type="range" id="lNewSlider" min="2048" max="32768" step="128" value="8192">
+          <div class="slider-value" id="lNewValue">8192</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="enableYarnToggle" checked>
+          <label for="enableYarnToggle">Enable YaRN Scaling (Freq &amp; Attn)</label>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Problem: Fixed Context Length</div>
+        <div class="info-desc" id="infoDesc">Transformers rely on positional encodings (like RoPE) which are designed for a fixed maximum context length (e.g., 2048 tokens). The plot shows the original position mapping (identity line) and the RoPE base frequency.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--blue-mid)"></div> Original Position (Reference)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--green-mid)"></div> PI Effective Position</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> YaRN Effective RoPE Base</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Extrapolated Region</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use PI, YaRN, or NTK-aware scaling:</strong></p>
+    <ul>
+      <li>When you need to fine-tune an existing LLM to handle significantly longer input sequences (e.g., 2x, 4x, 8x the original context).</li>
+      <li>To enable LLMs to process entire documents, codebases, or extended dialogues without chunking.</li>
+      <li>To reduce the computational cost of fine-tuning for long context, as these methods require much less data and fewer steps than full fine-tuning.</li>
+      <li>When working with RoPE-based models (e.g., Llama, Falcon, Mistral, Gemma).</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>If the existing context length is already sufficient for your task.</li>
+      <li>If the model architecture does not use RoPE or a similar positional encoding that benefits from these scaling techniques.</li>
+      <li>If your fine-tuning budget is extremely constrained and even minor adjustments are too much (though PI is very cheap).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">These methods demonstrate that the "fixed context length" of Transformers is not an immutable constraint but a solvable engineering problem. By carefully adjusting how positional information is encoded and interpreted, we can unlock much longer context windows, significantly expanding the capabilities of LLMs for complex tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python/PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import math</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class RoPE:</div>
+      <div class="code-line" id="cl4">    def __init__(self, dim, base=10000):</div>
+      <div class="code-line" id="cl5">        self.dim = dim</div>
+      <div class="code-line" id="cl6">        self.base = base</div>
+      <div class="code-line" id="cl7">        # Precompute inverse frequencies for RoPE</div>
+      <div class="code-line" id="cl8">        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))</div>
+      <div class="code-line" id="cl9">        self.register_buffer('inv_freq', inv_freq)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    def _generate_rotary_emb(self, seq_len, scale_factor_pos=1.0, scale_factor_freq=1.0):</div>
+      <div class="code-line" id="cl12">        # Position Interpolation: scale down original positions</div>
+      <div class="code-line" id="cl13">        pos = torch.arange(seq_len, dtype=torch.float32) * scale_factor_pos</div>
+      <div class="code-line" id="cl14">        # YaRN Frequency Scaling: adjust the base frequency</div>
+      <div class="code-line" id="cl15">        inv_freq = 1.0 / ((self.base * scale_factor_freq) ** (torch.arange(0, self.dim, 2).float() / self.dim))</div>
+      <div class="code-line" id="cl16">        # Outer product to get all angles for all positions and dimensions</div>
+      <div class="code-line" id="cl17">        freqs = torch.einsum('i,j->ij', pos, inv_freq)</div>
+      <div class="code-line" id="cl18">        # Apply sine and cosine to create the rotation components</div>
+      <div class="code-line" id="cl19">        emb = torch.cat((freqs, freqs), dim=-1) # [seq_len, dim]</div>
+      <div class="code-line" id="cl20">        return emb.cos(), emb.sin()</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    def forward(self, x, seq_len, scale_factor_pos=1.0, scale_factor_freq=1.0):</div>
+      <div class="code-line" id="cl23">        cos, sin = self._generate_rotary_emb(seq_len, scale_factor_pos, scale_factor_freq)</div>
+      <div class="code-line" id="cl24">        # Apply the rotations to the input tensor x (e.g., query/key)</div>
+      <div class="code-line" id="cl25">        # This involves splitting x into two halves and rotating them</div>
+      <div class="code-line" id="cl26">        # For brevity, actual rotation logic omitted, but it's x_rotated = x * cos + rotate_half(x) * sin</div>
+      <div class="code-line" id="cl27">        return x # placeholder</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29"># Usage example:</div>
+      <div class="code-line" id="cl30">d_model = 128</div>
+      <div class="code-line" id="cl31">rope = RoPE(d_model)</div>
+      <div class="code-line" id="cl32">L_orig = 2048</div>
+      <div class="code-line" id="cl33">L_new = 8192</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35"># Position Interpolation only</div>
+      <div class="code-line" id="cl36">pi_scale_pos = L_orig / L_new</div>
+      <div class="code-line" id="cl37">q_pi = rope(query_tensor, L_new, scale_factor_pos=pi_scale_pos)</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39"># YaRN (simplified example with alpha=1 for freq scaling)</div>
+      <div class="code-line" id="cl40">yarn_scale_pos = L_orig / L_new</div>
+      <div class="code-line" id="cl41">yarn_scale_freq = (L_new / L_orig) ** 1.0 # Alpha can be tuned, e.g., 0.5</div>
+      <div class="code-line" id="cl42">yarn_scale_attn = math.sqrt(L_new / L_orig) # For attention logits</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">q_yarn = rope(query_tensor, L_new, scale_factor_pos=yarn_scale_pos, scale_factor_freq=yarn_scale_freq)</div>
+      <div class="code-line" id="cl45"># Attention logits would then be `softmax(QK^T / (sqrt(d_k) * yarn_scale_attn))`</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleSection(headerEl){
+  const body = headerEl.nextElementSibling;
+  const toggle = headerEl.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ══════════════════════════════════════════════════════════
+// VISUALIZATION CONSTANTS
+// ══════════════════════════════════════════════════════════
+const DEFAULT_L_ORIG = 2048;
+const DEFAULT_L_NEW = 8192;
+const MAX_L_NEW_VIZ = 32768;
+const ROPE_BASE = 10000;
+const YARN_ALPHA = 1.0; // Simplified exponent for YaRN freq scaling (can be 0.5 or d_r/d_model)
+
+// ══════════════════════════════════════════════════════════
+// VIZ STATE AND STEPS
+// ══════════════════════════════════════════════════════════
+let vizState = {
+  l_orig: DEFAULT_L_ORIG,
+  l_new: DEFAULT_L_NEW,
+  enable_yarn: false, // Combines freq and attn scaling
+};
+
+const steps = [
+  {
+    phase: 'setup', title: 'The Problem: Fixed Context Length',
+    desc: 'Transformers rely on positional encodings (like RoPE) which are designed for a fixed maximum context length (e.g., 2048 tokens). The plot shows the original position mapping (identity line) and the RoPE base frequency. `L_new` is currently equal to `L_orig`.',
+    viz: { l_orig: 2048, l_new: 2048, enable_yarn: false },
+    codeLines: []
+  },
+  {
+    phase: 'problem', title: 'Extrapolation Leads to Unreliable PEs',
+    desc: 'When the input sequence length `L_new` exceeds `L_orig`, the model must extrapolate positional encodings. This leads to wildly different (and often much larger) relative distances between tokens, making the attention mechanism unreliable. Performance drops sharply. The region beyond `L_orig` is extrapolated.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: false },
+    codeLines: []
+  },
+  {
+    phase: 'solution', title: 'Position Interpolation (PI): Compress Positions',
+    desc: 'Position Interpolation (PI) is a simple yet effective idea: instead of extrapolating, we *downscale* the input token indices from `m` to `m\' = m \\cdot (L_{orig} / L_{new})`. This compresses the desired `L_new` range into the original `L_orig` range, allowing the model to leverage its learned PEs without extrapolation.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: false, enable_pi_line: true },
+    codeLines: [12,13,36]
+  },
+  {
+    phase: 'solution', title: 'PI: Effective Position Mapping',
+    desc: 'Observe how each input position `m` (on the X-axis) is mapped to an `m\'` (on the Y-axis) within the original `L_orig` range. For example, `L_new=8192` is mapped to `m\' = 8192 * (2048/8192) = 2048`. The model effectively "sees" all positions within its trained window, just at a different density.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: false, enable_pi_line: true },
+    codeLines: [12,13,36]
+  },
+  {
+    phase: 'yarn_intro', title: 'YaRN: Beyond Simple Interpolation',
+    desc: 'While PI is good, simply compressing positions changes the relative distances between tokens, which can still affect the attention mechanism. YaRN (Yet another RoPE extensioN) proposes two further adjustments based on NTK (Neural Tangent Kernel) theory to maintain performance and stability at long contexts.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: false, enable_pi_line: true }, // same viz as prev, just text change
+    codeLines: []
+  },
+  {
+    phase: 'yarn_freq', title: 'YaRN: RoPE Frequency Scaling',
+    desc: 'YaRN modifies the base of the RoPE frequencies to compensate for the change in effective positional density. This `scale_freq` factor effectively stretches or compresses the RoPE frequency spectrum, ensuring that the "effective kernel" of the attention mechanism remains consistent with the original model.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: true, enable_pi_line: true },
+    codeLines: [14,15,40,41]
+  },
+  {
+    phase: 'yarn_attn', title: 'YaRN: Attention Logit Temperature Scaling',
+    desc: 'To further stabilize training and prevent attention scores from becoming too large (or small) in the expanded context, YaRN also applies a temperature scaling to the attention logits: `softmax(Q K^T / (sqrt(d_k) * scale_attn))`. This helps maintain a healthy attention distribution.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: true, enable_pi_line: true },
+    codeLines: [17,18,19,42]
+  },
+  {
+    phase: 'yarn_full', title: 'Combined YaRN Strategy',
+    desc: 'YaRN combines Position Interpolation, RoPE frequency scaling, and attention logit temperature scaling. This comprehensive approach allows transformers to effectively generalize to significantly longer context lengths (e.g., 4x or 8x) with minimal fine-tuning cost and without sacrificing performance.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: true, enable_pi_line: true },
+    codeLines: [12,13,14,15,17,18,19,36,40,41,42]
+  },
+  {
+    phase: 'explore', title: 'Interactive Exploration',
+    desc: 'Adjust the sliders to see how `L_orig` and `L_new` affect the effective position and the YaRN scaling factors. Observe how the effective RoPE base changes to accommodate longer contexts while maintaining the original frequency characteristics. YaRN ensures a smooth transition.',
+    viz: { l_orig: 2048, l_new: 8192, enable_yarn: true, enable_pi_line: true, interactive: true },
+    codeLines: []
+  }
+];
+
+let currentStep = 0;
+const totalSteps = steps.length;
+
+// ══════════════════════════════════════════════════════════
+// UI ELEMENT REFERENCES
+// ══════════════════════════════════════════════════════════
+const lOrigSlider = document.getElementById('lOrigSlider');
+const lNewSlider = document.getElementById('lNewSlider');
+const enableYarnToggle = document.getElementById('enableYarnToggle');
+
+// ══════════════════════════════════════════════════════════
+// UI EVENT HANDLERS
+// ══════════════════════════════════════════════════════════
+lOrigSlider.addEventListener('input', () => {
+  document.getElementById('lOrigValue').textContent = lOrigSlider.value;
+  vizState.l_orig = parseInt(lOrigSlider.value);
+  // Ensure L_new is at least L_orig
+  if (vizState.l_new < vizState.l_orig) {
+    vizState.l_new = vizState.l_orig;
+    lNewSlider.value = vizState.l_new;
+    document.getElementById('lNewValue').textContent = vizState.l_new;
+  }
+  drawCanvas();
+  updateStats();
+});
+
+lNewSlider.addEventListener('input', () => {
+  document.getElementById('lNewValue').textContent = lNewSlider.value;
+  vizState.l_new = parseInt(lNewSlider.value);
+  // Ensure L_new is at least L_orig
+  if (vizState.l_new < vizState.l_orig) {
+    vizState.l_new = vizState.l_orig;
+    lNewSlider.value = vizState.l_new;
+    document.getElementById('lNewValue').textContent = vizState.l_new;
+  }
+  drawCanvas();
+  updateStats();
+});
+
+enableYarnToggle.addEventListener('change', () => {
+  vizState.enable_yarn = enableYarnToggle.checked;
+  drawCanvas();
+  updateStats();
+});
+
+// ══════════════════════════════════════════════════════════
+// CANVAS DRAWING LOGIC
+// ══════════════════════════════════════════════════════════
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+  };
+}
+
+function drawCanvas() {
+  const { W, H } = setupCanvas();
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = { top: 30, right: 60, bottom: 40, left: 60 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
+
+  const currentVizState = steps[currentStep].viz;
+  const l_orig = currentVizState.interactive ? vizState.l_orig : currentVizState.l_orig;
+  const l_new = currentVizState.interactive ? vizState.l_new : currentVizState.l_new;
+  const enable_yarn = currentVizState.interactive ? vizState.enable_yarn : currentVizState.enable_yarn;
+  const enable_pi_line = currentVizState.enable_pi_line;
+
+  // X-axis: Token Position (m)
+  const xMin = 0;
+  const xMax = Math.max(l_new, l_orig, MAX_L_NEW_VIZ / 2); // Dynamic max for better scaling
+  const scaleX = (val) => padding.left + (val - xMin) / (xMax - xMin) * plotW;
+
+  // Left Y-axis: Effective Position (m_eff)
+  const yLeftMin = 0;
+  const yLeftMax = l_orig;
+  const scaleYLeft = (val) => padding.top + (yLeftMax - val) / (yLeftMax - yLeftMin) * plotH;
+
+  // Right Y-axis: Effective RoPE Base (log scale)
+  const yRightMin = Math.log10(ROPE_BASE);
+  const yRightMax = Math.log10(ROPE_BASE * (MAX_L_NEW_VIZ / DEFAULT_L_ORIG)); // Max possible scaled base
+  const scaleYRight = (val) => padding.top + (yRightMax - Math.log10(val)) / (yRightMax - yRightMin) * plotH;
+
+  // --- Draw Axes ---
+  ctx.strokeStyle = c.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, padding.top);
+  ctx.lineTo(padding.left, H - padding.bottom);
+  ctx.lineTo(W - padding.right, H - padding.bottom);
+  ctx.lineTo(W - padding.right, padding.top); // Right Y-axis
+  ctx.stroke();
+
+  // X-axis ticks
+  ctx.fillStyle = c.text3;
+  ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+  const xTickInterval = Math.pow(2, Math.ceil(Math.log2(xMax / 8))); // Powers of 2 for ticks
+  for (let x = xMin; x <= xMax; x += xTickInterval) {
+    const cx = scaleX(x);
+    ctx.beginPath(); ctx.moveTo(cx, H - padding.bottom); ctx.lineTo(cx, H - padding.bottom + 5); ctx.stroke();
+    ctx.fillText(x.toLocaleString(), cx - 10, H - padding.bottom + 20);
+  }
+  ctx.textAlign = 'center';
+  ctx.fillText('Token Position (m)', W / 2, H - 5);
+
+  // Left Y-axis ticks
+  ctx.textAlign = 'right';
+  const yLeftTickInterval = Math.pow(2, Math.ceil(Math.log2(yLeftMax / 4)));
+  for (let y = yLeftMin; y <= yLeftMax; y += yLeftTickInterval) {
+    const cy = scaleYLeft(y);
+    ctx.beginPath(); ctx.moveTo(padding.left - 5, cy); ctx.lineTo(padding.left, cy); ctx.stroke();
+    ctx.fillText(y.toLocaleString(), padding.left - 10, cy + 4);
+  }
+  ctx.save();
+  ctx.translate(15, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Effective Position (m\')', 0, 0);
+  ctx.restore();
+
+  // Right Y-axis ticks
+  ctx.textAlign = 'left';
+  const yRightTickValues = [ROPE_BASE, ROPE_BASE * 2, ROPE_BASE * 4, ROPE_BASE * 8, ROPE_BASE * 16, ROPE_BASE * 32, ROPE_BASE * 64];
+  for (const yVal of yRightTickValues) {
+    if (Math.log10(yVal) > yRightMax + 0.1 || Math.log10(yVal) < yRightMin - 0.1) continue;
+    const cy = scaleYRight(yVal);
+    ctx.beginPath(); ctx.moveTo(W - padding.right, cy); ctx.lineTo(W - padding.right + 5, cy); ctx.stroke();
+    ctx.fillText(yVal.toLocaleString(), W - padding.right + 10, cy + 4);
+  }
+  ctx.save();
+  ctx.translate(W - 15, H / 2);
+  ctx.rotate(Math.PI / 2);
+  ctx.fillText('Effective RoPE Base', 0, 0);
+  ctx.restore();
+
+  // --- Draw Lines ---
+
+  // 1. Original Position (Reference / Identity line)
+  ctx.strokeStyle = c.blueMid;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(scaleX(xMin), scaleYLeft(xMin));
+  ctx.lineTo(scaleX(l_orig), scaleYLeft(l_orig));
+  ctx.stroke();
+
+  // 2. PI Effective Position
+  if (enable_pi_line) {
+    ctx.strokeStyle = c.greenMid;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(scaleX(xMin), scaleYLeft(xMin));
+    const pi_l_new_eff = l_new * (l_orig / l_new);
+    ctx.lineTo(scaleX(l_new), scaleYLeft(pi_l_new_eff));
+    ctx.stroke();
+  }
+
+  // 3. YaRN Effective RoPE Base (horizontal line)
+  let base_eff = ROPE_BASE;
+  if (enable_yarn) {
+    base_eff = ROPE_BASE * Math.pow(l_new / l_orig, YARN_ALPHA);
+  }
+  ctx.strokeStyle = c.purpleMid;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const yBaseEff = scaleYRight(base_eff);
+  ctx.moveTo(padding.left, yBaseEff);
+  ctx.lineTo(W - padding.right, yBaseEff);
+  ctx.stroke();
+
+  // --- Context Boundaries ---
+  ctx.strokeStyle = c.text2;
+  ctx.setLineDash([5, 5]);
+
+  // L_orig boundary
+  ctx.beginPath();
+  ctx.moveTo(scaleX(l_orig), padding.top);
+  ctx.lineTo(scaleX(l_orig), H - padding.bottom);
+  ctx.stroke();
+  ctx.fillText(`L_orig = ${l_orig}`, scaleX(l_orig) + 5, padding.top + 10);
+
+  // L_new boundary
+  if (l_new > l_orig) {
+    ctx.beginPath();
+    ctx.moveTo(scaleX(l_new), padding.top);
+    ctx.lineTo(scaleX(l_new), H - padding.bottom);
+    ctx.stroke();
+    ctx.fillText(`L_new = ${l_new}`, scaleX(l_new) + 5, padding.top + 25);
+  }
+  ctx.setLineDash([]); // Reset line dash
+
+  // --- Extrapolated Region ---
+  if (l_new > l_orig && !enable_pi_line) {
+    ctx.fillStyle = c.redMid;
+    ctx.globalAlpha = 0.15;
+    ctx.fillRect(scaleX(l_orig), padding.top, scaleX(l_new) - scaleX(l_orig), plotH);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function setupCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  return { W: rect.width, H: rect.height };
+}
+
+// ══════════════════════════════════════════════════════════
+// STATS AND INFO CARD UPDATES
+// ══════════════════════════════════════════════════════════
+function updateStats() {
+  const currentVizState = steps[currentStep].viz;
+  const l_orig = currentVizState.interactive ? vizState.l_orig : currentVizState.l_orig;
+  const l_new = currentVizState.interactive ? vizState.l_new : currentVizState.l_new;
+  const enable_yarn = currentVizState.interactive ? vizState.enable_yarn : currentVizState.enable_yarn;
+
+  const pi_scale_pos = (l_orig / l_new).toFixed(3);
+  const yarn_scale_freq = enable_yarn ? Math.pow(l_new / l_orig, YARN_ALPHA).toFixed(3) : '1.000';
+  const yarn_scale_attn = enable_yarn ? Math.sqrt(l_new / l_orig).toFixed(3) : '1.000';
+  const effective_rope_base = enable_yarn ? (ROPE_BASE * parseFloat(yarn_scale_freq)).toLocaleString() : ROPE_BASE.toLocaleString();
+
+  const statRow = document.getElementById('statRow');
+  statRow.innerHTML = `
+    <div class="stat-pill">PI Position Scale: <b>${pi_scale_pos}</b></div>
+    <div class="stat-pill">YaRN Freq Scale: <b>${yarn_scale_freq}</b></div>
+    <div class="stat-pill">Effective RoPE Base: <b>${effective_rope_base}</b></div>
+    <div class="stat-pill">YaRN Attn Scale: <b>${yarn_scale_attn}</b></div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════
+// NAVIGATION AND RENDERING
+// ══════════════════════════════════════════════════════════
+function render() {
+  const s = steps[currentStep];
+
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', problem: 'phase-problem', solution: 'phase-solution',
+    yarn_intro: 'phase-yarn_intro', yarn_freq: 'phase-yarn_freq', yarn_attn: 'phase-yarn_attn',
+    yarn_full: 'phase-yarn_full', explore: 'phase-explore'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Update slider/toggle states based on current step
+  lOrigSlider.value = s.viz.l_orig;
+  document.getElementById('lOrigValue').textContent = s.viz.l_orig;
+  lNewSlider.value = s.viz.l_new;
+  document.getElementById('lNewValue').textContent = s.viz.l_new;
+  enableYarnToggle.checked = s.viz.enable_yarn;
+
+  // Enable/disable sliders based on interactive mode
+  const isInteractive = s.viz.interactive;
+  lOrigSlider.disabled = !isInteractive;
+  lNewSlider.disabled = !isInteractive;
+  enableYarnToggle.disabled = !isInteractive;
+
+  // Set vizState for interactive mode
+  vizState.l_orig = s.viz.l_orig;
+  vizState.l_new = s.viz.l_new;
+  vizState.enable_yarn = s.viz.enable_yarn;
+
+
+  drawCanvas();
+  updateStats();
+  updateDots();
+}
+
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) {
+  currentStep = i;
+  render();
+}
+function reset() {
+  currentStep = 0;
+  render();
+}
+
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// INITIALIZATION
+// ══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+window.addEventListener('resize', drawCanvas);
+
+initDots();
+render();
+</script>
+</body>
+</html>

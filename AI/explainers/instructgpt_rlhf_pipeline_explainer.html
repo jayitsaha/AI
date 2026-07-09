@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstructGPT RLHF Pipeline — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-overview{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-sft{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-rm{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-rl{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.arrow{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>InstructGPT RLHF Pipeline</h1>
+  <div class="subtitle">Aligning Large Language Models with Human Preferences</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-complexity">Complex Pipeline</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding RLHF</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Reinforcement Learning from Human Feedback (RLHF) is a technique to align large language models (LLMs) with human values and instructions. It's designed to make models more helpful, harmless, and honest by training them directly on human preferences, rather than just predicting the next token in a vast text corpus.</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a highly intelligent but naive robot how to write helpful emails. Initially, it just mimics all the emails it's ever read. RLHF is like giving the robot specific feedback: "This email is better than that one because it's more concise," or "This response is harmful, avoid it." Over time, the robot learns to write emails that not only sound natural but also truly satisfy your preferences, even for new instructions.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">RLHF involves three main steps: (1) <strong>Supervised Fine-Tuning (SFT)</strong> of a pre-trained LLM on human-written demonstrations, (2) training a <strong>Reward Model (RM)</strong> to predict human preferences, and (3) using <strong>Reinforcement Learning (RL)</strong> (e.g., PPO) to optimize the SFT model against the RM's feedback, with a KL-divergence penalty to prevent policy drift.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Step 1: Supervised Fine-Tuning (SFT)</h4>
+    <p>The process begins with a pre-trained base LLM (e.g., GPT-3). This model has learned vast amounts of language patterns but isn't necessarily good at following specific instructions or being aligned. We collect a dataset of prompts and high-quality, human-written responses that exemplify desired behavior. The base LLM is then fine-tuned on this dataset using standard supervised learning (e.g., next-token prediction with cross-entropy loss). This SFT model becomes proficient at generating responses that are generally helpful and follow instructions, serving as a good starting point for further alignment.</p>
+
+    <h4>Step 2: Training a Reward Model (RM)</h4>
+    <p>To scale human feedback, we train a separate model, the "Reward Model." This model's job is to predict how much a human would prefer a given response. The training data for the RM is collected by taking prompts, generating several different responses from the SFT model, and asking humans to rank these responses from best to worst. The RM is typically another LLM (often a smaller version of the SFT model) that takes a prompt and a response as input and outputs a scalar score representing human preference. It's trained to accurately predict these human rankings.</p>
+
+    <h4>Step 3: Reinforcement Learning (RL) with PPO</h4>
+    <p>Finally, the SFT model is further fine-tuned using Reinforcement Learning. The SFT model acts as the "policy" (generating actions/responses), and the trained Reward Model acts as the "reward function" (providing feedback). Prompts are sampled, the policy generates responses, and the RM assigns a reward score to each response. An RL algorithm, commonly Proximal Policy Optimization (PPO), is used to update the policy to maximize these rewards. A crucial component is a KL-divergence penalty, which prevents the policy from drifting too far from the original SFT model, ensuring it maintains fluency and doesn't "reward hack" by generating nonsensical but high-scoring outputs.</p>
+
+    <h4>Design Decision: Why a separate Reward Model?</h4>
+    <p>Directly using human feedback for RL would be prohibitively slow and expensive. The RM acts as a scalable proxy for human judgment, allowing the RL agent to receive millions of "preference scores" without needing constant human intervention. It effectively distills human preferences into an automated feedback loop.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The Reward Model is the critical bridge, translating sparse, qualitative human feedback into a dense, quantitative signal that the RL algorithm can optimize against. The KL-divergence penalty is equally vital for maintaining model coherence and preventing catastrophic forgetting or undesirable behavior.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Supervised Fine-Tuning (SFT) Loss</h4>
+    <p>The initial SFT step optimizes the language model's parameters \(\theta\) using a standard cross-entropy loss on a dataset \(D_{SFT}\) of prompts \(x\) and human-written responses \(y\):</p>
+    <div class="eq">$$L_{SFT}(\theta) = -\mathbb{E}_{(x,y) \sim D_{SFT}}[\log P_\theta(y|x)]$$</div>
+    <p>This trains the model to generate high-quality, instruction-following text, providing a strong foundation for the subsequent RL phase.</p>
+
+    <h4>2. Reward Model (RM) Training Loss</h4>
+    <p>The Reward Model \(\phi\) learns to predict human preferences. Given a prompt \(x\) and two responses \(y_k\) and \(y_j\), where \(y_k\) is preferred over \(y_j\), the RM is trained with a pairwise ranking loss. It aims to make the score for the preferred response higher than the score for the less preferred one:</p>
+    <div class="eq">$$L_{RM}(\phi) = -\mathbb{E}_{(x, y_k, y_j) \sim D_{RM}}[\log(\sigma(r_\phi(x, y_k) - r_\phi(x, y_j)))]$$</div>
+    <p>Here, \(r_\phi(x, y)\) is the scalar reward predicted by the RM for response \(y\) given prompt \(x\), and \(\sigma\) is the sigmoid function. This loss maximizes the probability that the preferred response gets a higher score.</p>
+
+    <h4>3. Reinforcement Learning (RL) with PPO Objective</h4>
+    <p>The SFT model (now the policy \(\pi_\theta\)) is fine-tuned using PPO to maximize the rewards from the RM. The PPO objective function balances maximizing the RM reward with a KL-divergence penalty to prevent the policy from deviating too much from the original SFT model \(\pi_{ref}\) (which is the initial SFT model before RL):</p>
+    <div class="eq">$$L_{PPO}(\theta) = \mathbb{E}_{(x, y) \sim D_{RL}}[\min(r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t) - \beta D_{KL}(P_\theta || P_{ref})]$$</div>
+    <p>Where \(r_t(\theta) = P_\theta(y|x) / P_{old}(y|x)\) is the ratio of the new policy's probability to the old policy's probability for generating response \(y\), \(A_t\) is the advantage function (often estimated using the RM score), \(\epsilon\) is the PPO clipping parameter, and \(\beta\) is the coefficient for the KL-divergence penalty. The KL penalty ensures the model doesn't sacrifice coherence or safety for higher RM scores.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The quality of the <strong>Reward Model</strong> is paramount. If the RM is poorly trained, biased, or susceptible to "reward hacking" (where the model generates outputs that score highly but are not truly aligned with human intent), the entire RLHF pipeline can fail, leading to misaligned or even harmful models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the three stages of the InstructGPT RLHF pipeline. Observe the data flow, model interactions, and the role of human feedback. Use the slider to explore the impact of the KL penalty on the final RL policy.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="klSliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">KL Penalty Strength (β)</div>
+          <input type="range" id="klSlider" min="0" max="0.2" step="0.01" value="0.05">
+          <div class="slider-value" id="klValue">0.05</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">High β: RL policy stays close to SFT. Low β: RL policy maximizes RM reward more aggressively.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-overview" id="infoPhase">OVERVIEW</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The RLHF Pipeline</div>
+        <div class="info-desc" id="infoDesc">This diagram illustrates the three main stages of the InstructGPT RLHF pipeline: Supervised Fine-Tuning (SFT), Reward Model (RM) training, and Reinforcement Learning (RL) with PPO.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> LLM/Model</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> SFT Stage</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> RM Stage</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> RL Stage</div>
+        <div class="legend-item"><div class="legend-swatch arrow" style="background:var(--text2)"></div> Data Flow</div>
+        <div class="legend-item"><div class="legend-swatch arrow" style="background:var(--green-mid)"></div> Human Feedback</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use RLHF:</strong></p>
+    <ul>
+      <li>When fine-tuning large language models to align with complex, subjective human preferences (e.g., helpfulness, safety, writing style).</li>
+      <li>To reduce undesirable behaviors (e.g., toxicity, hallucination) that are hard to specify with explicit rules.</li>
+      <li>To make models better at following open-ended instructions and engaging in dialogue.</li>
+      <li>When supervised fine-tuning alone doesn't capture the nuances of human judgment.</li>
+    </ul>
+    <p><strong>When NOT to use / Challenges:</strong></p>
+    <ul>
+      <li>When human feedback is scarce, expensive, or inconsistent. RLHF relies heavily on high-quality human data.</li>
+      <li>For tasks where objective metrics are sufficient and simpler fine-tuning methods achieve desired performance.</li>
+      <li>If the Reward Model is misaligned or easily "gamed," the RL policy can optimize for unintended behaviors.</li>
+      <li>The computational cost is significantly higher than basic supervised fine-tuning due to the multi-stage process and RL training.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">RLHF is a powerful paradigm for injecting human values into AI systems, moving beyond purely data-driven learning. It's a key technique behind the success of models like InstructGPT and ChatGPT, enabling them to be more useful and safe in real-world interactions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from transformers import AutoModelForCausalLM, AutoTokenizer</div>
+      <div class="code-line" id="cl2">from trl import SFTTrainer, RewardTrainer, PPOTrainer</div>
+      <div class="code-line" id="cl3">from datasets import load_dataset</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># --- 0. Load Pre-trained Base LLM ---</div>
+      <div class="code-line" id="cl6">base_model = AutoModelForCausalLM.from_pretrained("gpt2")</div>
+      <div class="code-line" id="cl7">tokenizer = AutoTokenizer.from_pretrained("gpt2")</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9"># --- 1. Supervised Fine-Tuning (SFT) ---</div>
+      <div class="code-line" id="cl10">sft_dataset = load_dataset("local_sft_data.json") # Prompts + human responses</div>
+      <div class="code-line" id="cl11">sft_trainer = SFTTrainer(</div>
+      <div class="code-line" id="cl12">    model=base_model,</div>
+      <div class="code-line" id="cl13">    train_dataset=sft_dataset,</div>
+      <div class="code-line" id="cl14">    tokenizer=tokenizer,</div>
+      <div class="code-line" id="cl15">    max_seq_length=512,</div>
+      <div class="code-line" id="cl16">)</div>
+      <div class="code-line" id="cl17">sft_trainer.train()</div>
+      <div class="code-line" id="cl18">sft_model = sft_trainer.model # This is now the SFT-tuned policy</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># --- 2. Train Reward Model (RM) ---</div>
+      <div class="code-line" id="cl21">reward_model = AutoModelForCausalLM.from_pretrained("gpt2-small") # Smaller LLM</div>
+      <div class="code-line" id="cl22">rm_dataset = load_dataset("local_rm_data.json") # Prompts + ranked responses</div>
+      <div class="code-line" id="cl23">rm_trainer = RewardTrainer(</div>
+      <div class="code-line" id="cl24">    model=reward_model,</div>
+      <div class="code-line" id="cl25">    tokenizer=tokenizer,</div>
+      <div class="code-line" id="cl26">    train_dataset=rm_dataset,</div>
+      <div class="code-line" id="cl27">)</div>
+      <div class="code-line" id="cl28">rm_trainer.train()</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># --- 3. Reinforcement Learning (PPO) ---</div>
+      <div class="code-line" id="cl31">ppo_dataset = load_dataset("local_ppo_prompts.json") # Prompts for RL</div>
+      <div class="code-line" id="cl32">ppo_trainer = PPOTrainer(</div>
+      <div class="code-line" id="cl33">    config=ppo_config, # PPO hyperparameters, including KL coefficient</div>
+      <div class="code-line" id="cl34">    model=sft_model, # Policy to optimize</div>
+      <div class="code-line" id="cl35">    ref_model=sft_model, # Reference model for KL penalty</div>
+      <div class="code-line" id="cl36">    tokenizer=tokenizer,</div>
+      <div class="code-line" id="cl37">    dataset=ppo_dataset,</div>
+      <div class="code-line" id="cl38">    reward_fn=lambda samples: reward_model(samples).logits, # RM as reward source</div>
+      <div class="code-line" id="cl39">)</div>
+      <div class="code-line" id="cl40">ppo_trainer.train()</div>
+      <div class="code-line" id="cl41">final_aligned_model = ppo_trainer.model</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let klBeta = 0.05; // Default KL penalty strength
+let currentStep = 0;
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'overview', title: 'The RLHF Pipeline',
+    desc: 'This diagram illustrates the three main stages of the InstructGPT RLHF pipeline: Supervised Fine-Tuning (SFT), Reward Model (RM) training, and Reinforcement Learning (RL) with PPO. Each stage builds upon the previous one to align the LLM with human preferences.',
+    highlight: 'all',
+    showKLSlider: false,
+    infoNumbers: ''
+  },
+  {
+    phase: 'sft', title: 'Stage 1: Supervised Fine-Tuning (SFT)',
+    desc: 'We start with a powerful, pre-trained LLM. It\'s fine-tuned on a dataset of prompts and high-quality, human-written responses. This teaches the model to follow instructions and generate generally good outputs.',
+    highlight: 'sft_stage',
+    codeLines: [5,6,7,9,10,11,12,13,14,15,16,17,18],
+    showKLSlider: false,
+    infoNumbers: 'Current Model: SFT Model\nKey Data: SFT Dataset (Prompt, Human Response)'
+  },
+  {
+    phase: 'sft', title: 'SFT Output: Instruction Following',
+    desc: 'The SFT model is now good at generating relevant and coherent responses. However, it hasn\'t explicitly learned human preferences beyond what was implicitly in the SFT dataset. It might still be verbose, cautious, or lack specific stylistic alignment.',
+    highlight: 'sft_output',
+    codeLines: [18],
+    showKLSlider: false,
+    infoNumbers: 'Prompt: "Tell me a short story about a brave mouse."\nSFT Response: "Once upon a time, a small mouse named Pipkin lived in a grand old house. One day, a cat appeared..."'
+  },
+  {
+    phase: 'rm', title: 'Stage 2: Reward Model (RM) Data Collection',
+    desc: 'To teach preferences, we collect human comparison data. For a given prompt, the SFT model generates several responses. Humans then rank these responses from best to worst. This dataset of ranked pairs is crucial for training the RM.',
+    highlight: 'rm_data_collection',
+    codeLines: [21,22],
+    showKLSlider: false,
+    infoNumbers: 'Prompt: "Write a haiku about a sunset."\nResponses: [A, B, C]\nHuman Preference: A > B > C'
+  },
+  {
+    phase: 'rm', title: 'RM Training: Learning Human Preferences',
+    desc: 'A separate Reward Model is trained on this human preference data. It learns to output a scalar score for any (prompt, response) pair, reflecting how much a human would prefer that response. This allows us to scale human judgment.',
+    highlight: 'rm_training',
+    codeLines: [21,22,23,24,25,26,27,28],
+    showKLSlider: false,
+    infoNumbers: 'RM Input: (Prompt, Response)\nRM Output: Scalar Preference Score'
+  },
+  {
+    phase: 'rm', title: 'RM Output: Quantifying Preference',
+    desc: 'The trained Reward Model can now assign a preference score to any generated response. This score will serve as the "reward signal" for the subsequent Reinforcement Learning phase, guiding the policy towards more preferred outputs.',
+    highlight: 'rm_output',
+    codeLines: [28],
+    showKLSlider: false,
+    infoNumbers: 'Prompt: "Explain photosynthesis simply."\nResponse 1: "Plants use sunlight to make food." (RM Score: 0.8)\nResponse 2: "Photosynthesis is a complex biochemical process..." (RM Score: 0.3)'
+  },
+  {
+    phase: 'rl', title: 'Stage 3: Reinforcement Learning (PPO)',
+    desc: 'The SFT model (our policy) is now optimized using PPO. It generates responses, which are scored by the RM. The policy is updated to maximize these scores. A KL-divergence penalty keeps the policy from straying too far from the original SFT model.',
+    highlight: 'rl_stage',
+    codeLines: [30,31,32,33,34,35,36,37,38,39,40,41],
+    showKLSlider: true,
+    infoNumbers: 'Current Policy: SFT Model\nReward Function: Reward Model'
+  },
+  {
+    phase: 'rl', title: 'The KL Penalty: Balancing Reward & Coherence',
+    desc: 'The KL-divergence penalty (\(\\beta D_{KL}(P_\\theta || P_{ref})\\)) is crucial. It penalizes the RL policy for deviating too much from the SFT model. This prevents "reward hacking" and ensures the model remains coherent, fluent, and generally aligned with its initial instruction-following abilities.',
+    highlight: 'kl_penalty',
+    codeLines: [33,35],
+    showKLSlider: true,
+    infoNumbers: `KL Penalty (β=${klBeta.toFixed(2)}):\n- High β: Policy stays close to SFT.\n- Low β: Policy prioritizes RM reward more.`
+  },
+  {
+    phase: 'explore', title: 'Interactive: Adjust KL Penalty (β)',
+    desc: 'Use the slider to change the KL penalty strength (\(\\beta\\)). Observe how the RL policy\'s predicted RM Score and similarity to the SFT model change. A higher \\(\\beta\\) means more fidelity to SFT, while a lower \\(\\beta\\) allows more aggressive RM optimization.',
+    highlight: 'kl_penalty',
+    codeLines: [33,35],
+    showKLSlider: true,
+    infoNumbers: '' // Will be updated by slider
+  },
+  {
+    phase: 'overview', title: 'Final Aligned Model',
+    desc: 'After the full RLHF pipeline, the model (now the PPO Policy) is significantly more aligned with human instructions and preferences. It\'s not just good at generating text, but also at generating text that humans find helpful, honest, and harmless.',
+    highlight: 'final_model',
+    showKLSlider: false,
+    infoNumbers: 'Final Model: Aligned PPO Policy\nResult: Model aligned with human preferences.'
+  }
+];
+
+// ── KL PENALTY SIMULATION (for interactive step) ──
+function getKLTradeoff(beta) {
+  // Simulate a trade-off: lower beta -> higher RM score, lower SFT similarity
+  // These are just illustrative values, not derived from a real model.
+  const rmScore = 0.5 + (1 - beta) * 0.4; // Max 0.9 (beta=0), Min 0.5 (beta=0.2)
+  const sftSimilarity = 0.5 + beta * 2.0; // Max 0.9 (beta=0.2), Min 0.5 (beta=0)
+  return {
+    rmScore: Math.min(0.95, Math.max(0.0, rmScore)),
+    sftSimilarity: Math.min(0.95, Math.max(0.0, sftSimilarity))
+  };
+}
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < steps.length; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= steps.length) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() { currentStep = 0; klBeta = 0.05; document.getElementById('klSlider').value = klBeta; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStep];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === steps.length - 1;
+
+  // Info card
+  const phaseMap = {
+    overview: 'phase-overview', sft: 'phase-sft', rm: 'phase-rm', rl: 'phase-rl', explore: 'phase-explore'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${steps.length}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (s.infoNumbers) {
+    document.getElementById('infoNumbers').textContent = s.infoNumbers;
+    document.getElementById('infoNumbers').style.display = 'block';
+  } else {
+    document.getElementById('infoNumbers').style.display = 'none';
+  }
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // KL Slider visibility
+  document.getElementById('klSliderPanel').style.display = s.showKLSlider ? 'flex' : 'none';
+  document.getElementById('klValue').textContent = klBeta.toFixed(2);
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(stepData) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+
+  // Define component positions
+  const compW = W / 5.5;
+  const compH = H * 0.18;
+  const compY = H * 0.25;
+
+  const preLLM_X = W * 0.05;
+  const sftModel_X = W * 0.25;
+  const rmModel_X = W * 0.5;
+  const ppoPolicy_X = W * 0.75;
+
+  // --- Draw Components ---
+  const components = [
+    {id: 'pre_llm', x: preLLM_X, y: compY, w: compW, h: compH, text: 'Pre-trained LLM', color: colors.blue},
+    {id: 'sft_model', x: sftModel_X, y: compY, w: compW, h: compH, text: 'SFT Model (Policy)', color: colors.cyan},
+    {id: 'rm_model', x: rmModel_X, y: compY, w: compW, h: compH, text: 'Reward Model', color: colors.amber},
+    {id: 'ppo_policy', x: ppoPolicy_X, y: compY, w: compW, h: compH, text: 'PPO Policy (Final)', color: colors.purple},
+  ];
+
+  components.forEach(comp => {
+    const isHighlighted = stepData.highlight === 'all' || stepData.highlight === comp.id || (stepData.highlight === 'sft_stage' && comp.id === 'sft_model') || (stepData.highlight === 'rm_data_collection' && comp.id === 'sft_model') || (stepData.highlight === 'rm_training' && comp.id === 'rm_model') || (stepData.highlight === 'rl_stage' && (comp.id === 'sft_model' || comp.id === 'rm_model' || comp.id === 'ppo_policy')) || (stepData.highlight === 'kl_penalty' && (comp.id === 'sft_model' || comp.id === 'rm_model' || comp.id === 'ppo_policy')) || (stepData.highlight === 'final_model' && comp.id === 'ppo_policy');
+    drawBox(ctx, comp.x, comp.y, comp.w, comp.h, comp.text, comp.color, isHighlighted);
+  });
+
+  // --- Draw Data Flow Arrows & Labels ---
+  // SFT Stage
+  drawArrow(ctx, preLLM_X + compW, compY + compH / 2, sftModel_X, compY + compH / 2, colors.text2, stepData.highlight === 'sft_stage' || stepData.highlight === 'sft_output');
+  drawText(ctx, (preLLM_X + compW + sftModel_X) / 2, compY + compH / 2 - 15, 'SFT Data', colors.text2, 'center', stepData.highlight === 'sft_stage' || stepData.highlight === 'sft_output');
+
+  // RM Data Collection
+  const sftToRmY = H * 0.45;
+  drawArrow(ctx, sftModel_X + compW / 2, compY + compH, sftModel_X + compW / 2, sftToRmY, colors.text2, stepData.highlight === 'rm_data_collection');
+  drawText(ctx, sftModel_X + compW / 2, sftToRmY + 15, 'SFT Responses', colors.text2, 'center', stepData.highlight === 'rm_data_collection');
+
+  const humanFeedbackX = sftModel_X + compW / 2 + 50;
+  const humanFeedbackY = sftToRmY + 50;
+  drawBox(ctx, humanFeedbackX, humanFeedbackY, compW * 0.8, compH * 0.6, 'Human Feedback\n(Ranking)', colors.green, stepData.highlight === 'rm_data_collection');
+  drawArrow(ctx, sftModel_X + compW / 2, humanFeedbackY, humanFeedbackX + compW * 0.4, humanFeedbackY, colors.text2, stepData.highlight === 'rm_data_collection');
+  drawArrow(ctx, humanFeedbackX + compW * 0.4, humanFeedbackY + compH * 0.6, rmModel_X + compW / 2, compY + compH, colors.text2, stepData.highlight === 'rm_data_collection' || stepData.highlight === 'rm_training');
+  drawText(ctx, (humanFeedbackX + compW * 0.4 + rmModel_X + compW / 2) / 2, compY + compH + 15, 'Preference Data', colors.text2, 'center', stepData.highlight === 'rm_data_collection' || stepData.highlight === 'rm_training');
+
+  // RM Training
+  drawArrow(ctx, rmModel_X + compW / 2, compY + compH, rmModel_X + compW / 2, compY + compH + H * 0.05, colors.text2, stepData.highlight === 'rm_training');
+  drawText(ctx, rmModel_X + compW / 2, compY + compH + H * 0.05 + 15, 'RM Loss', colors.text2, 'center', stepData.highlight === 'rm_training');
+
+  // RL Stage (PPO)
+  const rlDataY = H * 0.75;
+  drawArrow(ctx, sftModel_X + compW / 2, compY + compH, ppoPolicy_X + compW / 2, rlDataY, colors.text2, stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty' || stepData.highlight === 'final_model');
+  drawText(ctx, (sftModel_X + compW / 2 + ppoPolicy_X + compW / 2) / 2, rlDataY + 15, 'RL Prompts', colors.text2, 'center', stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty' || stepData.highlight === 'final_model');
+
+  drawArrow(ctx, rmModel_X + compW / 2, compY + compH, ppoPolicy_X + compW / 2, compY + compH, colors.text2, stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty');
+  drawText(ctx, (rmModel_X + compW / 2 + ppoPolicy_X + compW / 2) / 2, compY + compH - 15, 'RM Rewards', colors.text2, 'center', stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty');
+
+  drawArrow(ctx, sftModel_X + compW, compY + compH / 2, ppoPolicy_X, compY + compH / 2, colors.text2, stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty');
+  drawText(ctx, (sftModel_X + compW + ppoPolicy_X) / 2, compY + compH / 2 + 15, 'KL Penalty (Ref)', colors.text2, 'center', stepData.highlight === 'rl_stage' || stepData.highlight === 'kl_penalty');
+
+  // Final Model
+  drawArrow(ctx, ppoPolicy_X + compW / 2, compY + compH, ppoPolicy_X + compW / 2, H * 0.9, colors.text2, stepData.highlight === 'final_model');
+  drawText(ctx, ppoPolicy_X + compW / 2, H * 0.9 + 15, 'Aligned Response', colors.text2, 'center', stepData.highlight === 'final_model');
+
+  // --- KL Penalty Visualization (Step 9) ---
+  if (stepData.highlight === 'kl_penalty' || currentStep === 8) { // Step 8 is the interactive step
+    const chartX = W * 0.08, chartY = H * 0.7, chartW = W * 0.84, chartH = H * 0.2;
+    drawKLTradeoffChart(ctx, chartX, chartY, chartW, chartH, colors, klBeta);
+  }
+}
+
+// Helper: Draw a rounded rectangle box
+function drawBox(ctx, x, y, w, h, text, color, highlight) {
+  const radius = 8;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, radius) : ctx.rect(x, y, w, h);
+  ctx.fillStyle = highlight ? color : colors.bg2;
+  ctx.strokeStyle = highlight ? color : colors.border;
+  ctx.lineWidth = highlight ? 3 : 1;
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = highlight ? colors.text : colors.text2;
+  ctx.font = '600 13px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  const lines = text.split('\n');
+  lines.forEach((line, i) => {
+    ctx.fillText(line, x + w / 2, y + h / 2 - (lines.length - 1) * 7 + i * 14);
+  });
+  ctx.textAlign = 'left';
+}
+
+// Helper: Draw an arrow
+function drawArrow(ctx, fromX, fromY, toX, toY, color, highlight) {
+  const headlen = 10; // length of head in pixels
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const angle = Math.atan2(dy, dx);
+
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.strokeStyle = highlight ? color : colors.text3;
+  ctx.lineWidth = highlight ? 2.5 : 1.5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.strokeStyle = highlight ? color : colors.text3;
+  ctx.lineWidth = highlight ? 2.5 : 1.5;
+  ctx.stroke();
+}
+
+// Helper: Draw text
+function drawText(ctx, x, y, text, color, align, highlight) {
+  ctx.fillStyle = highlight ? color : colors.text2;
+  ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = align;
+  ctx.fillText(text, x, y);
+  ctx.textAlign = 'left';
+}
+
+// Helper: Draw KL Tradeoff Chart
+function drawKLTradeoffChart(ctx, x, y, w, h, colors, beta) {
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text2;
+  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillText('RL Policy Trade-off (KL Penalty β)', x + 10, y + 20);
+
+  const barWidth = 60;
+  const barGap = 30;
+  const chartBaseY = y + h - 20;
+  const chartMaxHeight = h - 60;
+
+  const sftQual = getKLTradeoff(0.2); // SFT-like behavior (high beta)
+  const ppoQual = getKLTradeoff(beta);
+
+  // Labels
+  ctx.fillText('RM Score', x + w/2 - barWidth - barGap/2, chartBaseY + 15);
+  ctx.fillText('SFT Similarity', x + w/2 + barGap/2, chartBaseY + 15);
+
+  // RM Score Bar
+  const rmBarX = x + w/2 - barWidth - barGap/2;
+  const rmBarHeight = ppoQual.rmScore * chartMaxHeight;
+  ctx.fillStyle = colors.amber;
+  ctx.fillRect(rmBarX, chartBaseY - rmBarHeight, barWidth, rmBarHeight);
+  ctx.fillStyle = colors.text;
+  ctx.fillText(ppoQual.rmScore.toFixed(2), rmBarX + barWidth/2, chartBaseY - rmBarHeight - 5);
+
+  // SFT Similarity Bar
+  const sftBarX = x + w/2 + barGap/2;
+  const sftBarHeight = ppoQual.sftSimilarity * chartMaxHeight;
+  ctx.fillStyle = colors.cyan;
+  ctx.fillRect(sftBarX, chartBaseY - sftBarHeight, barWidth, sftBarHeight);
+  ctx.fillStyle = colors.text;
+  ctx.fillText(ppoQual.sftSimilarity.toFixed(2), sftBarX + barWidth/2, chartBaseY - sftBarHeight - 5);
+
+  ctx.textAlign = 'center';
+  ctx.fillText('RM Score', rmBarX + barWidth/2, chartBaseY + 30);
+  ctx.fillText('SFT Similarity', sftBarX + barWidth/2, chartBaseY + 30);
+  ctx.textAlign = 'left';
+
+  // Update info numbers for interactive step
+  if (currentStep === 8) {
+    document.getElementById('infoNumbers').textContent =
+      `KL Penalty (β=${beta.toFixed(2)}):\n` +
+      `- RM Score: ${ppoQual.rmScore.toFixed(2)}\n` +
+      `- SFT Similarity: ${ppoQual.sftSimilarity.toFixed(2)}\n` +
+      `Higher β means the RL policy prioritizes staying similar to the SFT model, even if it means a slightly lower RM score.`;
+    document.getElementById('infoNumbers').style.display = 'block';
+  }
+}
+
+// ── SLIDER WIRING ──
+const klSlider = document.getElementById('klSlider');
+klSlider.addEventListener('input', (e) => {
+  klBeta = parseFloat(e.target.value);
+  document.getElementById('klValue').textContent = klBeta.toFixed(2);
+  render();
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[currentStep]));
+</script>
+</body>
+</html>

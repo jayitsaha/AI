@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KL Annealing &amp; β-VAE — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-fix{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-values{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>KL Annealing &amp; β-VAE</h1>
+  <div class="subtitle">Regularizing VAEs to prevent posterior collapse and encourage disentanglement</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding VAEs and Their Loss</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is a VAE?</strong> A Variational Autoencoder (VAE) is a generative model that learns a compressed, continuous representation (latent space) of its input data. It consists of an <strong>encoder</strong> that maps input data \(x\) to a distribution \(q(z|x)\) over latent variables \(z\), and a <strong>decoder</strong> that maps latent variables \(z\) back to data \(p(x|z)\).</p>
+    <p><strong>The ELBO Objective:</strong> VAEs are trained to maximize the Evidence Lower Bound (ELBO), which is a proxy for maximizing the likelihood of the data. The ELBO has two main components:</p>
+    <div class="eq">$$\mathcal{L}_{ELBO} = \mathbb{E}_{q(z|x)}[\log p(x|z)] - D_{KL}(q(z|x) \,||\, p(z))$$</div>
+    <ul>
+      <li>The first term, \(\mathbb{E}_{q(z|x)}[\log p(x|z)]\), is the <strong>reconstruction loss</strong>. It encourages the decoder to reconstruct the input data accurately.</li>
+      <li>The second term, \(D_{KL}(q(z|x) \,||\, p(z))\), is the <strong>KL Divergence</strong>. It acts as a regularizer, forcing the encoder's output distribution \(q(z|x)\) to be close to a simple prior distribution \(p(z)\) (typically a standard normal, \(\mathcal{N}(0, I)\)).</li>
+    </ul>
+    <p><strong>Analogy:</strong> Imagine you're writing a summary (latent code \(z\)) of a book (data \(x\)). The VAE wants two things: (1) The summary should be good enough to reconstruct the original book (reconstruction loss). (2) The summary should be written in a consistent, standardized style (KL divergence to a prior), so that anyone can understand and generate new summaries from scratch without needing the original book. The tension between these two goals is key.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The VAE loss is a trade-off: <strong>reconstruct well</strong> vs. <strong>regularize the latent space</strong>. The KL divergence term is crucial for ensuring the latent space is well-structured and generative, but it can sometimes dominate and lead to issues.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">The Problem: Posterior Collapse</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The KL Term's Dominance</h4>
+    <p>In vanilla VAEs, the KL divergence term \(D_{KL}(q(z|x) \,||\, p(z))\) can sometimes become too strong too early in training. If the decoder is still weak and hasn't learned to use the latent code \(z\) effectively for reconstruction, the easiest way for the model to minimize the total loss is to simply ignore the input \(x\) and make \(q(z|x)\) match the prior \(p(z)\) exactly. If \(q(z|x)\) becomes independent of \(x\), then \(z\) carries no information about \(x\), and the decoder cannot reconstruct \(x\).</p>
+    <p>This phenomenon is called <strong>posterior collapse</strong> (or "KL vanishing"). The KL term drives \(q(z|x)\) to collapse into \(p(z)\), resulting in \(D_{KL} \approx 0\). While this minimizes the KL term, it means the latent space is essentially useless for encoding information about the input, leading to poor reconstructions and limited generative capacity.</p>
+
+    <h4>β-VAE: Explicitly Controlling Disentanglement</h4>
+    <p>The <strong>β-VAE</strong> (Higgins et al., 2017) introduces a hyperparameter \(\beta\) to explicitly weight the KL divergence term:</p>
+    <div class="eq">$$\mathcal{L}_{\beta-VAE} = \mathbb{E}_{q(z|x)}[\log p(x|z)] - \beta \cdot D_{KL}(q(z|x) \,||\, p(z))$$</div>
+    <ul>
+      <li>If \(\beta = 1\), it's a standard VAE.</li>
+      <li>If \(\beta > 1\), the model is penalized more heavily for diverging from the prior. This forces the latent dimensions to be more independent and interpretable (disentangled), at the potential cost of reconstruction quality.</li>
+      <li>If \(\beta < 1\), the KL regularization is weaker, allowing more flexibility in the latent space, potentially improving reconstruction but risking less structured or disentangled latent factors.</li>
+    </ul>
+
+    <h4>KL Annealing: A Gradual Introduction</h4>
+    <p><strong>KL annealing</strong> is a training schedule where the weight of the KL divergence term is gradually increased over time. It starts with a small weight (e.g., 0 or a very small \(\beta\)) and slowly ramps up to its full value (e.g., \(\beta=1\) or a chosen \(\beta>1\)). This gives the decoder a "warm-up" period to learn meaningful reconstructions before the KL regularization fully kicks in. By delaying the strong regularization, KL annealing helps prevent posterior collapse, allowing the encoder to learn to extract useful information into \(z\) before being heavily constrained to match the prior.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both \(\beta\)-VAE and KL annealing address the trade-off between reconstruction and regularization. \(\beta\)-VAE offers a static control over the strength of regularization, while KL annealing provides a dynamic schedule to ease into it, preventing early-stage collapse.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The ELBO and its Components</h4>
+    <p>The ELBO for a VAE is derived from the marginal log-likelihood of the data \(\log p(x)\):</p>
+    <div class="eq">$$\log p(x) \ge \mathbb{E}_{q(z|x)}[\log p(x|z)] - D_{KL}(q(z|x) \,||\, p(z))$$</div>
+    <p>where \(q(z|x) = \mathcal{N}(\mu(x), \Sigma(x))\) is the approximate posterior (encoder output) and \(p(z) = \mathcal{N}(0, I)\) is the prior. The KL divergence between two Gaussians \(q(z|x) = \mathcal{N}(\mu, \sigma^2 I)\) and \(p(z) = \mathcal{N}(0, I)\) has a closed-form solution:</p>
+    <div class="eq}}{$$D_{KL}(\mathcal{N}(\mu, \sigma^2 I) \,||\, \mathcal{N}(0, I)) = \frac{1}{2} \sum_{j=1}^D (\sigma_j^2 + \mu_j^2 - 1 - \log \sigma_j^2)$$</div>
+    <p>Here, \(D\) is the dimensionality of the latent space. This term is minimized when \(\mu_j \to 0\) and \(\sigma_j^2 \to 1\), i.e., when \(q(z|x)\) matches the prior. If \(\sigma_j^2 \to 0\) (posterior collapse), the term goes to \(-\infty\), but in practice, it's bounded by the encoder's minimum variance.</p>
+
+    <h4>The β-VAE Objective</h4>
+    <p>The \(\beta\)-VAE modifies the ELBO by introducing a scaling factor \(\beta\):</p>
+    <div class="eq}}{$$\mathcal{L}_{\beta-VAE} = \mathbb{E}_{q(z|x)}[\log p(x|z)] - \beta \cdot D_{KL}(q(z|x) \,||\, p(z))$$</div>
+    <p>This effectively changes the trade-off. For \(\beta > 1\), the KL term is weighted more heavily, encouraging \(q(z|x)\) to match the prior more strongly. This can lead to a more "disentangled" latent representation, where individual dimensions of \(z\) correspond to interpretable generative factors of variation in \(x\). However, it might also push \(\mu\) and \(\sigma\) too close to \(0\) and \(1\) respectively, potentially compromising reconstruction quality if the decoder isn't strong enough to utilize these constrained latent codes.</p>
+
+    <h4>KL Annealing Schedule</h4>
+    <p>KL annealing introduces a time-varying coefficient \(\lambda_t\) for the KL term:</p>
+    <div class="eq}}{$$\mathcal{L}_{annealed} = \mathbb{E}_{q(z|x)}[\log p(x|z)] - \lambda_t \cdot D_{KL}(q(z|x) \,||\, p(z))$$</div>
+    <p>A common schedule for \(\lambda_t\) is a linear ramp-up:</p>
+    <div class="eq}}{$$\lambda_t = \min\left(1, \frac{\text{step}}{\text{warmup_steps}}\right) \cdot \beta_{final}$$</div>
+    <p>where `step` is the current training step, `warmup_steps` is a predefined number of steps, and `β_final` is the target \(\beta\) value. This allows the model to first focus on learning good reconstructions (when \(\lambda_t\) is small), and only gradually introduces the pressure to regularize the latent space. This prevents the encoder from taking the "easy way out" (posterior collapse) by ignoring the input, as the reconstruction term dominates early on.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Tuning \(\beta\) (in \(\beta\)-VAE) and `warmup_steps` (in KL annealing) is crucial and often dataset-dependent. Too high \(\beta\) or too short `warmup_steps` can still lead to posterior collapse. Too low \(\beta\) or too long `warmup_steps` might result in an under-regularized latent space that is not truly generative or disentangled.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore the dynamics of VAE training. Observe how reconstruction loss, KL divergence, and total loss evolve. See how the latent space distributions \(q(z|x)\) (ellipses) relate to the prior \(p(z)\) (central gray circle) and how \(\beta\) and KL annealing affect this relationship.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">β (KL weight)</div>
+          <input type="range" id="betaSlider" min="0.1" max="5.0" step="0.1" value="1.0">
+          <div class="slider-value" id="betaValue">1.0</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="annealingToggle">
+          <label for="annealingToggle">Enable KL Annealing (warmup over 500 steps)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Initial State: VAE Components</div>
+        <div class="info-desc" id="infoDesc">A Variational Autoencoder aims to balance reconstruction and latent space regularization. The plot above shows how these two loss components (Reconstruction and KL Divergence) contribute to the total ELBO loss over training steps. The bottom panel visualizes the 2D latent space.</div>
+        <div class="info-values" id="infoValues"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> Reconstruction Loss</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> KL Divergence</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--blue-mid)"></div> Total Loss</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text2)"></div> Prior \(p(z)\) (standard normal)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Posterior \(q(z|x)\) (encoder output)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use β-VAE:</strong></p>
+    <ul>
+      <li>When you need a more disentangled and interpretable latent space (e.g., for controllable generation or feature learning).</li>
+      <li>When you can afford a slight trade-off in reconstruction quality for better latent space properties.</li>
+      <li>Typical \(\beta\) values are between 1 and 10, but can go higher for very strong disentanglement.</li>
+    </ul>
+    <p><strong>When to use KL Annealing:</strong></p>
+    <ul>
+      <li>Almost always, especially in early VAE training, to prevent posterior collapse and ensure the encoder learns useful representations.</li>
+      <li>It's a robust technique to stabilize training, even with \(\beta=1\).</li>
+      <li>Combine with \(\beta\)-VAE: anneal \(\lambda_t\) up to a target \(\beta_{final}\) value.</li>
+    </ul>
+    <p><strong>When to be careful:</strong></p>
+    <ul>
+      <li>Tuning \(\beta\) and annealing schedules is empirical and dataset-dependent.</li>
+      <li>Over-regularization (too high \(\beta\)) can lead to poor reconstructions or even still cause collapse if the model struggles.</li>
+      <li>Under-regularization (too low \(\beta\)) might result in a fuzzy, less interpretable latent space.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">KL annealing and \(\beta\)-VAE are complementary techniques for controlling the regularization strength in VAEs. Annealing provides a dynamic "warm-up" to prevent collapse, while \(\beta\) offers a static lever to push for stronger disentanglement, both aiming for a well-behaved and generative latent space.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — PyTorch Implementation</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assuming 'model' is a VAE with encoder (mu, log_var) and decoder</div>
+      <div class="code-line" id="cl4"># x: input data, recon_x: reconstructed data</div>
+      <div class="code-line" id="cl5"># mu: mean of q(z|x), log_var: log variance of q(z|x)</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7">def vae_loss_fn(recon_x, x, mu, log_var, beta=1.0, step=0, warmup_steps=500):</div>
+      <div class="code-line" id="cl8">    # 1. Reconstruction Loss (e.g., Binary Cross-Entropy for images)</div>
+      <div class="code-line" id="cl9">    recon_loss = F.binary_cross_entropy(recon_x, x, reduction='sum')</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    # 2. KL Divergence (between N(mu, exp(log_var)) and N(0, I))</div>
+      <div class="code-line" id="cl12">    # 0.5 * sum(1 + log_var - mu^2 - exp(log_var))</div>
+      <div class="code-line" id="cl13">    kl_divergence = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    # 3. KL Annealing: scale lambda_t ramps up to beta</div>
+      <div class="code-line" id="cl16">    lambda_t = min(1.0, step / warmup_steps) if warmup_steps > 0 else 1.0</div>
+      <div class="code-line" id="cl17">    kl_weight = beta * lambda_t</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">    # 4. Total Loss (ELBO)</div>
+      <div class="code-line" id="cl20">    total_loss = recon_loss + kl_weight * kl_divergence</div>
+      <div class="code-line" id="cl21">    return total_loss, recon_loss, kl_divergence, kl_weight</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23"># Example usage in a training loop:</div>
+      <div class="code-line" id="cl24"># for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl25">#     for batch_idx, data in enumerate(dataloader):</div>
+      <div class="code-line" id="cl26">#         optimizer.zero_grad()</div>
+      <div class="code-line" id="cl27">#         recon_batch, mu, log_var = model(data)</div>
+      <div class="code-line" id="cl28">#         total_loss, recon_loss, kl_div, kl_w = vae_loss_fn(</div>
+      <div class="code-line" id="cl29">#             recon_batch, data, mu, log_var, beta=2.0,</div>
+      <div class="code-line" id="cl30">#             step=epoch * len(dataloader) + batch_idx, warmup_steps=1000)</div>
+      <div class="code-line" id="cl31">#         total_loss.backward()</div>
+      <div class="code-line" id="cl32">#         optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let currentStep = 0;
+const totalSteps = 10; // Increased to 10 for more detail
+let betaValue = 1.0;
+let annealingEnabled = false;
+const WARMUP_STEPS = 500;
+const TOTAL_TRAINING_STEPS = 1000;
+
+// ── DATA SIMULATION ──
+// These functions simulate plausible loss curves and latent space dynamics
+// based on beta and annealing. They are NOT real VAE training outputs.
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function clamp(val, min, max) { return Math.max(min, Math.min(val, max)); }
+
+function simulateLosses(beta, annealing, currentTrainingStep) {
+  let kl_weight_factor = 1.0;
+  if (annealing) {
+    kl_weight_factor = clamp(currentTrainingStep / WARMUP_STEPS, 0, 1);
+  }
+  const effective_beta = beta * kl_weight_factor;
+
+  let recon_loss_base = 0;
+  let kl_div_base = 0;
+
+  // Simulate loss curves over 1000 steps
+  const progress = currentTrainingStep / TOTAL_TRAINING_STEPS;
+
+  // Base reconstruction loss: decreases
+  recon_loss_base = 0.8 * Math.exp(-progress * 3) + 0.2; // Starts high, drops to 0.2
+  recon_loss_base = clamp(recon_loss_base, 0.1, 1.0);
+
+  // Base KL divergence: decreases
+  kl_div_base = 0.5 * Math.exp(-progress * 2) + 0.1; // Starts high, drops to 0.1
+  kl_div_base = clamp(kl_div_base, 0.05, 0.5);
+
+  // Adjustments based on effective_beta and annealing
+  if (effective_beta < 0.5) { // Weak regularization, recon might be better, KL might be lower
+    recon_loss_base *= (1 - (0.5 - effective_beta) * 0.5); // Slightly better recon
+    kl_div_base *= (1 + (0.5 - effective_beta) * 0.8); // Slightly higher KL
+  } else if (effective_beta > 1.5) { // Strong regularization
+    recon_loss_base *= (1 + (effective_beta - 1.5) * 0.2); // Slightly worse recon
+    kl_div_base *= (1 - (effective_beta - 1.5) * 0.3); // Significantly lower KL
+  }
+
+  // Posterior collapse simulation: if effective_beta is high and annealing is off,
+  // KL collapses to near zero, recon stays high.
+  if (!annealing && effective_beta > 1.5 && progress < 0.3) {
+    kl_div_base = 0.01 + (kl_div_base - 0.01) * (1 - progress * 2); // KL drops fast
+    recon_loss_base = 0.6 + (recon_loss_base - 0.6) * (1 - progress * 2); // Recon stays high
+  }
+
+  const kl_div_final = clamp(kl_div_base, 0.01, 0.5);
+  const recon_loss_final = clamp(recon_loss_base, 0.1, 1.0);
+
+  const total_loss = recon_loss_final + effective_beta * kl_div_final;
+
+  return {
+    recon_loss: recon_loss_final,
+    kl_divergence: kl_div_final,
+    total_loss: total_loss,
+    kl_weight: effective_beta
+  };
+}
+
+// Simulate latent space (mu, log_var) for 3 distinct 'x' inputs
+// These values will change based on training progress, beta, and annealing
+const NUM_LATENT_SAMPLES = 3;
+function simulateLatentSpace(beta, annealing, currentTrainingStep) {
+  const progress = currentTrainingStep / TOTAL_TRAINING_STEPS;
+  const effective_beta = beta * (annealing ? clamp(currentTrainingStep / WARMUP_STEPS, 0, 1) : 1);
+
+  const samples = [];
+  const base_mus = [
+    [-0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]
+  ];
+
+  for (let i = 0; i < NUM_LATENT_SAMPLES; i++) {
+    let mu = [...base_mus[i]];
+    let log_var = [-0.5, -0.5]; // Initial variance
+
+    // Dynamics:
+    // If effective_beta is high, mu moves towards 0, log_var moves towards 0 (variance towards 1)
+    // If posterior collapse, mu is near 0, log_var is very negative (variance near 0)
+    // If annealing, initially more spread, then regularized
+
+    let mu_factor = 1;
+    let var_factor = 1;
+
+    if (!annealing && effective_beta > 1.5 && progress < 0.3) { // Posterior collapse scenario
+      mu_factor = 1 - progress * 3; // Mu collapses to 0
+      var_factor = 1 - progress * 3; // Var collapses to 0
+      log_var = log_var.map(v => v * var_factor - 2 * (1 - var_factor)); // Push log_var lower
+    } else {
+      // Mu regularization: move towards 0, but keep distinctness
+      mu_factor = 1 - effective_beta * 0.1 * progress;
+      mu = mu.map(val => val * mu_factor);
+
+      // Variance regularization: move towards 1 (log_var towards 0)
+      var_factor = 1 - effective_beta * 0.05 * progress;
+      log_var = log_var.map(v => v * var_factor + (1 - var_factor) * 0.5); // Push log_var towards 0
+    }
+
+    samples.push({
+      mu: mu.map(v => clamp(v, -1.5, 1.5)),
+      log_var: log_var.map(v => clamp(v, -3, 1)) // log_var from exp(-3)=0.05 to exp(1)=2.7
+    });
+  }
+  return samples;
+}
+
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State: VAE Components',
+    desc: 'A Variational Autoencoder aims to balance reconstruction and latent space regularization. The plot above shows how these two loss components (Reconstruction and KL Divergence) contribute to the total ELBO loss over training steps. The bottom panel visualizes the 2D latent space, showing individual posterior distributions \(q(z|x)\) for different inputs (green ellipses) relative to the standard normal prior \(p(z)\) (gray circle).',
+    currentTrainingStep: 0,
+    beta: 1.0,
+    annealing: false,
+    codeLines: [7,8,9,10,11,12,13,19,20]
+  },
+  {
+    phase: 'setup', title: 'Beginning Training (Vanilla VAE)',
+    desc: 'At the start of training, both reconstruction and KL divergence are high. The encoder has not yet learned to map inputs to a meaningful latent space, and the decoder cannot reconstruct well. The KL weight \(\\lambda_t\) is constant at \\(1.0\\) (\\(\\beta=1\\), no annealing).',
+    currentTrainingStep: 1,
+    beta: 1.0,
+    annealing: false,
+    codeLines: [7,8,9,10,11,12,13,19,20]
+  },
+  {
+    phase: 'problem', title: 'Vanilla VAE: Risk of Posterior Collapse',
+    desc: 'With a constant KL weight of \\(1.0\\), the KL divergence term can quickly dominate. The encoder finds it easier to minimize KL by making \\(q(z|x)\\) match the prior \\(p(z)\\) (collapsing to the center, minimal variance) rather than encoding useful information about \\(x\\). This leads to a low KL divergence, but poor reconstruction quality (Recon Loss remains high).',
+    currentTrainingStep: 150,
+    beta: 1.0,
+    annealing: false,
+    codeLines: [7,8,9,10,11,12,13,19,20]
+  },
+  {
+    phase: 'problem', title: 'Visualizing Posterior Collapse',
+    desc: 'In posterior collapse, the encoder effectively ignores the input \\(x\\), causing all \\(q(z|x)\\) distributions (green ellipses) to collapse to a tiny point near the center of the prior \\(p(z)\\). The latent code \\(z\\) carries no information, making reconstruction impossible. The KL divergence is minimized, but the VAE fails to learn a useful representation.',
+    currentTrainingStep: 300,
+    beta: 1.0,
+    annealing: false,
+    codeLines: [7,8,9,10,11,12,13,19,20]
+  },
+  {
+    phase: 'fix', title: 'Introducing β-VAE: Stronger Regularization',
+    desc: 'The \\(\\beta\\)-VAE introduces a static multiplier \\(\\beta\\) for the KL term (here, \\(\\beta=2.0\\)). This explicitly penalizes deviations from the prior more heavily. With \\(\\beta > 1\\), the encoder is forced to make \\(q(z|x)\\) even closer to \\(p(z)\\), which can encourage disentanglement but also risks worsening reconstruction or accelerating posterior collapse if not managed.',
+    currentTrainingStep: 300,
+    beta: 2.0,
+    annealing: false,
+    codeLines: [7,8,9,10,11,12,13,17,19,20]
+  },
+  {
+    phase: 'fix', title: 'Introducing KL Annealing: Gradual Warm-up',
+    desc: 'KL annealing gradually increases the KL weight \\(\\lambda_t\\) from \\(0\\) to \\(\\beta_{final}\\) over `warmup_steps` (here, \\(500\\) steps). This gives the decoder time to learn good reconstructions before the KL regularization becomes strong. Initially, \\(\\lambda_t \\approx 0\\), so the model focuses almost entirely on reconstruction, preventing early collapse.',
+    currentTrainingStep: 1,
+    beta: 1.0,
+    annealing: true,
+    codeLines: [7,8,9,10,11,12,13,15,16,17,19,20]
+  },
+  {
+    phase: 'fix', title: 'KL Annealing in Action (Early Stage)',
+    desc: 'During the initial `warmup_steps` (e.g., up to step 500), \\(\\lambda_t\\) is small. The reconstruction loss drops significantly as the decoder learns to use the latent code. The KL divergence is less constrained, allowing \\(q(z|x)\\) to be more expressive initially, avoiding immediate collapse.',
+    currentTrainingStep: 250,
+    beta: 1.0,
+    annealing: true,
+    codeLines: [7,8,9,10,11,12,13,15,16,17,19,20]
+  },
+  {
+    phase: 'fix', title: 'KL Annealing in Action (Late Stage)',
+    desc: 'As training progresses past `warmup_steps`, \\(\\lambda_t\\) reaches its full value (here, \\(1.0\\)). The KL divergence term now fully regularizes the latent space, pulling \\(q(z|x)\\) closer to \\(p(z)\\). The model has successfully learned to reconstruct AND maintain a structured, generative latent space.',
+    currentTrainingStep: 750,
+    beta: 1.0,
+    annealing: true,
+    codeLines: [7,8,9,10,11,12,13,15,16,17,19,20]
+  },
+  {
+    phase: 'explore', title: 'Combining β-VAE & Annealing',
+    desc: 'We can combine both techniques: set a target \\(\\beta > 1\\) (e.g., \\(\\beta=2.0\\)) and enable annealing. The \\(\\lambda_t\\) factor will ramp up to this higher \\(\\beta\\) value. This combination encourages stronger disentanglement while still preventing posterior collapse.',
+    currentTrainingStep: 750,
+    beta: 2.0,
+    annealing: true,
+    codeLines: [7,8,9,10,11,12,13,15,16,17,19,20]
+  },
+  {
+    phase: 'explore', title: 'Explore: Adjust β and Annealing',
+    desc: 'Use the sliders to interactively adjust \\(\\beta\\) and toggle KL annealing. Observe how these parameters influence the trade-off between reconstruction quality (Recon Loss) and latent space regularization (KL Divergence), and how the \\(q(z|x)\\) distributions (green ellipses) behave relative to the prior \\(p(z)\\) (gray circle).',
+    currentTrainingStep: 999,
+    beta: 1.0,
+    annealing: false, // Default to off for exploration
+    codeLines: [7,8,9,10,11,12,13,15,16,17,19,20]
+  }
+];
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() {
+  currentStep = 0;
+  betaValue = 1.0;
+  annealingEnabled = false;
+  document.getElementById('betaSlider').value = betaValue;
+  document.getElementById('annealingToggle').checked = annealingEnabled;
+  updateSliderLabels();
+  render();
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+const betaSlider = document.getElementById('betaSlider');
+const annealingToggle = document.getElementById('annealingToggle');
+
+function updateSliderLabels() {
+  document.getElementById('betaValue').textContent = betaValue.toFixed(1);
+}
+
+betaSlider.addEventListener('input', (e) => {
+  betaValue = parseFloat(e.target.value);
+  updateSliderLabels();
+  if (steps[currentStep].phase === 'explore') {
+    render();
+  }
+});
+
+annealingToggle.addEventListener('change', (e) => {
+  annealingEnabled = e.target.checked;
+  if (steps[currentStep].phase === 'explore') {
+    render();
+  }
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStep];
+
+  // For interactive step, use current slider values
+  const effectiveBeta = (s.phase === 'explore') ? betaValue : s.beta;
+  const effectiveAnnealing = (s.phase === 'explore') ? annealingEnabled : s.annealing;
+  const effectiveTrainingStep = (s.phase === 'explore') ? TOTAL_TRAINING_STEPS - 1 : s.currentTrainingStep;
+
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', problem: 'phase-problem', fix: 'phase-fix', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Update slider/toggle state if not in explore mode
+  if (s.phase !== 'explore') {
+    betaValue = s.beta;
+    annealingEnabled = s.annealing;
+    document.getElementById('betaSlider').value = betaValue;
+    document.getElementById('annealingToggle').checked = annealingEnabled;
+  }
+  updateSliderLabels();
+
+  drawCanvas(effectiveBeta, effectiveAnnealing, effectiveTrainingStep);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(beta, annealing, trainingStep) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // --- TOP PANEL: Loss Curves ---
+  const plotH = H * 0.55;
+  const plotPad = { l: 40, r: 20, t: 15, b: 25 };
+  const plotW = W - plotPad.l - plotPad.r;
+  const plotYMax = 2.5; // Max loss value for y-axis
+
+  // Draw axes
+  ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(plotPad.l, plotPad.t); ctx.lineTo(plotPad.l, plotH - plotPad.b); // Y-axis
+  ctx.lineTo(W - plotPad.r, plotH - plotPad.b); // X-axis
+  ctx.stroke();
+
+  // X-axis label
+  ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Training Steps', W / 2, plotH - plotPad.b + 20);
+  // Y-axis label
+  ctx.save(); ctx.translate(plotPad.l - 25, plotH / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Loss', 0, 0); ctx.restore();
+
+  // X-axis ticks
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= TOTAL_TRAINING_STEPS; i += 200) {
+    const x = plotPad.l + (i / TOTAL_TRAINING_STEPS) * plotW;
+    ctx.beginPath(); ctx.moveTo(x, plotH - plotPad.b); ctx.lineTo(x, plotH - plotPad.b + 5); ctx.stroke();
+    ctx.fillText(i, x, plotH - plotPad.b + 15);
+  }
+  // Y-axis ticks
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= plotYMax; i += 0.5) {
+    const y = plotH - plotPad.b - (i / plotYMax) * (plotH - plotPad.t - plotPad.b);
+    ctx.beginPath(); ctx.moveTo(plotPad.l - 5, y); ctx.lineTo(plotPad.l, y); ctx.stroke();
+    ctx.fillText(i.toFixed(1), plotPad.l - 8, y + 4);
+  }
+
+  // Plot loss curves
+  ctx.lineWidth = 2;
+  const lossesHistory = [];
+  for (let s = 0; s <= TOTAL_TRAINING_STEPS; s += 10) {
+    lossesHistory.push(simulateLosses(beta, annealing, s));
+  }
+
+  function drawLossCurve(lossKey, color) {
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    lossesHistory.forEach((l, i) => {
+      const x = plotPad.l + (i * 10 / TOTAL_TRAINING_STEPS) * plotW;
+      const y = plotH - plotPad.b - (l[lossKey] / plotYMax) * (plotH - plotPad.t - plotPad.b);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  drawLossCurve('recon_loss', colors.red);
+  drawLossCurve('kl_divergence', colors.purple);
+  drawLossCurve('total_loss', colors.blue);
+
+  // Current training step marker
+  const currentX = plotPad.l + (trainingStep / TOTAL_TRAINING_STEPS) * plotW;
+  ctx.strokeStyle = colors.text2; ctx.setLineDash([2, 2]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(currentX, plotPad.t); ctx.lineTo(currentX, plotH - plotPad.b); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = colors.text2; ctx.textAlign = 'center';
+  ctx.fillText(`Step ${trainingStep}`, currentX, plotPad.t - 5);
+
+  const currentLosses = simulateLosses(beta, annealing, trainingStep);
+  document.getElementById('infoValues').textContent =
+    `Current Step: ${trainingStep}\n` +
+    `β: ${beta.toFixed(1)} (Annealing: ${annealing ? 'ON' : 'OFF'})\n` +
+    `Effective KL Weight (λ_t * β): ${currentLosses.kl_weight.toFixed(2)}\n` +
+    `Recon Loss: ${currentLosses.recon_loss.toFixed(3)}\n` +
+    `KL Divergence: ${currentLosses.kl_divergence.toFixed(3)}\n` +
+    `Total Loss: ${currentLosses.total_loss.toFixed(3)}`;
+
+  // --- BOTTOM PANEL: Latent Space ---
+  const latentH = H * 0.45;
+  const latentYOffset = plotH;
+  const latentPad = 30;
+  const latentPlotSize = Math.min(W, latentH) - 2 * latentPad;
+  const latentCenterX = W / 2;
+  const latentCenterY = latentYOffset + latentH / 2;
+  const latentRange = 3; // z values from -latentRange to +latentRange
+
+  // Draw prior p(z) = N(0, I) as a circle
+  ctx.beginPath();
+  ctx.arc(latentCenterX, latentCenterY, (1 / latentRange) * (latentPlotSize / 2), 0, Math.PI * 2);
+  ctx.fillStyle = colors.text2; ctx.globalAlpha = 0.15; ctx.fill();
+  ctx.strokeStyle = colors.text2; ctx.lineWidth = 1; ctx.globalAlpha = 0.5; ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Draw q(z|x) distributions (ellipses)
+  const latentSamples = simulateLatentSpace(beta, annealing, trainingStep);
+  latentSamples.forEach((sample, i) => {
+    const muX = latentCenterX + (sample.mu[0] / latentRange) * (latentPlotSize / 2);
+    const muY = latentCenterY - (sample.mu[1] / latentRange) * (latentPlotSize / 2); // Y-axis inverted for canvas
+
+    const varX = Math.exp(sample.log_var[0]);
+    const varY = Math.exp(sample.log_var[1]);
+
+    const radiusX = (Math.sqrt(varX) / latentRange) * (latentPlotSize / 2);
+    const radiusY = (Math.sqrt(varY) / latentRange) * (latentPlotSize / 2);
+
+    ctx.beginPath();
+    ctx.ellipse(muX, muY, radiusX, radiusY, 0, 0, Math.PI * 2);
+    ctx.fillStyle = colors.green; ctx.globalAlpha = 0.25; ctx.fill();
+    ctx.strokeStyle = colors.green; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7; ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Draw mean point
+    ctx.beginPath();
+    ctx.arc(muX, muY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = colors.green;
+    ctx.fill();
+  });
+
+  // Latent space axes
+  ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(latentCenterX - (latentPlotSize / 2), latentCenterY); ctx.lineTo(latentCenterX + (latentPlotSize / 2), latentCenterY); // X-axis
+  ctx.moveTo(latentCenterX, latentCenterY - (latentPlotSize / 2)); ctx.lineTo(latentCenterX, latentCenterY + (latentPlotSize / 2)); // Y-axis
+  ctx.stroke();
+
+  ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('z₁', latentCenterX + (latentPlotSize / 2) + 10, latentCenterY + 4);
+  ctx.fillText('z₂', latentCenterX - 4, latentCenterY - (latentPlotSize / 2) - 10);
+  ctx.textAlign = 'left';
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(betaValue, annealingEnabled, steps[currentStep].currentTrainingStep));
+</script>
+</body>
+</html>

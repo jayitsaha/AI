@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coupling Layers: NICE, RealNVP, Glow — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-transform{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-jacobian{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-inverse{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-chain{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Coupling Layers: NICE, RealNVP, Glow</h1>
+  <div class="subtitle">Building invertible neural networks for generative modeling and density estimation</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(D) log-det</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Coupling Layers</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Coupling layers are the fundamental building blocks of <em>Normalizing Flow</em> models like NICE, RealNVP, and Glow. These models learn complex probability distributions (e.g., of images) by chaining together many simple, invertible transformations. A coupling layer takes an input vector \(\mathbf{x}\), splits it into two parts, \(\mathbf{x}_1\) and \(\mathbf{x}_2\), and then transforms one part while keeping the other constant, or transforming it conditioned on the other. This structure ensures that the transformation is both invertible and has a computationally tractable Jacobian determinant.</p>
+    <p><strong>Analogy:</strong> Imagine you have a set of coordinates \((x, y)\) representing points on a rubber sheet. A coupling layer is like a special stretching and shifting tool. You can fix all the \(x\)-coordinates and then stretch/shift the \(y\)-coordinates, but the amount of stretch/shift for each \(y\) depends only on its corresponding \(x\). Crucially, you can always reverse this process to get back your original sheet, and you can easily calculate how much the area of any region changed after the transformation. This makes it ideal for generative models, where you need to map between a simple latent space (like a Gaussian) and a complex data space.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Coupling layers facilitate invertible transformations with easy-to-compute Jacobian determinants by splitting the input into two parts: one part remains unchanged (or is transformed trivially), while the other is transformed by a neural network conditioned on the first part. This is key for density estimation via the change of variables formula.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How Coupling Layers Work Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Coupling Layers Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Idea: Affine Coupling</h4>
+    <p>A coupling layer typically involves the following steps for an input vector \(\mathbf{x} \in \mathbb{R}^D\):</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Split:</strong> Divide \(\mathbf{x}\) into two disjoint parts, \(\mathbf{x}_1\) and \(\mathbf{x}_2\). For simplicity, often \(\mathbf{x}_1\) contains the first \(d\) dimensions and \(\mathbf{x}_2\) contains the remaining \(D-d\) dimensions.</li>
+      <li><strong>Transform:</strong>
+        <ul>
+          <li>The first part remains unchanged: \(\mathbf{y}_1 = \mathbf{x}_1\).</li>
+          <li>The second part is transformed using an affine transformation, where the scale and translation parameters are functions of the first part:
+            $$\mathbf{y}_2 = \mathbf{x}_2 \odot \exp(\mathbf{s}(\mathbf{x}_1)) + \mathbf{t}(\mathbf{x}_1)$$
+            Here, \(\mathbf{s}(\cdot)\) and \(\mathbf{t}(\cdot)\) are arbitrary neural networks that map from \(\mathbb{R}^d\) to \(\mathbb{R}^{D-d}\), and \(\odot\) denotes the element-wise (Hadamard) product. The output of the layer is \(\mathbf{y} = [\mathbf{y}_1, \mathbf{y}_2]\).
+          </li>
+        </ul>
+      </li>
+    </ol>
+    <p>The beauty of this structure lies in its invertibility and the simplicity of its Jacobian determinant:</p>
+    <ul>
+      <li><strong>Invertibility:</strong> Given \(\mathbf{y} = [\mathbf{y}_1, \mathbf{y}_2]\), we can easily recover \(\mathbf{x}\):
+        $$\mathbf{x}_1 = \mathbf{y}_1$$
+        $$\mathbf{x}_2 = (\mathbf{y}_2 - \mathbf{t}(\mathbf{y}_1)) \odot \exp(-\mathbf{s}(\mathbf{y}_1))$$
+        Notice that \(\mathbf{s}\) and \(\mathbf{t}\) are evaluated on \(\mathbf{y}_1\), which is identical to \(\mathbf{x}_1\).
+      </li>
+      <li><strong>Jacobian Determinant:</strong> The log-determinant of the Jacobian of this transformation is simply \(\sum_{i=1}^{D-d} \mathbf{s}(\mathbf{x}_1)_i\). This is computationally trivial, as it only requires a sum over the outputs of the \(\mathbf{s}\) network.</li>
+    </ul>
+
+    <h4>Variants: NICE, RealNVP, Glow</h4>
+    <p>The evolution of coupling layers is marked by these key models:</p>
+    <ul>
+      <li><strong>NICE (Non-linear Independent Components Estimation, 2014):</strong> Introduced the concept with an *additive* coupling layer: \(\mathbf{y}_2 = \mathbf{x}_2 + \mathbf{t}(\mathbf{x}_1)\). Here, \(\mathbf{s}(\mathbf{x}_1)\) is implicitly zero, so the Jacobian determinant is 1 (volume-preserving).</li>
+      <li><strong>RealNVP (Real-valued Non-Volume Preserving, 2016):</strong> Generalized NICE to the *affine* coupling layer as described above. By introducing the scaling factor \(\exp(\mathbf{s}(\mathbf{x}_1))\), RealNVP allows for volume changes, making it more powerful for density estimation.</li>
+      <li><strong>Glow (Generative Flow with Invertible 1x1 Convolutions, 2018):</strong> Further improved RealNVP by incorporating invertible 1x1 convolutions for channel mixing (instead of just fixed splitting and concatenation), and a "squeeze" operation for multi-scale architectures, leading to more expressive and stable models.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">All coupling layer variants rely on the principle of partitioning variables and transforming one subset conditioned on the other. This ensures both invertibility and a simple, explicit form for the Jacobian determinant (or its logarithm), which is crucial for density estimation in normalizing flows.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Change of Variables Formula</h4>
+    <p>The core of normalizing flows is to transform a simple latent distribution \(p_z(\mathbf{z})\) (e.g., standard Gaussian) into a complex data distribution \(p_x(\mathbf{x})\) using a sequence of invertible mappings \(f: \mathbb{R}^D \to \mathbb{R}^D\). The probability density of \(\mathbf{x}\) can be computed using the change of variables formula:</p>
+    <div class="eq">$$p_x(\mathbf{x}) = p_z(f(\mathbf{x})) \left| \det\left(\frac{\partial f}{\partial \mathbf{x}}\right) \right|$$</div>
+    <p>For a sequence of transformations \(f = f_K \circ \dots \circ f_1\), the Jacobian determinant is multiplicative: \(\det\left(\frac{\partial f}{\partial \mathbf{x}}\right) = \prod_{k=1}^K \det\left(\frac{\partial f_k}{\partial \mathbf{x}_{k-1}}\right)\). Thus, we need each individual transformation \(f_k\) to have an easily computable Jacobian determinant.</p>
+
+    <h4>Jacobian of an Affine Coupling Layer</h4>
+    <p>Consider an affine coupling layer \(f(\mathbf{x}) = \mathbf{y}\) where \(\mathbf{x} = [\mathbf{x}_1, \mathbf{x}_2]\) and \(\mathbf{y} = [\mathbf{y}_1, \mathbf{y}_2]\) are defined as:</p>
+    $$ \begin{aligned} \mathbf{y}_1 &= \mathbf{x}_1 \\ \mathbf{y}_2 &= \mathbf{x}_2 \odot \exp(\mathbf{s}(\mathbf{x}_1)) + \mathbf{t}(\mathbf{x}_1) \end{aligned} $$
+    <p>The Jacobian matrix \(\mathbf{J} = \frac{\partial \mathbf{y}}{\partial \mathbf{x}}\) is a block matrix:</p>
+    <div class="eq">$$ \mathbf{J} = \begin{pmatrix} \frac{\partial \mathbf{y}_1}{\partial \mathbf{x}_1} & \frac{\partial \mathbf{y}_1}{\partial \mathbf{x}_2} \\ \frac{\partial \mathbf{y}_2}{\partial \partial \mathbf{x}_1} & \frac{\partial \mathbf{y}_2}{\partial \mathbf{x}_2} \end{pmatrix} = \begin{pmatrix} \mathbf{I} & \mathbf{0} \\ \frac{\partial \mathbf{y}_2}{\partial \mathbf{x}_1} & \text{diag}(\exp(\mathbf{s}(\mathbf{x}_1))) \end{pmatrix} $$</div>
+    <p>Where \(\mathbf{I}\) is the identity matrix (since \(\mathbf{y}_1 = \mathbf{x}_1\)), \(\mathbf{0}\) is a block of zeros (since \(\mathbf{y}_1\) does not depend on \(\mathbf{x}_2\)), and \(\text{diag}(\exp(\mathbf{s}(\mathbf{x}_1)))\) is a diagonal matrix whose elements are the components of \(\exp(\mathbf{s}(\mathbf{x}_1))\). The term \(\frac{\partial \mathbf{y}_2}{\partial \mathbf{x}_1}\) is a complex sub-matrix involving the derivatives of \(\mathbf{s}\) and \(\mathbf{t}\) with respect to \(\mathbf{x}_1\), but crucially, we don't need to compute it.</p>
+    <p>For a block-triangular matrix, the determinant is the product of the determinants of its diagonal blocks:</p>
+    <div class="eq">$$ \det(\mathbf{J}) = \det(\mathbf{I}) \cdot \det(\text{diag}(\exp(\mathbf{s}(\mathbf{x}_1)))) = 1 \cdot \prod_{i=1}^{D-d} \exp(\mathbf{s}(\mathbf{x}_1)_i) = \exp\left(\sum_{i=1}^{D-d} \mathbf{s}(\mathbf{x}_1)_i\right) $$</div>
+    <p>Therefore, the log-determinant is simply \(\log|\det(\mathbf{J})| = \sum_{i=1}^{D-d} \mathbf{s}(\mathbf{x}_1)_i\). This computation is highly efficient, scaling linearly with the dimension \(D-d\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">A single coupling layer only transforms a subset of dimensions. To ensure all dimensions are transformed, coupling layers are typically chained, with the roles of \(\mathbf{x}_1\) and \(\mathbf{x}_2\) swapped (or permuted using 1x1 convolutions in Glow) between successive layers. Without this, some dimensions would never be affected by the neural networks, limiting the model's expressiveness.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize a 2D data distribution (a grid of points) transformed by a coupling layer. Adjust the scaling and translation parameters to see their effect on the data and the Jacobian determinant.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Scaling factor (s_coeff)</div>
+          <input type="range" id="sCoeffSlider" min="-0.8" max="0.8" step="0.05" value="0.2">
+          <div class="slider-value" id="sCoeffValue">0.20</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Translation factor (t_coeff)</div>
+          <input type="range" id="tCoeffSlider" min="-2.0" max="2.0" step="0.1" value="0.5">
+          <div class="slider-value" id="tCoeffValue">0.50</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="swapMaskToggle">
+          <label for="swapMaskToggle">Swap mask (transform X-dim based on Y-dim)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Data Distribution</div>
+        <div class="info-desc" id="infoDesc">We start with a simple 2D grid of points. Our goal is to transform this distribution into another, more complex one, while being able to reverse the transformation and compute its Jacobian determinant.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Original Points</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Transformed Points (Layer 1)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Transformed Points (Layer 2)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Inverted Points</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Active Transformation Axis</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use coupling layers / normalizing flows:</strong></p>
+    <ul>
+      <li><strong>Generative Modeling:</strong> For learning complex data distributions (images, audio) and generating new samples. Flow models can generate high-quality, diverse samples.</li>
+      <li><strong>Density Estimation:</strong> When you need to explicitly compute the likelihood \(p(\mathbf{x})\) of data points, which is crucial for tasks like anomaly detection or variational inference.</li>
+      <li><strong>Invertible Transformations:</strong> For applications requiring a bijective mapping between data and latent spaces, such as reversible neural networks or invertible data augmentation.</li>
+      <li><strong>Latent Space Learning:</strong> To learn a meaningful, interpretable latent representation of data where standard operations (e.g., interpolation) make sense.</li>
+    </ul>
+    <p><strong>When to be cautious or consider alternatives:</strong></p>
+    <ul>
+      <li><strong>Computational Cost:</strong> While Jacobian computation is efficient, chaining many layers and using complex \(\mathbf{s}\) and \(\mathbf{t}\) networks can still be computationally intensive, especially for high-dimensional data.</li>
+      <li><strong>Expressiveness Limitations:</strong> The fixed split in basic coupling layers can limit expressiveness. More advanced architectures (like Glow's 1x1 convolutions) mitigate this but add complexity.</li>
+      <li><strong>Non-invertible operations:</strong> Coupling layers are strictly invertible. If your task inherently requires non-invertible operations (e.g., pooling in standard CNNs), flow models might not be a direct fit without modifications.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture: Flow Models</div>
+      <p style="font-size:14px;margin:0;">Coupling layers are the engine behind normalizing flows, enabling them to construct complex, invertible mappings. This allows for principled density estimation and efficient sampling by transforming a simple base distribution (like Gaussian noise) into a learned data distribution. They represent a powerful class of generative models with strong theoretical guarantees.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Affine Coupling Layer</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class AffineCouplingLayer(nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, dim, mask_idx):</div>
+      <div class="code-line" id="cl5">        super().__init__()</div>
+      <div class="code-line" id="cl6">        self.dim = dim # total dimension D</div>
+      <div class="code-line" id="cl7">        self.mask_idx = mask_idx # index to split, e.g., 0 for x1, 1 for x2</div>
+      <div class="code-line" id="cl8">        # s and t are neural networks. Here, simple linear layers for demo.</div>
+      <div class="code-line" id="cl9">        # input to s,t is x_1 (or x_A), output size matches x_2 (or x_B)</div>
+      <div class="code-line" id="cl10">        input_size = dim // 2</div>
+      <div class="code-line" id="cl11">        output_size = dim - input_size</div>
+      <div class="code-line" id="cl12">        self.s = nn.Sequential(nn.Linear(input_size, 32), nn.ReLU(), nn.Linear(32, output_size))</div>
+      <div class="code-line" id="cl13">        self.t = nn.Sequential(nn.Linear(input_size, 32), nn.ReLU(), nn.Linear(32, output_size))</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    def forward(self, x): # x -> y</div>
+      <div class="code-line" id="cl16">        x1, x2 = x.chunk(2, dim=-1) # split into two halves</div>
+      <div class="code-line" id="cl17">        if self.mask_idx == 0: # x1 fixed, x2 transformed</div>
+      <div class="code-line" id="cl18">            s_val = self.s(x1)</div>
+      <div class="code-line" id="cl19">            t_val = self.t(x1)</div>
+      <div class="code-line" id="cl20">            y1 = x1</div>
+      <div class="code-line" id="cl21">            y2 = x2 * torch.exp(s_val) + t_val</div>
+      <div class="code-line" id="cl22">            log_det_jacobian = s_val.sum(dim=-1) # sum over dimensions of x2</div>
+      <div class="code-line" id="cl23">        else: # x2 fixed, x1 transformed (for chaining)</div>
+      <div class="code-line" id="cl24">            s_val = self.s(x2)</div>
+      <div class="code-line" id="cl25">            t_val = self.t(x2)</div>
+      <div class="code-line" id="cl26">            y2 = x2</div>
+      <div class="code-line" id="cl27">            y1 = x1 * torch.exp(s_val) + t_val</div>
+      <div class="code-line" id="cl28">            log_det_jacobian = s_val.sum(dim=-1)</div>
+      <div class="code-line" id="cl29">        return torch.cat([y1, y2], dim=-1), log_det_jacobian</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">    def inverse(self, y): # y -> x</div>
+      <div class="code-line" id="cl32">        y1, y2 = y.chunk(2, dim=-1)</div>
+      <div class="code-line" id="cl33">        if self.mask_idx == 0: # y1 fixed, recover x2</div>
+      <div class="code-line" id="cl34">            s_val = self.s(y1)</div>
+      <div class="code-line" id="cl35">            t_val = self.t(y1)</div>
+      <div class="code-line" id="cl36">            x1 = y1</div>
+      <div class="code-line" id="cl37">            x2 = (y2 - t_val) * torch.exp(-s_val)</div>
+      <div class="code-line" id="cl38">        else: # y2 fixed, recover x1</div>
+      <div class="code-line" id="cl39">            s_val = self.s(y2)</div>
+      <div class="code-line" id="cl40">            t_val = self.t(y2)</div>
+      <div class="code-line" id="cl41">            x2 = y2</div>
+      <div class="code-line" id="cl42">            x1 = (y1 - t_val) * torch.exp(-s_val)</div>
+      <div class="code-line" id="cl43">        return torch.cat([x1, x2], dim=-1)</div>
+      <div class="code-line" id="cl44"></div>
+      <div class="code-line" id="cl45"># Example usage:</div>
+      <div class="code-line" id="cl46"># input_data = torch.randn(10, 4) # batch_size, D=4</div>
+      <div class="code-line" id="cl47"># layer1 = AffineCouplingLayer(dim=4, mask_idx=0) # x1 fixed, x2 transformed</div>
+      <div class="code-line" id="cl48"># layer2 = AffineCouplingLayer(dim=4, mask_idx=1) # x2 fixed, x1 transformed</div>
+      <div class="code-line" id="cl49">#</div>
+      <div class="code-line" id="cl50"># y_l1, ldj_l1 = layer1(input_data)</div>
+      <div class="code-line" id="cl51"># y_l2, ldj_l2 = layer2(y_l1)</div>
+      <div class="code-line" id="cl52"># total_log_det_jacobian = ldj_l1 + ldj_l2</div>
+      <div class="code-line" id="cl53">#</div>
+      <div class="code-line" id="cl54"># x_inv_l2 = layer2.inverse(y_l2)</div>
+      <div class="code-line" id="cl55"># x_inv_l1 = layer1.inverse(x_inv_l2) # Should be close to input_data</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let currentStep = 0;
+const totalSteps = 9; // Number of steps in the walkthrough
+let sCoeff = 0.2; // Initial s_coeff for visualization
+let tCoeff = 0.5; // Initial t_coeff for visualization
+let swapMask = false; // Initial swap_mask for visualization
+
+// ── DATA GENERATION ──
+const GRID_SIZE = 10;
+const GRID_RANGE = 4; // from -GRID_RANGE to GRID_RANGE
+function generateGridPoints() {
+  const points = [];
+  for (let i = 0; i < GRID_SIZE; i++) {
+    for (let j = 0; j < GRID_SIZE; j++) {
+      const x = -GRID_RANGE + (i / (GRID_SIZE - 1)) * (2 * GRID_RANGE);
+      const y = -GRID_RANGE + (j / (GRID_SIZE - 1)) * (2 * GRID_RANGE);
+      points.push({ x, y });
+    }
+  }
+  return points;
+}
+const initialPoints = generateGridPoints();
+
+// ── COUPLING LAYER FUNCTIONS ──
+// s and t are simple linear functions for visualization
+function s_func(val, s_coeff) {
+  return val.map(v => s_coeff * v); // s(x1) = s_coeff * x1
+}
+
+function t_func(val, t_coeff) {
+  return val.map(v => t_coeff * v); // t(x1) = t_coeff * x1
+}
+
+// Applies one coupling layer
+function applyCouplingLayer(points, s_coeff, t_coeff, swap_mask) {
+  let log_det_jacobian_sum = 0;
+  const transformedPoints = points.map(p => {
+    let x1_val, x2_val, y1_val, y2_val;
+
+    if (!swap_mask) { // x-dim is x1 (fixed), y-dim is x2 (transformed)
+      x1_val = p.x;
+      x2_val = p.y;
+
+      const s_vals = s_func([x1_val], s_coeff);
+      const t_vals = t_func([x1_val], t_coeff);
+
+      y1_val = x1_val;
+      y2_val = x2_val * Math.exp(s_vals[0]) + t_vals[0];
+      log_det_jacobian_sum += s_vals[0];
+    } else { // y-dim is x1 (fixed), x-dim is x2 (transformed)
+      x1_val = p.y;
+      x2_val = p.x;
+
+      const s_vals = s_func([x1_val], s_coeff);
+      const t_vals = t_func([x1_val], t_coeff);
+
+      y1_val = x1_val;
+      y2_val = x2_val * Math.exp(s_vals[0]) + t_vals[0];
+      log_det_jacobian_sum += s_vals[0];
+    }
+
+    return { x: swap_mask ? y2_val : y1_val, y: swap_mask ? y1_val : y2_val };
+  });
+  // Average log_det_jacobian for display, as it's sum over points too
+  return { points: transformedPoints, log_det_jacobian: log_det_jacobian_sum / points.length };
+}
+
+// Inverts one coupling layer
+function inverseCouplingLayer(points, s_coeff, t_coeff, swap_mask) {
+  return points.map(p => {
+    let y1_val, y2_val, x1_val, x2_val;
+
+    if (!swap_mask) { // y-dim is y2 (transformed), x-dim is y1 (fixed)
+      y1_val = p.x;
+      y2_val = p.y;
+
+      const s_vals = s_func([y1_val], s_coeff);
+      const t_vals = t_func([y1_val], t_coeff);
+
+      x1_val = y1_val;
+      x2_val = (y2_val - t_vals[0]) * Math.exp(-s_vals[0]);
+    } else { // x-dim is y2 (transformed), y-dim is y1 (fixed)
+      y1_val = p.y;
+      y2_val = p.x;
+
+      const s_vals = s_func([y1_val], s_coeff);
+      const t_vals = t_func([y1_val], t_coeff);
+
+      x1_val = y1_val;
+      x2_val = (y2_val - t_vals[0]) * Math.exp(-s_vals[0]);
+    }
+
+    return { x: swap_mask ? x2_val : x1_val, y: swap_mask ? x1_val : x2_val };
+  });
+}
+
+// ── UI WIRING ──
+const sCoeffSlider = document.getElementById('sCoeffSlider');
+const tCoeffSlider = document.getElementById('tCoeffSlider');
+const swapMaskToggle = document.getElementById('swapMaskToggle');
+
+sCoeffSlider.addEventListener('input', () => {
+  sCoeff = parseFloat(sCoeffSlider.value);
+  document.getElementById('sCoeffValue').textContent = sCoeff.toFixed(2);
+  render();
+});
+
+tCoeffSlider.addEventListener('input', () => {
+  tCoeff = parseFloat(tCoeffSlider.value);
+  document.getElementById('tCoeffValue').textContent = tCoeff.toFixed(2);
+  render();
+});
+
+swapMaskToggle.addEventListener('change', () => {
+  swapMask = swapMaskToggle.checked;
+  render();
+});
+
+// ── PROGRESS DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) {
+  currentStep = i;
+  render();
+}
+function reset() {
+  currentStep = 0;
+  sCoeff = 0.2;
+  tCoeff = 0.5;
+  swapMask = false;
+  sCoeffSlider.value = sCoeff;
+  tCoeffSlider.value = tCoeff;
+  swapMaskToggle.checked = swapMask;
+  document.getElementById('sCoeffValue').textContent = sCoeff.toFixed(2);
+  document.getElementById('tCoeffValue').textContent = tCoeff.toFixed(2);
+  render();
+}
+
+// ── RENDER FUNCTION ──
+function render() {
+  const stepData = steps[currentStep];
+
+  // Update controls
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  // Update info card
+  const phaseMap = {
+    setup: 'phase-setup',
+    split: 'phase-setup',
+    identity: 'phase-transform',
+    transform: 'phase-transform',
+    result: 'phase-transform',
+    jacobian: 'phase-jacobian',
+    inverse: 'phase-inverse',
+    chain: 'phase-chain',
+    full_flow: 'phase-chain'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[stepData.mode];
+  document.getElementById('infoPhase').textContent = stepData.phaseLabel.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = stepData.title;
+  document.getElementById('infoDesc').innerHTML = stepData.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Update code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (stepData.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(stepData.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const WORLD_SCALE = Math.min(W, H) / (2 * GRID_RANGE * 1.2);
+  const centerX = W / 2;
+  const centerY = H / 2;
+
+  function toCanvas(x, y) {
+    return {
+      x: centerX + x * WORLD_SCALE,
+      y: centerY - y * WORLD_SCALE
+    };
+  }
+
+  function drawPoint(point, color, radius, alpha = 1) {
+    const cp = toCanvas(point.x, point.y);
+    ctx.beginPath();
+    ctx.arc(cp.x, cp.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawAxis(label, x1, y1, x2, y2, color, active = false) {
+    const cp1 = toCanvas(x1, y1);
+    const cp2 = toCanvas(x2, y2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = active ? 3 : 1;
+    ctx.setLineDash(active ? [] : [2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(cp1.x, cp1.y);
+    ctx.lineTo(cp2.x, cp2.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = color;
+    ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    if (label === 'X') {
+      ctx.fillText(label, toCanvas(x2 + 0.5, y2).x, toCanvas(x2 + 0.5, y2).y + 5);
+    } else {
+      ctx.fillText(label, toCanvas(x2, y2 + 0.5).x + 5, toCanvas(x2, y2 + 0.5).y);
+    }
+  }
+
+  // Draw axes
+  drawAxis('X', -GRID_RANGE, 0, GRID_RANGE, 0, c.text3);
+  drawAxis('Y', 0, -GRID_RANGE, 0, GRID_RANGE, c.text3);
+
+  let transformedPoints1 = initialPoints;
+  let transformedPoints2 = initialPoints;
+  let invertedPoints = initialPoints;
+  let log_det_jacobian1 = 0;
+  let log_det_jacobian2 = 0;
+
+  // Calculate transformations for current slider values
+  const result1 = applyCouplingLayer(initialPoints, sCoeff, tCoeff, swapMask);
+  transformedPoints1 = result1.points;
+  log_det_jacobian1 = result1.log_det_jacobian;
+
+  // Second layer (swapped mask)
+  const result2 = applyCouplingLayer(transformedPoints1, sCoeff, tCoeff, !swapMask);
+  transformedPoints2 = result2.points;
+  log_det_jacobian2 = result2.log_det_jacobian;
+
+  // Inverse transformation
+  invertedPoints = inverseCouplingLayer(transformedPoints1, sCoeff, tCoeff, swapMask);
+
+
+  // --- Draw based on mode ---
+  document.getElementById('infoNumbers').textContent = ''; // Clear previous numbers
+
+  if (mode === 'setup' || mode === 'split' || mode === 'identity' || mode === 'transform' || mode === 'result' || mode === 'jacobian' || mode === 'inverse' || mode === 'chain' || mode === 'full_flow') {
+    // Draw initial points
+    initialPoints.forEach(p => drawPoint(p, c.blue, 3.5));
+  }
+
+  if (mode === 'split') {
+    // Highlight split axes
+    drawAxis('X', -GRID_RANGE, 0, GRID_RANGE, 0, c.red, !swapMask);
+    drawAxis('Y', 0, -GRID_RANGE, 0, GRID_RANGE, c.red, swapMask);
+  }
+
+  if (mode === 'identity') {
+    // Draw initial points and highlight the fixed dimension
+    initialPoints.forEach(p => drawPoint(p, c.blue, 3.5));
+    drawAxis('X', -GRID_RANGE, 0, GRID_RANGE, 0, c.blue, !swapMask);
+    drawAxis('Y', 0, -GRID_RANGE, 0, GRID_RANGE, c.blue, swapMask);
+  }
+
+  if (mode === 'transform' || mode === 'result' || mode === 'jacobian' || mode === 'inverse' || mode === 'chain' || mode === 'full_flow') {
+    // Draw transformed points (Layer 1)
+    transformedPoints1.forEach(p => drawPoint(p, c.purple, 3.5, 0.7));
+    drawAxis('X', -GRID_RANGE, 0, GRID_RANGE, 0, c.red, !swapMask); // Active X-axis
+    drawAxis('Y', 0, -GRID_RANGE, 0, GRID_RANGE, c.red, swapMask); // Active Y-axis
+  }
+
+  if (mode === 'jacobian') {
+    document.getElementById('infoNumbers').textContent = `Average log-determinant (Layer 1): ${log_det_jacobian1.toFixed(4)}`;
+  }
+
+  if (mode === 'inverse') {
+    // Draw original, transformed, and inverted points
+    transformedPoints1.forEach(p => drawPoint(p, c.purple, 3.5, 0.7));
+    invertedPoints.forEach(p => drawPoint(p, c.amber, 3.5, 0.7));
+  }
+
+  if (mode === 'chain') {
+    // Draw transformed points (Layer 1) and transformed points (Layer 2)
+    transformedPoints1.forEach(p => drawPoint(p, c.purple, 3.5, 0.7));
+    transformedPoints2.forEach(p => drawPoint(p, c.green, 3.5, 0.7));
+    document.getElementById('infoNumbers').textContent = `Average log-determinant (Layer 1): ${log_det_jacobian1.toFixed(4)}\nAverage log-determinant (Layer 2): ${log_det_jacobian2.toFixed(4)}`;
+  }
+
+  if (mode === 'full_flow') {
+    // Draw transformed points (Layer 2)
+    transformedPoints2.forEach(p => drawPoint(p, c.green, 3.5, 0.7));
+    document.getElementById('infoNumbers').textContent = `Total Average log-determinant: ${(log_det_jacobian1 + log_det_jacobian2).toFixed(4)}`;
+  }
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    mode: 'setup', phaseLabel: 'SETUP',
+    title: 'Initial Data Distribution',
+    desc: 'We begin with a simple 2D grid of points. This represents our input data \(\\mathbf{x}\) that we want to transform. Our goal is to apply an invertible transformation that allows us to map these points to a new distribution, and crucially, compute the change in volume (Jacobian determinant).'
+  },
+  {
+    mode: 'split', phaseLabel: 'SPLIT',
+    title: 'Splitting the Input',
+    desc: 'The first step in a coupling layer is to split the input vector \(\\mathbf{x} = [x_1, x_2]\) into two parts. In our 2D example, we split it into the X-coordinates (\(x_1\)) and Y-coordinates (\(x_2\)). The red lines highlight the dimensions. The "Swap mask" toggle controls which dimension is \(x_1\) and which is \(x_2\).'
+  },
+  {
+    mode: 'identity', phaseLabel: 'IDENTITY',
+    title: 'The Identity Part (\(\mathbf{y}_1 = \mathbf{x}_1\))',
+    desc: 'One part of the input, \(\mathbf{x}_1\) (the blue highlighted axis), is passed through unchanged. This ensures a simple block-triangular structure for the Jacobian matrix, which is key to tractability. The other part, \(\mathbf{x}_2\), will be transformed conditioned on \(\mathbf{x}_1\).'
+  },
+  {
+    mode: 'transform', phaseLabel: 'TRANSFORM',
+    title: 'Affine Transformation (\(\mathbf{y}_2 = \mathbf{x}_2 \odot \exp(\mathbf{s}(\mathbf{x}_1)) + \mathbf{t}(\mathbf{x}_1)\))',
+    desc: 'The second part, \(\mathbf{x}_2\), is transformed using an affine function. The scaling (\(\exp(\mathbf{s}(\mathbf{x}_1))\)) and translation (\(\mathbf{t}(\mathbf{x}_1)\)) parameters are generated by neural networks (simplified here to linear functions of \(\mathbf{x}_1\)). Adjust the sliders to see how the transformation warps the grid. The purple points are the transformed data.'
+  },
+  {
+    mode: 'result', phaseLabel: 'RESULT',
+    title: 'Transformed Data (\(\mathbf{y}\))',
+    desc: 'The output of the coupling layer is \(\mathbf{y} = [\mathbf{y}_1, \mathbf{y}_2]\). Notice how the grid has been stretched, compressed, and shifted. This single layer can create complex, non-linear transformations while maintaining invertibility. The transformed points are shown in purple.'
+  },
+  {
+    mode: 'jacobian', phaseLabel: 'JACOBIAN',
+    title: 'Tractable Log-Determinant of the Jacobian',
+    desc: 'A crucial property of coupling layers is that the log-determinant of the Jacobian of the transformation is simply the sum of the \(\mathbf{s}(\mathbf{x}_1)\) values: \(\\sum \mathbf{s}(\mathbf{x}_1)_i\\). This is computationally cheap and essential for density estimation. The displayed value is the average log-det over all points.'
+  },
+  {
+    mode: 'inverse', phaseLabel: 'INVERSE',
+    title: 'Invertibility: Recovering Original Data',
+    desc: 'Given the transformed data \(\mathbf{y}\) (purple), we can easily compute the inverse transformation to recover the original data \(\mathbf{x}\) (amber points, overlying the blue original points). This is essential for sampling from the learned distribution: sample from a simple latent distribution, pass through inverse flow, get data.'
+  },
+  {
+    mode: 'chain', phaseLabel: 'CHAINING',
+    title: 'Chaining Coupling Layers with Mask Swapping',
+    desc: 'A single coupling layer only transforms half the dimensions. To transform all dimensions, we chain multiple layers, swapping the role of \(\mathbf{x}_1\) and \(\mathbf{x}_2\) (or permuting channels) between layers. Here, the first layer output (purple) is fed into a second layer with the mask swapped, producing the green points.'
+  },
+  {
+    mode: 'full_flow', phaseLabel: 'FULL FLOW',
+    title: 'Building a Full Normalizing Flow',
+    desc: 'By stacking many such coupling layers, each with its own \(\mathbf{s}\) and \(\mathbf{t}\) networks, we can build a deep, highly expressive, and fully invertible neural network (a Normalizing Flow). This allows us to map a simple base distribution (e.g., Gaussian) to a complex target distribution (e.g., images) while always being able to compute the exact likelihood. The final transformed points are green.'
+  }
+];
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+document.addEventListener('DOMContentLoaded', () => {
+  initDots();
+  render();
+  window.addEventListener('resize', () => drawCanvas(steps[currentStep].mode));
+});
+</script>
+</body>
+</html>

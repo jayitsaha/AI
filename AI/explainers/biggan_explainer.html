@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BigGAN: Truncation Trick & Class-Conditional Generation — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-latent{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-truncate{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-quality{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-summary{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>BigGAN: Truncation Trick &amp; Class-Conditional Generation</h1>
+  <div class="subtitle">Scaling GANs for high-fidelity image synthesis, and optimizing quality vs. diversity at inference</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding BigGAN</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> BigGAN (Brock et al., 2018) was a landmark Generative Adversarial Network that achieved unprecedented image quality and diversity for class-conditional image synthesis. It demonstrated that GANs could scale to large models and datasets (ImageNet) by combining several architectural and training improvements, most notably class-conditioning and a technique called the "truncation trick" at inference time.</p>
+    <p><strong>Analogy:</strong> Imagine a master painter (the Generator) who can paint anything you ask (class-conditional, e.g., "a cat," "a car") so realistically that a seasoned art critic (the Discriminator) struggles to tell them from real photos. The painter has a vast imagination (the latent space `z`). The "truncation trick" is like telling the painter, "For this exhibition, only paint subjects you're absolutely *most* confident in. Don't try anything too experimental or weird, even if it means less variety in the subjects." This leads to a gallery of stunning, flawless works, but perhaps fewer truly novel compositions.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">BigGAN pushed GANs to a new scale by leveraging architectural improvements (skip-connections, self-attention) and conditioning the generation process on class labels. The <strong>truncation trick</strong> is a simple post-training technique that trades off sample diversity for sample quality by resampling latent vectors `z` that fall outside a certain range.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Class-Conditional Generation</h4>
+    <p>Unlike unconditional GANs that generate arbitrary images, BigGAN is <em>class-conditional</em>. This means the user specifies a target class (e.g., "dog," "airplane") and the GAN generates an image belonging to that class. This conditioning is achieved by feeding a one-hot vector (or an embedding) of the target class \(y\) into both the Generator and the Discriminator:</p>
+    <ul>
+      <li><strong>Generator (G):</strong> The latent vector \(z \sim \mathcal{N}(0, I)\) is concatenated with the class embedding \(y\). This combined vector then influences the generation process at multiple layers, primarily through a technique called <strong>Conditional Batch Normalization (CBN)</strong>.</li>
+      <li><strong>Discriminator (D):</strong> The Discriminator also receives the class embedding \(y\), typically by projecting it and adding it to the final layer's features (Projection Discriminator). This allows D to check not only if an image is real or fake, but also if it matches the specified class.</li>
+    </ul>
+
+    <h4>Architectural Innovations</h4>
+    <p>BigGAN built upon previous GAN architectures (like SAGAN) and introduced several key improvements:</p>
+    <ul>
+      <li><strong>Larger Models:</strong> Significantly increased the number of parameters in both G and D.</li>
+      <li><strong>Increased Batch Size:</strong> Trained with much larger batch sizes, which is crucial for GAN stability.</li>
+      <li><strong>Skip-Connections in G:</strong> Similar to U-Net architectures, skip-connections allow information to flow directly from early layers to later layers, helping with gradient flow and image detail.</li>
+      <li><strong>Self-Attention:</strong> Incorporated self-attention layers in both G and D, allowing the model to capture long-range dependencies in images.</li>
+      <li><strong>Spectral Normalization:</strong> Applied to all layers in G and D for training stability.</li>
+    </ul>
+
+    <h4>The Truncation Trick at Inference Time</h4>
+    <p>During training, the latent vector \(z\) is typically sampled from a standard normal distribution \(\mathcal{N}(0, I)\). However, at inference time, BigGAN introduces a simple but powerful technique: <strong>truncation</strong>. Instead of sampling \(z\) from the full \(\mathcal{N}(0, I)\), we sample from a <em>truncated</em> normal distribution. This means any sampled \(z\) component whose absolute value exceeds a threshold \(\psi\) (e.g., \(|z_i| > \psi\)) is resampled until it falls within \([-\psi, \psi]\).</p>
+    <p>This trick directly trades off image <strong>quality (fidelity)</strong> for <strong>diversity (mode coverage)</strong>. Smaller \(\psi\) values lead to higher quality but less diverse images, while larger \(\psi\) values (approaching no truncation) lead to more diverse but potentially lower quality images.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The truncation trick works because the GAN's latent space is often not perfectly smooth or uniformly well-behaved. Extreme values in the latent vector \(z\) (which are rare in \(\mathcal{N}(0, I)\) but still present) tend to map to "unusual" or low-quality images. By clamping \(z\) to a smaller region around the mean, we force the generator to operate in areas of the latent space it was better trained on, yielding higher fidelity outputs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Conditional Batch Normalization (CBN)</h4>
+    <p>In the Generator, class conditioning is primarily injected via Conditional Batch Normalization. For a given layer's feature map \(h\), instead of using fixed scaling and shifting parameters \(\gamma\) and \(\beta\), these parameters are dynamically generated from the class label \(y\). A small MLP takes the class embedding as input and outputs the \(\gamma_y\) and \(\beta_y\) vectors:</p>
+    <div class="eq">$$\gamma_y, \beta_y = \text{MLP}(y)$$</div>
+    <p>Then the batch normalization operation becomes:</p>
+    <div class="eq">$$\text{CBN}(h)_i = \gamma_y \cdot \frac{h_i - \mu_B}{\sigma_B} + \beta_y$$</div>
+    <p>where \(\mu_B\) and \(\sigma_B\) are the mean and standard deviation of the current mini-batch, as in standard Batch Norm. This allows the model to learn class-specific feature statistics, guiding the generation process.</p>
+
+    <h4>The Truncation Trick Formulation</h4>
+    <p>Let \(z \in \mathbb{R}^k\) be the latent vector, where each component \(z_j\) is typically sampled from a standard normal distribution, \(z_j \sim \mathcal{N}(0, 1)\). The truncation trick modifies this sampling process at inference time using a truncation factor \(\psi \ge 0\). For each component \(z_j\):</p>
+    <div class="eq}">$$z_j^{\text{truncated}} = \begin{cases} z_j & \text{if } |z_j| \le \psi \\ \text{resample } z_j \text{ from } \mathcal{N}(0,1) & \text{if } |z_j| > \psi \end{cases}$$</div>
+    <p>This process is repeated until all components \(z_j\) satisfy \(|z_j| \le \psi\). Essentially, we are sampling from a normal distribution conditioned on being within the range \([-\psi, \psi]\). A common choice for \(\psi\) is between 0.5 and 2.0. When \(\psi \to \infty\), it becomes equivalent to sampling from the untruncated \(\mathcal{N}(0,1)\) (full diversity, potentially lower quality). When \(\psi \to 0\), all \(z_j\) are forced to be near 0 (minimal diversity, highest quality).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While truncation significantly boosts fidelity, it inherently reduces the <strong>diversity</strong> of generated samples. By resampling extreme latent vectors, the model is less likely to produce rare or unusual variations of a class. This means the GAN covers fewer "modes" of the true data distribution. For applications where mode coverage is critical (e.g., for data augmentation where true diversity is needed), excessive truncation might be detrimental.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore the 2D latent space and the effect of the truncation trick on generated image quality and diversity. Each point represents a latent vector \(z\), and its color/form hints at the generated image.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Truncation factor ψ</div>
+          <input type="range" id="psiSlider" min="0" max="2.0" step="0.05" value="1.0">
+          <div class="slider-value" id="psiValue">1.00</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Lower ψ → higher quality, lower diversity. Higher ψ → lower quality, higher diversity.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Latent Space</div>
+        <div class="info-desc" id="infoDesc">We'll visualize a 2D slice of the latent space (z₁ and z₂ axes). Each point (z₁, z₂) is drawn from a standard normal distribution, N(0,1).</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> Latent vector z</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--green-mid)"></div> High quality generated image</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--amber-mid)"></div> Medium quality generated image</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--red-mid)"></div> Low quality / 'weird' image</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid);width:16px;height:2px;"></div> Truncation boundary</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use BigGAN / Truncation:</strong></p>
+    <ul>
+      <li>High-fidelity, class-conditional image generation is the primary goal.</li>
+      <li>When you need to strike a balance between image quality and diversity at inference time.</li>
+      <li>As a strong baseline for generative tasks, especially on large datasets like ImageNet.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>If sample diversity and mode coverage are absolutely paramount, and you cannot afford to lose rare modes (e.g., for data augmentation where true diversity is needed).</li>
+      <li>For tasks requiring very specific control beyond class labels (e.g., style transfer, image manipulation with fine-grained attributes).</li>
+      <li>When computational resources are extremely limited (BigGAN models are large).</li>
+      <li>If you need to generate images from unseen or novel classes (zero-shot generation) — BigGAN is explicitly class-conditional on *known* classes.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">BigGAN demonstrated the immense scalability of GANs, paving the way for even larger and more powerful generative models. The truncation trick, while simple, highlighted a crucial aspect of GAN latent spaces: they are not uniformly "good," and carefully navigating them (even post-training) can significantly impact the quality of generated outputs. This principle is still relevant in many generative models today.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from torch.distributions import Normal</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">def truncation_trick(z, truncation_factor=1.0):</div>
+      <div class="code-line" id="cl5">    # z: latent vector from N(0,1)</div>
+      <div class="code-line" id="cl6">    # truncation_factor (psi): e.g., 0.5 to 2.0</div>
+      <div class="code-line" id="cl7">    truncated_z = z.clone()</div>
+      <div class="code-line" id="cl8">    while True:</div>
+      <div class="code-line" id="cl9">        # Identify components outside the range [-psi, psi]</div>
+      <div class="code-line" id="cl10">        out_of_bounds = torch.abs(truncated_z) > truncation_factor</div>
+      <div class="code-line" id="cl11">        if not out_of_bounds.any():</div>
+      <div class="code-line" id="cl12">            break # All components are within bounds</div>
+      <div class="code-line" id="cl13">        </div>
+      <div class="code-line" id="cl14">        # Resample only the out-of-bounds components</div>
+      <div class="code-line" id="cl15">        num_resample = out_of_bounds.sum().item()</div>
+      <div class="code-line" id="cl16">        new_samples = Normal(0, 1).sample(z.shape).to(z.device)</div>
+      <div class="code-line" id="cl17">        truncated_z[out_of_bounds] = new_samples[out_of_bounds]</div>
+      <div class="code-line" id="cl18">    return truncated_z</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">class ConditionalBatchNorm2d(nn.Module):</div>
+      <div class="code-line" id="cl21">    def __init__(self, num_features, num_classes):</div>
+      <div class="code-line" id="cl22">        super().__init__()</div>
+      <div class="code-line" id="cl23">        self.bn = nn.BatchNorm2d(num_features, affine=False)</div>
+      <div class="code-line" id="cl24">        self.embed = nn.Embedding(num_classes, num_features * 2) # gamma, beta</div>
+      <div class="code-line" id="cl25">        self.embed.weight.data[:, :num_features] = 1 # Initialize gamma to 1</div>
+      <div class="code-line" id="cl26">        self.embed.weight.data[:, num_features:] = 0 # Initialize beta to 0</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">    def forward(self, x, y):</div>
+      <div class="code-line" id="cl29">        out = self.bn(x)</div>
+      <div class="code-line" id="cl30">        gamma, beta = self.embed(y).chunk(2, dim=1)</div>
+      <div class="code-line" id="cl31">        # Reshape for broadcasting: (N, C) -> (N, C, 1, 1)</div>
+      <div class="code-line" id="cl32">        gamma = gamma.view(gamma.size(0), -1, 1, 1)</div>
+      <div class="code-line" id="cl33">        beta = beta.view(beta.size(0), -1, 1, 1)</div>
+      <div class="code-line" id="cl34">        return out * gamma + beta</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36"># --- Generator (simplified conceptual flow) ---</div>
+      <div class="code-line" id="cl37">class BigGANGenerator(nn.Module):</div>
+      <div class="code-line" id="cl38">    def __init__(self, z_dim, num_classes, img_channels=3):</div>
+      <div class="code-line" id="cl39">        super().__init__()</div>
+      <div class="code-line" id="cl40">        self.z_dim = z_dim</div>
+      <div class="code-line" id="cl41">        self.num_classes = num_classes</div>
+      <div class="code-line" id="cl42">        self.shared_embedding = nn.Embedding(num_classes, z_dim) # Class embedding</div>
+      <div class="code-line" id="cl43">        # ... other layers (e.g., linear, conv, self-attention) ...</div>
+      <div class="code-line" id="cl44">        self.cbn_layer = ConditionalBatchNorm2d(128, num_classes) # Example CBN</div>
+      <div class="code-line" id="cl45">        self.final_conv = nn.Conv2d(..., img_channels, kernel_size=1)</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">    def forward(self, z, y, truncation_factor=1.0):</div>
+      <div class="code-line" id="cl48">        # Apply truncation trick at inference time</div>
+      <div class="code-line" id="cl49">        if not self.training:</div>
+      <div class="code-line" id="cl50">            z = truncation_trick(z, truncation_factor)</div>
+      <div class="code-line" id="cl51">        </div>
+      <div class="code-line" id="cl52">        # Class conditioning: concatenate z and class embedding</div>
+      <div class="code-line" id="cl53">        y_embed = self.shared_embedding(y)</div>
+      <div class="code-line" id="cl54">        z_y = torch.cat([z, y_embed], dim=1) # Or use z to modulate y_embed</div>
+      <div class="code-line" id="cl55"></div>
+      <div class="code-line" id="cl56">        # ... Feed z_y through initial dense layers ...</div>
+      <div class="code-line" id="cl57">        # ... Upsampling blocks with Conditional Batch Norm ...</div>
+      <div class="code-line" id="cl58">        # Example: x = self.cbn_layer(x, y)</div>
+      <div class="code-line" id="cl59">        # ... Self-attention layer ...</div>
+      <div class="code-line" id="cl60">        # ... Final convolution to output image ...</div>
+      <div class="code-line" id="cl61">        return torch.tanh(self.final_conv(x)) # Output in [-1, 1]</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let seededRng = mulberry32(42); // Seed for reproducible random numbers
+
+// ── NORMAL DISTRIBUTION SAMPLER (Box-Muller) ──
+let hasSpare = false;
+let spare = 0;
+function normalRandom(rng) {
+  if (hasSpare) {
+    hasSpare = false;
+    return spare;
+  }
+  let u, v, s;
+  do {
+    u = rng() * 2 - 1;
+    v = rng() * 2 - 1;
+    s = u * u + v * v;
+  } while (s >= 1 || s === 0);
+  s = Math.sqrt(-2 * Math.log(s) / s);
+  spare = v * s;
+  hasSpare = true;
+  return u * s;
+}
+
+// ── LATENT POINTS DATA ──
+const NUM_POINTS = 100;
+let latentPoints = [];
+
+function generateInitialLatentPoints(num, rng) {
+  const points = [];
+  for (let i = 0; i < num; i++) {
+    const z1 = normalRandom(rng);
+    const z2 = normalRandom(rng);
+    points.push({ id: i, z1: z1, z2: z2, originalZ1: z1, originalZ2: z2 });
+  }
+  return points;
+}
+
+function applyTruncation(points, psi, rng) {
+  const newPoints = [];
+  let truncatedCount = 0;
+  for (const p of points) {
+    let currentZ1 = p.originalZ1; // Always start from original for consistent resampling
+    let currentZ2 = p.originalZ2;
+
+    let resampled = false;
+    // Resample z1 if outside bounds
+    if (Math.abs(currentZ1) > psi) {
+      currentZ1 = normalRandom(rng);
+      // Keep resampling until it's within bounds for this psi
+      while (Math.abs(currentZ1) > psi) {
+          currentZ1 = normalRandom(rng);
+      }
+      resampled = true;
+    }
+    // Resample z2 if outside bounds
+    if (Math.abs(currentZ2) > psi) {
+      currentZ2 = normalRandom(rng);
+      // Keep resampling until it's within bounds for this psi
+      while (Math.abs(currentZ2) > psi) {
+          currentZ2 = normalRandom(rng);
+      }
+      resampled = true;
+    }
+    if (resampled) truncatedCount++;
+
+    newPoints.push({
+      id: p.id,
+      z1: currentZ1,
+      z2: currentZ2,
+      originalZ1: p.originalZ1,
+      originalZ2: p.originalZ2,
+      resampled: resampled
+    });
+  }
+  return { points: newPoints, truncatedCount };
+}
+
+// Function to determine "quality" based on distance from origin and psi
+function getQuality(point, psi) {
+  const dist = Math.sqrt(point.z1 * point.z1 + point.z2 * point.z2);
+  // Quality is higher closer to the center of the *truncated* distribution
+  // and generally within the truncation boundary.
+  if (dist < psi * 0.5) return 'high'; // Very close to origin
+  if (dist < psi * 0.9) return 'medium'; // Within the boundary, but further out
+  return 'low'; // Near or outside the effective boundary
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Latent Space (z)', mode: 'latent_space',
+    desc: 'Each point represents a 2D latent vector \\(z = [z_1, z_2]\\) sampled from a standard normal distribution \\(\\mathcal{N}(0, I)\\). Most values cluster around the origin (0,0), with fewer points further out. Each \\(z\\) maps to a unique image.',
+    codeLines: [4,5], psi: 1.0, showQuality: false, showTruncation: false
+  },
+  {
+    phase: 'latent', title: 'Class-Conditional Generation (y)', mode: 'latent_space',
+    desc: 'BigGAN is class-conditional. Besides \\(z\\), a class label \\(y\\) is also fed to the Generator. For simplicity, we just show how different \\(z\\) values (even for the same class) lead to different generated images, ranging from high to low quality.',
+    codeLines: [20,28,30,42,53], psi: 1.0, showQuality: true, showTruncation: false
+  },
+  {
+    phase: 'truncate', title: 'Introducing the Truncation Trick', mode: 'truncation_boundary',
+    desc: 'At inference, we can apply the truncation trick with a factor \\(\\psi\\). Any \\(z_j\\) component with \\(|z_j| > \\psi\\) is resampled until it falls within \\([-\\psi, \\psi]\\). The purple square shows the truncation boundary for \\(\\psi = 1.0\\).',
+    codeLines: [4,6,10], psi: 1.0, showQuality: true, showTruncation: true
+  },
+  {
+    phase: 'truncate', title: 'Truncating Latent Vectors (ψ = 0.5)', mode: 'truncation_resample',
+    desc: 'With \\(\\psi = 0.5\\), the truncation boundary shrinks. Points outside this boundary (originally far from the mean) are resampled to new positions inside the boundary. These resampled points (now inside) are expected to yield higher quality images.',
+    codeLines: [4,6,10,14,17], psi: 0.5, showQuality: true, showTruncation: true
+  },
+  {
+    phase: 'quality', title: 'High Quality, Low Diversity (ψ = 0.2)', mode: 'truncation_resample',
+    desc: 'A very small \\(\\psi = 0.2\\) forces almost all latent vectors to be very close to the origin. This results in extremely high-fidelity images (mostly green), but they are also very similar to each other, showing low diversity.',
+    codeLines: [4,6,10,14,17], psi: 0.2, showQuality: true, showTruncation: true
+  },
+  {
+    phase: 'quality', title: 'Medium Quality, High Diversity (ψ = 1.5)', mode: 'truncation_resample',
+    desc: 'Increasing \\(\\psi = 1.5\\) expands the truncation region. More original latent vectors are kept, leading to greater diversity (more amber and red points). However, the quality might slightly decrease as the generator is forced to handle more "unusual" \\(z\\) values.',
+    codeLines: [4,6,10,14,17], psi: 1.5, showQuality: true, showTruncation: true
+  },
+  {
+    phase: 'summary', title: 'The Quality-Diversity Trade-off', mode: 'truncation_resample',
+    desc: 'The truncation factor \\(\\psi\\) offers a continuous knob to balance generated image quality and diversity. Move the slider to see how the distribution of latent vectors (and thus implied image characteristics) changes in real-time.',
+    codeLines: [4,6,10,14,17], psi: parseFloat(document.getElementById('psiSlider')?.value || 1.0), showQuality: true, showTruncation: true
+  },
+  {
+    phase: 'summary', title: 'Final Output: The Truncated Latent Space', mode: 'final_output',
+    desc: 'The BigGAN generator then takes these truncated (and class-conditioned) latent vectors to produce high-resolution, high-fidelity images. The truncation trick is a simple but powerful inference-time optimization for GANs.',
+    codeLines: [49,50], psi: parseFloat(document.getElementById('psiSlider')?.value || 1.0), showQuality: true, showTruncation: true
+  }
+];
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  // Re-initialize latent points on reset
+  seededRng = mulberry32(42); // Reset RNG
+  hasSpare = false; // Reset Box-Muller state
+  latentPoints = generateInitialLatentPoints(NUM_POINTS, seededRng);
+  document.getElementById('psiSlider').value = 1.0; // Reset slider
+  updatePsiLabel();
+  render();
+}
+
+// ── SLIDER ──
+const psiSlider = document.getElementById('psiSlider');
+psiSlider.addEventListener('input', () => { updatePsiLabel(); render(); });
+function updatePsiLabel() {
+  const psi = parseFloat(psiSlider.value);
+  document.getElementById('psiValue').textContent = psi.toFixed(2);
+  steps[6].psi = psi; // Update interactive step's psi
+  steps[7].psi = psi; // Update final output step's psi
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', latent:'phase-latent', truncate:'phase-truncate',
+    quality:'phase-quality', summary:'phase-summary'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Update slider visibility
+  document.getElementById('psiSlider').value = s.psi; // Sync slider value with step config
+  updatePsiLabel();
+  const showSlider = (s.mode === 'truncation_resample' || s.mode === 'final_output' || s.mode === 'truncation_boundary');
+  document.getElementById('sliderPanel').style.display = showSlider ? 'flex' : 'none';
+
+  // Canvas
+  drawCanvas(s);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+const MAX_Z = 3.5; // Max value for Z axes in canvas coordinates
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Coordinate transformation
+  const pad = 30;
+  const plotW = W - 2 * pad;
+  const plotH = H - 2 * pad;
+  const toCanvasX = z => pad + (z + MAX_Z) / (2 * MAX_Z) * plotW;
+  const toCanvasY = z => pad + (1 - (z + MAX_Z) / (2 * MAX_Z)) * plotH; // Y-axis inverted
+
+  // Axes
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(toCanvasX(-MAX_Z), toCanvasY(0)); ctx.lineTo(toCanvasX(MAX_Z), toCanvasY(0)); // X-axis
+  ctx.moveTo(toCanvasX(0), toCanvasY(-MAX_Z)); ctx.lineTo(toCanvasX(0), toCanvasY(MAX_Z)); // Y-axis
+  ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = text3; ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('z₁', toCanvasX(MAX_Z) + 10, toCanvasY(0) + 5);
+  ctx.textAlign = 'left';
+  ctx.fillText('z₂', toCanvasX(0) - 15, toCanvasY(MAX_Z) - 5);
+
+  // Tick marks
+  for (let zVal = -3; zVal <= 3; zVal++) {
+    if (zVal === 0) continue;
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(zVal), toCanvasY(0) - 3); ctx.lineTo(toCanvasX(zVal), toCanvasY(0) + 3);
+    ctx.moveTo(toCanvasX(0) - 3, toCanvasY(zVal)); ctx.lineTo(toCanvasX(0) + 3, toCanvasY(zVal));
+    ctx.stroke();
+    ctx.fillText(zVal.toString(), toCanvasX(zVal), toCanvasY(0) + 15);
+    ctx.fillText(zVal.toString(), toCanvasX(0) - 20, toCanvasY(zVal) + 4);
+  }
+
+  // Gaussian contours (simplified ellipses for N(0,1))
+  const drawEllipse = (cx, cy, rx, ry, color, alpha) => {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = alpha;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
+  const cx = toCanvasX(0), cy = toCanvasY(0);
+  const rx1 = toCanvasX(1) - cx, ry1 = cy - toCanvasY(1);
+  drawEllipse(cx, cy, rx1, ry1, text3, 0.2); // 1-sigma
+  drawEllipse(cx, cy, rx1 * 2, ry1 * 2, text3, 0.15); // 2-sigma
+  drawEllipse(cx, cy, rx1 * 3, ry1 * 3, text3, 0.1); // 3-sigma
+
+  // Truncation boundary
+  const currentPsi = parseFloat(psiSlider.value);
+  if (s.showTruncation) {
+    const truncX1 = toCanvasX(-currentPsi);
+    const truncY1 = toCanvasY(currentPsi);
+    const truncSize = (toCanvasX(currentPsi) - toCanvasX(-currentPsi));
+    ctx.strokeStyle = purpleMid; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+    ctx.strokeRect(truncX1, truncY1, truncSize, truncSize);
+    ctx.setLineDash([]);
+  }
+
+  // Apply truncation for current step/slider value
+  // Use a different seed for truncation resampling for each step to make it visually dynamic
+  // For the interactive step (step 6), use a seed based on the slider value
+  const rngForTruncation = mulberry32(s.mode === 'truncation_resample' || s.mode === 'final_output' ? 42 + Math.floor(currentPsi * 100) : 42 + step);
+  const { points: currentLatentPoints, truncatedCount } = applyTruncation(latentPoints, currentPsi, rngForTruncation);
+
+  // Draw points and their "generated images"
+  currentLatentPoints.forEach(p => {
+    const cx = toCanvasX(p.z1);
+    const cy = toCanvasY(p.z2);
+    const radius = 5;
+
+    let fillColor = blueMid;
+    if (s.showQuality) {
+      const quality = getQuality(p, currentPsi);
+      if (quality === 'high') fillColor = greenMid;
+      else if (quality === 'medium') fillColor = amberMid;
+      else fillColor = redMid;
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+  });
+
+  // Info numbers
+  let infoText = '';
+  if (s.mode === 'latent_space') {
+    infoText = `Total points: ${NUM_POINTS}\nMean (approx): 0.00\nStd Dev (approx): 1.00`;
+  } else if (s.mode === 'truncation_boundary' || s.mode === 'truncation_resample' || s.mode === 'final_output') {
+    const keptCount = NUM_POINTS - truncatedCount;
+    infoText = `Truncation factor ψ: ${currentPsi.toFixed(2)}\nPoints kept (within boundary): ${keptCount}\nPoints resampled (outside boundary): ${truncatedCount}`;
+    if (s.showQuality) {
+      const highQualityCount = currentLatentPoints.filter(p => getQuality(p, currentPsi) === 'high').length;
+      const mediumQualityCount = currentLatentPoints.filter(p => getQuality(p, currentPsi) === 'medium').length;
+      const lowQualityCount = currentLatentPoints.filter(p => getQuality(p, currentPsi) === 'low').length;
+      infoText += `\n\nImplied Quality:\n  High: ${highQualityCount}\n  Medium: ${mediumQualityCount}\n  Low/Weird: ${lowQualityCount}`;
+    }
+  }
+  document.getElementById('infoNumbers').textContent = infoText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+latentPoints = generateInitialLatentPoints(NUM_POINTS, seededRng);
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

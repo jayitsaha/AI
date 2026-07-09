@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watermarking LLM Outputs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-generate{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-detect{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-interact{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.token{width:12px;height:12px;border-radius:3px;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Watermarking LLM Outputs</h1>
+  <div class="subtitle">Embedding a detectable signal in generated text to identify its LLM origin</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-complexity">O(n) generation, O(n) detection</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Watermarking LLM Outputs</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Watermarking for Large Language Models (LLMs) is a technique to embed a subtle, detectable signal into the text generated by an LLM. This signal is imperceptible to humans but can be statistically identified by a detector, allowing us to determine if a given piece of text likely originated from a specific LLM, even if it has been partially edited or truncated.</p>
+    <p><strong>Analogy:</strong> Imagine a master weaver who, when creating a fabric, subtly biases the choice of thread color at certain points. Individually, these choices are hard to spot, but over a large piece of cloth, a specific pattern emerges that only the weaver knows how to detect. This pattern doesn't ruin the fabric's appearance but proves its origin. LLM watermarking is similar: it subtly biases token choices during generation to create a statistical "fingerprint."</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LLM watermarking works by slightly increasing the probability of "green-listed" tokens (and decreasing "red-listed" ones) at each generation step. The green/red list for a token is determined by a cryptographic hash of the *previous* token, making the pattern context-dependent and hard to remove without destroying the text's coherence. The detection process then statistically checks for an over-abundance of green tokens.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Mechanism: Bias and Detect</h4>
+    <p>The core idea of watermarking (Kirchenbauer et al., 2023) revolves around modifying the token sampling process and then statistically verifying the presence of that modification:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Vocabulary Partition:</strong> At each generation step, given the previously generated token, the model's entire vocabulary is pseudo-randomly partitioned into two disjoint sets: a "green list" and a "red list." This partition is deterministic, based on a secret key and the hash of the previous token ID.</li>
+      <li><strong>Logit Bias:</strong> Before sampling the next token, the logits (raw scores) for tokens in the "green list" are increased by a small constant value (\(\delta\)), while logits for "red list" tokens might be decreased or left untouched. This subtly shifts the probability distribution.</li>
+      <li><strong>Sampling:</strong> The next token is then sampled from this biased probability distribution. This means the generated text will, on average, contain more green-listed tokens than unwatermarked text would.</li>
+      <li><strong>Detection:</strong> To detect a watermark in a given text, the same green/red list partitioning process is re-applied to each token based on its predecessor. The number of green-listed tokens is counted. If this count is significantly higher than what would be expected from random text (or text generated by an unwatermarked model), the text is flagged as watermarked.</li>
+    </ol>
+    <p>The use of the previous token to determine the current green/red list is crucial: it makes the watermark's pattern context-dependent, spreading it throughout the text and making it robust to local edits or truncations.</p>
+
+    <h4>Design Decision: Why Context-Dependent Green/Red Lists?</h4>
+    <p>A simple, fixed green/red list for the entire generation would be too easy to detect and remove. If an adversary knew the fixed green list, they could simply rephrase sentences to avoid those tokens. By making the green/red partition depend on the *previous* token, the pattern becomes dynamic and distributed. An editor would need to know the secret key and the partitioning algorithm to effectively remove the watermark, which is computationally infeasible without destroying the text's meaning.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The watermark is <strong>statistical and soft</strong>. It does not force every token to be green, nor does it guarantee a perfect green/red alternation. Instead, it subtly shifts the *overall proportion* of green tokens in the generated text, making it statistically distinguishable from unwatermarked text while maintaining high text quality and coherence.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Watermark Generation: Biasing Logits</h4>
+    <p>Let \(z \in \mathbb{R}^{|V|}\) be the raw logits for the next token, where \(|V|\) is the vocabulary size. Let \(t_{prev}\) be the ID of the previously generated token. A pseudo-random function \(h(\cdot, \text{key})\) generates a seed, which is then used to partition the vocabulary \(V\) into a green list \(V_G\) and a red list \(V_R\), such that \(V_G \cup V_R = V\) and \(V_G \cap V_R = \emptyset\). We define an indicator function \(\mathbb{I}(i \in V_G)\) which is 1 if token \(i\) is in the green list, 0 otherwise.</p>
+    <p>The logits are then biased:</p>
+    <div class="eq">$$z'_i = z_i + \delta \cdot \mathbb{I}(i \in V_G)$$</div>
+    <p>where \(\delta > 0\) is the bias strength. The probabilities \(p'\) are computed using the softmax function on these biased logits:</p>
+    <div class="eq">$$p'_i = \frac{e^{z'_i}}{\sum_{j=1}^{|V|} e^{z'_j}}$$</div>
+    <p>The next token is sampled from this distribution \(p'\). This process is repeated for each token, with the green/red list dynamically changing based on the preceding token.</p>
+
+    <h4>Watermark Detection: Statistical Significance</h4>
+    <p>Given a generated text \(x = (x_1, x_2, \dots, x_L)\) of length \(L\), we iterate through it (starting from \(x_2\), using \(x_1\) as the initial previous token). For each token \(x_k\), we re-create the green/red list based on \(x_{k-1}\) and count if \(x_k\) falls into its corresponding green list. Let \(C_G\) be the total count of green tokens in the text.</p>
+    <p>Under the null hypothesis (\(H_0\)) that the text is unwatermarked and tokens are chosen randomly with respect to the green/red list (i.e., the original model's probabilities are uniformly distributed across the lists, or the text is human-generated), the expected number of green tokens is \(\mu_0 = L_{eff} \cdot \rho_G\), where \(L_{eff}\) is the number of tokens checked (typically \(L-1\)) and \(\rho_G = |V_G|/|V|\) is the expected proportion of green tokens. The variance is \(\sigma_0^2 = L_{eff} \cdot \rho_G \cdot (1 - \rho_G)\).</p>
+    <p>We can then compute a Z-score to assess the statistical significance:</p>
+    <div class="eq">$$Z = \frac{C_G - \mu_0}{\sigma_0}$$</div>
+    <p>A high \(Z\)-score (e.g., \(Z > 4\)) indicates that the observed number of green tokens is highly unlikely under the null hypothesis, suggesting the text is watermarked.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Watermarks are not perfectly robust to adversarial attacks or heavy editing. Aggressive paraphrasing, summarization, or translation can dilute or destroy the statistical signal. The watermark is designed to detect *original* LLM output, not to survive arbitrary transformations. The strength of the watermark (\(\delta\)) is a trade-off: higher \(\delta\) means easier detection but potentially lower text quality/diversity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Simulate token generation step-by-step for a small vocabulary. Watch how the green/red list changes, how logits are biased, and how the watermark accumulates.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Watermark Bias (δ)</div>
+          <input type="range" id="deltaSlider" min="0" max="5" step="0.1" value="0.5">
+          <div class="slider-value" id="deltaValue">0.5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Green List Ratio (ρ_G)</div>
+          <input type="range" id="greenRatioSlider" min="0.2" max="0.8" step="0.05" value="0.5">
+          <div class="slider-value" id="greenRatioValue">0.5</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher δ makes watermark stronger; ρ_G affects baseline green count.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial State</div>
+        <div class="info-desc" id="infoDesc">We start with a small vocabulary (10 tokens) and no generated text. The previous token is a placeholder.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch token" style="background:var(--green-mid)"></div> Green List Token</div>
+        <div class="legend-item"><div class="legend-swatch token" style="background:var(--red-mid)"></div> Red List Token</div>
+        <div class="legend-item"><div class="legend-swatch token" style="background:var(--purple-mid)"></div> Sampled Token</div>
+        <div class="legend-item"><div class="legend-swatch token" style="background:var(--blue-mid)"></div> Other Token</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use watermarking:</strong></p>
+    <ul>
+      <li>To detect content generated by your specific LLM, for example, to identify misuse or attribute origin.</li>
+      <li>To discourage malicious use of LLMs (e.g., generating fake news, spam) by making the source detectable.</li>
+      <li>In scenarios where proving the origin of text is important for trust and accountability.</li>
+      <li>When you need a lightweight, statistical signal that doesn't significantly degrade text quality.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>If perfect, unremovable attribution is required (no current watermark is truly unremovable).</li>
+      <li>For sensitive applications where any slight degradation in text quality or diversity is unacceptable.</li>
+      <li>If the generated text is expected to undergo heavy human editing, paraphrasing, or translation, which can erase the watermark.</li>
+      <li>With very short outputs, where the statistical signal might not be strong enough for reliable detection.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Trade-offs</div>
+      <p style="font-size:14px;margin:0;">LLM watermarking involves a fundamental trade-off between <strong>detectability</strong> (how easy it is to find the watermark), <strong>quality/diversity</strong> (how much the watermark affects the generated text), and <strong>robustness</strong> (how well it survives transformations). The bias strength \(\delta\) and green list ratio \(\rho_G\) are key hyperparameters to tune for these trade-offs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">import hashlib</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">VOCAB_SIZE = 10000</div>
+      <div class="code-line" id="cl4">WATERMARK_SEED = 12345 # Secret key for partitioning</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">def get_green_red_lists(prev_token_id, green_ratio=0.5):</div>
+      <div class="code-line" id="cl7">    # Deterministically generate a seed for RNG based on prev_token_id and secret key</div>
+      <div class="code-line" id="cl8">    combined_seed = WATERMARK_SEED + prev_token_id</div>
+      <div class="code-line" id="cl9">    rng = np.random.RandomState(combined_seed)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    # Shuffle vocabulary indices and split based on green_ratio</div>
+      <div class="code-line" id="cl12">    shuffled_vocab = rng.permutation(VOCAB_SIZE)</div>
+      <div class="code-line" id="cl13">    num_green = int(VOCAB_SIZE * green_ratio)</div>
+      <div class="code-line" id="cl14">    green_list = set(shuffled_vocab[:num_green])</div>
+      <div class="code-line" id="cl15">    red_list = set(shuffled_vocab[num_green:])</div>
+      <div class="code-line" id="cl16">    return green_list, red_list</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">def watermark_logits(logits, prev_token_id, delta, green_ratio):</div>
+      <div class="code-line" id="cl19">    green_list, _ = get_green_red_lists(prev_token_id, green_ratio)</div>
+      <div class="code-line" id="cl20">    biased_logits = np.copy(logits)</div>
+      <div class="code-line" id="cl21">    for token_id in green_list:</div>
+      <div class="code-line" id="cl22">        if token_id < len(biased_logits): # Ensure token_id is within current logits length</div>
+      <div class="code-line" id="cl23">            biased_logits[token_id] += delta</div>
+      <div class="code-line" id="cl24">    return biased_logits</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">def softmax(x):</div>
+      <div class="code-line" id="cl27">    e_x = np.exp(x - np.max(x)) # Subtract max for numerical stability</div>
+      <div class="code-line" id="cl28">    return e_x / e_x.sum()</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">def detect_watermark(generated_text_ids, green_ratio):</div>
+      <div class="code-line" id="cl31">    if len(generated_text_ids) < 2: return 0.0 # Need at least 2 tokens for detection</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33">    green_token_count = 0</div>
+      <div class="code-line" id="cl34">    effective_length = len(generated_text_ids) - 1</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">    for i in range(1, len(generated_text_ids)):</div>
+      <div class="code-line" id="cl37">        prev_token_id = generated_text_ids[i-1]</div>
+      <div class="code-line" id="cl38">        current_token_id = generated_text_ids[i]</div>
+      <div class="code-line" id="cl39">        green_list, _ = get_green_red_lists(prev_token_id, green_ratio)</div>
+      <div class="code-line" id="cl40">        if current_token_id in green_list:</div>
+      <div class="code-line" id="cl41">            green_token_count += 1</div>
+      <div class="code-line" id="cl42"></div>
+      <div class="code-line" id="cl43">    # Calculate Z-score</div>
+      <div class="code-line" id="cl44">    expected_green = effective_length * green_ratio</div>
+      <div class="code-line" id="cl45">    std_dev_green = np.sqrt(effective_length * green_ratio * (1 - green_ratio))</div>
+      <div class="code-line" id="cl46">    if std_dev_green == 0: return 0.0</div>
+      <div class="code-line" id="cl47">    z_score = (green_token_count - expected_green) / std_dev_green</div>
+      <div class="code-line" id="cl48">    return z_score</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentRNG = mulberry32(12345); // For general random numbers in visualization
+let watermarkRNG = mulberry32(54321); // For the watermark's internal randomness
+
+// ── UTILS ──
+function softmax(arr) {
+  const maxLogit = Math.max(...arr);
+  const exp = arr.map(v => Math.exp(v - maxLogit));
+  const sumExp = exp.reduce((a, b) => a + b, 0);
+  return exp.map(v => v / sumExp);
+}
+
+function sampleFromDistribution(probabilities, rng) {
+  const r = rng();
+  let cumulativeProbability = 0;
+  for (let i = 0; i < probabilities.length; i++) {
+    cumulativeProbability += probabilities[i];
+    if (r < cumulativeProbability) {
+      return i;
+    }
+  }
+  return probabilities.length - 1; // Fallback
+}
+
+function getGreenRedLists(prevTokenId, vocabSize, greenRatio, watermarkSeed) {
+  const combinedSeed = watermarkSeed + prevTokenId;
+  const rng = mulberry32(combinedSeed); // Use a new RNG for list generation
+  const shuffledVocab = Array.from({length: vocabSize}, (_, i) => i).sort(() => rng() - 0.5);
+  const numGreen = Math.floor(vocabSize * greenRatio);
+  const greenList = new Set(shuffledVocab.slice(0, numGreen));
+  const redList = new Set(shuffledVocab.slice(numGreen));
+  return { greenList, redList };
+}
+
+function calculateZScore(generatedTokenIDs, vocabSize, greenRatio, watermarkSeed) {
+  if (generatedTokenIDs.length < 2) return {zScore: 0, greenCount: 0, expectedGreen: 0, stdDev: 0};
+
+  let greenTokenCount = 0;
+  const effectiveLength = generatedTokenIDs.length - 1;
+
+  for (let i = 1; i < generatedTokenIDs.length; i++) {
+    const prevTokenId = generatedTokenIDs[i-1];
+    const currentTokenId = generatedTokenIDs[i];
+    const { greenList } = getGreenRedLists(prevTokenId, vocabSize, greenRatio, watermarkSeed);
+    if (greenList.has(currentTokenId)) {
+      greenTokenCount++;
+    }
+  }
+
+  const expectedGreen = effectiveLength * greenRatio;
+  const stdDevGreen = Math.sqrt(effectiveLength * greenRatio * (1 - greenRatio));
+  const zScore = stdDevGreen === 0 ? 0 : (greenTokenCount - expectedGreen) / stdDevGreen;
+
+  return { zScore, greenCount: greenTokenCount, expectedGreen, stdDev: stdDevGreen };
+}
+
+// ── CONFIG ──
+const VOCAB_SIZE = 10;
+const WATERMARK_SEED = 54321;
+const TOKEN_NAMES = Array.from({length: VOCAB_SIZE}, (_, i) => `token_${i}`);
+
+// ── STATE ──
+let step = 0;
+const totalSteps = 8;
+
+let prevTokenId = 0; // Initial placeholder token
+let generatedTokenIDs = [];
+let currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // Random initial logits
+
+const deltaSlider = document.getElementById('deltaSlider');
+const greenRatioSlider = document.getElementById('greenRatioSlider');
+
+function getDelta() { return parseFloat(deltaSlider.value); }
+function getGreenRatio() { return parseFloat(greenRatioSlider.value); }
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State & Vocabulary',
+    desc: `We have a small vocabulary of ${VOCAB_SIZE} tokens. The "previous token" is initially a placeholder (token_0). This token will determine the green/red list for the *first* generated token. No watermark bias (δ=0) yet.`,
+    codeLines: [3,4,6],
+    canvasMode: 'init'
+  },
+  {
+    phase: 'setup', title: 'Green/Red List Partitioning',
+    desc: `Based on the previous token (token_${prevTokenId}), the vocabulary is deterministically split into a "green list" and a "red list". The green list ratio (ρ_G) determines the proportion of green tokens. This split changes with each new previous token.`,
+    codeLines: [6,7,8,9,10,11,12,13,14,15,16],
+    canvasMode: 'green_red_split'
+  },
+  {
+    phase: 'generate', title: 'Applying Watermark Bias (δ)',
+    desc: `With a watermark bias δ > 0, the raw logits for tokens in the green list are increased by δ. This subtly boosts their probability. Red list tokens remain unchanged (or can be penalized). Notice how the green bars in the "Biased Logits" chart grow.`,
+    codeLines: [18,19,20,21,22,23,24],
+    canvasMode: 'biased_logits'
+  },
+  {
+    phase: 'generate', title: 'Sampling the Next Token',
+    desc: `The next token is sampled from the softmax distribution of the *biased* logits. Due to the bias, green-listed tokens are more likely to be picked. The sampled token (highlighted purple) is added to our generated text.`,
+    codeLines: [26,27,28],
+    canvasMode: 'sampled_token_1'
+  },
+  {
+    phase: 'generate', title: 'New Context, New Lists',
+    desc: `The newly sampled token (token_${generatedTokenIDs[0]}) now becomes the "previous token". A new green/red list is generated based on *its* ID. This ensures the watermark pattern is dynamic and distributed throughout the text.`,
+    codeLines: [6,7,8,9,10,11,12,13,14,15,16],
+    canvasMode: 'new_context'
+  },
+  {
+    phase: 'generate', title: 'Continuing Generation',
+    desc: `The process repeats: bias logits for the new green list, sample the next token. Over many tokens, the generated text will accumulate a statistically significant number of green tokens. We'll generate a few more tokens to see this.`,
+    codeLines: [18,19,20,21,22,23,24,26,27,28],
+    canvasMode: 'sampled_token_2'
+  },
+  {
+    phase: 'detect', title: 'Watermark Detection',
+    desc: `After generating a text, we perform detection. For each token (except the first), we check if it falls into the green list determined by its *preceding* token. We count the green tokens and compute a Z-score.`,
+    codeLines: [30,31,32,33,34,35,36,37,38,39,40,41,42],
+    canvasMode: 'detection'
+  },
+  {
+    phase: 'interact', title: 'Interactive Exploration',
+    desc: `Now, try adjusting the 'Watermark Bias (δ)' and 'Green List Ratio (ρ_G)' sliders. Generate new tokens or reset. Observe how δ affects the green token count and Z-score. A higher δ makes the watermark more obvious and easier to detect.`,
+    codeLines: [18,19,20,21,22,23,24,26,27,28,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47],
+    canvasMode: 'interactive'
+  }
+];
+
+// ── RENDER CONTROLS ──
+function updateSliderLabels() {
+  document.getElementById('deltaValue').textContent = getDelta().toFixed(1);
+  document.getElementById('greenRatioValue').textContent = getGreenRatio().toFixed(2);
+}
+
+deltaSlider.addEventListener('input', () => { updateSliderLabels(); render(); });
+greenRatioSlider.addEventListener('input', () => { updateSliderLabels(); render(); });
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+
+function goTo(i) {
+  step = i;
+  render();
+}
+
+function reset() {
+  step = 0;
+  prevTokenId = 0;
+  generatedTokenIDs = [];
+  currentRNG = mulberry32(12345); // Reset RNG for consistent initial logits
+  watermarkRNG = mulberry32(54321); // Reset watermark RNG for consistent lists
+  currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5);
+  deltaSlider.value = 0.5;
+  greenRatioSlider.value = 0.5;
+  updateSliderLabels();
+  render();
+}
+
+// ── RENDER UI ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup',
+    generate: 'phase-generate',
+    detect: 'phase-detect',
+    interact: 'phase-interact'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const delta = getDelta();
+  const greenRatio = getGreenRatio();
+
+  // --- Layout Constants ---
+  const pad = 20;
+  const tokenBoxW = 120;
+  const tokenBoxH = 60;
+  const vocabListW = 150;
+  const vocabListH = H - 2 * pad;
+  const barChartW = W - 2 * pad - tokenBoxW - vocabListW - 60;
+  const barChartH = H / 2 - 2 * pad;
+
+  const prevTokenX = pad;
+  const prevTokenY = pad;
+
+  const vocabListX = W - pad - vocabListW;
+  const vocabListY = pad;
+
+  const rawLogitsX = prevTokenX + tokenBoxW + pad;
+  const rawLogitsY = pad;
+
+  const biasedLogitsX = rawLogitsX;
+  const biasedLogitsY = H / 2 + pad;
+
+  const sampledTokenX = prevTokenX;
+  const sampledTokenY = H / 2 + pad;
+
+  const generatedTextX = pad;
+  const generatedTextY = H - pad - tokenBoxH;
+  const generatedTextW = W - 2*pad - vocabListW - 60;
+
+  const statsX = vocabListX;
+  const statsY = H - pad - tokenBoxH;
+
+  // --- Green/Red Lists ---
+  const { greenList, redList } = getGreenRedRedraw(prevTokenId, VOCAB_SIZE, greenRatio, WATERMARK_SEED);
+
+  // --- Draw Previous Token ---
+  drawTokenBox(ctx, colors, prevTokenX, prevTokenY, tokenBoxW, tokenBoxH, "Prev Token", TOKEN_NAMES[prevTokenId], colors.blue);
+
+  // --- Draw Vocabulary List (Green/Red) ---
+  drawVocabList(ctx, colors, vocabListX, vocabListY, vocabListW, vocabListH, greenList, redList);
+
+  // --- Draw Raw Logits Bar Chart ---
+  drawBarChart(ctx, colors, rawLogitsX, rawLogitsY, barChartW, barChartH, "Raw Logits", currentLogits, greenList, redList);
+
+  // --- Determine Biased Logits & Probabilities ---
+  let biasedLogits = currentLogits.slice();
+  if (mode === 'biased_logits' || mode === 'sampled_token_1' || mode === 'new_context' || mode === 'sampled_token_2' || mode === 'detection' || mode === 'interactive') {
+    greenList.forEach(tokenId => {
+      biasedLogits[tokenId] += delta;
+    });
+  }
+  const biasedProbs = softmax(biasedLogits);
+
+  // --- Draw Biased Logits Bar Chart ---
+  let sampledToken = -1;
+  if (mode === 'sampled_token_1' || mode === 'new_context' || mode === 'sampled_token_2' || mode === 'detection' || mode === 'interactive') {
+    sampledToken = sampleFromDistribution(biasedProbs, currentRNG);
+  }
+  drawBarChart(ctx, colors, biasedLogitsX, biasedLogitsY, barChartW, barChartH, "Biased Logits & Probs", biasedLogits, greenList, redList, biasedProbs, sampledToken);
+
+  // --- Draw Sampled Token Box ---
+  if (mode === 'sampled_token_1' || mode === 'new_context' || mode === 'sampled_token_2' || mode === 'detection' || mode === 'interactive') {
+    drawTokenBox(ctx, colors, sampledTokenX, sampledTokenY, tokenBoxW, tokenBoxH, "Sampled Token", TOKEN_NAMES[sampledToken], colors.purple);
+  }
+
+  // --- Generated Text & Stats ---
+  let currentGeneratedText = generatedTokenIDs.map(id => TOKEN_NAMES[id]).join(" ");
+  let currentZScore = {zScore: 0, greenCount: 0, expectedGreen: 0, stdDev: 0};
+  if (generatedTokenIDs.length > 0 && (mode === 'detection' || mode === 'interactive')) {
+    currentZScore = calculateZScore(generatedTokenIDs, VOCAB_SIZE, greenRatio, WATERMARK_SEED);
+  }
+
+  drawGeneratedTextBox(ctx, colors, generatedTextX, generatedTextY, generatedTextW, tokenBoxH, "Generated Text", currentGeneratedText);
+  drawStatsBox(ctx, colors, statsX, statsY, vocabListW, tokenBoxH, currentZScore);
+
+  // --- Update Info Numbers ---
+  let infoNumbers = `Previous Token ID: ${prevTokenId}\n`;
+  infoNumbers += `Raw Logits: [${currentLogits.map(v => v.toFixed(2)).join(', ')}]\n`;
+  if (mode === 'biased_logits' || mode === 'sampled_token_1' || mode === 'new_context' || mode === 'sampled_token_2' || mode === 'detection' || mode === 'interactive') {
+    infoNumbers += `Biased Logits: [${biasedLogits.map(v => v.toFixed(2)).join(', ')}]\n`;
+    infoNumbers += `Biased Probs: [${biasedProbs.map(v => v.toFixed(3)).join(', ')}]\n`;
+  }
+  infoNumbers += `Generated Text Length: ${generatedTokenIDs.length}\n`;
+  if (generatedTokenIDs.length > 0 && (mode === 'detection' || mode === 'interactive')) {
+    infoNumbers += `Green Token Count: ${currentZScore.greenCount}\n`;
+    infoNumbers += `Expected Green (H0): ${currentZScore.expectedGreen.toFixed(2)}\n`;
+    infoNumbers += `Std Dev (H0): ${currentZScore.stdDev.toFixed(2)}\n`;
+    infoNumbers += `Z-score: ${currentZScore.zScore.toFixed(2)}`;
+  }
+  document.getElementById('infoNumbers').textContent = infoNumbers;
+
+
+  // --- Step-specific logic ---
+  if (step === 3 && generatedTokenIDs.length === 0) { // After sampling first token
+    generatedTokenIDs.push(sampledToken);
+    prevTokenId = sampledToken;
+    currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // New random logits
+  } else if (step === 5 && generatedTokenIDs.length === 1) { // After sampling second token
+    generatedTokenIDs.push(sampledToken);
+    prevTokenId = sampledToken;
+    currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // New random logits
+  } else if (step === 5 && generatedTokenIDs.length === 2) { // After sampling third token
+    generatedTokenIDs.push(sampledToken);
+    prevTokenId = sampledToken;
+    currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // New random logits
+  } else if (step === 5 && generatedTokenIDs.length === 3) { // After sampling fourth token
+    generatedTokenIDs.push(sampledToken);
+    prevTokenId = sampledToken;
+    currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // New random logits
+  } else if (step === 5 && generatedTokenIDs.length === 4) { // After sampling fifth token
+    generatedTokenIDs.push(sampledToken);
+    prevTokenId = sampledToken;
+    currentLogits = Array.from({length: VOCAB_SIZE}, () => currentRNG() * 5 - 2.5); // New random logits
+  }
+}
+
+let greenRedListsCache = {};
+function getGreenRedRedraw(prevTokenId, vocabSize, greenRatio, watermarkSeed) {
+    const cacheKey = `${prevTokenId}-${vocabSize}-${greenRatio}-${watermarkSeed}`;
+    if (!greenRedListsCache[cacheKey]) {
+        greenRedListsCache[cacheKey] = getGreenRedLists(prevTokenId, vocabSize, greenRatio, watermarkSeed);
+    }
+    return greenRedListsCache[cacheKey];
+}
+
+
+function drawTokenBox(ctx, colors, x, y, w, h, title, tokenName, bgColor) {
+  ctx.fillStyle = bgColor;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 12px ${colors.sans}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(title, x + w / 2, y + 20);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 14px ${colors.mono}`;
+  ctx.fillText(tokenName, x + w / 2, y + h / 2 + 10);
+}
+
+function drawVocabList(ctx, colors, x, y, w, h, greenList, redList) {
+  ctx.fillStyle = colors.bg2;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 12px ${colors.sans}`;
+  ctx.textAlign = 'center';
+  ctx.fillText("Vocabulary Lists", x + w / 2, y + 20);
+
+  const tokenSize = 25;
+  const tokensPerRow = Math.floor((w - 20) / tokenSize);
+  const startX = x + (w - tokensPerRow * tokenSize) / 2;
+  const startY = y + 40;
+
+  for (let i = 0; i < VOCAB_SIZE; i++) {
+    const row = Math.floor(i / tokensPerRow);
+    const col = i % tokensPerRow;
+    const tokenX = startX + col * tokenSize;
+    const tokenY = startY + row * tokenSize;
+
+    ctx.fillStyle = greenList.has(i) ? colors.green : colors.red;
+    ctx.fillRect(tokenX, tokenY, tokenSize - 2, tokenSize - 2);
+    ctx.strokeStyle = colors.border;
+    ctx.strokeRect(tokenX, tokenY, tokenSize - 2, tokenSize - 2);
+
+    ctx.fillStyle = colors.text;
+    ctx.font = `400 8px ${colors.mono}`;
+    ctx.fillText(i, tokenX + tokenSize / 2 - 1, tokenY + tokenSize / 2 + 3);
+  }
+}
+
+function drawBarChart(ctx, colors, x, y, w, h, title, logits, greenList, redList, probabilities = null, sampledToken = -1) {
+  ctx.fillStyle = colors.bg2;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 12px ${colors.sans}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(title, x + w / 2, y + 20);
+
+  const chartY = y + 40;
+  const chartH = h - 50;
+
+  const barWidth = (w - 20) / VOCAB_SIZE;
+  const maxLogit = Math.max(...logits);
+  const minLogit = Math.min(...logits);
+  const range = maxLogit - minLogit;
+  const normFactor = range === 0 ? 1 : range;
+
+  for (let i = 0; i < VOCAB_SIZE; i++) {
+    const barX = x + 10 + i * barWidth;
+    const barHeight = (logits[i] - minLogit) / normFactor * chartH * 0.8;
+    const barY = chartY + chartH - barHeight;
+
+    ctx.fillStyle = greenList.has(i) ? colors.green : colors.red;
+    if (i === sampledToken) {
+        ctx.fillStyle = colors.purple;
+    }
+    ctx.fillRect(barX, barY, barWidth - 2, barHeight);
+
+    if (probabilities) {
+      ctx.fillStyle = colors.text;
+      ctx.font = `400 8px ${colors.mono}`;
+      ctx.fillText(probabilities[i].toFixed(2), barX + barWidth / 2, barY - 5);
+    }
+  }
+
+  // Draw a baseline for logits
+  const baselineY = chartY + chartH - (-minLogit / normFactor * chartH * 0.8);
+  ctx.strokeStyle = colors.text3;
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(x + 10, baselineY);
+  ctx.lineTo(x + w - 10, baselineY);
+  ctx.stroke();
+}
+
+function drawGeneratedTextBox(ctx, colors, x, y, w, h, title, text) {
+  ctx.fillStyle = colors.bg2;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 12px ${colors.sans}`;
+  ctx.textAlign = 'left';
+  ctx.fillText(title, x + 10, y + 20);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `400 13px ${colors.mono}`;
+  ctx.fillText(text, x + 10, y + h / 2 + 10);
+}
+
+function drawStatsBox(ctx, colors, x, y, w, h, zScoreData) {
+  ctx.fillStyle = colors.bg2;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `600 12px ${colors.sans}`;
+  ctx.textAlign = 'center';
+  ctx.fillText("Watermark Stats", x + w / 2, y + 20);
+
+  ctx.fillStyle = colors.text;
+  ctx.font = `400 13px ${colors.mono}`;
+  ctx.fillText(`Green: ${zScoreData.greenCount}`, x + w / 2, y + h / 2 + 2);
+  ctx.fillText(`Z-score: ${zScoreData.zScore.toFixed(2)}`, x + w / 2, y + h / 2 + 18);
+}
+
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateSliderLabels();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

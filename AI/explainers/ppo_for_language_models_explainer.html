@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPO for Language Models: Clipping &amp; KL Penalty — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:40px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-clipping{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-kl{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-combined{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>PPO for Language Models</h1>
+  <div class="subtitle">Policy clipping and KL penalty from a reference policy for stable LLM fine-tuning</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">LLMs</span>
+    <span class="tag tag-complexity">O(epochs * batch_size)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding PPO for LLMs</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Proximal Policy Optimization (PPO) is a reinforcement learning algorithm widely used to fine-tune large language models (LLMs) after supervised fine-tuning (SFT). Its goal is to improve the LLM's behavior (e.g., helpfulness, harmlessness) by optimizing for a reward signal (often from a reward model), while crucially preventing the policy from deviating too much from its previous good behavior. This stability is achieved through two main mechanisms: <em>policy clipping</em> and a <em>KL divergence penalty</em> against a reference policy.</p>
+    <p><strong>Analogy:</strong> Imagine you've trained a brilliant student (your SFT model) to write essays. Now you want them to be more creative (RL objective). You give them feedback (reward signal) on their new essays. PPO is like telling the student: "Try to be more creative, but don't stray *too far* from the writing style I taught you (clipping), and definitely don't forget the core principles of good writing you learned initially (KL penalty to reference)." This prevents the student from becoming wildly unpredictable or forgetting everything they learned.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">PPO for LLMs optimizes a policy (the language model's token probabilities) using a reward signal, but adds safeguards to prevent drastic, unstable updates. These safeguards are a <strong>clipping mechanism</strong> on the policy ratio and a <strong>KL divergence penalty</strong> that keeps the updated policy close to a stable, pre-trained reference policy.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How PPO Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Challenge: Stable Policy Updates</h4>
+    <p>Vanilla policy gradient methods (like REINFORCE) can suffer from instability: a single large update can drastically change the policy, leading to poor performance or divergence. Trust Region Policy Optimization (TRPO) addressed this by enforcing a hard constraint on the KL divergence between the old and new policies, but it's computationally expensive due to second-order optimization.</p>
+    <p>PPO simplifies TRPO by introducing a "soft" trust region, making it much more practical for large models like LLMs. It does this via two key components, often combined in LLM fine-tuning:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Policy Clipping:</strong> This is PPO's core mechanism. It modifies the policy gradient objective to "clip" the ratio of the new policy's probability to the old policy's probability, \(r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\), if it moves too far from 1. This prevents excessively large updates that could destabilize training.</li>
+      <li><strong>KL Penalty from Reference Policy:</strong> Specifically for LLMs, an additional KL divergence term, \(\text{KL}[\pi_\theta(\cdot|s_t) || \pi_{ref}(\cdot|s_t)]\), is added to the objective. Here, \(\pi_{ref}\) is usually the initial supervised fine-tuned (SFT) model. This term acts as a regularization, gently pulling the policy \(\pi_\theta\) back towards the original SFT model's distribution, preventing it from "forgetting" its initial capabilities or generating nonsensical text.</li>
+    </ol>
+
+    <h4>The Workflow for LLMs</h4>
+    <p>PPO for LLMs typically involves these steps:</p>
+    <ul>
+      <li><strong>Collect Data:</strong> Generate responses (sequences of tokens) from the current policy \(\pi_{\theta_{old}}\) given a set of prompts.</li>
+      <li><strong>Compute Rewards:</strong> A reward model (RM) or human feedback assigns a scalar reward to each generated response.</li>
+      <li><strong>Estimate Advantages:</strong> Use the rewards to calculate advantage estimates (\(\hat{A}_t\)) for each action (token generation).</li>
+      <li><strong>Optimize Policy:</strong> Perform multiple epochs of optimization on the collected data, using the PPO objective with clipping and the KL penalty against the reference model.</li>
+      <li><strong>Update Old Policy:</strong> After optimization, the updated policy \(\pi_\theta\) becomes the new \(\pi_{\theta_{old}}\) for the next data collection phase.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">PPO's strength lies in its ability to perform multiple gradient updates on the same batch of experience (off-policy) without destabilizing the learning process. The clipping and KL penalty terms are critical for maintaining this stability, especially when dealing with high-dimensional action spaces like language generation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core PPO Clipped Objective</h4>
+    <p>The standard PPO objective with clipping aims to maximize:</p>
+    <div class="eq">$$L^{CLIP}(\theta) = \hat{\mathbb{E}}_t \left[ \min\left( r_t(\theta) \hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) \hat{A}_t \right) \right]$$</div>
+    <p>where:</p>
+    <ul>
+      <li>\(r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\) is the probability ratio between the new policy \(\pi_\theta\) and the old policy \(\pi_{\theta_{old}}\) for action \(a_t\) in state \(s_t\).</li>
+      <li>\(\hat{A}_t\) is the advantage estimate at time \(t\), indicating how much better (or worse) action \(a_t\) was than average.</li>
+      <li>\(\epsilon\) (e.g., 0.1 or 0.2) is a hyperparameter defining the clipping range.</li>
+    </ul>
+    <p>The \(\min\) operator ensures that if the policy ratio \(r_t(\theta)\) pushes the objective too high (when \(\hat{A}_t > 0\)) or too low (when \(\hat{A}_t < 0\)), it gets clipped. Specifically, if \(\hat{A}_t > 0\), we want to increase \(r_t(\theta)\), but it's capped at \(1+\epsilon\). If \(\hat{A}_t < 0\), we want to decrease \(r_t(\theta)\), but it's floored at \(1-\epsilon\). This creates a "no-go" zone for large policy changes.</p>
+
+    <h4>PPO with KL Penalty for LLMs</h4>
+    <p>For language models, it's common to add a KL divergence penalty against an original reference policy \(\pi_{ref}\) (e.g., the SFT model). This modified objective is:</p>
+    <div class="eq">$$L^{PPO}_{KL}(\theta) = \hat{\mathbb{E}}_t \left[ L^{CLIP}(\theta) - \beta \text{KL}[\pi_\theta(\cdot|s_t) || \pi_{ref}(\cdot|s_t)] \right]$$</div>
+    <p>where:</p>
+    <ul>
+      <li>\(L^{CLIP}(\theta)\) is the clipped objective from above.</li>
+      <li>\(\text{KL}[\pi_\theta(\cdot|s_t) || \pi_{ref}(\cdot|s_t)]\) measures the Kullback-Leibler divergence between the current policy and the fixed reference policy.</li>
+      <li>\(\beta\) is a hyperparameter controlling the strength of the KL penalty.</li>
+    </ul>
+    <p>This KL penalty term directly regularizes the policy to stay close to the reference, preventing the model from drifting too far from its original capabilities and ensuring more coherent and safe generations. The KL term is often applied per-token in the generated sequence.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Tuning \(\epsilon\) and \(\beta\) is crucial. Too small \(\epsilon\) or too large \(\beta\) can overly constrain the policy, hindering learning and making the model unable to adapt to the reward signal. Too large \(\epsilon\) or too small \(\beta\) can lead to instability and policy collapse, similar to vanilla policy gradients. These hyperparameters often require careful grid search or adaptive tuning strategies.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how PPO's clipping and KL penalty shape the new policy \(\pi_\theta\) relative to the old policy \(\pi_{\theta_{old}}\) and a reference policy \(\pi_{ref}\) for a single action (e.g., next token).</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Advantage (\(\hat{A}_t\))</div>
+          <input type="range" id="advantageSlider" min="-2" max="2" step="0.1" value="0.5">
+          <div class="slider-value" id="advantageValue">0.5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Clipping \(\epsilon\)</div>
+          <input type="range" id="epsilonSlider" min="0" max="0.5" step="0.01" value="0.2">
+          <div class="slider-value" id="epsilonValue">0.20</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">KL Penalty \(\beta\)</div>
+          <input type="range" id="betaSlider" min="0" max="0.1" step="0.001" value="0.01">
+          <div class="slider-value" id="betaValue">0.010</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial State</div>
+        <div class="info-desc" id="infoDesc">We start with three probability distributions for a single action (e.g., next token given a context): the old policy \(\pi_{\theta_{old}}\), the reference policy \(\pi_{ref}\), and the new policy \(\pi_\theta\). Initially, \(\pi_\theta\) is identical to \(\pi_{\theta_{old}}\).</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> \(\pi_{\theta_{old}}\) (old policy)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> \(\pi_{ref}\) (reference policy)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> \(\pi_\theta\) (new policy)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Clipping region</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Target direction (from advantage)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use PPO for LLMs:</strong></p>
+    <ul>
+      <li>Aligning LLMs to human preferences (e.g., RLHF) where a reward signal is available.</li>
+      <li>When fine-tuning a pre-trained LLM and stability/avoiding catastrophic forgetting is paramount.</li>
+      <li>Tasks requiring complex, multi-step reasoning where exploration needs to be guided but constrained.</li>
+      <li>When you need an off-policy algorithm that can reuse experience efficiently.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>Simple, low-dimensional RL tasks where vanilla policy gradients might suffice with less complexity.</li>
+      <li>When the task explicitly requires aggressive exploration and unconstrained policy shifts.</li>
+      <li>If you don't have a reliable reward signal or reward model, PPO cannot optimize effectively.</li>
+      <li>As a primary pre-training method; it's typically a fine-tuning step after SFT.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">PPO's success in LLM alignment stems from its elegant balance between optimization power and stability. By carefully controlling how much a policy can change in each step through clipping and KL penalties, PPO enables efficient and robust fine-tuning of massive models, making them more helpful, harmless, and aligned with desired behaviors.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PPO for LLMs, simplified)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">import torch</div>
+      <div class="code-line" id="cl2">from torch.nn.functional import kl_div, softmax, log_softmax</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># Assume model, optimizer, reward_model, ref_model are defined</div>
+      <div class="code-line" id="cl5"># model: current policy pi_theta</div>
+      <div class="code-line" id="cl6"># ref_model: fixed reference policy pi_ref (e.g., SFT model)</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">def ppo_update_step(model, ref_model, optimizer, experiences, clip_eps, beta_kl):</div>
+      <div class="code-line" id="cl9">    # experiences: list of (state_token_ids, action_token_id, old_log_prob, advantage)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    for epoch in range(PPO_EPOCHS): # typically a few epochs per data batch</div>
+      <div class="code-line" id="cl12">        for states, actions, old_log_probs, advantages in experiences:</div>
+      <div class="code-line" id="cl13">            optimizer.zero_grad()</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">            # Get new policy probabilities and log probabilities</div>
+      <div class="code-line" id="cl16">            new_logits = model(states) # (batch_size, vocab_size)</div>
+      <div class="code-line" id="cl17">            new_log_probs = log_softmax(new_logits, dim=-1)</div>
+      <div class="code-line" id="cl18">            new_probs = softmax(new_logits, dim=-1)</div>
+      <div class="code-line" id="cl19">            </div>
+      <div class="code-line" id="cl20">            # Get reference policy probabilities (fixed, no grad)</div>
+      <div class="code-line" id="cl21">            with torch.no_grad():</div>
+      <div class="code-line" id="cl22">                ref_logits = ref_model(states)</div>
+      <div class="code-line" id="cl23">                ref_log_probs = log_softmax(ref_logits, dim=-1)</div>
+      <div class="code-line" id="cl24">                ref_probs = softmax(ref_logits, dim=-1)</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">            # Select log_prob for the taken action</div>
+      <div class="code-line" id="cl27">            new_log_prob_action = new_log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">            # Calculate probability ratio r_t(theta)</div>
+      <div class="code-line" id="cl30">            ratio = torch.exp(new_log_prob_action - old_log_probs)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">            # PPO Clipped Objective (L_CLIP)</div>
+      <div class="code-line" id="cl33">            surr1 = ratio * advantages</div>
+      <div class="code-line" id="cl34">            surr2 = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * advantages</div>
+      <div class="code-line" id="cl35">            clipped_loss = -torch.min(surr1, surr2).mean() # Negative for gradient ascent</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37">            # KL Divergence Penalty (KL[pi_theta || pi_ref])</div>
+      <div class="code-line" id="cl38">            # kl_div expects log_prob for input, prob for target</div>
+      <div class="code-line" id="cl39">            kl_penalty = kl_div(new_log_probs, ref_probs, reduction='batchmean', log_target=False)</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41">            # Combined PPO Loss</div>
+      <div class="code-line" id="cl42">            total_loss = clipped_loss + beta_kl * kl_penalty</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">            total_loss.backward()</div>
+      <div class="code-line" id="cl45">            optimizer.step()</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">    # After PPO_EPOCHS, update pi_old (not shown here, usually done by copying model weights)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILITIES ──
+function gaussian(x, mean, stdDev) {
+  return (1 / (stdDev * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / stdDev, 2));
+}
+
+function klDivergence(p, q, dx) {
+  let sum = 0;
+  for (let i = 0; i < p.length; i++) {
+    if (p[i] > 1e-10 && q[i] > 1e-10) { // Avoid log(0)
+      sum += p[i] * Math.log(p[i] / q[i]);
+    }
+  }
+  return sum * dx; // Multiply by bin width for continuous approximation
+}
+
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
+
+function formatNumber(num, fixed = 3) {
+  if (typeof num !== 'number' || isNaN(num)) return 'NaN';
+  if (!isFinite(num)) return num > 0 ? 'Infinity' : '-Infinity';
+  return num.toFixed(fixed);
+}
+
+// ── PPO SIMULATION DATA ──
+const X_MIN = 0, X_MAX = 10;
+const NUM_POINTS = 100;
+const dx = (X_MAX - X_MIN) / (NUM_POINTS - 1);
+const x_vals = Array.from({ length: NUM_POINTS }, (_, i) => X_MIN + i * dx);
+
+// Fixed distributions for pi_old and pi_ref
+const pi_old_mean = 4.0;
+const pi_old_std = 1.0;
+const pi_ref_mean = 5.5; // Reference policy is slightly different
+const pi_ref_std = 1.2;
+
+const pi_old_dist = x_vals.map(x => gaussian(x, pi_old_mean, pi_old_std));
+const pi_ref_dist = x_vals.map(x => gaussian(x, pi_ref_mean, pi_ref_std));
+
+// Normalize to make sure they sum to approx 1 (for discrete approx)
+const normalize = arr => {
+  const sum = arr.reduce((a, b) => a + b, 0);
+  return arr.map(v => v / sum);
+};
+const pi_old_normalized = normalize(pi_old_dist);
+const pi_ref_normalized = normalize(pi_ref_dist);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State: Policies & Advantage',
+    desc: 'We visualize three probability distributions over possible actions (e.g., next tokens). The <b>old policy</b> \(\pi_{\theta_{old}}\) collected the data. The <b>reference policy</b> \(\pi_{ref}\) is the original SFT model. The <b>new policy</b> \(\pi_\theta\) starts as \(\pi_{\theta_{old}}\). The <b>advantage</b> \(\hat{A}_t\) indicates how "good" the action at x=4.0 was.',
+    mode: 'init',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta'],
+    show_clipping: false, show_kl: false
+  },
+  {
+    phase: 'setup', title: 'The Advantage Signal',
+    desc: 'The <b>advantage</b> \(\hat{A}_t\) (slider) quantifies how much better (positive) or worse (negative) a specific action (here, at x=4.0) was compared to the average. A positive advantage means we want to increase the probability of this action; negative means decrease.',
+    mode: 'advantage',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta'],
+    show_clipping: false, show_kl: false
+  },
+  {
+    phase: 'clipping', title: 'Policy Ratio \(r_t(\theta)\)',
+    desc: 'The optimization tries to shift \(\pi_\theta\) to maximize rewards. This involves changing the probability ratio \(r_t(\theta) = \\frac{\pi_\theta(a|s)}{\pi_{\theta_{old}}(a|s)}\). A positive advantage (e.g., \(\hat{A}_t=0.5\)) would normally push \(\pi_\theta\) higher than \(\pi_{\theta_{old}}\) for the "good" action.',
+    mode: 'ratio_unclipped',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta'],
+    show_clipping: false, show_kl: false
+  },
+  {
+    phase: 'clipping', title: 'Applying the Clipping Mechanism',
+    desc: 'PPO\'s clipping mechanism constrains \(r_t(\theta)\) to be within \([1-\epsilon, 1+\epsilon]\). If \(\hat{A}_t > 0\), \(r_t(\theta)\) is capped at \(1+\epsilon\). If \(\hat{A}_t < 0\), it\'s floored at \(1-\epsilon\). This prevents \(\pi_\theta\) from diverging too much from \(\pi_{\theta_{old}}\). Adjust \(\epsilon\) (slider) to see the clipping boundary change.',
+    mode: 'clipping',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta_clipped'],
+    show_clipping: true, show_kl: false
+  },
+  {
+    phase: 'kl', title: 'The KL Penalty to Reference Policy',
+    desc: 'For LLMs, a <b>KL divergence penalty</b> \(\beta \text{KL}[\pi_\theta || \pi_{ref}]\) is added to the objective. This term pulls \(\pi_\theta\) towards the <b>reference policy</b> \(\pi_{ref}\) (the SFT model), preventing "catastrophic forgetting" or generation of incoherent text. Adjust \(\beta\) (slider) to see its effect.',
+    mode: 'kl_penalty',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta_kl'],
+    show_clipping: false, show_kl: true
+  },
+  {
+    phase: 'combined', title: 'Combining Clipping and KL Penalty',
+    desc: 'In practice, both clipping and the KL penalty are applied. Clipping ensures stability relative to \(\pi_{\theta_{old}}\), while the KL penalty ensures alignment with \(\pi_{ref}\). The final \(\pi_\theta\) is a careful balance, aiming for higher rewards without drastic deviation from either base policy.',
+    mode: 'combined',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta_combined'],
+    show_clipping: true, show_kl: true
+  },
+  {
+    phase: 'combined', title: 'Impact of Advantage',
+    desc: 'Drag the <b>Advantage</b> slider. Notice how a positive advantage (e.g., for action at x=4.0) tries to boost \(\pi_\theta\) around that point, but the clipping and KL penalty prevent it from going too far. A negative advantage would try to suppress it.',
+    mode: 'combined',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta_combined'],
+    show_clipping: true, show_kl: true
+  },
+  {
+    phase: 'combined', title: 'Impact of Hyperparameters',
+    desc: 'Experiment with the <b>Clipping \(\epsilon\)</b> and <b>KL Penalty \(\beta\)</b> sliders. A larger \(\epsilon\) allows more aggressive updates (wider clipping band), while a larger \(\beta\) forces \(\pi_\theta\) to stay closer to \(\pi_{ref}\) (stronger pull). Finding the right balance is key to successful LLM fine-tuning.',
+    mode: 'combined',
+    active_curves: ['pi_old', 'pi_ref', 'pi_theta_combined'],
+    show_clipping: true, show_kl: true
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  document.getElementById('advantageSlider').value = 0.5;
+  document.getElementById('epsilonSlider').value = 0.2;
+  document.getElementById('betaSlider').value = 0.01;
+  render();
+}
+
+// ── SLIDER LISTENERS ──
+document.getElementById('advantageSlider').addEventListener('input', render);
+document.getElementById('epsilonSlider').addEventListener('input', render);
+document.getElementById('betaSlider').addEventListener('input', render);
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', clipping: 'phase-clipping', kl: 'phase-kl', combined: 'phase-combined' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  document.getElementById('advantageValue').textContent = formatNumber(parseFloat(document.getElementById('advantageSlider').value), 1);
+  document.getElementById('epsilonValue').textContent = formatNumber(parseFloat(document.getElementById('epsilonSlider').value), 2);
+  document.getElementById('betaValue').textContent = formatNumber(parseFloat(document.getElementById('betaSlider').value), 3);
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(stepData) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD_LEFT = 40, PAD_RIGHT = 20, PAD_TOP = 20, PAD_BOTTOM = 30;
+  const plotW = W - PAD_LEFT - PAD_RIGHT;
+  const plotH = H - PAD_TOP - PAD_BOTTOM;
+
+  const yMax = 0.5; // Max probability for display
+
+  const toCanvasX = (x) => PAD_LEFT + ((x - X_MIN) / (X_MAX - X_MIN)) * plotW;
+  const toCanvasY = (y) => PAD_TOP + plotH - (y / yMax) * plotH;
+
+  // Draw axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD_LEFT, PAD_TOP);
+  ctx.lineTo(PAD_LEFT, H - PAD_BOTTOM);
+  ctx.lineTo(W - PAD_RIGHT, H - PAD_BOTTOM);
+  ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Action (e.g., Token ID)', W / 2, H - 10);
+  ctx.textAlign = 'right';
+  ctx.fillText('Probability', PAD_LEFT - 5, PAD_TOP + 10);
+
+  // Ticks
+  ctx.textAlign = 'center';
+  for (let x = 0; x <= 10; x += 2) {
+    const cx = toCanvasX(x);
+    ctx.beginPath(); ctx.moveTo(cx, H - PAD_BOTTOM); ctx.lineTo(cx, H - PAD_BOTTOM + 5); ctx.stroke();
+    ctx.fillText(x, cx, H - PAD_BOTTOM + 18);
+  }
+  ctx.textAlign = 'right';
+  for (let y = 0; y <= yMax; y += 0.1) {
+    const cy = toCanvasY(y);
+    ctx.beginPath(); ctx.moveTo(PAD_LEFT - 5, cy); ctx.lineTo(PAD_LEFT, cy); ctx.stroke();
+    ctx.fillText(y.toFixed(1), PAD_LEFT - 8, cy + 3);
+  }
+
+  // --- Calculate pi_theta based on sliders and stepData.mode ---
+  const advantage = parseFloat(document.getElementById('advantageSlider').value);
+  const epsilon = parseFloat(document.getElementById('epsilonSlider').value);
+  const beta_kl = parseFloat(document.getElementById('betaSlider').value);
+
+  let pi_theta_dist = new Array(NUM_POINTS).fill(0);
+  let r_t_values = new Array(NUM_POINTS).fill(1.0); // ratio pi_theta / pi_old
+
+  const target_action_x = 4.0; // The action we're considering for advantage
+  const target_action_idx = Math.round((target_action_x - X_MIN) / dx);
+
+  // Initial pi_theta is pi_old
+  pi_theta_dist = [...pi_old_normalized];
+
+  // Calculate desired ratio based on advantage for a single action
+  // We'll simulate that 'pi_theta' wants to increase/decrease prob for target_action_x
+  // and slightly adjust others to maintain sum=1.
+  // This is a simplification but illustrates the effect of advantage.
+  const base_log_ratio = advantage * 0.5; // Scale advantage to affect log ratio
+  const desired_ratio_target = Math.exp(base_log_ratio);
+
+  // Adjust pi_theta for visualization based on advantage
+  let temp_pi_theta = [...pi_old_normalized];
+  if (advantage !== 0) {
+    const old_prob_target = pi_old_normalized[target_action_idx];
+    const new_prob_target_unclipped = old_prob_target * desired_ratio_target;
+
+    // Distribute the change over other probabilities
+    const delta_prob = new_prob_target_unclipped - old_prob_target;
+    const remaining_sum = pi_old_normalized.reduce((sum, val, idx) => idx === target_action_idx ? sum : sum + val, 0);
+
+    for (let i = 0; i < NUM_POINTS; i++) {
+      if (i === target_action_idx) {
+        temp_pi_theta[i] = new_prob_target_unclipped;
+      } else {
+        // Distribute the delta proportionally to other probabilities
+        temp_pi_theta[i] = pi_old_normalized[i] - (delta_prob * pi_old_normalized[i] / remaining_sum);
+      }
+      temp_pi_theta[i] = Math.max(1e-10, temp_pi_theta[i]); // Ensure non-zero for log
+    }
+    temp_pi_theta = normalize(temp_pi_theta); // Re-normalize after adjustments
+  }
+
+  // Calculate r_t_values for all actions based on the "desired" pi_theta
+  for (let i = 0; i < NUM_POINTS; i++) {
+    r_t_values[i] = temp_pi_theta[i] / pi_old_normalized[i];
+  }
+
+  // Apply clipping and KL penalty based on mode
+  let final_pi_theta = [...temp_pi_theta];
+
+  if (stepData.mode === 'clipping' || stepData.mode === 'combined') {
+    let clipped_r_t_values = [...r_t_values];
+    for (let i = 0; i < NUM_POINTS; i++) {
+      if (advantage > 0) { // If we want to increase prob, cap at 1+epsilon
+        clipped_r_t_values[i] = Math.min(r_t_values[i], 1.0 + epsilon);
+      } else if (advantage < 0) { // If we want to decrease prob, floor at 1-epsilon
+        clipped_r_t_values[i] = Math.max(r_t_values[i], 1.0 - epsilon);
+      }
+    }
+    // Reconstruct pi_theta from clipped ratios
+    final_pi_theta = pi_old_normalized.map((prob, i) => prob * clipped_r_t_values[i]);
+    final_pi_theta = normalize(final_pi_theta);
+  }
+
+  if (stepData.mode === 'kl_penalty' || stepData.mode === 'combined') {
+    // Simulate KL penalty pulling pi_theta towards pi_ref
+    // A simple way to visualize this is a weighted average in log-space
+    // log(pi_theta) = (1-alpha) * log(pi_theta_from_clipped) + alpha * log(pi_ref)
+    // where alpha is related to beta_kl
+    const alpha = sigmoid(beta_kl * 100); // Scale beta_kl to have a visible effect
+
+    let kl_adjusted_pi_theta = new Array(NUM_POINTS).fill(0);
+    for (let i = 0; i < NUM_POINTS; i++) {
+      const log_prob_clipped = Math.log(final_pi_theta[i]);
+      const log_prob_ref = Math.log(pi_ref_normalized[i]);
+      const log_prob_kl_adjusted = (1 - alpha) * log_prob_clipped + alpha * log_prob_ref;
+      kl_adjusted_pi_theta[i] = Math.exp(log_prob_kl_adjusted);
+    }
+    final_pi_theta = normalize(kl_adjusted_pi_theta);
+  }
+
+  // --- Draw Curves ---
+  const drawCurve = (dist, color, label, showLabel = true) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(x_vals[0]), toCanvasY(dist[0]));
+    for (let i = 1; i < NUM_POINTS; i++) {
+      ctx.lineTo(toCanvasX(x_vals[i]), toCanvasY(dist[i]));
+    }
+    ctx.stroke();
+    if (showLabel) {
+      ctx.fillStyle = color;
+      ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, toCanvasX(x_vals[dist.indexOf(Math.max(...dist))] + 0.5), toCanvasY(Math.max(...dist)) - 10);
+    }
+  };
+
+  if (stepData.active_curves.includes('pi_old')) {
+    drawCurve(pi_old_normalized, colors.blue, '\\(\\pi_{\\theta_{old}}\\)');
+  }
+  if (stepData.active_curves.includes('pi_ref')) {
+    drawCurve(pi_ref_normalized, colors.amber, '\\(\\pi_{ref}\\)');
+  }
+
+  // Draw pi_theta based on current mode
+  let current_pi_theta_display = pi_old_normalized; // Default for init
+  if (stepData.mode === 'init' || stepData.mode === 'advantage') {
+    current_pi_theta_display = pi_old_normalized;
+  } else if (stepData.mode === 'ratio_unclipped') {
+    current_pi_theta_display = temp_pi_theta; // Show the raw desired shift
+  } else if (stepData.mode === 'clipping') {
+    current_pi_theta_display = final_pi_theta; // Clipped only
+  } else if (stepData.mode === 'kl_penalty') {
+    current_pi_theta_display = final_pi_theta; // KL only
+  } else if (stepData.mode === 'combined') {
+    current_pi_theta_display = final_pi_theta; // Clipped + KL
+  }
+
+  if (stepData.active_curves.includes('pi_theta') || stepData.active_curves.includes('pi_theta_clipped') || stepData.active_curves.includes('pi_theta_kl') || stepData.active_curves.includes('pi_theta_combined')) {
+    drawCurve(current_pi_theta_display, colors.purple, '\\(\\pi_\\theta\\)');
+  }
+
+  // --- Draw Clipping Region ---
+  if (stepData.show_clipping) {
+    ctx.fillStyle = colors.red;
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(x_vals[0]), toCanvasY(pi_old_normalized[0] * (1 + epsilon)));
+    for (let i = 1; i < NUM_POINTS; i++) {
+      ctx.lineTo(toCanvasX(x_vals[i]), toCanvasY(pi_old_normalized[i] * (1 + epsilon)));
+    }
+    for (let i = NUM_POINTS - 1; i >= 0; i--) {
+      ctx.lineTo(toCanvasX(x_vals[i]), toCanvasY(pi_old_normalized[i] * (1 - epsilon)));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = colors.red;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(x_vals[0]), toCanvasY(pi_old_normalized[0] * (1 + epsilon)));
+    for (let i = 1; i < NUM_POINTS; i++) {
+      ctx.lineTo(toCanvasX(x_vals[i]), toCanvasY(pi_old_normalized[i] * (1 + epsilon)));
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(x_vals[0]), toCanvasY(pi_old_normalized[0] * (1 - epsilon)));
+    for (let i = 1; i < NUM_POINTS; i++) {
+      ctx.lineTo(toCanvasX(x_vals[i]), toCanvasY(pi_old_normalized[i] * (1 - epsilon)));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = colors.red;
+    ctx.font = '600 11px "DM Sans", system-ui';
+    ctx.fillText(`(1+ε)π_old`, toCanvasX(X_MAX - 1), toCanvasY(pi_old_normalized[NUM_POINTS-1] * (1 + epsilon)) - 5);
+    ctx.fillText(`(1-ε)π_old`, toCanvasX(X_MAX - 1), toCanvasY(pi_old_normalized[NUM_POINTS-1] * (1 - epsilon)) + 15);
+  }
+
+  // --- Draw Advantage Target Line ---
+  if (advantage !== 0 && (stepData.mode === 'advantage' || stepData.mode === 'ratio_unclipped' || stepData.mode === 'clipping' || stepData.mode === 'combined')) {
+    const cx = toCanvasX(target_action_x);
+    const cy = toCanvasY(pi_old_normalized[target_action_idx]);
+    ctx.strokeStyle = colors.green;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    if (advantage > 0) {
+      ctx.lineTo(cx, cy - 20 - advantage * 10);
+      ctx.lineTo(cx + 5, cy - 15 - advantage * 10);
+      ctx.moveTo(cx, cy - 20 - advantage * 10);
+      ctx.lineTo(cx - 5, cy - 15 - advantage * 10);
+    } else {
+      ctx.lineTo(cx, cy + 20 - advantage * 10);
+      ctx.lineTo(cx + 5, cy + 15 - advantage * 10);
+      ctx.moveTo(cx, cy + 20 - advantage * 10);
+      ctx.lineTo(cx - 5, cy + 15 - advantage * 10);
+    }
+    ctx.stroke();
+    ctx.fillStyle = colors.green;
+    ctx.font = '600 11px "DM Sans", system-ui';
+    ctx.fillText(`Target Action (x=${target_action_x})`, cx, cy + (advantage > 0 ? -40 : 40));
+  }
+
+
+  // --- Info Numbers ---
+  const kl_val = klDivergence(current_pi_theta_display, pi_ref_normalized, dx);
+  const ratio_at_target = current_pi_theta_display[target_action_idx] / pi_old_normalized[target_action_idx];
+  const clipped_ratio_target = (advantage > 0) ? Math.min(r_t_values[target_action_idx], 1.0 + epsilon) : Math.max(r_t_values[target_action_idx], 1.0 - epsilon);
+
+  let info_numbers = [];
+  info_numbers.push(`Advantage (\(\hat{A}_t\)) for x=${target_action_x}: ${formatNumber(advantage, 2)}`);
+  info_numbers.push(`Clipping \(\epsilon\): ${formatNumber(epsilon, 2)}`);
+  info_numbers.push(`KL Penalty \(\beta\): ${formatNumber(beta_kl, 3)}`);
+  info_numbers.push(`Ratio \(\pi_\\theta / \\pi_{\\theta_{old}}\) at x=${target_action_x}: ${formatNumber(ratio_at_target, 2)}`);
+  info_numbers.push(`Clipped Ratio at x=${target_action_x}: ${formatNumber(clipped_ratio_target, 2)}`);
+  info_numbers.push(`KL[\(\pi_\\theta || \\pi_{ref}\)]: ${formatNumber(kl_val, 4)}`);
+
+  document.getElementById('infoNumbers').textContent = info_numbers.join('\n');
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

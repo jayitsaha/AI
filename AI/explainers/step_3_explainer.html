@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPO (Proximal Policy Optimization) Fine-tuning — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-ratio{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-advantage{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-clip{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-objective{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>PPO (Proximal Policy Optimization) Fine-tuning</h1>
+  <div class="subtitle">A stable, on-policy algorithm for reinforcement learning, crucial for RLHF</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N) per update</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding PPO</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Proximal Policy Optimization (PPO) is an on-policy reinforcement learning algorithm designed to find an optimal policy in a stable and efficient manner. It's a key component in the "Step 3" of Reinforcement Learning from Human Feedback (RLHF) for large language models, where a pre-trained LLM is fine-tuned to align with human preferences by maximizing a reward signal.</p>
+    <p>PPO strikes a balance between ease of implementation, sample efficiency, and robust performance. Its core idea is to take multiple training steps using the same collected data, but to prevent the new policy from straying too far from the policy that collected the data. This "proximal" constraint prevents unstable, large updates that can destabilize training.</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a robot to walk. If you give it too strong a correction after one bad step, it might fall over entirely. PPO is like a cautious teacher: it observes the robot's current attempt, gives it feedback (reward), and suggests a small, gentle adjustment to its walking strategy. It repeats this small adjustment several times before observing another full attempt, ensuring the robot doesn't suddenly try a wildly different, potentially disastrous, strategy.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">PPO updates the policy by maximizing a "clipped" surrogate objective function. This objective encourages beneficial policy changes but penalizes (by clipping) changes that are too large, ensuring training stability. It's an iterative process that balances exploration with exploitation, crucial for fine-tuning LLMs with human feedback.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How PPO Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The PPO Loop</h4>
+    <p>PPO operates in an iterative loop:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Data Collection:</strong> The current policy \(\pi_{\theta_{old}}\) (the LLM being fine-tuned) interacts with the environment (e.g., generates text based on a prompt, which is then scored by a reward model). It collects a batch of experiences: states, actions, rewards, and the log-probabilities of those actions under \(\pi_{\theta_{old}}\).</li>
+      <li><strong>Advantage Estimation:</strong> A separate Value Network \(V_{\phi}\) estimates the value of each state. The advantage \(A_t\) for each action is calculated as \(A_t = R_t - V_{\phi}(s_t)\), where \(R_t\) is the actual return (sum of future rewards) from state \(s_t\). A positive advantage means the action was better than expected.</li>
+      <li><strong>Policy Optimization (Clipped Objective):</strong> Using the collected data and estimated advantages, the policy network \(\pi_{\theta}\) is updated for multiple mini-batches. The key is the clipped surrogate objective, which ensures the new policy \(\pi_{\theta}\) doesn't deviate too much from \(\pi_{\theta_{old}}\).</li>
+      <li><strong>Value Network Optimization:</strong> The value network \(V_{\phi}\) is also updated to better predict the returns, typically by minimizing a mean-squared error loss against the actual returns.</li>
+      <li><strong>Policy Update:</strong> After several optimization steps, \(\pi_{\theta}\) becomes the new \(\pi_{\theta_{old}}\), and the process repeats.</li>
+    </ol>
+
+    <h4>Key Components: Ratio and Advantage</h4>
+    <p>The PPO objective relies on two critical concepts:</p>
+    <ul>
+      <li><strong>Probability Ratio \(r_t(\theta)\):</strong> This measures how much the new policy \(\pi_{\theta}\) changes the probability of an action compared to the old policy \(\pi_{\theta_{old}}\). It's defined as \(r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\). If \(r_t(\theta) > 1\), the action is more probable under the new policy; if \(r_t(\theta) < 1\), it's less probable.</li>
+      <li><strong>Advantage Function \(A_t\):</strong> This quantifies how much better a specific action \(a_t\) in state \(s_t\) was compared to the average expected outcome for that state. A positive \(A_t\) indicates a surprisingly good action, while a negative \(A_t\) indicates a surprisingly bad one.</li>
+    </ul>
+    <p>These two components are combined in the clipped objective to guide the policy updates, encouraging beneficial actions while preventing instability.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">PPO is an "on-policy" algorithm, meaning it learns from data generated by its *current* policy. Unlike "off-policy" methods (like DQN), it discards old data, which can make it less sample-efficient but more stable when dealing with complex, high-dimensional policies like LLMs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Clipped Objective</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Clipped Surrogate Objective</h4>
+    <p>The core of PPO's stability lies in its clipped surrogate objective function. For each (state, action) pair \((s_t, a_t)\) and its corresponding advantage \(A_t\), PPO aims to maximize:</p>
+    <div class="eq">$$L^{CLIP}(\theta) = \mathbb{E}_t \left[ \min(r_t(\theta) A_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t) \right]$$</div>
+    <p>where \(r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\) is the probability ratio, and \(\epsilon\) is a hyperparameter (typically 0.1 or 0.2) that defines the clipping range.</p>
+
+    <h4>Breaking Down the Terms</h4>
+    <p>The objective consists of two terms inside the \(\min\) function:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Unclipped Term:</strong> \(r_t(\theta) A_t\)
+        <p style="font-size:14px;margin-top:0.25rem;">This is a basic policy gradient term, scaled by the advantage and the probability ratio. Maximizing this would directly increase the probability of good actions (if \(A_t > 0\)) or decrease bad actions (if \(A_t < 0\)). However, it allows arbitrarily large policy updates if \(r_t(\theta)\) becomes very large or very small, which can be unstable.</p></li>
+      <li><strong>Clipped Term:</strong> \(\text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) A_t\)
+        <p style="font-size:14px;margin-top:0.25rem;">Here, the probability ratio \(r_t(\theta)\) is explicitly clipped to lie within the interval \([1-\epsilon, 1+\epsilon]\). This means if the new policy makes an action much more or much less probable than the old policy (i.e., \(r_t(\theta)\) is outside the \([1-\epsilon, 1+\epsilon]\) range), its contribution to the objective is capped. The function \(\text{clip}(x, a, b)\) returns \(a\) if \(x < a\), \(b\) if \(x > b\), and \(x\) otherwise.</p></li>
+    </ol>
+
+    <h4>The Role of \(\min\)</h4>
+    <p>By taking the minimum of these two terms, PPO creates a "plateau" in the objective function. This plateau limits the magnitude of policy updates:</p>
+    <div class="eq">$$ \text{If } A_t > 0 \text{ (good action):} $$
+    $$ L^{CLIP}(\theta) = \mathbb{E}_t \left[ \min(r_t(\theta) A_t, (1+\epsilon) A_t) \right] $$</div>
+    <p style="font-size:14px;margin-top:0.25rem;">If the new policy tries to increase the action's probability too much (making \(r_t(\theta) > 1+\epsilon\)), the objective caps its value at \((1+\epsilon)A_t\). This prevents excessively large, potentially destabilizing, updates.</p>
+    <div class="eq">$$ \text{If } A_t < 0 \text{ (bad action):} $$
+    $$ L^{CLIP}(\theta) = \mathbb{E}_t \left[ \max(r_t(\theta) A_t, (1-\epsilon) A_t) \right] $$</div>
+    <p style="font-size:14px;margin-top:0.25rem;">Similarly, if the new policy tries to decrease the action's probability too much (making \(r_t(\theta) < 1-\epsilon\)), the objective caps its value at \((1-\epsilon)A_t\). (Note: when \(A_t < 0\), \(\min(X A_t, Y A_t)\) becomes \(\max(X, Y) A_t\), so it's effectively \(\max\) of two negative terms). This prevents overly aggressive penalties that could wipe out potentially useful exploration.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Choosing the right \(\epsilon\) is crucial. Too small, and the policy updates are too constrained, hindering learning. Too large, and the constraint is ineffective, leading to instability similar to vanilla policy gradients. A value like 0.1 or 0.2 is a common starting point.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore the PPO clipped surrogate objective: how the probability ratio, advantage, and clipping parameter \(\epsilon\) shape the policy update signal.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Clipping parameter ε</div>
+          <input type="range" id="epsilonSlider" min="0.05" max="0.5" step="0.01" value="0.2">
+          <div class="slider-value" id="epsilonValue">0.20</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Advantage A_t</div>
+          <input type="range" id="advantageSlider" min="-2" max="2" step="0.1" value="1.0">
+          <div class="slider-value" id="advantageValue">1.0</div>
+        </div>
+        <div class="slider-hint">Adjust ε to control the clipping range, and A_t to see how the reward signal changes the objective.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The PPO Objective Plot</div>
+        <div class="info-desc" id="infoDesc">We'll visualize the PPO objective, which is maximized to update the policy. The X-axis is the probability ratio \(r_t(\theta)\), and the Y-axis is the objective value. Initially, no curves are drawn.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--blue-mid)"></div> \(r_t(\theta) A_t\) (unclipped)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> Clipped ratio term</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--green-mid)"></div> Final PPO objective</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Current \(r_t(\theta)\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Clipping bounds</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use PPO:</strong></p>
+    <ul>
+      <li>Fine-tuning large pre-trained models (like LLMs) with human feedback (RLHF) — it's the standard choice for "Step 3".</li>
+      <li>Any complex RL task where stability of policy updates is critical and you want to avoid catastrophic forgetting.</li>
+      <li>When you need a robust, general-purpose RL algorithm that performs well across a wide range of environments.</li>
+      <li>If you have access to a reward signal (or a reward model) and want to optimize a policy based on it.</li>
+    </ul>
+    <p><strong>When to be careful:</strong></p>
+    <ul>
+      <li>PPO is on-policy, meaning it discards old data. For very sparse reward environments or extremely expensive data collection, off-policy methods might be more sample-efficient.</li>
+      <li>Choosing appropriate hyperparameters (\(\epsilon\), learning rate, number of epochs per update) is important for optimal performance.</li>
+      <li>PPO still requires a sufficiently good reward signal. If the reward is poorly defined or noisy, PPO (or any RL algorithm) will struggle.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 PPO's Legacy</div>
+      <p style="font-size:14px;margin:0;">PPO is arguably the most successful and widely-used RL algorithm in practice, largely due to its balance of simplicity, stability, and performance. Its ability to perform multiple policy updates per data collection cycle, while constrained by the clipping mechanism, makes it highly effective for complex, real-world applications including robotics, game AI, and large language model alignment.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PPO Objective)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def ppo_clipped_objective(policy_log_probs, old_policy_log_probs, advantages, epsilon=0.2):</div>
+      <div class="code-line" id="cl3">    # Compute the probability ratio r_t(theta)</div>
+      <div class="code-line" id="cl4">    ratio = torch.exp(policy_log_probs - old_policy_log_probs)</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">    # Term 1: Unclipped objective</div>
+      <div class="code-line" id="cl7">    term1 = ratio * advantages</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    # Term 2: Clipped objective</div>
+      <div class="code-line" id="cl10">    clipped_ratio = torch.clamp(ratio, 1 - epsilon, 1 + epsilon)</div>
+      <div class="code-line" id="cl11">    term2 = clipped_ratio * advantages</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">    # Take the minimum of the two terms for each (state, action) pair</div>
+      <div class="code-line" id="cl14">    # This is the core PPO clipping mechanism</div>
+      <div class="code-line" id="cl15">    objective_per_step = torch.min(term1, term2)</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">    # The final PPO objective is the mean over all (state, action) pairs</div>
+      <div class="code-line" id="cl18">    return objective_per_step.mean()</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># Example usage:</div>
+      <div class="code-line" id="cl21"># new_log_probs = torch.tensor([0.5, 0.8, 1.2])</div>
+      <div class="code-line" id="cl22"># old_log_probs = torch.tensor([0.3, 0.7, 1.0])</div>
+      <div class="code-line" id="cl23"># adv = torch.tensor([1.5, -0.5, 2.0])</div>
+      <div class="code-line" id="cl24"># loss = ppo_clipped_objective(new_log_probs, old_log_probs, adv)</div>
+      <div class="code-line" id="cl25"># print(f"PPO Objective: {loss.item():.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── PPO CALCULATION FUNCTIONS ──
+function calculatePPOObjective(ratio, advantage, epsilon) {
+  const clippedRatio = Math.max(1 - epsilon, Math.min(ratio, 1 + epsilon));
+  const term1 = ratio * advantage; // Unclipped
+  const term2 = clippedRatio * advantage; // Clipped
+  return Math.min(term1, term2); // PPO objective
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The PPO Objective Plot',
+    desc: 'We\'ll visualize the PPO objective, which is maximized to update the policy. The X-axis is the probability ratio \\(r_t(\\theta)\\), and the Y-axis is the objective value. Initially, no curves are drawn.',
+    mode: 'init',
+    activeElements: []
+  },
+  {
+    phase: 'ratio', title: 'The Probability Ratio \\(r_t(\\theta)\\)',
+    desc: 'The ratio \\(r_t(\\theta) = \\frac{\\pi_{\\theta}(a_t|s_t)}{\\pi_{\\theta_{old}}(a_t|s_t)}\\) measures how much the new policy changes an action\'s probability. We want to increase the likelihood of good actions (where \\(A_t > 0\\)). For a positive advantage, the objective linearly increases with \\(r_t(\\theta)\\).',
+    mode: 'unclipped',
+    activeElements: ['unclipped']
+  },
+  {
+    phase: 'advantage', title: 'The Advantage Function \\(A_t\\)',
+    desc: 'The advantage \\(A_t = R_t - V_{\\phi}(s_t)\\) quantifies how much better an action was than expected. A positive \\(A_t\\) (like \\(A_t=1.0\\)) encourages the policy to take this action more. A negative \\(A_t\\) (try slider to \\(A_t=-1.0\\)) discourages it.',
+    mode: 'unclipped',
+    activeElements: ['unclipped', 'advantage_line']
+  },
+  {
+    phase: 'clip', title: 'Introducing the Clipping Bounds',
+    desc: 'PPO introduces a clipping parameter \\(\\epsilon\\) (default 0.2). This defines a "safe" range \\([1-\\epsilon, 1+\\epsilon]\\) for the probability ratio. Policy updates are penalized if they push \\(r_t(\\theta)\\) outside this range. The purple dashed lines show \\(1-\\epsilon\\) and \\(1+\\epsilon\\).',
+    mode: 'bounds',
+    activeElements: ['unclipped', 'bounds']
+  },
+  {
+    phase: 'clip', title: 'The Clipped Term: \\(\\text{clip}(r_t(\\theta), 1-\\epsilon, 1+\\epsilon) A_t\\)',
+    desc: 'This is the second term in the PPO objective. It\'s identical to the unclipped term within the safe range \\([1-\\epsilon, 1+\\epsilon]\\). Outside this range, it flattens, capping its value to prevent extreme changes. This is shown by the red dashed line.',
+    mode: 'clipped_term',
+    activeElements: ['unclipped', 'clipped_term', 'bounds']
+  },
+  {
+    phase: 'objective', title: 'The Full PPO Objective: \\(\\min\\) Operation',
+    desc: 'The PPO objective takes the minimum of the unclipped term (blue) and the clipped term (red). This creates a "plateau" effect: when \\(A_t > 0\\), it caps the objective if \\(r_t(\\theta)\\) goes above \\(1+\\epsilon\\).',
+    mode: 'objective_positive_advantage',
+    activeElements: ['unclipped', 'clipped_term', 'bounds', 'objective_curve']
+  },
+  {
+    phase: 'objective', title: 'PPO Objective with Negative Advantage',
+    desc: 'Now, try dragging the Advantage slider to a negative value (e.g., \\(A_t = -1.0\\)). The objective flips: we want to decrease the probability of this action. The plateau now limits how much we penalize an action if \\(r_t(\\theta)\\) drops below \\(1-\\epsilon\\).',
+    mode: 'objective_negative_advantage',
+    activeElements: ['unclipped', 'clipped_term', 'bounds', 'objective_curve']
+  },
+  {
+    phase: 'explore', title: 'Explore: Impact of \\(\\epsilon\\)',
+    desc: 'Use the \\(\\epsilon\\) slider to change the clipping range. A larger \\(\\epsilon\\) widens the plateau, allowing larger policy updates. A smaller \\(\\epsilon\\) makes the constraint tighter, leading to more cautious updates. Observe how the clipping lines and the objective curve change.',
+    mode: 'interactive',
+    activeElements: ['unclipped', 'clipped_term', 'bounds', 'objective_curve']
+  },
+  {
+    phase: 'explore', title: 'Explore: Impact of \\(A_t\\)',
+    desc: 'Use the Advantage slider to change the value of \\(A_t\\). Positive \\(A_t\\) encourages the action (objective goes up), negative \\(A_t\\) discourages it (objective goes down). The clipping mechanism adapts to both scenarios to ensure stable learning.',
+    mode: 'interactive',
+    activeElements: ['unclipped', 'clipped_term', 'bounds', 'objective_curve']
+  }
+];
+
+let currentStep = 0;
+const totalSteps = steps.length;
+
+// ── SLIDER CONTROLS ──
+const epsilonSlider = document.getElementById('epsilonSlider');
+const advantageSlider = document.getElementById('advantageSlider');
+
+epsilonSlider.addEventListener('input', updateSliders);
+advantageSlider.addEventListener('input', updateSliders);
+
+function updateSliders() {
+  document.getElementById('epsilonValue').textContent = parseFloat(epsilonSlider.value).toFixed(2);
+  document.getElementById('advantageValue').textContent = parseFloat(advantageSlider.value).toFixed(1);
+  render();
+}
+
+// ── DOTS AND NAVIGATION ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+
+function goTo(i) {
+  currentStep = i;
+  render();
+}
+
+function reset() {
+  currentStep = 0;
+  epsilonSlider.value = 0.2;
+  advantageSlider.value = 1.0;
+  updateSliders(); // Will also call render()
+}
+
+// ── RENDER FUNCTION ──
+function render() {
+  const s = steps[currentStep];
+
+  // Update info card
+  const phaseMap = {
+    setup: 'phase-setup', ratio: 'phase-ratio', advantage: 'phase-advantage',
+    clip: 'phase-clip', objective: 'phase-objective', explore: 'phase-explore'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Update controls
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  // Update sliders visibility based on step
+  const slidersVisible = (s.mode === 'interactive' || s.mode === 'objective_negative_advantage');
+  document.getElementById('epsilonSlider').disabled = !slidersVisible;
+  document.getElementById('advantageSlider').disabled = !slidersVisible;
+
+  // Code highlight (if present, otherwise clear)
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  if (s.codeLines) {
+    (s.codeLines||[]).forEach(i => {
+      const el = document.getElementById('cl'+i);
+      if(el) el.classList.add('active');
+    });
+  }
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(stepData) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS variables for colors
+  const cs = getComputedStyle(document.documentElement);
+  const color = name => cs.getPropertyValue(name).trim();
+  const colors = {
+    text: color('--text'), text2: color('--text2'), text3: color('--text3'),
+    border: color('--border2'),
+    blue: color('--blue-mid'), green: color('--green-mid'), red: color('--red-mid'),
+    amber: color('--amber-mid'), purple: color('--purple-mid'), cyan: color('--cyan-mid')
+  };
+
+  ctx.clearRect(0, 0, W, H);
+
+  const epsilon = parseFloat(epsilonSlider.value);
+  const advantage = parseFloat(advantageSlider.value);
+
+  // Define plot ranges and padding
+  const xMin = 0, xMax = 3.0; // Probability ratio r_t(theta)
+  const yMin = -2.5, yMax = 2.5; // Objective value (dynamic based on advantage)
+  const pad = { l: 40, r: 20, t: 20, b: 40 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  // Coordinate transformation functions
+  const toCanvasX = v => pad.l + (v - xMin) / (xMax - xMin) * plotW;
+  const toCanvasY = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+  // Draw axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, toCanvasY(0)); ctx.lineTo(W - pad.r, toCanvasY(0)); // X-axis
+  ctx.moveTo(toCanvasX(1), pad.t); ctx.lineTo(toCanvasX(1), H - pad.b); // Y-axis (at r=1)
+  ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Probability Ratio r_t(θ)', W / 2, H - 15);
+  ctx.save();
+  ctx.translate(15, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Objective Value', 0, 0);
+  ctx.restore();
+
+  // X-axis ticks
+  for (let x = 0; x <= xMax; x += 0.5) {
+    const cx = toCanvasX(x);
+    ctx.beginPath(); ctx.moveTo(cx, toCanvasY(0)); ctx.lineTo(cx, toCanvasY(0) + 5); ctx.stroke();
+    ctx.fillText(x.toFixed(1), cx, toCanvasY(0) + 18);
+  }
+  // Y-axis ticks
+  for (let y = Math.floor(yMin); y <= Math.ceil(yMax); y += 0.5) {
+    if (y === 0) continue;
+    const cy = toCanvasY(y);
+    ctx.beginPath(); ctx.moveTo(toCanvasX(1) - 5, cy); ctx.lineTo(toCanvasX(1), cy); ctx.stroke();
+    ctx.fillText(y.toFixed(1), toCanvasX(1) - 20, cy + 4);
+  }
+
+  // Current ratio marker (for illustration)
+  const currentRatio = 1.5; // Fixed for now
+  if (stepData.activeElements.includes('advantage_line')) {
+    ctx.strokeStyle = colors.amber;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 2]);
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(currentRatio), pad.t);
+    ctx.lineTo(toCanvasX(currentRatio), H - pad.b);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = colors.amber;
+    ctx.fillText(`r_t(θ) = ${currentRatio.toFixed(1)}`, toCanvasX(currentRatio) + 30, pad.t + 10);
+  }
+
+
+  // Draw clipping bounds
+  if (stepData.activeElements.includes('bounds')) {
+    const clipMin = 1 - epsilon;
+    const clipMax = 1 + epsilon;
+    ctx.strokeStyle = colors.purple;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(clipMin), pad.t); ctx.lineTo(toCanvasX(clipMin), H - pad.b);
+    ctx.moveTo(toCanvasX(clipMax), pad.t); ctx.lineTo(toCanvasX(clipMax), H - pad.b);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = colors.purple;
+    ctx.fillText(`1-ε (${clipMin.toFixed(2)})`, toCanvasX(clipMin) - 30, pad.t + 10);
+    ctx.fillText(`1+ε (${clipMax.toFixed(2)})`, toCanvasX(clipMax) + 30, pad.t + 10);
+  }
+
+  // Plotting curves
+  const plotPoints = (func, color, lineWidth, dashed = false) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    if (dashed) ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    for (let x = xMin; x <= xMax; x += 0.01) {
+      const y = func(x);
+      const cx = toCanvasX(x);
+      const cy = toCanvasY(y);
+      if (x === xMin) ctx.moveTo(cx, cy);
+      else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+    if (dashed) ctx.setLineDash([]);
+  };
+
+  // 1. Unclipped term: r_t(theta) * A_t
+  const unclippedFunc = x => x * advantage;
+  if (stepData.activeElements.includes('unclipped')) {
+    plotPoints(unclippedFunc, colors.blue, 2.5);
+  }
+
+  // 2. Clipped ratio term: clip(r_t(theta), 1-eps, 1+eps) * A_t
+  const clippedTermFunc = x => {
+    const clippedRatio = Math.max(1 - epsilon, Math.min(x, 1 + epsilon));
+    return clippedRatio * advantage;
+  };
+  if (stepData.activeElements.includes('clipped_term')) {
+    plotPoints(clippedTermFunc, colors.red, 2.5, true);
+  }
+
+  // 3. Final PPO objective: min(unclipped, clipped_term)
+  const ppoObjectiveFunc = x => calculatePPOObjective(x, advantage, epsilon);
+  if (stepData.activeElements.includes('objective_curve')) {
+    plotPoints(ppoObjectiveFunc, colors.green, 3.5);
+  }
+}
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+initDots();
+updateSliders(); // Initial render and slider value update
+window.addEventListener('resize', () => drawCanvas(steps[currentStep]));
+</script>
+</body>
+</html>

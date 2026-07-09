@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Continuous Normalizing Flows (Neural ODE) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-flow{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-likelihood{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-inverse{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Continuous Normalizing Flows (Neural ODE)</h1>
+  <div class="subtitle">Transforming densities via learned ODEs, with exact likelihoods</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-complexity">O(1) depth</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding CNFs -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Continuous Normalizing Flows</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Continuous normalizing flows (CNFs), also known as Neural ODEs when applied to density estimation, are a class of generative models that transform a simple base probability distribution (e.g., a standard Gaussian) into a complex target distribution. Unlike traditional normalizing flows which use a sequence of discrete, invertible transformations, CNFs define this transformation as a continuous-time dynamical system governed by an Ordinary Differential Equation (ODE). A neural network learns the vector field of this ODE.</p>
+    <p><strong>Analogy:</strong> Imagine you have a blob of play-doh (your simple base distribution) and you want to sculpt it into a complex shape (your target distribution). A traditional normalizing flow would be like applying a series of distinct, invertible presses and stretches. A Continuous Normalizing Flow, however, is like continuously kneading and molding the play-doh over time. You define the rules of how the play-doh deforms at any instant (the ODE's vector field, learned by a neural network), and a "sculpting machine" (an ODE solver) executes this continuous transformation. The beauty is that you can precisely reverse the kneading process to get back to the original blob.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">CNFs replace a sequence of discrete transformations with a single continuous, invertible flow defined by \(\frac{dz}{dt} = f(z(t), t, \theta)\), where \(f\) is a neural network. This allows for arbitrary transformations (no architectural constraints on Jacobians) and exact likelihood computation via the instantaneous change in log-density, \(\frac{d \log p(z(t))}{dt} = -\text{Tr}\left(\frac{\partial f}{\partial z}\right)\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How CNFs Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Continuous Transformation</h4>
+    <p>In a standard normalizing flow, we have a sequence of transformations: \(z_0 \xrightarrow{f_1} z_1 \xrightarrow{f_2} \dots \xrightarrow{f_K} z_K\). CNFs replace this discrete sequence with a single continuous transformation \(z(t)\) starting from \(z(0)\) at time \(t=0\) and ending at \(z(1)\) at time \(t=1\). The evolution of \(z(t)\) is governed by an Ordinary Differential Equation (ODE):</p>
+    <div class="eq">$$\frac{dz}{dt} = f(z(t), t, \theta)$$</div>
+    <p>Here, \(f\) is a neural network that takes the current state \(z(t)\), time \(t\), and parameters \(\theta\) (the neural network's weights) as input, and outputs the instantaneous velocity of the transformation. To transform a point \(z_0\) from the base distribution to a point \(z_1\) in the target distribution, we solve this ODE from \(t=0\) to \(t=1\), starting with initial condition \(z(0) = z_0\).</p>
+
+    <h4>Likelihood Computation: The Instantaneous Change</h4>
+    <p>For any invertible transformation, the change of variables formula allows us to compute the probability density of the transformed variable. For a continuous transformation, this is given by Liouville's formula, which states how the log-density changes over time:</p>
+    <div class="eq">$$\frac{d \log p(z(t))}{dt} = -\text{Tr}\left(\frac{\partial f(z(t), t, \theta)}{\partial z(t)}\right)$$</div>
+    <p>The term \(\text{Tr}\left(\frac{\partial f}{\partial z}\right)\) is the trace of the Jacobian of the vector field \(f\) with respect to \(z\). This trace measures the instantaneous rate of change of volume (or density) at point \(z(t)\). Integrating this quantity over time gives the total change in log-density:</p>
+    <div class="eq">$$\log p(z(1)) = \log p(z(0)) - \int_0^1 \text{Tr}\left(\frac{\partial f(z(s), s, \theta)}{\partial z(s)}\right) ds$$</div>
+    <p>This integral can be computed accurately and efficiently by augmenting the ODE state with an additional dimension for the log-density, and solving the augmented ODE using an off-the-shelf ODE solver.</p>
+
+    <h4>Design Decision: Why Continuous?</h4>
+    <p>The continuous formulation offers several advantages:</p>
+    <ul>
+      <li><strong>Arbitrary Depth:</strong> The "depth" of the transformation is now continuous time, not a fixed number of layers. This allows for highly flexible and expressive transformations.</li>
+      <li><strong>Exact Likelihoods:</strong> The derivation above provides an exact way to compute likelihoods, crucial for density estimation and variational inference.</li>
+      <li><strong>Memory Efficiency:</strong> Training CNFs can be memory-efficient using the adjoint method for backpropagation, which avoids storing the entire computation graph of the ODE solver.</li>
+      <li><strong>No Architectural Constraints:</strong> Unlike some discrete flows that require specific architectures (e.g., triangular Jacobians) to compute determinants efficiently, CNFs can use any neural network for \(f\), as the trace of the Jacobian can be estimated using techniques like Hutchinson's estimator.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core of a CNF is an ODE solver. In the forward pass, it transforms data \(z(0)\) to \(z(1)\) and computes the log-likelihood. In the backward pass, it uses the adjoint method to compute gradients without storing intermediate states, making it memory-efficient for very deep (long-time) transformations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Change of Variables for Continuous Flows</h4>
+    <p>Let \(z(t)\) be a random variable whose evolution is governed by the ODE \(\frac{dz}{dt} = f(z(t), t)\). We want to relate the probability density \(p(z(t))\) at time \(t\) to the initial density \(p(z(0))\) at \(t=0\). This relationship is given by Liouville's equation or the instantaneous change in log-density:</p>
+    <div class="eq">$$ \frac{d \log p(z(t))}{dt} = -\text{Tr}\left(\frac{\partial f(z(t), t)}{\partial z(t)}\right) $$</div>
+    <p>This equation states that the rate of change of log-density is equal to the negative trace of the Jacobian of the vector field \(f\) with respect to \(z\). The trace of the Jacobian, \(\text{Tr}\left(\frac{\partial f}{\partial z}\right)\), is also known as the divergence of the vector field, \(\nabla \cdot f\). It quantifies the rate at which the volume of a small region around \(z(t)\) is expanding or contracting.</p>
+
+    <h4>Derivation of the Log-Likelihood Integral</h4>
+    <p>To find the total change in log-density from time \(t=0\) to \(t=1\), we integrate the instantaneous rate of change:</p>
+    <div class="eq}{equation}
+      \begin{aligned}
+      \log p(z(1)) - \log p(z(0)) &= \int_0^1 \frac{d \log p(z(t))}{dt} dt \\
+      &= - \int_0^1 \text{Tr}\left(\frac{\partial f(z(t), t)}{\partial z(t)}\right) dt
+      \end{aligned}
+    \end{eq}
+    <p>Rearranging this gives the fundamental likelihood equation for CNFs:</p>
+    <div class="eq}{equation}
+      \log p(z(1)) = \log p(z(0)) - \int_0^1 \text{Tr}\left(\frac{\partial f(z(t), t)}{\partial z(t)}\right) dt
+    \end{eq}
+    <p>This means we can compute the log-likelihood of a point \(z(1)\) in the target distribution if we know its corresponding point \(z(0)\) in the base distribution and the integral of the trace of the Jacobian along the flow path. The integral itself can be computed by augmenting the state space of the ODE:</p>
+    <div class="eq}{equation}
+      \frac{d}{dt} \begin{pmatrix} z \\ \log p(z) \end{pmatrix} = \begin{pmatrix} f(z, t) \\ -\text{Tr}\left(\frac{\partial f(z, t)}{\partial z}\right) \end{pmatrix}
+    \end{eq}
+    <p>An ODE solver then simultaneously computes the trajectory \(z(t)\) and the accumulated log-density change. The trace of the Jacobian \(\text{Tr}(\frac{\partial f}{\partial z})\) can be computed efficiently even for high-dimensional \(z\) using Hutchinson's trace estimator, which approximates the trace using a series of vector-Jacobian products (VJP) without explicitly forming the full Jacobian matrix.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Computational Cost</div>
+      <p style="font-size:14px;margin:0;">The main computational bottleneck for CNFs is the ODE solver. Unlike fixed-depth neural networks, the number of "layers" (steps in the ODE solver) is dynamic and depends on the desired accuracy. High-precision solvers can be slow. Also, the trace estimation adds computational overhead, though it avoids explicit Jacobian computation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Observe a 2D Gaussian distribution transforming into a more complex shape over continuous time, governed by a simple ODE. Drag the slider to advance the time \(t\) of the flow. The log-density changes as the volume stretches and compresses.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Flow Time t</div>
+          <input type="range" id="timeSlider" min="0" max="1" step="0.01" value="0">
+          <div class="slider-value" id="timeValue">0.00</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Current time in the ODE integration.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Distribution</div>
+        <div class="info-desc" id="infoDesc">We start with a simple 2D standard Gaussian distribution at time \(t=0\). This is our base distribution \(p(z(0))\).</div>
+        <div class="info-numbers" id="infoNumbers">Log-density at t=0: 0.00</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Initial points (t=0)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Flowing points (t)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Target points (t=1)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Continuous Normalizing Flows:</strong></p>
+    <ul>
+      <li><strong>Density Estimation:</strong> When you need to model complex, multi-modal probability distributions and compute exact likelihoods for new data points.</li>
+      <li><strong>Generative Modeling:</strong> To generate new samples that resemble a target distribution by transforming samples from a simple base distribution.</li>
+      <li><strong>Variational Inference:</strong> As a flexible approximate posterior distribution, enabling more accurate inference in complex probabilistic models.</li>
+      <li><strong>Anomaly Detection:</strong> Low likelihood under the learned distribution can indicate an anomaly.</li>
+      <li><strong>Any task requiring invertible, expressive transformations:</strong> Where the architectural constraints of discrete flows are too limiting.</li>
+    </ul>
+    <p><strong>Advantages:</strong></p>
+    <ul>
+      <li><strong>Exact Likelihood:</strong> Mathematically sound computation of probabilities, crucial for training and evaluation.</li>
+      <li><strong>Invertible:</strong> Can transform in both forward (sample generation) and backward (density estimation) directions.</li>
+      <li><strong>Flexible Architectures:</strong> The neural network \(f\) can be any arbitrary architecture, as the Jacobian trace is estimated, not explicitly computed.</li>
+      <li><strong>Memory Efficiency:</strong> Adjoint method for backpropagation avoids storing intermediate states, making it suitable for very deep transformations.</li>
+      <li><strong>Continuous Depth:</strong> No need to choose a fixed number of layers; the "depth" is controlled by the ODE integration time.</li>
+    </ul>
+    <p><strong>Disadvantages:</strong></p>
+    <ul>
+      <li><strong>ODE Solver Cost:</strong> Integration requires an ODE solver, which can be computationally expensive and slow, especially for high accuracy.</li>
+      <li><strong>Trace Estimation Noise:</strong> Hutchinson's trace estimator introduces variance, which can affect training stability and convergence.</li>
+      <li><strong>Sensitivity to ODE Function:</strong> The choice and design of the neural network \(f\) are critical for learning effective transformations.</li>
+      <li><strong>Numerical Stability:</strong> ODE solvers can be sensitive to hyperparameters and may require careful tuning.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Continuous Normalizing Flows elegantly bridge differential equations with deep learning, offering a powerful framework for learning complex distributions. By treating transformations as continuous flows, they provide a theoretically grounded and flexible approach to generative modeling, albeit with computational considerations related to ODE solvers and trace estimation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from torchdiffeq import odeint_adjoint as odeint # or odeint for forward</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># Define the Neural ODE function f(z, t)</div>
+      <div class="code-line" id="cl5">class ODEFunc(nn.Module):</div>
+      <div class="code-line" id="cl6">    def __init__(self, dim):</div>
+      <div class="code-line" id="cl7">        super(ODEFunc, self).__init__()</div>
+      <div class="code-line" id="cl8">        self.net = nn.Sequential(</div>
+      <div class="code-line" id="cl9">            nn.Linear(dim + 1, 64), # z and t as input</div>
+      <div class="code-line" id="cl10">            nn.ReLU(),</div>
+      <div class="code-line" id="cl11">            nn.Linear(64, 64),</div>
+      <div class="code-line" id="cl12">            nn.ReLU(),</div>
+      <div class="code-line" id="cl13">            nn.Linear(64, dim)      # output dz/dt</div>
+      <div class="code-line" id="cl14">        )</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    def forward(self, t, z):</div>
+      <div class="code-line" id="cl17">        # t is a scalar, z is (batch_size, dim)</div>
+      <div class="code-line" id="cl18">        t_vec = t.expand(z.shape[0], 1)</div>
+      <div class="code-line" id="cl19">        return self.net(torch.cat([z, t_vec], dim=1))</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># Function to estimate trace of Jacobian (Tr(df/dz))</div>
+      <div class="code-line" id="cl22">def trace_jacobian_estimate(f, z, t, num_samples=1):</div>
+      <div class="code-line" id="cl23">    # Compute df/dz * v for random vector v using autograd.grad</div>
+      <div class="code-line" id="cl24">    sum_tr = 0.</div>
+      <div class="code-line" id="cl25">    for _ in range(num_samples):</div>
+      <div class="code-line" id="cl26">        v = torch.randn_like(z)</div>
+      <div class="code-line" id="cl27">        vjp = torch.autograd.grad(f(t, z), z, v, create_graph=True)[0]</div>
+      <div class="code-line" id="cl28">        sum_tr += (vjp * v).sum(dim=1)</div>
+      <div class="code-line" id="cl29">    return sum_tr / num_samples</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31"># Augmented ODE function for likelihood computation</div>
+      <div class="code-line" id="cl32">class CNFOdeFunc(ODEFunc):</div>
+      <div class="code-line" id="cl33">    def forward(self, t, state):</div>
+      <div class="code-line" id="cl34">        z, logp_z = state[0], state[1]</div>
+      <div class="code-line" id="cl35">        with torch.set_grad_enabled(True): # Enable gradients for z</div>
+      <div class="code-line" id="cl36">            z.requires_grad_(True)</div>
+      <div class="code-line" id="cl37">            dz_dt = super().forward(t, z)</div>
+      <div class="code-line" id="cl38">            dlogp_dt = -trace_jacobian_estimate(lambda t, z: super().forward(t, z), z, t)</div>
+      <div class="code-line" id="cl39">        return dz_dt, dlogp_dt</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41"># Training loop (simplified)</div>
+      <div class="code-line" id="cl42">dim = 2 # 2D example</div>
+      <div class="code-line" id="cl43">func = CNFOdeFunc(dim)</div>
+      <div class="code-line" id="cl44">optimizer = torch.optim.Adam(func.parameters(), lr=1e-3)</div>
+      <div class="code-line" id="cl45">base_dist = torch.distributions.Normal(torch.zeros(dim), torch.ones(dim))</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl48">    optimizer.zero_grad()</div>
+      <div class="code-line" id="cl49">    z0 = base_dist.sample((batch_size,)) # Sample from base distribution</div>
+      <div class="code-line" id="cl50">    logp_z0 = base_dist.log_prob(z0).sum(dim=1)</div>
+      <div class="code-line" id="cl51"></div>
+      <div class="code-line" id="cl52">    # Solve the augmented ODE</div>
+      <div class="code-line" id="cl53">    t_span = torch.tensor([0.0, 1.0])</div>
+      <div class="code-line" id="cl54">    zt, logp_zt = odeint(func, (z0, logp_z0), t_span, method='dopri5')</div>
+      <div class="code-line" id="cl55">    z1 = zt[-1] # Transformed data at t=1</div>
+      <div class="code-line" id="cl56">    logp_z1 = logp_zt[-1] # Log-likelihood at t=1</div>
+      <div class="code-line" id="cl57"></div>
+      <div class="code-line" id="cl58">    # Compare logp_z1 to target distribution log-likelihood (e.g., from data)</div>
+      <div class="code-line" id="cl59">    # Negative log-likelihood is the loss</div>
+      <div class="code-line" id="cl60">    loss = -logp_z1.mean()</div>
+      <div class="code-line" id="cl61">    loss.backward()</div>
+      <div class="code-line" id="cl62">    optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & ODE SIMULATION ──
+const NUM_POINTS = 1000;
+const INITIAL_LOG_DENSITY = 0.0; // Assuming initial density is normalized to 1, log(1)=0 for simplicity
+
+// Seeded random number generator for reproducibility
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+function generateGaussianPoints(num, meanX, meanY, stdX, stdY) {
+  const points = [];
+  for (let i = 0; i < num; i++) {
+    const u = seededRng();
+    const v = seededRng();
+    const z0 = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    const z1 = Math.sqrt(-2 * Math.log(u)) * Math.sin(2 * Math.PI * v);
+    points.push({ x: meanX + z0 * stdX, y: meanY + z1 * stdY });
+  }
+  return points;
+}
+
+// Simple ODE function f(z, t) = dz/dt
+// This simulates a neural network's output for the vector field
+function odeFunc(z, t) {
+  // Example: a spiral + stretching/compressing field
+  // dz_x/dt = -z_y + (z_x - center_x) * (0.5 * t)
+  // dz_y/dt = z_x + (z_y - center_y) * (0.5 * t)
+  const center_x = 0;
+  const center_y = 0;
+  const dx = -z.y + (z.x - center_x) * (0.5 * t);
+  const dy = z.x + (z.y - center_y) * (0.5 * t);
+  return { x: dx, y: dy };
+}
+
+// Numerical ODE solver (Euler method for simplicity)
+function odeSolve(initialZ, t0, t1, dt, func) {
+  let z = { x: initialZ.x, y: initialZ.y };
+  let currentT = t0;
+  const path = [{ x: z.x, y: z.y, t: t0 }];
+
+  while (currentT < t1) {
+    const nextT = Math.min(currentT + dt, t1);
+    const stepSize = nextT - currentT;
+    const dz_dt = func(z, currentT);
+    z.x += dz_dt.x * stepSize;
+    z.y += dz_dt.y * stepSize;
+    currentT = nextT;
+    path.push({ x: z.x, y: z.y, t: currentT });
+  }
+  return z; // Return final state
+}
+
+// Simulate the full flow for all points and log-density
+function simulateFlow(points, targetT, dt = 0.01) {
+  const transformedPoints = [];
+  let totalLogDensityChange = 0; // Sum of instantaneous log-density changes
+
+  for (const p of points) {
+    let currentZ = { x: p.x, y: p.y };
+    let currentT = 0;
+    let currentLogDensity = INITIAL_LOG_DENSITY; // Start with base log-density
+
+    while (currentT < targetT) {
+      const nextT = Math.min(currentT + dt, targetT);
+      const stepSize = nextT - currentT;
+
+      const dz_dt = odeFunc(currentZ, currentT);
+
+      // Estimate Tr(df/dz) for this simple f.
+      // For f(z_x, z_y, t) = (-z_y + (z_x - cx)*0.5*t, z_x + (z_y - cy)*0.5*t)
+      // df_x/dz_x = 0.5*t
+      // df_y/dz_y = 0.5*t
+      // Tr(df/dz) = df_x/dz_x + df_y/dz_y = 0.5*t + 0.5*t = t
+      const traceJacobian = currentT; // Simplified for this specific ODE
+
+      currentZ.x += dz_dt.x * stepSize;
+      currentZ.y += dz_dt.y * stepSize;
+
+      currentLogDensity -= traceJacobian * stepSize; // d log p / dt = -Tr(df/dz)
+
+      currentT = nextT;
+    }
+    transformedPoints.push({ x: currentZ.x, y: currentZ.y, logDensity: currentLogDensity });
+    totalLogDensityChange += currentLogDensity; // Summing up for visualization
+  }
+  // Average log density change over all points
+  const avgLogDensity = totalLogDensityChange / NUM_POINTS;
+  return { transformedPoints, avgLogDensity };
+}
+
+const initialPoints = generateGaussianPoints(NUM_POINTS, 0, 0, 1.0, 1.0);
+const finalFlow = simulateFlow(initialPoints, 1.0); // Pre-calculate final state
+const flowCache = {}; // Cache for intermediate flow states
+
+function getFlowState(t) {
+  if (flowCache[t]) return flowCache[t];
+  const result = simulateFlow(initialPoints, t);
+  flowCache[t] = result;
+  return result;
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Distribution',
+    desc: 'We start with a simple 2D standard Gaussian distribution at time \\(t=0\\). This is our base distribution \\(p(z(0))\\). All points are initially clustered around the origin.',
+    codeLines: [49, 50],
+    canvasMode: 'initial',
+    time: 0
+  },
+  {
+    phase: 'flow', title: 'Defining the Vector Field f(z, t)',
+    desc: 'The transformation is defined by an ODE: \\(\\frac{dz}{dt} = f(z(t), t, \\theta)\\). Here, \\(f\\) is a neural network (simulated by a simple function) that defines the velocity vector at each point \\(z(t)\\) and time \\(t\\).',
+    codeLines: [4, 5, 16, 19],
+    canvasMode: 'vector_field',
+    time: 0
+  },
+  {
+    phase: 'flow', title: 'Integrating the ODE: Early Flow',
+    desc: 'As time \\(t\\) advances, points move according to the vector field \\(f\\). The ODE solver numerically integrates \\(f(z(t), t)\\) to trace the path of each point. At \\(t=0.25\\), the points begin to spiral outwards.',
+    codeLines: [53, 54],
+    canvasMode: 'flow',
+    time: 0.25
+  },
+  {
+    phase: 'flow', title: 'Mid-Flow Transformation',
+    desc: 'The continuous flow progresses. The distribution is actively being stretched and rotated by the underlying vector field. Notice how the density changes as points spread out or converge. At \\(t=0.5\\), the shape is significantly distorted.',
+    codeLines: [53, 54],
+    canvasMode: 'flow',
+    time: 0.5
+  },
+  {
+    phase: 'flow', title: 'Approaching the Target Distribution',
+    desc: 'The flow continues, bringing the points closer to the desired complex target distribution. The instantaneous change in log-density, \\(-\\text{Tr}(\\frac{\\partial f}{\\partial z})\\), is continuously accumulated.',
+    codeLines: [55],
+    canvasMode: 'flow',
+    time: 0.75
+  },
+  {
+    phase: 'likelihood', title: 'Final Transformed Distribution & Likelihood',
+    desc: 'At \\(t=1\\), the Gaussian distribution has been transformed into a complex target shape. The total log-likelihood for each point \\(z(1)\\) is \\(\\log p(z(0)) - \\int_0^1 \\text{Tr}(\\frac{\\partial f}{\\partial z}) dt\\).',
+    codeLines: [56],
+    canvasMode: 'flow',
+    time: 1.0
+  },
+  {
+    phase: 'inverse', title: 'Inverse Transformation: Reversing the Flow',
+    desc: 'A key property of CNFs is invertibility. By integrating the ODE backward (from \\(t=1\\) to \\(t=0\\) with a negative step size), we can reverse the transformation and map the target distribution back to the base Gaussian.',
+    codeLines: [53, 54],
+    canvasMode: 'inverse_flow',
+    time: 0.75
+  },
+  {
+    phase: 'inverse', title: 'Returned to Base Distribution',
+    desc: 'Integrating backward to \\(t=0\\) returns the points to their original Gaussian configuration. This round-trip capability is essential for both sampling (forward) and density estimation (backward).',
+    codeLines: [53, 54],
+    canvasMode: 'inverse_flow',
+    time: 0
+  },
+  {
+    phase: 'likelihood', title: 'Interactive Likelihood Exploration',
+    desc: 'Use the slider to explore the transformation at any time \\(t\\). The average log-density value shown reflects how much the probability mass has expanded or compressed from the initial state.',
+    codeLines: [57, 58, 59, 60],
+    canvasMode: 'interactive',
+    time: 0.5
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentFlowTime = 0;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  currentFlowTime = steps[step].time;
+  document.getElementById('timeSlider').value = currentFlowTime;
+  updateTimeLabel();
+  render();
+}
+function goTo(i) {
+  step = i;
+  currentFlowTime = steps[step].time;
+  document.getElementById('timeSlider').value = currentFlowTime;
+  updateTimeLabel();
+  render();
+}
+function reset() {
+  step = 0;
+  currentFlowTime = 0;
+  document.getElementById('timeSlider').value = currentFlowTime;
+  updateTimeLabel();
+  render();
+}
+
+// ── SLIDER ──
+const timeSlider = document.getElementById('timeSlider');
+timeSlider.addEventListener('input', () => {
+  currentFlowTime = parseFloat(timeSlider.value);
+  updateTimeLabel();
+  if (steps[step].canvasMode === 'interactive' || steps[step].canvasMode === 'flow' || steps[step].canvasMode === 'inverse_flow') {
+    drawCanvas(steps[step].canvasMode);
+  }
+});
+function updateTimeLabel() {
+  document.getElementById('timeValue').textContent = currentFlowTime.toFixed(2);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', flow: 'phase-flow', likelihood: 'phase-likelihood', inverse: 'phase-inverse' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Enable/disable slider based on step
+  timeSlider.disabled = !(s.canvasMode === 'interactive' || s.canvasMode === 'flow' || s.canvasMode === 'inverse_flow');
+  if (s.canvasMode === 'interactive') {
+    document.getElementById('sliderHint').textContent = 'Drag to observe continuous transformation.';
+  } else if (s.canvasMode === 'flow') {
+    document.getElementById('sliderHint').textContent = 'Observe forward flow. Slider syncs with step.';
+  } else if (s.canvasMode === 'inverse_flow') {
+    document.getElementById('sliderHint').textContent = 'Observe inverse flow. Slider syncs with step.';
+  } else {
+    document.getElementById('sliderHint').textContent = 'Slider disabled for this step.';
+  }
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = 40;
+  const plotWidth = W - 2 * padding;
+  const plotHeight = H - 2 * padding;
+  const scale = 25; // Pixels per unit in world coordinates
+
+  // Center the plot
+  const originX = W / 2;
+  const originY = H / 2;
+
+  // Draw axes
+  ctx.strokeStyle = c.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, originY);
+  ctx.lineTo(W - padding, originY);
+  ctx.moveTo(originX, padding);
+  ctx.lineTo(originX, H - padding);
+  ctx.stroke();
+
+  ctx.fillStyle = c.text3;
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('0', originX - 10, originY + 10);
+  ctx.fillText('x', W - padding + 10, originY);
+  ctx.fillText('y', originX, padding - 10);
+
+  // Draw initial points (always)
+  ctx.fillStyle = c.blue;
+  initialPoints.forEach(p => {
+    const cx = originX + p.x * scale;
+    const cy = originY - p.y * scale; // Y-axis inverted for canvas
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  let pointsToDraw = [];
+  let avgLogDensity = INITIAL_LOG_DENSITY;
+
+  if (mode === 'initial' || mode === 'vector_field') {
+    pointsToDraw = initialPoints;
+    avgLogDensity = INITIAL_LOG_DENSITY;
+  } else if (mode === 'flow' || mode === 'interactive') {
+    const flowState = getFlowState(currentFlowTime);
+    pointsToDraw = flowState.transformedPoints;
+    avgLogDensity = flowState.avgLogDensity;
+  } else if (mode === 'inverse_flow') {
+    // For inverse flow, we simulate backward from t=1 to currentFlowTime
+    // This is equivalent to forward flow from t=0 to (1 - currentFlowTime)
+    const inverseTime = 1.0 - currentFlowTime;
+    const flowState = getFlowState(inverseTime);
+    pointsToDraw = flowState.transformedPoints;
+    avgLogDensity = flowState.avgLogDensity; // Log density at currentFlowTime from original t=0
+  }
+
+  // Draw transformed points
+  if (mode !== 'initial' && mode !== 'vector_field') {
+    ctx.fillStyle = c.purple;
+    pointsToDraw.forEach(p => {
+      const cx = originX + p.x * scale;
+      const cy = originY - p.y * scale;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  // Draw vector field for relevant steps
+  if (mode === 'vector_field') {
+    ctx.strokeStyle = c.red;
+    ctx.lineWidth = 1;
+    const gridStep = 0.8; // Spacing for vector field arrows
+    for (let x = -5; x <= 5; x += gridStep) {
+      for (let y = -5; y <= 5; y += gridStep) {
+        const z = { x: x, y: y };
+        const dz_dt = odeFunc(z, currentFlowTime); // Use currentFlowTime (which is 0 for this step)
+
+        const startX = originX + x * scale;
+        const startY = originY - y * scale;
+        const endX = startX + dz_dt.x * scale * 0.1; // Scale vector length for visibility
+        const endY = startY - dz_dt.y * scale * 0.1;
+
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        // Draw arrowhead
+        const angle = Math.atan2(endY - startY, endX - startX);
+        const arrowSize = 5;
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - arrowSize * Math.cos(angle - Math.PI / 6), endY - arrowSize * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - arrowSize * Math.cos(angle + Math.PI / 6), endY - arrowSize * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Update info numbers
+  let infoNumbersText = `Log-density at t=0: ${INITIAL_LOG_DENSITY.toFixed(2)}`;
+  if (mode === 'flow' || mode === 'interactive') {
+    infoNumbersText += `\nLog-density at t=${currentFlowTime.toFixed(2)}: ${avgLogDensity.toFixed(2)}`;
+  } else if (mode === 'inverse_flow') {
+    infoNumbersText += `\nLog-density at t=${currentFlowTime.toFixed(2)} (inverse): ${avgLogDensity.toFixed(2)}`;
+  } else if (mode === 'vector_field') {
+    infoNumbersText += `\nVector field f(z,t) shown at t=0`;
+  }
+  document.getElementById('infoNumbers').textContent = infoNumbersText;
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateTimeLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

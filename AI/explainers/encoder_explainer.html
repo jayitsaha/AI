@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Encoder: q(z|x), Reparameterization Trick — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.viz-controls{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:0.75rem;}
+.viz-control-group{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);}
+.viz-control-group label{font-weight:600;}
+.viz-control-group input[type="range"]{width:120px;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+.viz-control-group input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+.viz-control-group input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.viz-control-group button{font-family:var(--sans);font-size:12px;font-weight:600;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.viz-control-group button:hover{background:var(--bg2);border-color:var(--purple-border);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-trick{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Encoder: q(z|x), Reparameterization Trick</h1>
+  <div class="subtitle">Making stochastic sampling differentiable for backpropagation in VAEs</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Probabilistic Encoder</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> In generative models like Variational Autoencoders (VAEs), an <em>encoder</em> network maps an input data point \(x\) (e.g., an image) to a lower-dimensional latent representation \(z\). Unlike traditional autoencoders that produce a single point \(z\), a VAE's encoder is <em>probabilistic</em>: it outputs the parameters of a distribution \(q(z|x)\) over the latent space. This distribution captures the uncertainty or variability in mapping \(x\) to \(z\).</p>
+    <p><strong>Analogy:</strong> Imagine an art critic (the encoder) looking at a painting (input \(x\)). Instead of giving a single, definitive "mood score" (a deterministic \(z\)), the critic says, "This painting evokes moods ranging from 'melancholic' to 'serene', with a strong tendency towards 'thoughtful'." The critic provides a probability distribution over moods \(q(z|x)\), characterized by an average mood (\(\mu\)) and a spread of possible moods (\(\sigma\)). The challenge is how to "learn" to give these probabilistic descriptions if you can't directly adjust the critic's internal randomness.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The reparameterization trick allows us to sample a latent variable \(z\) from a distribution \(q(z|x)\) (typically a Gaussian) in a way that the *randomness* is separated from the *parameters* of the distribution. This makes the entire sampling process differentiable, enabling backpropagation through the encoder to learn \(\mu(x)\) and \(\sigma(x)\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">The Challenge: Differentiable Sampling</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Encoder's Output</h4>
+    <p>For a common choice, a Gaussian latent distribution \(q(z|x) = \mathcal{N}(\mu(x), \sigma(x)^2 I)\), the encoder network \(\text{Encoder}(x)\) outputs two vectors: \(\mu(x)\) (the mean vector) and \(\log \sigma(x)^2\) (the log-variance vector). We use \(\log \sigma^2\) instead of \(\sigma\) directly to ensure \(\sigma\) is always positive and for numerical stability during training. The actual standard deviation vector is then \(\sigma(x) = \exp(0.5 \cdot \log \sigma(x)^2)\).</p>
+
+    <h4>The Non-Differentiable Problem</h4>
+    <p>To train the VAE, we need to compute a loss function that depends on the sampled latent variable \(z\), and then backpropagate gradients through \(z\) back to the encoder's parameters. However, directly sampling \(z \sim \mathcal{N}(\mu(x), \sigma(x)^2)\) is a stochastic operation. The sampling function itself is non-differentiable with respect to \(\mu\) and \(\sigma\). You can't take the derivative of "drawing a random number" with respect to the distribution's parameters.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Why direct sampling fails</div>
+      <p style="font-size:14px;margin:0;">If \(z\) is sampled directly, the computational graph looks like \(x \to \text{Encoder}(x) \to (\mu, \sigma) \to \text{Sample}(\mu, \sigma) \to z \to \text{Decoder}(z) \to \text{Loss}\). The link from \((\mu, \sigma)\) to \(z\) via `Sample` is a black box for gradients. Backpropagation stops there, and the encoder's parameters cannot be updated to produce better \(\mu\) and \(\sigma\).</p>
+    </div>
+
+    <h4>The Reparameterization Trick Solution</h4>
+    <p>The trick reformulates the sampling process. Instead of sampling \(z\) directly from \(q(z|x)\), we introduce an auxiliary random variable \(\varepsilon\) drawn from a simple, fixed distribution, typically the standard normal distribution \(\mathcal{N}(0, I)\). Then, \(z\) is deterministically computed from \(\mu(x)\), \(\sigma(x)\), and \(\varepsilon\):</p>
+    <div class="eq">$$z = \mu(x) + \sigma(x) \odot \varepsilon \quad \text{where } \varepsilon \sim \mathcal{N}(0, I)$$</div>
+    <p>Here, \(\odot\) denotes element-wise multiplication. Now, the randomness comes solely from \(\varepsilon\), which is independent of the encoder's parameters. The operations (\(\mu(x)\), \(\sigma(x)\), addition, multiplication) are all differentiable. This allows gradients to flow smoothly back through \(\mu(x)\) and \(\sigma(x)\) to the encoder network.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The reparameterization trick decouples the stochasticity (from \(\varepsilon\)) from the learnable parameters (\(\mu\) and \(\sigma\)). This creates a deterministic path from the encoder's outputs to \(z\), making the entire computation graph differentiable and enabling end-to-end training via gradient descent.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works: Expectation &amp; Variance</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Formalizing the Transformation</h4>
+    <p>Let's assume our encoder outputs parameters for a Gaussian distribution \(q(z|x)\) in a \(D\)-dimensional latent space, where each dimension is independent:</p>
+    <div class="eq">$$q(z|x) = \mathcal{N}(z; \mu(x), \text{diag}(\sigma_1(x)^2, \dots, \sigma_D(x)^2))$$</div>
+    <p>We want to sample \(z_i \sim \mathcal{N}(\mu_i(x), \sigma_i(x)^2)\) for each dimension \(i\). The reparameterization trick states we can instead compute:</p>
+    <div class="eq">$$z_i = \mu_i(x) + \sigma_i(x) \cdot \varepsilon_i \quad \text{where } \varepsilon_i \sim \mathcal{N}(0, 1)$$</div>
+    <p>Let's verify that this transformation indeed produces samples from the desired distribution by checking its expectation and variance:</p>
+    <h4>Expectation:</h4>
+    <p>The expectation of \(z_i\) is:</p>
+    <div class="eq">$$\mathbb{E}[z_i] = \mathbb{E}[\mu_i(x) + \sigma_i(x) \cdot \varepsilon_i] = \mu_i(x) + \sigma_i(x) \cdot \mathbb{E}[\varepsilon_i]$$</div>
+    <p>Since \(\varepsilon_i \sim \mathcal{N}(0, 1)\), we know \(\mathbb{E}[\varepsilon_i] = 0\). Therefore:</p>
+    <div class="eq">$$\mathbb{E}[z_i] = \mu_i(x)$$</div>
+    <p>This matches the mean of our target distribution \(\mathcal{N}(\mu_i(x), \sigma_i(x)^2)\).</p>
+
+    <h4>Variance:</h4>
+    <p>The variance of \(z_i\) is:</p>
+    <div class="eq">$$\operatorname{Var}(z_i) = \operatorname{Var}(\mu_i(x) + \sigma_i(x) \cdot \varepsilon_i)$$</div>
+    <p>Since \(\mu_i(x)\) and \(\sigma_i(x)\) are deterministic functions of \(x\) (and thus constants with respect to \(\varepsilon_i\)), we can use the property \(\operatorname{Var}(aY + b) = a^2 \operatorname{Var}(Y)\):</p>
+    <div class="eq">$$\operatorname{Var}(z_i) = \sigma_i(x)^2 \cdot \operatorname{Var}(\varepsilon_i)$$</div>
+    <p>Again, since \(\varepsilon_i \sim \mathcal{N}(0, 1)\), we know \(\operatorname{Var}(\varepsilon_i) = 1\). Therefore:</p>
+    <div class="eq">$$\operatorname{Var}(z_i) = \sigma_i(x)^2$$</div>
+    <p>This matches the variance of our target distribution. The reparameterization trick correctly transforms samples from a standard normal into samples from the desired arbitrary normal distribution, all while maintaining differentiability.</p>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize the reparameterization trick in a 2D latent space. Watch how an encoder's output \(\mu\) and \(\sigma\) are used to transform standard normal noise \(\varepsilon\) into differentiable latent samples \(z\).</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="viz-controls">
+        <div class="viz-control-group">
+          <label for="sigmaSlider">Scale σ:</label>
+          <input type="range" id="sigmaSlider" min="0.1" max="2.0" step="0.05" value="1.0">
+          <span id="sigmaValue" style="font-family:var(--mono);color:var(--purple-mid);">1.00</span>
+        </div>
+        <div class="viz-control-group">
+          <button id="changeInputBtn">Change Input X</button>
+          <span id="inputXLabel" style="font-family:var(--mono);color:var(--blue-mid);">Input: 'A'</span>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Input and Encoder</div>
+        <div class="info-desc" id="infoDesc">We start with an input data point \(x\), like an image. An encoder network processes this input.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> Input \(x\)</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--green-mid)"></div> Latent mean \(\mu\)</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--amber-mid)"></div> Standard normal \(\varepsilon\)</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--purple-mid)"></div> Latent sample \(z\)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> Stochastic link (problem)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--green-mid)"></div> Differentiable link (trick)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use the reparameterization trick:</strong></p>
+    <ul>
+      <li><strong>Variational Autoencoders (VAEs):</strong> This is its primary and most famous application, enabling the training of the probabilistic encoder.</li>
+      <li><strong>Any model requiring differentiable sampling:</strong> Whenever a neural network's loss depends on a random variable sampled from a distribution whose parameters are outputs of the network itself.</li>
+      <li><strong>Bayesian Neural Networks:</strong> To sample weights from posterior distributions during training.</li>
+      <li><strong>Reinforcement Learning:</strong> In some policy gradient methods where actions are sampled from a learned distribution.</li>
+    </ul>
+    <p><strong>When it might not be directly applicable (and alternatives):</strong></p>
+    <ul>
+      <li><strong>Discrete latent variables:</strong> The trick works best for continuous distributions (like Gaussian). For discrete latent variables (e.g., in VQ-VAEs), alternatives like the Gumbel-Softmax trick or straight-through estimators are used.</li>
+      <li><strong>Non-standard distributions:</strong> If \(q(z|x)\) is a complex distribution for which a simple reparameterization does not exist, other gradient estimation methods (e.g., REINFORCE) might be necessary, though they often suffer from higher variance.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Broader Impact</div>
+      <p style="font-size:14px;margin:0;">The reparameterization trick was a breakthrough that unlocked the efficient training of VAEs and other generative models. It's a fundamental technique for integrating stochastic processes into differentiable computational graphs, greatly expanding the scope of what deep learning can model and learn.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class Encoder(nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, input_dim, latent_dim):</div>
+      <div class="code-line" id="cl5">        super().__init__()</div>
+      <div class="code-line" id="cl6">        self.fc1 = nn.Linear(input_dim, 256)</div>
+      <div class="code-line" id="cl7">        self.fc_mu = nn.Linear(256, latent_dim)</div>
+      <div class="code-line" id="cl8">        self.fc_logvar = nn.Linear(256, latent_dim)</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">    def forward(self, x):</div>
+      <div class="code-line" id="cl11">        h = torch.relu(self.fc1(x))</div>
+      <div class="code-line" id="cl12">        mu = self.fc_mu(h)</div>
+      <div class="code-line" id="cl13">        log_var = self.fc_logvar(h) # log(sigma^2) for numerical stability</div>
+      <div class="code-line" id="cl14">        return mu, log_var</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">def reparameterize(mu, log_var):</div>
+      <div class="code-line" id="cl17">    std = torch.exp(0.5 * log_var)  # sigma = exp(0.5 * log(sigma^2))</div>
+      <div class="code-line" id="cl18">    eps = torch.randn_like(std)     # epsilon ~ N(0, I)</div>
+      <div class="code-line" id="cl19">    return mu + std * eps           # z = mu + sigma * epsilon</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># --- Usage in a VAE training loop ---</div>
+      <div class="code-line" id="cl22"># x_input = torch.randn(64, input_dim)</div>
+      <div class="code-line" id="cl23"># encoder = Encoder(input_dim, latent_dim)</div>
+      <div class="code-line" id="cl24"># mu, log_var = encoder(x_input)</div>
+      <div class="code-line" id="cl25"># z = reparameterize(mu, log_var) # This 'z' is differentiable w.r.t mu, log_var</div>
+      <div class="code-line" id="cl26"># decoded_x = decoder(z)</div>
+      <div class="code-line" id="cl27"># loss = vae_loss(x_input, decoded_x, mu, log_var)</div>
+      <div class="code-line" id="cl28"># loss.backward() # Gradients flow back to encoder parameters!</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & CONFIG ──
+const LATENT_DIM = 2;
+const NUM_SAMPLES = 100; // Number of epsilon/z points to draw
+
+// Input X variations (abstract, represented by different mu/sigma)
+const inputXData = {
+  'A': { mu: [2.0, 2.0], log_sigma: [-0.4, -1.2] }, // Ellipse, centered at (2,2)
+  'B': { mu: [-1.5, 3.0], log_sigma: [-1.0, -0.6] }, // Different ellipse, centered at (-1.5,3)
+  'C': { mu: [0.0, -2.5], log_sigma: [-0.7, -0.7] }  // Circle, centered at (0,-2.5)
+};
+let currentInputX = 'A';
+let sigmaScaleFactor = 1.0;
+
+// Seeded RNG for reproducible samples
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345); // Fixed seed for epsilon samples
+
+// Box-Muller transform for N(0,1) samples
+function boxMullerTransform() {
+  let u = 0, v = 0;
+  while (u === 0) u = seededRng(); // Converting [0,1) to (0,1)
+  while (v === 0) v = seededRng();
+  const num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return num;
+}
+
+// Generate N(0,1) epsilon samples once
+let epsilonSamples = [];
+function generateEpsilonSamples() {
+  epsilonSamples = [];
+  for (let i = 0; i < NUM_SAMPLES; i++) {
+    epsilonSamples.push([boxMullerTransform(), boxMullerTransform()]);
+  }
+}
+generateEpsilonSamples(); // Initial generation
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Input and Encoder',
+    desc: 'We start with an input data point \\(x\\), like an image. An encoder network processes this input. The goal is to obtain a latent representation \\(z\\) that captures the essence of \\(x\\).',
+    mode: 'input_x',
+    codeLines: [3,4,5,6,7,8,9,10,11]
+  },
+  {
+    phase: 'setup', title: 'Encoder Outputs \\(\\mu\\) and \\(\\log \\sigma^2\\)',
+    desc: 'The encoder outputs the parameters for a Gaussian distribution \\(q(z|x)\\) in the latent space: a mean vector \\(\\mu\\) and a log-variance vector \\(\\log \\sigma^2\\). From \\(\\log \\sigma^2\\) we derive the standard deviation \\(\\sigma = \\exp(0.5 \\cdot \\log \\sigma^2)\\).',
+    mode: 'encoder_output',
+    codeLines: [12,13,14]
+  },
+  {
+    phase: 'problem', title: 'The Problem: Stochastic Sampling \\(z \\sim q(z|x)\\)',
+    desc: 'To get a latent sample \\(z\\), we would naively sample directly from \\(q(z|x) = \\mathcal{N}(\\mu, \\sigma^2)\\). However, this `Sample` operation is non-differentiable. Gradients cannot flow back from \\(z\\) to \\(\\mu\\) and \\(\\sigma\\), preventing the encoder from learning.',
+    mode: 'naive_sampling',
+    codeLines: []
+  },
+  {
+    phase: 'trick', title: 'The Trick: Start with Standard Noise \\(\\varepsilon \\sim \\mathcal{N}(0, I)\\)',
+    desc: 'Instead of direct sampling, the reparameterization trick starts with a simple, fixed source of randomness: \\(\\varepsilon\\) (epsilon) sampled from the standard normal distribution \\(\\mathcal{N}(0, I)\\). This \\(\\varepsilon\\) is independent of \\(x\\) and the encoder parameters.',
+    mode: 'epsilon_noise',
+    codeLines: [16,18]
+  },
+  {
+    phase: 'trick', title: 'Step 1: Scale \\(\\varepsilon\\) by \\(\\sigma(x)\\)',
+    desc: 'The first deterministic transformation is to scale each dimension of \\(\\varepsilon\\) by the corresponding standard deviation \\(\\sigma(x)\\) output by the encoder. This stretches the unit normal distribution to match the desired variance of \\(q(z|x)\\).',
+    mode: 'scale_epsilon',
+    codeLines: [17,19]
+  },
+  {
+    phase: 'trick', title: 'Step 2: Shift by \\(\\mu(x)\\)',
+    desc: 'The second deterministic transformation is to shift the scaled \\(\\varepsilon\\) by adding the mean vector \\(\\mu(x)\\) from the encoder. This centers the distribution at the desired mean of \\(q(z|x)\\).',
+    mode: 'shift_epsilon',
+    codeLines: [19]
+  },
+  {
+    phase: 'trick', title: 'Result: Differentiable Latent Samples \\(z\\)',
+    desc: 'The result is \\(z = \\mu(x) + \\sigma(x) \\odot \\varepsilon\\). These \\(z\\) samples are now distributed according to \\(q(z|x)\\), but the entire computation from \\(\\mu, \\sigma\\) to \\(z\\) is deterministic and differentiable. Gradients can now flow back through \\(\\mu\\) and \\(\\sigma\\) to train the encoder!',
+    mode: 'reparam_z',
+    codeLines: [19]
+  },
+  {
+    phase: 'explore', title: 'Explore: Adjust \\(\\sigma\\) Scale',
+    desc: 'Use the "Scale \\(\\sigma\\)" slider to change the variance of \\(q(z|x)\\). Observe how the spread of \\(z\\) samples changes. The reparameterization trick correctly adapts the distribution while remaining differentiable.',
+    mode: 'reparam_z_interactive',
+    codeLines: [17,19]
+  },
+  {
+    phase: 'explore', title: 'Explore: Change Input \\(x\\)',
+    desc: "Click 'Change Input X' to simulate a new input. The encoder will output different \\(\\mu\\) and \\(\\sigma\\) values, shifting and resizing the latent distribution. The reparameterization trick still works, providing differentiable samples for any \\(q(z|x)\\).",
+    mode: 'reparam_z_interactive',
+    codeLines: [12,13,14,17,19]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── UI WIRING ──
+const sigmaSlider = document.getElementById('sigmaSlider');
+const sigmaValueSpan = document.getElementById('sigmaValue');
+const changeInputBtn = document.getElementById('changeInputBtn');
+const inputXLabel = document.getElementById('inputXLabel');
+
+sigmaSlider.addEventListener('input', () => {
+  sigmaScaleFactor = parseFloat(sigmaSlider.value);
+  sigmaValueSpan.textContent = sigmaScaleFactor.toFixed(2);
+  if (steps[step].mode.includes('interactive') || steps[step].mode.includes('reparam_z')) {
+    drawCanvas(steps[step].mode);
+    updateInfoNumbers();
+  }
+});
+
+changeInputBtn.addEventListener('click', () => {
+  const inputs = Object.keys(inputXData);
+  let currentIndex = inputs.indexOf(currentInputX);
+  currentInputX = inputs[(currentIndex + 1) % inputs.length];
+  inputXLabel.textContent = `Input: '${currentInputX}'`;
+  generateEpsilonSamples(); // Re-generate for visual freshness
+  if (steps[step].mode.includes('interactive') || steps[step].mode.includes('encoder_output') || steps[step].mode.includes('naive_sampling') || steps[step].mode.includes('reparam_z')) {
+    drawCanvas(steps[step].mode);
+    updateInfoNumbers();
+  }
+});
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentInputX = 'A';
+  sigmaScaleFactor = 1.0;
+  sigmaSlider.value = 1.0;
+  sigmaValueSpan.textContent = sigmaScaleFactor.toFixed(2);
+  inputXLabel.textContent = `Input: '${currentInputX}'`;
+  generateEpsilonSamples();
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', problem: 'phase-problem', trick: 'phase-trick', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Enable/disable slider/button based on step
+  const isInteractiveStep = s.mode.includes('interactive') || s.mode.includes('reparam_z');
+  sigmaSlider.disabled = !isInteractiveStep;
+  changeInputBtn.disabled = !isInteractiveStep;
+
+  drawCanvas(s.mode);
+  updateInfoNumbers();
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+const LATENT_SPACE_EXTENT = 5; // -5 to +5 for x and y in latent space
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function setupCanvas() {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+  return { ctx, W, H };
+}
+
+function toCanvasCoords(x, y, W, H) {
+  const cx = (x + LATENT_SPACE_EXTENT) / (2 * LATENT_SPACE_EXTENT) * W;
+  const cy = H - ((y + LATENT_SPACE_EXTENT) / (2 * LATENT_SPACE_EXTENT) * H);
+  return [cx, cy];
+}
+
+function drawLatentAxes(ctx, W, H, colors) {
+  const [originX, originY] = toCanvasCoords(0, 0, W, H);
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, originY); ctx.lineTo(W, originY); // X axis
+  ctx.moveTo(originX, 0); ctx.lineTo(originX, H); // Y axis
+  ctx.stroke();
+
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('z₁', W - 15, originY + 5);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('z₂', originX - 5, 15);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+}
+
+function drawInputX(ctx, W, H, colors, label) {
+  const [cx, cy] = toCanvasCoords(-LATENT_SPACE_EXTENT * 0.8, LATENT_SPACE_EXTENT * 0.8, W, H);
+  ctx.fillStyle = colors.blue;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.font = '600 12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, cx, cy);
+}
+
+function drawEncoderBlock(ctx, W, H, colors, active) {
+  const [x, y] = toCanvasCoords(-LATENT_SPACE_EXTENT * 0.3, LATENT_SPACE_EXTENT * 0.8, W, H);
+  const width = 60, height = 30;
+  ctx.fillStyle = active ? colors.purple : colors.text3;
+  ctx.globalAlpha = active ? 0.8 : 0.3;
+  ctx.roundRect ? ctx.roundRect(x, y - height / 2, width, height, 5) : ctx.fillRect(x, y - height / 2, width, height);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'white';
+  ctx.font = '600 11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Encoder', x + width / 2, y);
+}
+
+function drawArrow(ctx, W, H, fromX, fromY, toX, toY, color, dashed) {
+  const [cx1, cy1] = toCanvasCoords(fromX, fromY, W, H);
+  const [cx2, cy2] = toCanvasCoords(toX, toY, W, H);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  if (dashed) ctx.setLineDash([5, 5]); else ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(cx1, cy1);
+  ctx.lineTo(cx2, cy2);
+  ctx.stroke();
+
+  // Arrowhead
+  const angle = Math.atan2(cy2 - cy1, cx2 - cx1);
+  const headLen = 8;
+  ctx.beginPath();
+  ctx.moveTo(cx2, cy2);
+  ctx.lineTo(cx2 - headLen * Math.cos(angle - Math.PI / 6), cy2 - headLen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(cx2, cy2);
+  ctx.lineTo(cx2 - headLen * Math.cos(angle + Math.PI / 6), cy2 - headLen * Math.sin(angle + Math.PI / 6));
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawEllipse(ctx, W, H, centerX, centerY, radiusX, radiusY, color, fillAlpha = 0.1) {
+  const [cx, cy] = toCanvasCoords(centerX, centerY, W, H);
+  const scaleX = W / (2 * LATENT_SPACE_EXTENT);
+  const scaleY = H / (2 * LATENT_SPACE_EXTENT);
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, radiusX * scaleX, radiusY * scaleY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = fillAlpha;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawPoint(ctx, W, H, x, y, color, radius = 5, label = null, labelColor = 'white') {
+  const [cx, cy] = toCanvasCoords(x, y, W, H);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  if (label) {
+    ctx.fillStyle = labelColor;
+    ctx.font = '600 10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy);
+  }
+}
+
+function drawSamples(ctx, W, H, samples, color, radius = 3) {
+  samples.forEach(p => drawPoint(ctx, W, H, p[0], p[1], color, radius, null, null));
+}
+
+function getCurrentMuSigma() {
+  const { mu: baseMu, log_sigma: baseLogSigma } = inputXData[currentInputX];
+  const currentSigma = baseLogSigma.map(ls => Math.exp(0.5 * ls) * sigmaScaleFactor);
+  return { mu: baseMu, sigma: currentSigma };
+}
+
+function updateInfoNumbers() {
+  const { mu, sigma } = getCurrentMuSigma();
+  const infoNumbersDiv = document.getElementById('infoNumbers');
+  infoNumbersDiv.innerHTML = `\\(\\mu = [${mu[0].toFixed(2)}, ${mu[1].toFixed(2)}]\\)<br>\\(\\sigma = [${sigma[0].toFixed(2)}, ${sigma[1].toFixed(2)}]\\)`;
+  renderMathInElement(infoNumbersDiv, {
+    delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+  });
+}
+
+function drawCanvas(mode) {
+  const { ctx, W, H } = setupCanvas();
+  const colors = getColors();
+  drawLatentAxes(ctx, W, H, colors);
+
+  const { mu, sigma } = getCurrentMuSigma();
+
+  const inputXPos = [-LATENT_SPACE_EXTENT * 0.8, LATENT_SPACE_EXTENT * 0.8];
+  const encoderPos = [-LATENT_SPACE_EXTENT * 0.3, LATENT_SPACE_EXTENT * 0.8];
+  const muPos = [mu[0], mu[1]];
+  const epsilonOrigin = [-LATENT_SPACE_EXTENT * 0.8, -LATENT_SPACE_EXTENT * 0.8];
+
+  // Draw input X
+  if (mode === 'input_x' || mode === 'encoder_output' || mode === 'naive_sampling' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawInputX(ctx, W, H, colors, currentInputX);
+  }
+
+  // Draw encoder block
+  if (mode === 'input_x' || mode === 'encoder_output' || mode === 'naive_sampling' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawEncoderBlock(ctx, W, H, colors, true);
+  }
+  if (mode === 'encoder_output' || mode === 'naive_sampling' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawArrow(ctx, W, H, inputXPos[0], inputXPos[1], encoderPos[0], encoderPos[1], colors.green);
+  }
+
+
+  // Draw mu and sigma ellipse
+  if (mode === 'encoder_output' || mode === 'naive_sampling' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawPoint(ctx, W, H, mu[0], mu[1], colors.green, 7, '\\(\\mu\\)');
+    drawEllipse(ctx, W, H, mu[0], mu[1], sigma[0], sigma[1], colors.green);
+  }
+
+  // Naive sampling (problem)
+  if (mode === 'naive_sampling') {
+    drawArrow(ctx, W, H, encoderPos[0], encoderPos[1], mu[0], mu[1], colors.red, true);
+    drawSamples(ctx, W, H, epsilonSamples.map(e => [mu[0] + e[0] * sigma[0], mu[1] + e[1] * sigma[1]]), colors.purple);
+    ctx.fillStyle = colors.red;
+    ctx.font = '600 12px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const [arrowX, arrowY] = toCanvasCoords((encoderPos[0] + mu[0]) / 2, (encoderPos[1] + mu[1]) / 2, W, H);
+    ctx.fillText('Sample (non-diff)', arrowX, arrowY - 10);
+  }
+
+  // Epsilon noise
+  if (mode === 'epsilon_noise' || mode === 'scale_epsilon' || mode === 'shift_epsilon' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawPoint(ctx, W, H, epsilonOrigin[0], epsilonOrigin[1], colors.amber, 7, '\\(\\varepsilon\\)');
+    drawEllipse(ctx, W, H, epsilonOrigin[0], epsilonOrigin[1], 1, 1, colors.amber); // Unit circle for epsilon
+    drawSamples(ctx, W, H, epsilonSamples, colors.amber);
+  }
+
+  // Scale epsilon
+  if (mode === 'scale_epsilon' || mode === 'shift_epsilon' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawArrow(ctx, W, H, encoderPos[0], encoderPos[1], epsilonOrigin[0] + 0.5, epsilonOrigin[1] + 0.5, colors.green);
+    drawArrow(ctx, W, H, epsilonOrigin[0], epsilonOrigin[1], epsilonOrigin[0] + 2.0, epsilonOrigin[1], colors.green); // conceptual arrow for scaling
+    drawSamples(ctx, W, H, epsilonSamples.map(e => [e[0] * sigma[0], e[1] * sigma[1]]), colors.amber);
+    drawEllipse(ctx, W, H, 0, 0, sigma[0], sigma[1], colors.green, 0.05); // Scaled ellipse at origin
+  }
+
+  // Shift epsilon
+  if (mode === 'shift_epsilon' || mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawArrow(ctx, W, H, encoderPos[0], encoderPos[1], mu[0] - 0.5, mu[1] - 0.5, colors.green); // conceptual arrow for shifting
+    drawSamples(ctx, W, H, epsilonSamples.map(e => [mu[0] + e[0] * sigma[0], mu[1] + e[1] * sigma[1]]), colors.purple);
+  }
+
+  // Reparameterized Z
+  if (mode === 'reparam_z' || mode === 'reparam_z_interactive') {
+    drawPoint(ctx, W, H, mu[0], mu[1], colors.green, 7, '\\(\\mu\\)');
+    drawEllipse(ctx, W, H, mu[0], mu[1], sigma[0], sigma[1], colors.green);
+    drawSamples(ctx, W, H, epsilonSamples.map(e => [mu[0] + e[0] * sigma[0], mu[1] + e[1] * sigma[1]]), colors.purple);
+  }
+}
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Naive RAG: Retrieve → Chunk → Embed → Generate — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Controls for viz */
+.viz-controls{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.viz-input-group{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+.viz-input-group label{font-size:13px;font-weight:600;min-width:100px;}
+.viz-input-group input[type="text"]{flex:1;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:var(--sans);font-size:13px;}
+.viz-input-group button{padding:8px 16px;border-radius:var(--radius);border:1px solid var(--purple-border);background:var(--purple-bg);color:var(--purple-mid);font-weight:600;cursor:pointer;}
+.viz-input-group button:hover{background:var(--purple-border);color:white;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:100px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-index{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-retrieve{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-generate{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-details{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.vector{border-radius:6px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:10px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .viz-input-group label, .slider-label{min-width:80px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Naive RAG: Retrieve → Chunk → Embed → Generate</h1>
+  <div class="subtitle">Grounding Large Language Models in external knowledge for factual, up-to-date responses</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">LLM Engineering</span>
+    <span class="tag tag-complexity">O(N) indexing, O(log N) retrieval</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Naive RAG</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Retrieval Augmented Generation (RAG) is a technique that enhances Large Language Models (LLMs) by giving them access to external, up-to-date information at inference time. Instead of relying solely on what they learned during pre-training (which can be outdated or inaccurate), RAG allows LLMs to "look up" relevant documents and incorporate that knowledge into their responses. This significantly reduces hallucinations and enables LLMs to answer questions about specific, private, or real-time data.</p>
+    <p><strong>Analogy:</strong> Imagine an incredibly intelligent but forgetful student taking an open-book exam. Without RAG, they'd try to answer from memory, often making things up (hallucinating). With RAG, when asked a question, they first quickly scan their textbook (retrieve relevant passages), then use those passages to formulate a precise answer. The "naive" part implies a straightforward, single-pass retrieval without complex re-ranking or multi-hop reasoning.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Naive RAG follows a simple pipeline: when a user asks a question, the system first <strong>retrieves</strong> relevant text snippets from a knowledge base, then <strong>augments</strong> the user's query with these snippets, and finally passes this enhanced prompt to an LLM for <strong>generation</strong>. This "retrieve-then-generate" loop ensures responses are grounded in factual, external data.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Naive RAG Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Two Phases: Indexing and Inference</h4>
+    <p>RAG operates in two distinct phases:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Indexing Phase (Offline):</strong> This is a one-time (or periodic) process to prepare your knowledge base.
+        <ul>
+          <li><strong>Document Loading:</strong> Ingest raw documents (PDFs, web pages, databases, etc.).</li>
+          <li><strong>Chunking:</strong> Break down large documents into smaller, manageable pieces ("chunks"). A good chunk size is crucial: too small, and context is lost; too large, and irrelevant information dilutes the signal or exceeds the LLM's context window.</li>
+          <li><strong>Embedding:</strong> Convert each text chunk into a high-dimensional numerical vector (an "embedding") using an embedding model. Similar chunks of text will have similar embedding vectors.</li>
+          <li><strong>Storing:</strong> Store these chunk embeddings and their corresponding original text in a vector database. This database is optimized for fast similarity searches.</li>
+        </ul>
+      </li>
+      <li><strong>Inference Phase (Online):</strong> This happens every time a user submits a query.
+        <ul>
+          <li><strong>Query Embedding:</strong> The user's input query is also converted into an embedding vector using the same embedding model used during indexing.</li>
+          <li><strong>Similarity Search:</strong> This query embedding is used to search the vector database for the \(k\) most similar chunk embeddings.</li>
+          <li><strong>Context Augmentation:</strong> The retrieved top-\(k\) text chunks are combined with the original user query into a single, comprehensive prompt. This prompt typically instructs the LLM to answer based on the provided context.</li>
+          <li><strong>LLM Generation:</strong> The augmented prompt is sent to the LLM, which then generates a grounded response.</li>
+        </ul>
+      </li>
+    </ol>
+    <h4>Design Decision: Why "Naive"?</h4>
+    <p>This basic RAG setup is called "naive" because it's a straightforward, single-pass process. It doesn't involve complex strategies like:</p>
+    <ul>
+      <li><strong>Re-ranking:</strong> Using a separate, more powerful model to re-score and re-order the initial top-\(k\) retrieved chunks.</li>
+      <li><strong>Multi-hop retrieval:</strong> Iteratively refining the query or performing multiple retrieval steps to answer complex questions.</li>
+      <li><strong>Query expansion/rewriting:</strong> Modifying the user's query to improve retrieval.</li>
+      <li><strong>Adaptive chunking:</strong> Dynamically adjusting chunk size or overlap based on content.</li>
+    </ul>
+    <p>While effective, naive RAG can be limited by the quality of its chunks and embeddings, and by the LLM's ability to synthesize information from potentially noisy retrieved context.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core idea is to decouple knowledge acquisition from LLM training. The knowledge base can be updated independently of the LLM, making RAG systems agile and cost-effective for dynamic information, without needing expensive LLM fine-tuning or re-training.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Embedding: Text to Vector Space</h4>
+    <p>The fundamental step is converting human-readable text into a numerical format that computers can process for similarity. An embedding model (often a transformer-based neural network) maps a piece of text (a query \(Q\) or a chunk \(C_j\)) into a high-dimensional vector space:</p>
+    <div class="eq">$$v_Q = \text{Embed}(Q) \quad \text{and} \quad v_{C_j} = \text{Embed}(C_j)$$</div>
+    <p>These vectors typically have hundreds or thousands of dimensions (e.g., 768, 1024, 1536). The magic of good embedding models is that semantically similar texts are mapped to vectors that are geometrically "close" in this space.</p>
+
+    <h4>Similarity Search: Finding Close Vectors</h4>
+    <p>To find relevant chunks, we measure the "distance" or "similarity" between the query vector \(v_Q\) and all chunk vectors \(v_{C_j}\) in the vector database. A common metric is <strong>cosine similarity</strong>, which measures the cosine of the angle between two vectors:</p>
+    <div class="eq">$$\text{sim}(v_Q, v_{C_j}) = \frac{v_Q \cdot v_{C_j}}{\|v_Q\| \|v_{C_j}\|} = \frac{\sum_{i=1}^d v_{Q_i} v_{C_{j,i}}}{\sqrt{\sum_{i=1}^d v_{Q_i}^2} \sqrt{\sum_{i=1}^d v_{C_{j,i}}^2}}$$</div>
+    <p>Cosine similarity ranges from -1 (opposite) to 1 (identical direction), with 0 indicating orthogonality. Higher values mean greater semantic similarity. The retrieval step then selects the top-\(k\) chunks with the highest similarity scores.</p>
+
+    <h4>Context Augmentation and Generation</h4>
+    <p>Once the top-\(k\) chunks \(\{C_1^*, \dots, C_k^*\}\) are retrieved, they are inserted into a structured prompt template alongside the original query \(Q\). A typical template might look like:</p>
+    <div class="eq">$$\text{Prompt} = \text{"Based on the following context: } \{C_1^*, \dots, C_k^*\} \text{ Answer the question: } Q \text{"}$$</div>
+    <p>This augmented prompt is then fed to the LLM. The LLM's attention mechanism can now directly attend to the provided context, significantly influencing its generated response and making it factual and relevant to the external knowledge.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The choice of <strong>embedding model</strong> is critical. A mismatch between the embedding model used for indexing and the one for query embedding, or using a poor embedding model, can lead to irrelevant retrieval and diminish RAG's effectiveness. Similarly, if chunks are too large, they can bring in irrelevant noise; too small, and they may lack sufficient context.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the RAG pipeline. Enter a query, adjust the number of retrieved chunks (K), and watch the system retrieve relevant information to generate a response.</p>
+
+    <div class="viz-container">
+      <div class="viz-controls">
+        <div class="viz-input-group">
+          <label for="queryInput">Your Query:</label>
+          <input type="text" id="queryInput" value="What is the capital of France?">
+          <button onclick="simulateQuery()">Submit</button>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Retrieve K Chunks:</div>
+          <input type="range" id="kSlider" min="1" max="5" step="1" value="3">
+          <div class="slider-value" id="kValue">3</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The RAG Goal</div>
+        <div class="info-desc" id="infoDesc">We want our LLM to answer questions accurately and factually, grounded in a specific knowledge base, without making things up.</div>
+        <div class="info-details" id="infoDetails"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> User Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Embedding Vector</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Document Chunk</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Retrieved/Context</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> LLM</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use RAG:</strong></p>
+    <ul>
+      <li>When your LLM needs access to <strong>up-to-date or dynamic information</strong> that wasn't in its training data (e.g., current news, product catalogs).</li>
+      <li>For <strong>domain-specific questions</strong> where the LLM's general knowledge is insufficient (e.g., internal company documents, specialized medical texts).</li>
+      <li>To <strong>reduce hallucinations</strong> and increase the factual accuracy of LLM responses.</li>
+      <li>To provide <strong>attribution and traceability</strong> for LLM answers, as you can link back to the retrieved source documents.</li>
+      <li>To <strong>reduce the cost and complexity of LLM fine-tuning</strong>, as new knowledge can be added to the vector database without retraining the LLM.</li>
+    </ul>
+    <p><strong>When to be cautious (limitations of naive RAG):</strong></p>
+    <ul>
+      <li><strong>Suboptimal Chunking:</strong> If documents are poorly chunked, relevant information might be split across chunks or buried with irrelevant text.</li>
+      <li><strong>Embedding Model Quality:</strong> A weak embedding model will produce poor vector representations, leading to irrelevant retrieval.</li>
+      <li><strong>Context Window Limits:</strong> If too many chunks are retrieved, or chunks are too long, they might exceed the LLM's context window, leading to truncation or poor performance.</li>
+      <li><strong>Complex Reasoning:</strong> Naive RAG struggles with questions requiring multi-hop reasoning or synthesis across many disparate documents.</li>
+      <li><strong>Latency:</strong> The retrieval step adds latency to the overall response time, which might be critical for some real-time applications.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">RAG is not a replacement for LLM pre-training or fine-tuning, but a powerful augmentation. It turns a static, general-purpose LLM into a dynamic, domain-aware expert by giving it a real-time "knowledge search engine." It's a cornerstone technique in building reliable, enterprise-grade LLM applications.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0"># --- Indexing Phase (Offline) ---</div>
+      <div class="code-line" id="cl1">def build_vector_db(documents):</div>
+      <div class="code-line" id="cl2">    vector_db = VectorDatabase()</div>
+      <div class="code-line" id="cl3">    for doc in documents:</div>
+      <div class="code-line" id="cl4">        chunks = chunk_text(doc, chunk_size=500, overlap=50)</div>
+      <div class="code-line" id="cl5">        for chunk in chunks:</div>
+      <div class="code-line" id="cl6">            embedding = embed_model.encode(chunk)</div>
+      <div class="code-line" id="cl7">            vector_db.add(embedding, metadata={'text': chunk})</div>
+      <div class="code-line" id="cl8">    return vector_db</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10"># Example usage:</div>
+      <div class="code-line" id="cl11"># my_docs = load_documents_from_disk("data/")</div>
+      <div class="code-line" id="cl12"># vector_db = build_vector_db(my_docs)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># --- Inference Phase (Online) ---</div>
+      <div class="code-line" id="cl15">def naive_rag_pipeline(query, vector_db, llm_model, k=3):</div>
+      <div class="code-line" id="cl16">    # 1. Embed the query</div>
+      <div class="code-line" id="cl17">    query_embedding = embed_model.encode(query)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">    # 2. Retrieve top-K relevant chunks</div>
+      <div class="code-line" id="cl20">    retrieved_chunks = vector_db.search(query_embedding, top_k=k)</div>
+      <div class="code-line" id="cl21">    context_text = "\n".join([c['text'] for c in retrieved_chunks])</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">    # 3. Augment the prompt</div>
+      <div class="code-line" id="cl24">    prompt = f"""Based on the following context:</div>
+      <div class="code-line" id="cl25">    {context_text}</div>
+      <div class="code-line" id="cl26">    Answer the question: {query}</div>
+      <div class="code-line" id="cl27">    """</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">    # 4. Generate response with LLM</div>
+      <div class="code-line" id="cl30">    response = llm_model.generate(prompt)</div>
+      <div class="code-line" id="cl31">    return response</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33"># Example usage:</div>
+      <div class="code-line" id="cl34"># query_text = "What is the history of the Eiffel Tower?"</div>
+      <div class="code-line" id="cl35"># answer = naive_rag_pipeline(query_text, vector_db, llm_model, k=5)</div>
+      <div class="code-line" id="cl36"># print(answer)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & SIMULATED FUNCTIONS ──
+// Seeded random for reproducible "embeddings" and "similarities"
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentRNG = mulberry32(12345); // Initial seed
+
+const DOCUMENTS = [
+  "The Eiffel Tower is an iron lattice tower on the Champ de Mars in Paris, France. It is named after the engineer Gustave Eiffel, whose company designed and built the tower. Constructed from 1887 to 1889 as the entrance to the 1889 World's Fair, it was initially criticized by some of France's leading artists and intellectuals for its design, but it has become a global cultural icon of France and one of the most recognisable structures in the world.",
+  "Paris, the capital city of France, is renowned for its art, fashion, gastronomy, and culture. Its 19th-century cityscape is crisscrossed by wide boulevards and the River Seine. Beyond such landmarks as the Eiffel Tower and the 12th-century Gothic Notre-Dame Cathedral, the city is known for its cafe culture and designer boutiques along the Rue du Faubourg Saint-Honoré.",
+  "The Louvre Museum, located in Paris, France, is the world's most-visited museum and a historic monument. It is home to some of the most well-known works of art, including the Mona Lisa. The museum is housed in the Louvre Palace, originally built as a fortress in the late 12th century under Philip II.",
+  "The history of artificial intelligence (AI) began in antiquity with myths, stories and rumors of artificial beings endowed with intelligence or consciousness by master craftsmen. The modern field of AI was founded in 1956 at a workshop at Dartmouth College. AI research was initially focused on symbolic methods and problem-solving.",
+  "Machine learning is a branch of artificial intelligence (AI) and computer science which focuses on the use of data and algorithms to imitate the way that humans learn, gradually improving its accuracy. It is a key component of many modern technologies, including self-driving cars, recommendation systems, and facial recognition.",
+  "The French Revolution was a period of far-reaching social and political upheaval in France that lasted from 1789 until 1799. It brought about the end of the monarchy in France and established a republic. Its ideas influenced the development of democracy and nationalism throughout the world."
+];
+
+let CHUNKS = []; // Will be populated by simulateIndexing
+
+function simulateChunking(doc, id) {
+  const chunkSize = 150; // characters
+  const overlap = 20;
+  const chunks = [];
+  for (let i = 0; i < doc.length; i += (chunkSize - overlap)) {
+    const chunkText = doc.substring(i, Math.min(i + chunkSize, doc.length));
+    chunks.push({ id: `${id}-${chunks.length}`, text: chunkText.trim() });
+  }
+  return chunks;
+}
+
+function generateEmbedding(text, seedOffset = 0) {
+  const rng = mulberry32(text.length + seedOffset); // Simple text-based seed
+  return Array.from({ length: 4 }, () => (rng() * 2 - 1).toFixed(2)); // 4-dim vector for viz
+}
+
+function cosineSimilarity(vec1, vec2) {
+  const v1 = vec1.map(Number);
+  const v2 = vec2.map(Number);
+  let dotProduct = 0;
+  let norm1 = 0;
+  let norm2 = 0;
+  for (let i = 0; i < v1.length; i++) {
+    dotProduct += v1[i] * v2[i];
+    norm1 += v1[i] * v1[i];
+    norm2 += v2[i] * v2[i];
+  }
+  norm1 = Math.sqrt(norm1);
+  norm2 = Math.sqrt(norm2);
+  if (norm1 === 0 || norm2 === 0) return 0;
+  return dotProduct / (norm1 * norm2);
+}
+
+function simulateIndexing() {
+  CHUNKS = [];
+  let docIdCounter = 0;
+  DOCUMENTS.forEach((doc, docIdx) => {
+    const docChunks = simulateChunking(doc, docIdCounter);
+    docChunks.forEach(chunk => {
+      chunk.embedding = generateEmbedding(chunk.text, docIdx * 100); // Unique seed offset per doc
+      CHUNKS.push(chunk);
+    });
+    docIdCounter++;
+  });
+}
+simulateIndexing(); // Initial indexing
+
+let currentQuery = "What is the capital of France?";
+let queryEmbedding = generateEmbedding(currentQuery, 999);
+let retrievedChunks = [];
+let llmResponse = "Please submit a query to get an answser.";
+
+function simulateRetrieval(query, k) {
+  currentRNG = mulberry32(query.length + k + 123); // Re-seed for reproducibility
+  queryEmbedding = generateEmbedding(query, 999);
+
+  const similarities = CHUNKS.map(chunk => ({
+    chunk,
+    similarity: cosineSimilarity(queryEmbedding, chunk.embedding)
+  }));
+
+  similarities.sort((a, b) => b.similarity - a.similarity);
+  retrievedChunks = similarities.slice(0, k).map(s => ({ ...s.chunk, similarity: s.similarity }));
+  
+  // Simulate LLM response based on retrieved chunks (very simple for demo)
+  const contextKeywords = retrievedChunks.map(c => c.text.toLowerCase()).join(' ');
+  let response = "Based on the provided context, ";
+  if (contextKeywords.includes("paris") && contextKeywords.includes("france") && contextKeywords.includes("capital")) {
+    response += "the capital of France is Paris.";
+  } else if (contextKeywords.includes("eiffel tower") && contextKeywords.includes("paris")) {
+    response += "the Eiffel Tower is in Paris, France.";
+  } else if (contextKeywords.includes("louvre museum") && contextKeywords.includes("paris")) {
+    response += "the Louvre Museum is a famous landmark in Paris, France.";
+  } else if (contextKeywords.includes("artificial intelligence") || contextKeywords.includes("machine learning")) {
+    response += "the information points to topics related to AI and machine learning.";
+  } else if (contextKeywords.includes("french revolution")) {
+    response += "the context describes the French Revolution.";
+  } else {
+    response += "I couldn't find a direct answer in the context, but the retrieved information is about general topics.";
+  }
+  llmResponse = response;
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The RAG Goal: Grounding LLMs',
+    desc: 'Large Language Models are powerful but can "hallucinate" or provide outdated information. RAG aims to connect LLMs to a dynamic, external knowledge base to provide factual, up-to-date, and attributable answers.',
+    details: 'Initial state: We have a collection of documents and an LLM ready to answer questions, but without specific grounding.',
+    codeLines: [],
+    canvasMode: 'intro'
+  },
+  {
+    phase: 'index', title: 'Phase 1: Indexing - Document Collection',
+    desc: 'First, we gather all our raw knowledge documents. These could be PDFs, web pages, internal company wikis, or any text data we want our LLM to reference.',
+    details: `We have ${DOCUMENTS.length} raw documents ready for processing.`,
+    codeLines: [1,2,3],
+    canvasMode: 'documents'
+  },
+  {
+    phase: 'index', title: 'Phase 1: Indexing - Chunking Documents',
+    desc: 'Large documents are broken down into smaller, manageable "chunks." This is crucial because LLMs have limited context windows, and smaller chunks improve retrieval precision. Each chunk will become an independent unit in our database.',
+    details: `Document 1 is chunked into ${simulateChunking(DOCUMENTS[0], 0).length} pieces. Total chunks created: ${CHUNKS.length}.`,
+    codeLines: [4,5],
+    canvasMode: 'chunking'
+  },
+  {
+    phase: 'index', title: 'Phase 1: Indexing - Embedding Chunks',
+    desc: 'Each text chunk is converted into a high-dimensional numerical vector (an "embedding") using an embedding model. Semantically similar chunks will have embeddings that are geometrically close in this vector space. These vectors, along with the original text, form our vector database.',
+    details: `Each chunk is embedded into a ${generateEmbedding("example").length}-dimensional vector.`,
+    codeLines: [6,7],
+    canvasMode: 'embedding_chunks'
+  },
+  {
+    phase: 'index', title: 'Phase 1: Indexing - Vector Database Ready',
+    desc: 'The vector database now contains all our chunk embeddings, ready for fast similarity searches. This indexing phase is typically done offline and updated periodically.',
+    details: `Vector database contains ${CHUNKS.length} embeddings. Each chunk has an ID and its original text.`,
+    codeLines: [2,7,8],
+    canvasMode: 'vector_db_ready'
+  },
+  {
+    phase: 'retrieve', title: 'Phase 2: Inference - User Query',
+    desc: 'The RAG process begins when a user submits a question. This query is the starting point for retrieving relevant information.',
+    details: `User query: "${currentQuery}". This query will now be embedded.`,
+    codeLines: [15,16,17],
+    canvasMode: 'user_query'
+  },
+  {
+    phase: 'retrieve', title: 'Phase 2: Inference - Retrieve Top-K Chunks',
+    desc: 'The query embedding is used to perform a similarity search in the vector database. The top-K most similar chunk embeddings are retrieved. Adjust the "Retrieve K Chunks" slider to see more or fewer chunks retrieved.',
+    details: `Query embedding: [${queryEmbedding.join(', ')}]. Top ${kSlider.value} chunks retrieved.`,
+    codeLines: [19,20,21],
+    canvasMode: 'retrieve_chunks'
+  },
+  {
+    phase: 'generate', title: 'Phase 2: Inference - Augment & Generate',
+    desc: 'The retrieved chunks are combined with the original query into a single prompt for the LLM. The LLM then uses this augmented context to generate a factual and grounded response.',
+    details: `LLM Response: "${llmResponse}"`,
+    codeLines: [23,24,25,26,27,28,29,30],
+    canvasMode: 'generate_response'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentQuery = "What is the capital of France?";
+  document.getElementById('queryInput').value = currentQuery;
+  document.getElementById('kSlider').value = 3;
+  document.getElementById('kValue').textContent = 3;
+  simulateRetrieval(currentQuery, 3); // Reset retrieval state
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',index:'phase-index',retrieve:'phase-retrieve',generate:'phase-generate'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+  document.getElementById('infoDetails').innerHTML = s.details;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const colors = {
+    bg2: cs.getPropertyValue('--bg2').trim(),
+    text: cs.getPropertyValue('--text').trim(),
+    text2: cs.getPropertyValue('--text2').trim(),
+    text3: cs.getPropertyValue('--text3').trim(),
+    blueMid: cs.getPropertyValue('--blue-mid').trim(),
+    greenMid: cs.getPropertyValue('--green-mid').trim(),
+    redMid: cs.getPropertyValue('--red-mid').trim(),
+    amberMid: cs.getPropertyValue('--amber-mid').trim(),
+    purpleMid: cs.getPropertyValue('--purple-mid').trim(),
+    cyanMid: cs.getPropertyValue('--cyan-mid').trim(),
+    border: cs.getPropertyValue('--border2').trim(),
+  };
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '12px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Helper function to draw rounded rect
+  function drawRoundedRect(x, y, w, h, r, fillColor, strokeColor, lineWidth = 1) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    if (fillColor) {
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+    }
+    if (strokeColor) {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+  }
+
+  // Helper to draw text within a box
+  function drawTextBox(text, x, y, w, h, textColor, bgColor, strokeColor, lineWidth = 1, radius = 5) {
+    drawRoundedRect(x, y, w, h, radius, bgColor, strokeColor, lineWidth);
+    ctx.fillStyle = textColor;
+    const lines = text.split('\n');
+    const lineHeight = 14;
+    let currentY = y + h / 2 - (lines.length - 1) * lineHeight / 2;
+    for (let line of lines) {
+      ctx.fillText(line, x + w / 2, currentY);
+      currentY += lineHeight;
+    }
+  }
+
+  // Helper to draw an arrow
+  function drawArrow(fromX, fromY, toX, toY, color, lineWidth = 2, headSize = 8) {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headSize * Math.cos(angle - Math.PI / 6), toY - headSize * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(toX - headSize * Math.cos(angle + Math.PI / 6), toY - headSize * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Helper to draw an embedding vector
+  function drawVector(x, y, label, color, highlight = false) {
+    const size = 30;
+    drawRoundedRect(x, y, size, size, 5, color, highlight ? colors.text : colors.border, highlight ? 2 : 1);
+    ctx.fillStyle = colors.text;
+    ctx.fillText(label, x + size / 2, y + size / 2);
+  }
+
+  // Common positions
+  const queryX = W * 0.1;
+  const embedX = W * 0.3;
+  const vectorDbX = W * 0.5;
+  const llmX = W * 0.85;
+
+  const blockW = 120;
+  const blockH = 60;
+  const smallBlockW = 80;
+  const smallBlockH = 40;
+
+  if (mode === 'intro') {
+    drawTextBox("User Query", queryX, H * 0.2, blockW, blockH, colors.text, colors.blueMid, colors.blueMid);
+    drawArrow(queryX + blockW / 2, H * 0.2 + blockH, llmX - blockW / 2, llmY - blockH / 2, colors.border, 1, 0);
+    drawTextBox("LLM (no RAG)", llmX - blockW / 2, llmY - blockH / 2, blockW, blockH, colors.text, colors.redMid, colors.redMid);
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Potential Hallucinations / Outdated Info", (queryX + llmX) / 2, H * 0.35);
+  } else if (mode === 'documents') {
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Knowledge Base", queryX + blockW / 2, H * 0.1);
+    DOCUMENTS.slice(0, 3).forEach((doc, i) => {
+      drawTextBox(`Document ${i + 1}\n(Full Text)`, queryX, H * (0.2 + i * 0.2), blockW, blockH, colors.text, colors.amberMid, colors.amberMid);
+    });
+    ctx.fillText(`+ ${DOCUMENTS.length - 3} more documents...`, queryX + blockW / 2, H * 0.85);
+  } else if (mode === 'chunking') {
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Raw Document", queryX + blockW / 2, H * 0.1);
+    drawTextBox(DOCUMENTS[0].substring(0, 100) + "...", queryX, H * 0.2, blockW, blockH, colors.text, colors.amberMid, colors.amberMid, 2);
+
+    ctx.fillText("Chunking", queryX + blockW / 2, H * 0.35);
+    drawArrow(queryX + blockW / 2, H * 0.2 + blockH, queryX + blockW / 2, H * 0.45, colors.border);
+
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Chunks", queryX + blockW / 2, H * 0.4);
+    simulateChunking(DOCUMENTS[0], 0).slice(0, 3).forEach((chunk, i) => {
+      drawTextBox(`Chunk ${i + 1}\n(${chunk.text.substring(0, 20)}...)`, queryX, H * (0.45 + i * 0.15), smallBlockW, smallBlockH, colors.text, colors.amberMid, colors.amberMid);
+    });
+    ctx.fillText(`+ ${CHUNKS.length - 3} more chunks...`, queryX + blockW / 2, H * 0.9);
+  } else if (mode === 'embedding_chunks') {
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Chunks", queryX + blockW / 2, H * 0.1);
+    CHUNKS.slice(0, 3).forEach((chunk, i) => {
+      drawTextBox(`Chunk ${i + 1}\n(${chunk.text.substring(0, 20)}...)`, queryX, H * (0.2 + i * 0.15), smallBlockW, smallBlockH, colors.text, colors.amberMid, colors.amberMid);
+      drawArrow(queryX + smallBlockW, H * (0.2 + i * 0.15) + smallBlockH / 2, embedX, H * (0.2 + i * 0.15) + smallBlockH / 2, colors.border);
+      drawVector(embedX, H * (0.2 + i * 0.15) + smallBlockH / 2 - 15, `v${i + 1}`, colors.purpleMid);
+    });
+    ctx.fillText("Embedding Model", embedX + 15, H * 0.1);
+    ctx.fillText("Vector Database", vectorDbX + blockW / 2, H * 0.1);
+    CHUNKS.slice(0, 5).forEach((chunk, i) => {
+      drawTextBox(`Chunk ${i + 1} text`, vectorDbX, H * (0.2 + i * 0.15), smallBlockW, smallBlockH, colors.text, colors.amberMid, colors.border);
+      drawVector(vectorDbX + smallBlockW + 10, H * (0.2 + i * 0.15) + smallBlockH / 2 - 15, `v${i + 1}`, colors.purpleMid);
+    });
+    ctx.fillText(`+ ${CHUNKS.length - 5} more...`, vectorDbX + blockW / 2, H * 0.9);
+  } else if (mode === 'vector_db_ready') {
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Vector Database (Ready for queries)", vectorDbX + blockW / 2, H * 0.1);
+    CHUNKS.slice(0, 5).forEach((chunk, i) => {
+      drawTextBox(`Chunk ${i + 1} text`, vectorDbX, H * (0.2 + i * 0.15), smallBlockW, smallBlockH, colors.text, colors.amberMid, colors.border);
+      drawVector(vectorDbX + smallBlockW + 10, H * (0.2 + i * 0.15) + smallBlockH / 2 - 15, `v${i + 1}`, colors.purpleMid);
+    });
+    ctx.fillText(`+ ${CHUNKS.length - 5} more chunks...`, vectorDbX + blockW / 2, H * 0.9);
+  } else if (mode === 'user_query') {
+    drawTextBox("User Query", queryX, H * 0.2, blockW, blockH, colors.text, colors.blueMid, colors.blueMid, 2);
+    ctx.fillStyle = colors.text2;
+    ctx.fillText(`"${currentQuery}"`, queryX + blockW / 2, H * 0.2 + blockH + 15);
+    drawArrow(queryX + blockW / 2, H * 0.2 + blockH, embedX + 15, H * 0.4, colors.border);
+    ctx.fillText("Embedding Model", embedX + 15, H * 0.35);
+    drawVector(embedX, H * 0.4, `v_Q`, colors.purpleMid, true);
+    ctx.fillText("Query Embedding", embedX + 15, H * 0.4 + 40);
+  } else if (mode === 'retrieve_chunks') {
+    // User Query
+    drawTextBox("User Query", queryX, H * 0.2, smallBlockW, smallBlockH, colors.text, colors.blueMid, colors.blueMid);
+    ctx.fillText(`"${currentQuery.substring(0, 20)}..."`, queryX + smallBlockW / 2, H * 0.2 + smallBlockH + 10);
+    drawArrow(queryX + smallBlockW / 2, H * 0.2 + smallBlockH, embedX + 15, H * 0.3, colors.border);
+    drawVector(embedX, H * 0.3, `v_Q`, colors.purpleMid, true);
+    ctx.fillText("Query Embedding", embedX + 15, H * 0.3 + 40);
+
+    // Vector DB
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Vector Database", vectorDbX + blockW / 2, H * 0.1);
+    drawArrow(embedX + 30, H * 0.3 + 15, vectorDbX, H * 0.2, colors.border);
+    ctx.fillText("Similarity Search", (embedX + vectorDbX) / 2, H * 0.15);
+
+    const k = parseInt(document.getElementById('kSlider').value);
+    CHUNKS.slice(0, 5).forEach((chunk, i) => {
+      const isRetrieved = retrievedChunks.some(rc => rc.id === chunk.id);
+      const chunkColor = isRetrieved ? colors.greenMid : colors.amberMid;
+      const chunkBorder = isRetrieved ? colors.greenMid : colors.border;
+      drawTextBox(`Chunk ${i + 1} text`, vectorDbX, H * (0.2 + i * 0.15), smallBlockW, smallBlockH, colors.text, chunkColor, chunkBorder, isRetrieved ? 2 : 1);
+      drawVector(vectorDbX + smallBlockW + 10, H * (0.2 + i * 0.15) + smallBlockH / 2 - 15, `v${i + 1}`, colors.purpleMid, isRetrieved);
+      if (isRetrieved) {
+        const sim = retrievedChunks.find(rc => rc.id === chunk.id).similarity;
+        ctx.fillStyle = colors.text2;
+        ctx.fillText(`Sim: ${sim.toFixed(2)}`, vectorDbX + smallBlockW + 10 + 15, H * (0.2 + i * 0.15) + smallBlockH / 2 + 25);
+      }
+    });
+    ctx.fillText(`+ ${CHUNKS.length - 5} more chunks...`, vectorDbX + blockW / 2, H * 0.9);
+  } else if (mode === 'generate_response') {
+    // User Query
+    drawTextBox("User Query", queryX, H * 0.15, smallBlockW, smallBlockH, colors.text, colors.blueMid, colors.blueMid);
+
+    // Retrieved Chunks
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Retrieved Context Chunks", queryX + blockW / 2, H * 0.35);
+    const k = parseInt(document.getElementById('kSlider').value);
+    retrievedChunks.slice(0, k).forEach((chunk, i) => {
+      drawTextBox(`Chunk ${i + 1}\n(${chunk.text.substring(0, 20)}...)`, queryX, H * (0.4 + i * 0.12), smallBlockW, smallBlockH, colors.text, colors.greenMid, colors.greenMid);
+    });
+
+    // Augment Prompt
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Augmented Prompt", embedX + blockW / 2, H * 0.1);
+    drawArrow(queryX + smallBlockW, H * 0.15 + smallBlockH / 2, embedX, H * 0.25, colors.border);
+    drawArrow(queryX + smallBlockW, H * 0.4 + smallBlockH / 2, embedX, H * 0.25, colors.border);
+    drawTextBox("Query + Context", embedX, H * 0.25, blockW, blockH, colors.text, colors.cyanMid, colors.cyanMid, 2);
+
+    // LLM
+    drawArrow(embedX + blockW / 2, H * 0.25 + blockH, llmX - blockW / 2, llmY - blockH / 2, colors.border);
+    drawTextBox("LLM", llmX - blockW / 2, llmY - blockH / 2, blockW, blockH, colors.text, colors.redMid, colors.redMid, 2);
+
+    // LLM Response
+    ctx.fillStyle = colors.text2;
+    ctx.fillText("Generated Response", llmX, H * 0.7);
+    drawTextBox(llmResponse.substring(0, 50) + "...", llmX - blockW / 2, H * 0.75, blockW, blockH, colors.text, colors.redMid, colors.redMid);
+  }
+
+  ctx.textAlign = 'left'; // Reset for general text
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ── SLIDER / INPUT WIRING ──
+const kSlider = document.getElementById('kSlider');
+kSlider.addEventListener('input', () => {
+  document.getElementById('kValue').textContent = kSlider.value;
+  if (step === 6 || step === 7) { // Only re-render retrieval/generation steps
+    simulateRetrieval(currentQuery, parseInt(kSlider.value));
+    render();
+  }
+});
+
+const queryInput = document.getElementById('queryInput');
+function simulateQuery() {
+  currentQuery = queryInput.value;
+  simulateRetrieval(currentQuery, parseInt(kSlider.value));
+  if (step < 5) step = 5; // Jump to query step if not there
+  render();
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+simulateRetrieval(currentQuery, parseInt(kSlider.value)); // Initial retrieval for the default query
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

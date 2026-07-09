@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cascaded Diffusion: Low-Res → High-Res (Imagen, DALL-E 2) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.viz-text-input{
+  display:flex;align-items:center;gap:10px;margin-bottom:1rem;
+  background:var(--bg2);padding:12px 16px;border-radius:var(--radius);
+  border:1px solid var(--border2);
+}
+.viz-text-input label{font-size:13px;font-weight:600;color:var(--text2);}
+.viz-text-input input{
+  flex:1;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-family:var(--sans);font-size:14px;
+}
+.viz-text-input input:focus{outline:none;border-color:var(--purple-mid);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-input{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-base{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-upsample{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-output{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.noise{
+  background: repeating-linear-gradient(45deg,
+    var(--text3),
+    var(--text3) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Cascaded Diffusion: Low-Res → High-Res</h1>
+  <div class="subtitle">Generating high-resolution images by chaining multiple specialized diffusion models</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-category">Diffusion Models</span>
+    <span class="tag tag-complexity">O(N) sequential stages</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Cascaded Diffusion</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Cascaded diffusion refers to a technique in text-to-image generation where multiple diffusion models are chained together to progressively generate higher-resolution images. Instead of training one massive model to directly produce a high-resolution image from a text prompt, the task is broken down: a base model generates a low-resolution image, and subsequent "super-resolution" or "upsampler" diffusion models take that low-res output and gradually increase its resolution, adding more and more fine-grained detail at each step.</p>
+    <p><strong>Analogy:</strong> Imagine an artist creating a highly detailed painting. They don't start by meticulously painting every single hair on a head. Instead, they begin with a rough sketch to establish the overall composition and shapes (analogous to the base diffusion model). Then, they add broader strokes and colors to define major forms (the first upsampler). Finally, they focus on intricate details like textures, shadows, and individual features (the second upsampler). Each stage builds upon the previous one, refining and adding complexity without needing to manage all levels of detail simultaneously.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Cascaded diffusion models break down the complex task of high-resolution image generation into a sequence of simpler, specialized steps. A text encoder provides a shared conditioning, guiding a base diffusion model to generate a low-resolution image, which is then fed sequentially into one or more diffusion-based upsamplers to add detail and increase resolution.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Multi-Stage Pipeline</h4>
+    <p>A typical cascaded diffusion pipeline (like Imagen or DALL-E 2's decoder) involves several distinct components:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Text Encoder:</strong> A powerful language model (e.g., T5 for Imagen, CLIP for DALL-E 2) converts the input text prompt into a rich, dense embedding vector. This embedding serves as the primary conditioning for all subsequent image generation stages.</li>
+      <li><strong>Base Diffusion Model:</strong> This is the first image generation stage. It takes the text embedding and generates a low-resolution image (e.g., 64x64 pixels for Imagen, 64x64 for DALL-E 2's prior). This model focuses on capturing the overall composition, colors, and content described by the text prompt, without needing to worry about fine details.</li>
+      <li><strong>Upsampler Diffusion Models:</strong> One or more of these models follow the base model. Each upsampler takes the output image from the previous stage (e.g., the 64x64 image from the base model), the original text embedding, and a new noise vector. It then performs a diffusion process to generate a higher-resolution image (e.g., 256x256 from 64x64, then 1024x1024 from 256x256). These models specialize in adding realistic detail and texture while maintaining consistency with the lower-resolution input and the text prompt.</li>
+    </ol>
+
+    <h4>Diffusion Process in Each Stage</h4>
+    <p>Each image generation model (base and upsamplers) is a standard diffusion model: it is trained to iteratively denoise a noisy image back to a clean one, given some conditioning. For the base model, the conditioning is just the text embedding \(c_{text}\). For the upsamplers, the conditioning includes both \(c_{text}\) and the lower-resolution image \(x_{low\_res}\) from the preceding stage. This dual conditioning ensures both semantic consistency with the prompt and visual consistency with the generated low-res structure.</p>
+
+    <h4>Design Decision: Why Not One Huge Model?</h4>
+    <p>Training a single diffusion model to generate very high-resolution images (e.g., 1024x1024) directly from text is extremely challenging for several reasons:</p>
+    <ul>
+      <li><strong>Computational Cost:</strong> Memory and compute scale quadratically (or worse) with image resolution. A single model would require immense resources.</li>
+      <li><strong>Training Stability:</strong> It's difficult for one model to learn both global structure (composition, object placement) and local details (textures, fine lines) simultaneously without sacrificing one for the other.</li>
+      <li><strong>Data Efficiency:</strong> Cascading allows each model to specialize, potentially making better use of data. The upsamplers can focus on learning high-frequency details.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The text embedding \(c_{text}\) acts as a consistent guiding signal across ALL stages of the cascade. This ensures that the fine details added by the upsamplers remain semantically aligned with the original prompt, preventing "drift" or misinterpretations as resolution increases.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Denoising Diffusion Objective</h4>
+    <p>At its core, each diffusion model in the cascade is trained to reverse a fixed forward diffusion process that gradually adds Gaussian noise to an image. Given an image \(x_0\) and a time step \(t\), the noisy image \(x_t\) is sampled as:</p>
+    <div class="eq">$$x_t = \sqrt{\alpha_t} x_0 + \sqrt{1-\alpha_t} \epsilon \quad \text{where } \epsilon \sim \mathcal{N}(0, I)$$</div>
+    <p>Each model (a U-Net, usually denoted \(\epsilon_\theta\)) is trained to predict the noise \(\epsilon\) added to \(x_t\). The common "simple" objective is:</p>
+    <div class="eq">$$L_{simple} = \mathbb{E}_{t, x_0, \epsilon} \left[ \left\| \epsilon - \epsilon_\theta(x_t, t, c) \right\|^2 \right]$</div>
+    <p>Here, \(c\) represents the conditioning. For the base model, \(c = c_{text}\). For an upsampler, \(c = (c_{text}, x_{low\_res})\), where \(x_{low\_res}\) is the output from the previous stage, typically downscaled and then upscaled to match the current noisy input \(x_t\).</p>
+
+    <h4>The Upsampling Step: Noise Injection for Detail</h4>
+    <p>A crucial aspect of the upsamplers is how they integrate the lower-resolution image. Instead of simply upscaling \(x_{low\_res}\) deterministically, a small amount of noise is often added to it before it's fed into the next diffusion stage. If \(x_{k-1}\) is the output from the previous (lower-res) stage, the input to the current upsampler \(D_k\) might look like:</p>
+    <div class="eq}">$$x_{k-1}^{noisy} = \text{Upsample}(x_{k-1}) + \sigma_{noise} \cdot \epsilon'$$</div>
+    <p>where \(\epsilon' \sim \mathcal{N}(0, I)\) and \(\sigma_{noise}\) is a small standard deviation. This noise injection helps prevent the upsampler from merely "blurring" or "sharpening" the previous output; it provides the necessary stochasticity for the diffusion process to invent new, realistic high-frequency details. Without it, upsamplers can suffer from "checkerboard artifacts" or simply struggle to generate truly novel features.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While powerful, cascaded diffusion models are susceptible to <strong>error propagation</strong>. If the base model generates a semantically inconsistent or low-quality low-resolution image, the subsequent upsamplers will struggle to correct these fundamental flaws, often amplifying them into higher-resolution artifacts. The quality of the first stage is paramount.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow a text prompt through a cascaded diffusion pipeline. Watch the image progressively gain resolution and detail across three stages. Adjust the "Detail Fidelity" to control how much new information the upsamplers add versus strictly adhering to the lower-res input.</p>
+
+    <div class="viz-container">
+      <div class="viz-text-input">
+        <label for="promptInput">Prompt:</label>
+        <input type="text" id="promptInput" value="a photorealistic cat wearing sunglasses, in a cyberpunk city, 8k" oninput="updatePrompt()">
+      </div>
+
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Detail Fidelity (Upsamplers)</div>
+          <input type="range" id="fidelitySlider" min="0" max="1" step="0.05" value="0.5" oninput="updateFidelity()">
+          <div class="slider-value" id="fidelityValue">0.50</div>
+        </div>
+        <div class="slider-hint" id="fidelityHint">Higher fidelity = upsamplers add less noise, stick closer to previous stage. Lower fidelity = more noise, more creative detail.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-input" id="infoPhase">INPUT</span>
+        <div class="info-step" id="infoStep">Step 1 of 11</div>
+        <div class="info-title" id="infoTitle">Initial Prompt</div>
+        <div class="info-desc" id="infoDesc">The process begins with a user-provided text prompt. This text will guide the entire image generation process across all stages.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Text Embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Base Diffusion Output (Low-Res)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Upsampler Output (Medium/High-Res)</div>
+        <div class="legend-item"><div class="legend-swatch noise"></div> Noise Injection</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Final High-Res Output</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use cascaded diffusion:</strong></p>
+    <ul>
+      <li>When generating very high-resolution images (e.g., 512x512, 1024x1024, or higher) from text.</li>
+      <li>In memory-constrained environments where a single monolithic model for high-res output would be infeasible.</li>
+      <li>To achieve superior detail and texture quality, as specialized upsamplers can be trained to excel at high-frequency generation.</li>
+      <li>To potentially improve training stability by breaking down the learning problem into more manageable sub-problems.</li>
+    </ul>
+    <p><strong>Advantages:</strong></p>
+    <ul>
+      <li><strong>Scalability:</strong> Enables generation of extremely high-resolution images that are otherwise impractical.</li>
+      <li><strong>Efficiency:</strong> Each model can be smaller and more specialized, potentially leading to faster training and inference for individual stages.</li>
+      <li><strong>Quality:</strong> Often yields higher perceptual quality and more realistic details compared to single-stage models.</li>
+      <li><strong>Modular Control:</strong> Allows for independent development or fine-tuning of upsampling stages.</li>
+    </ul>
+    <p><strong>Disadvantages:</strong></p>
+    <ul>
+      <li><strong>Error Propagation:</strong> Flaws in early stages (e.g., base model) are difficult for later stages to correct.</li>
+      <li><strong>Increased Latency:</strong> Inference requires sequential execution of multiple models, increasing total generation time.</li>
+      <li><strong>Consistency Challenges:</strong> Ensuring seamless visual and semantic consistency across all upsampling stages can be complex.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Cascaded diffusion is a prime example of breaking down a complex generative task into a modular, multi-stage pipeline. This strategy, common in many areas of deep learning (e.g., multi-stage object detection), leverages the strengths of specialized models to overcome the limitations of monolithic architectures, pushing the boundaries of what's possible in high-fidelity content creation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from diffusers import DiffusionPipeline</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># 1. Load pre-trained models for each stage</div>
+      <div class="code-line" id="cl4">text_encoder = ... # e.g., T5EncoderModel or CLIPTextModel</div>
+      <div class="code-line" id="cl5">base_diffusion = DiffusionPipeline.from_pretrained("base-model-64x64")</div>
+      <div class="code-line" id="cl6">upsampler_256 = DiffusionPipeline.from_pretrained("upsampler-64-to-256")</div>
+      <div class="code-line" id="cl7">upsampler_1024 = DiffusionPipeline.from_pretrained("upsampler-256-to-1024")</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">def generate_image_cascaded(prompt: str, fidelity_strength: float = 0.5):</div>
+      <div class="code-line" id="cl10">    # 2. Encode text prompt</div>
+      <div class="code-line" id="cl11">    text_embedding = text_encoder(prompt)</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">    # 3. Base diffusion: Generate low-resolution image (e.g., 64x64)</div>
+      <div class="code-line" id="cl14">    low_res_image = base_diffusion(text_embedding).images[0]</div>
+      <div class="code-line" id="cl15">    print(f"Generated low-res: {low_res_image.size}")</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">    # 4. Upsampler 1: 64x64 -> 256x256</div>
+      <div class="code-line" id="cl18">    # Noise injection for detail: higher fidelity_strength means less noise added</div>
+      <div class="code-line" id="cl19">    strength = 1.0 - fidelity_strength # controls how much original image is preserved</div>
+      <div class="code-line" id="cl20">    medium_res_image = upsampler_256(</div>
+      <div class="code-line" id="cl21">        image=low_res_image, # conditioned on previous stage's output</div>
+      <div class="code-line" id="cl22">        prompt_embeds=text_embedding,</div>
+      <div class="code-line" id="cl23">        strength=strength # Amount of noise to add to low_res_image before denoising</div>
+      <div class="code-line" id="cl24">    ).images[0]</div>
+      <div class="code-line" id="cl25">    print(f"Generated medium-res: {medium_res_image.size}")</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    # 5. Upsampler 2: 256x256 -> 1024x1024</div>
+      <div class="code-line" id="cl28">    high_res_image = upsampler_1024(</div>
+      <div class="code-line" id="cl29">        image=medium_res_image, # conditioned on previous stage's output</div>
+      <div class="code-line" id="cl30">        prompt_embeds=text_embedding,</div>
+      <div class="code-line" id="cl31">        strength=strength # same strength for consistency</div>
+      <div class="code-line" id="cl32">    ).images[0]</div>
+      <div class="code-line" id="cl33">    print(f"Generated high-res: {high_res_image.size}")</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35">    return high_res_image</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># Example usage:</div>
+      <div class="code-line" id="cl38"># final_image = generate_image_cascaded("a photorealistic cat wearing sunglasses...", 0.7)</div>
+      <div class="code-line" id="cl39"># final_image.save("output_cat.png")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let currentStep = 0;
+let promptText = "a photorealistic cat wearing sunglasses, in a cyberpunk city, 8k";
+let detailFidelity = 0.5; // 0 (low fidelity/more creative) to 1 (high fidelity/strict adherence)
+
+// ── CANVAS & COLORS ──
+const CANVAS_WIDTH = 800; // Logical width for drawing
+const CANVAS_HEIGHT = 450; // Logical height for drawing
+const TEXT_EMBEDDING_HEIGHT = 40;
+const ARROW_SIZE = 12;
+const FONT_SIZE = 12;
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    noisePattern: g('--text3') // Using text3 for noise pattern
+  };
+}
+
+// ── IMAGE DATA (simulated, no actual image generation) ──
+// These are just placeholder values to generate consistent visual "images"
+// The actual visual "content" is generated by the drawing functions.
+const IMAGE_RESOLUTIONS = [
+  { label: 'Low-Res (64x64)', factor: 4 }, // Visual 64x64 pixels represented by 4x4 grid
+  { label: 'Medium-Res (256x256)', factor: 16 }, // Visual 256x256 pixels represented by 16x16 grid
+  { label: 'High-Res (1024x1024)', factor: 64 } // Visual 1024x1024 pixels represented by 64x64 grid
+];
+
+function generateImageVisual(ctx, x, y, size, resolution, noiseFactor, fidelity, colors, isFinal=false) {
+  const numCells = resolution.factor; // Number of "pixels" to draw across width/height
+  const cellW = size / numCells; // Visual cell size for pixelation
+
+  // Deterministic seed based on prompt and resolution for consistent "image" content
+  const seed = (promptText + resolution.label).length * 12345 + (noiseFactor * 1000) + (fidelity * 5000);
+  const rng = mulberry32(seed);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, size, size);
+  ctx.clip(); // Clip drawing to the square boundary
+
+  // Simulate image content
+  for (let i = 0; i < numCells; i++) {
+    for (let j = 0; j < numCells; j++) {
+      const val = Math.floor(rng() * 255);
+      // Simulate color changes based on prompt and fidelity
+      let r = val + (promptText.length * 3) % 100;
+      let g = val + (promptText.charCodeAt(0) * 2) % 100;
+      let b = val + (promptText.charCodeAt(promptText.length - 1) * 1) % 100;
+
+      // Adjust color based on fidelity for upsamplers
+      if (resolution.factor > IMAGE_RESOLUTIONS[0].factor) { // Only for upsamplers
+        const detailDivergence = (1 - fidelity) * 80; // More detail divergence at lower fidelity
+        r = (r + rng() * detailDivergence) % 255;
+        g = (g + rng() * detailDivergence) % 255;
+        b = (b + rng() * detailDivergence) % 255;
+      }
+
+      ctx.fillStyle = `rgb(${r % 255}, ${g % 255}, ${b % 255})`;
+      ctx.fillRect(x + j * cellW, y + i * cellW, cellW, cellW);
+    }
+  }
+
+  // Add noise overlay if applicable
+  if (noiseFactor > 0 && !isFinal) {
+    ctx.globalAlpha = noiseFactor * 0.4; // Transparency for noise
+    ctx.fillStyle = colors.noisePattern; // Use CSS var for noise color
+    ctx.fillRect(x, y, size, size);
+  }
+
+  ctx.restore(); // Restore context to remove clipping
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, size, size); // Draw border after clipping
+}
+
+// Seeded PRNG for reproducible "image" generation
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+
+// ── STEPS DEFINITION ──
+const steps = [
+  { phase: 'input', title: 'Initial Prompt', desc: 'The process begins with a user-provided text prompt. This text will guide the entire image generation process across all stages.', codeLines: [9,10,11], activeElements: ['prompt'], highlight: 'prompt' },
+  { phase: 'input', title: 'Text Encoding', desc: 'The text prompt is fed into a powerful text encoder (e.g., T5 or CLIP). This model converts the natural language into a dense, numerical embedding vector, capturing its semantic meaning. This embedding is crucial for conditioning all subsequent image models.', codeLines: [10,11], activeElements: ['text_embedding'], highlight: 'text_embedding' },
+  { phase: 'base', title: 'Base Diffusion: Initial Noise', desc: 'The base diffusion model starts with pure Gaussian noise at a low resolution (e.g., 64x64 pixels). This noise will be iteratively refined into a coherent image, guided by the text embedding.', codeLines: [13,14], activeElements: ['base_model_box', 'low_res_noise'], highlight: 'low_res_noise' },
+  { phase: 'base', title: 'Base Diffusion: Denoising Steps', desc: 'Over many steps, the base diffusion model iteratively denoises the image, using its U-Net architecture to predict and subtract noise, conditioned on the text embedding. It focuses on global composition and color.', codeLines: [13,14], activeElements: ['base_model_box', 'low_res_denoising'], highlight: 'low_res_denoising' },
+  { phase: 'base', title: 'Base Diffusion: Low-Res Output', desc: 'The base model converges to a low-resolution image. This image captures the essence of the prompt but lacks fine details. It serves as the foundation for the subsequent upsampling stages.', codeLines: [14,15], activeElements: ['low_res_output'], highlight: 'low_res_output' },
+  { phase: 'upsample', title: 'Upsampler 1: Input & Noise Injection', desc: 'The low-resolution image is now fed to the first upsampler (e.g., 64x64 to 256x256). Crucially, a small amount of noise is injected into this input. This noise provides stochasticity, allowing the upsampler to "invent" new details rather than just sharpening existing pixels. The text embedding also continues to condition this stage.', codeLines: [17,18,19,20,21,22,23,24], activeElements: ['upsampler1_box', 'med_res_noise_input'], highlight: 'med_res_noise_input' },
+  { phase: 'upsample', title: 'Upsampler 1: Denoising & Upscaling', desc: 'The first upsampler iteratively denoises and upscales the image. It learns to add medium-level details and textures, guided by both the low-res input and the text embedding, creating a medium-resolution output.', codeLines: [20,21,22,23,24], activeElements: ['upsampler1_box', 'med_res_denoising'], highlight: 'med_res_denoising' },
+  { phase: 'upsample', title: 'Upsampler 1: Medium-Res Output', desc: 'The output of the first upsampler is a medium-resolution image (e.g., 256x256). It\'s significantly more detailed than the low-res image, but still not perfectly sharp.', codeLines: [24,25], activeElements: ['medium_res_output'], highlight: 'medium_res_output' },
+  { phase: 'upsample', title: 'Upsampler 2: Input & Noise Injection', desc: 'The medium-resolution image proceeds to the second upsampler (e.g., 256x256 to 1024x1024). Again, noise is injected to allow for the generation of the finest details, maintaining the "Detail Fidelity" set by the slider.', codeLines: [27,28,29,30,31,32], activeElements: ['upsampler2_box', 'high_res_noise_input'], highlight: 'high_res_noise_input' },
+  { phase: 'upsample', title: 'Upsampler 2: Denoising & Upscaling', desc: 'The final upsampler works to produce the highest resolution image. It focuses on generating ultra-fine details, sharp edges, and realistic textures, ensuring the final output is photorealistic or matches the desired artistic style.', codeLines: [28,29,30,31,32], activeElements: ['upsampler2_box', 'high_res_denoising'], highlight: 'high_res_denoising' },
+  { phase: 'output', title: 'Final High-Resolution Image', desc: 'The cascaded diffusion pipeline culminates in a high-resolution image, rich in detail and semantically consistent with the initial text prompt. The modular approach allows for impressive scalability and quality.', codeLines: [33,34,35], activeElements: ['high_res_output'], highlight: 'high_res_output' }
+];
+
+const totalSteps = steps.length;
+
+// ── UI UPDATE FUNCTIONS ──
+function updatePrompt() {
+  promptText = document.getElementById('promptInput').value;
+  render();
+}
+
+function updateFidelity() {
+  detailFidelity = parseFloat(document.getElementById('fidelitySlider').value);
+  document.getElementById('fidelityValue').textContent = detailFidelity.toFixed(2);
+  const hint = detailFidelity < 0.5 ? 'Lower fidelity = more noise added, more creative/divergent detail.' : 'Higher fidelity = less noise added, stricter adherence to previous stage.';
+  document.getElementById('fidelityHint').textContent = hint;
+  render();
+}
+
+// ── RENDERING LOGIC ──
+function render() {
+  const s = steps[currentStep];
+
+  // Update controls
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  // Update info card
+  const phaseMap = { input: 'phase-input', base: 'phase-base', upsample: 'phase-upsample', output: 'phase-output' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Update code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+  ctx.font = `${FONT_SIZE}px ${getComputedStyle(document.body).fontFamily}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Define element positions
+  const textInputY = H * 0.1;
+  const textEmbedX = W * 0.15;
+  const textEmbedY = textInputY + TEXT_EMBEDDING_HEIGHT / 2 + 30;
+
+  const baseModelX = W * 0.35;
+  const baseModelY = H * 0.25;
+  const modelBoxW = W * 0.1;
+  const modelBoxH = H * 0.15;
+
+  const lowResImageX = W * 0.55;
+  const lowResImageY = H * 0.25;
+  const imageSize = W * 0.12;
+
+  const upsampler1X = baseModelX;
+  const upsampler1Y = lowResImageY + imageSize + 60;
+
+  const medResImageX = lowResImageX;
+  const medResImageY = upsampler1Y;
+
+  const upsampler2X = baseModelX;
+  const upsampler2Y = medResImageY + imageSize + 60;
+
+  const highResImageX = lowResImageX;
+  const highResImageY = upsampler2Y;
+
+  const currentHighlight = s.highlight;
+  const isActive = (elementKey) => s.activeElements.includes(elementKey);
+
+  // --- Draw Elements ---
+
+  // 1. Text Prompt (conceptual)
+  ctx.fillStyle = colors.text2;
+  ctx.fillText('Text Prompt', textEmbedX, textInputY);
+
+  // 2. Text Embedding Box
+  drawBox(ctx, textEmbedX - modelBoxW / 2, textEmbedY - TEXT_EMBEDDING_HEIGHT / 2, modelBoxW, TEXT_EMBEDDING_HEIGHT,
+          'Text Embedding', isActive('text_embedding') ? colors.blue : colors.text3, colors, currentHighlight === 'text_embedding');
+
+  // 3. Base Diffusion Model Box
+  drawBox(ctx, baseModelX - modelBoxW / 2, baseModelY - modelBoxH / 2, modelBoxW, modelBoxH,
+          'Base Diffusion', isActive('base_model_box') ? colors.amber : colors.text3, colors, currentHighlight === 'base_model_box');
+
+  // 4. Low-Res Image Output
+  drawBox(ctx, lowResImageX - imageSize / 2, lowResImageY - imageSize / 2, imageSize, imageSize,
+          '', isActive('low_res_output') ? colors.amber : colors.text3, colors, currentHighlight === 'low_res_output');
+  if (isActive('low_res_output') || isActive('low_res_denoising') || isActive('low_res_noise')) {
+    const noiseFactor = (s.highlight === 'low_res_noise') ? 1 : (s.highlight === 'low_res_denoising' ? 0.5 : 0);
+    generateImageVisual(ctx, lowResImageX - imageSize / 2, lowResImageY - imageSize / 2, imageSize, IMAGE_RESOLUTIONS[0], noiseFactor, detailFidelity, colors, currentHighlight === 'low_res_output');
+  }
+
+
+  // 5. Upsampler 1 Model Box
+  drawBox(ctx, upsampler1X - modelBoxW / 2, upsampler1Y - modelBoxH / 2, modelBoxW, modelBoxH,
+          'Upsampler 1', isActive('upsampler1_box') ? colors.purple : colors.text3, colors, currentHighlight === 'upsampler1_box');
+
+  // 6. Medium-Res Image Output
+  drawBox(ctx, medResImageX - imageSize / 2, medResImageY - imageSize / 2, imageSize, imageSize,
+          '', isActive('medium_res_output') ? colors.purple : colors.text3, colors, currentHighlight === 'medium_res_output');
+  if (isActive('medium_res_output') || isActive('med_res_denoising') || isActive('med_res_noise_input')) {
+    const noiseFactor = (s.highlight === 'med_res_noise_input') ? (1 - detailFidelity) : (s.highlight === 'med_res_denoising' ? (1 - detailFidelity) * 0.5 : 0);
+    generateImageVisual(ctx, medResImageX - imageSize / 2, medResImageY - imageSize / 2, imageSize, IMAGE_RESOLUTIONS[1], noiseFactor, detailFidelity, colors, currentHighlight === 'medium_res_output');
+  }
+
+  // 7. Upsampler 2 Model Box
+  drawBox(ctx, upsampler2X - modelBoxW / 2, upsampler2Y - modelBoxH / 2, modelBoxW, modelBoxH,
+          'Upsampler 2', isActive('upsampler2_box') ? colors.purple : colors.text3, colors, currentHighlight === 'upsampler2_box');
+
+  // 8. High-Res Image Output
+  drawBox(ctx, highResImageX - imageSize / 2, highResImageY - imageSize / 2, imageSize, imageSize,
+          '', isActive('high_res_output') ? colors.green : colors.text3, colors, currentHighlight === 'high_res_output');
+  if (isActive('high_res_output') || isActive('high_res_denoising') || isActive('high_res_noise_input')) {
+    const noiseFactor = (s.highlight === 'high_res_noise_input') ? (1 - detailFidelity) : (s.highlight === 'high_res_denoising' ? (1 - detailFidelity) * 0.5 : 0);
+    generateImageVisual(ctx, highResImageX - imageSize / 2, highResImageY - imageSize / 2, imageSize, IMAGE_RESOLUTIONS[2], noiseFactor, detailFidelity, colors, currentHighlight === 'high_res_output');
+  }
+
+  // --- Draw Arrows ---
+
+  // Text Embedding -> Base Model
+  drawArrow(ctx, textEmbedX, textEmbedY + TEXT_EMBEDDING_HEIGHT / 2, baseModelX, baseModelY - modelBoxH / 2,
+            isActive('text_embedding') || isActive('base_model_box'), colors, currentHighlight === 'text_embedding');
+
+  // Base Model -> Low-Res Image
+  drawArrow(ctx, baseModelX + modelBoxW / 2, baseModelY, lowResImageX - imageSize / 2, lowResImageY,
+            isActive('base_model_box') || isActive('low_res_output'), colors, currentHighlight === 'low_res_output');
+
+  // Low-Res Image -> Upsampler 1
+  drawArrow(ctx, lowResImageX, lowResImageY + imageSize / 2, upsampler1X, upsampler1Y - modelBoxH / 2,
+            isActive('low_res_output') || isActive('upsampler1_box'), colors, currentHighlight === 'low_res_output');
+
+  // Text Embedding -> Upsampler 1 (Conditional)
+  drawConditionalArrow(ctx, textEmbedX, textEmbedY + TEXT_EMBEDDING_HEIGHT / 2, upsampler1X - modelBoxW / 2, upsampler1Y,
+                      isActive('text_embedding') || isActive('upsampler1_box'), colors, currentHighlight === 'text_embedding');
+
+  // Upsampler 1 -> Medium-Res Image
+  drawArrow(ctx, upsampler1X + modelBoxW / 2, upsampler1Y, medResImageX - imageSize / 2, medResImageY,
+            isActive('upsampler1_box') || isActive('medium_res_output'), colors, currentHighlight === 'medium_res_output');
+
+  // Medium-Res Image -> Upsampler 2
+  drawArrow(ctx, medResImageX, medResImageY + imageSize / 2, upsampler2X, upsampler2Y - modelBoxH / 2,
+            isActive('medium_res_output') || isActive('upsampler2_box'), colors, currentHighlight === 'medium_res_output');
+
+  // Text Embedding -> Upsampler 2 (Conditional)
+  drawConditionalArrow(ctx, textEmbedX, textEmbedY + TEXT_EMBEDDING_HEIGHT / 2, upsampler2X - modelBoxW / 2, upsampler2Y,
+                      isActive('text_embedding') || isActive('upsampler2_box'), colors, currentHighlight === 'text_embedding');
+
+  // Upsampler 2 -> High-Res Image
+  drawArrow(ctx, upsampler2X + modelBoxW / 2, upsampler2Y, highResImageX - imageSize / 2, highResImageY,
+            isActive('upsampler2_box') || isActive('high_res_output'), colors, currentHighlight === 'high_res_output');
+}
+
+function drawBox(ctx, x, y, w, h, text, color, colors, isHighlight) {
+  ctx.save();
+  ctx.fillStyle = colors.bg2;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = isHighlight ? 3 : 1.5;
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, 8) : ctx.rect(x, y, w, h);
+  ctx.fill();
+  ctx.stroke();
+
+  if (text) {
+    ctx.fillStyle = colors.text;
+    ctx.font = `600 ${FONT_SIZE}px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.fillText(text, x + w / 2, y + h / 2);
+  }
+  ctx.restore();
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, isActive, colors, isHighlight) {
+  ctx.save();
+  ctx.strokeStyle = isActive ? colors.purple : colors.border;
+  ctx.lineWidth = isHighlight ? 2.5 : 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  // Arrowhead
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.fillStyle = isActive ? colors.purple : colors.border;
+  ctx.translate(x2, y2);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-ARROW_SIZE, -ARROW_SIZE / 2);
+  ctx.lineTo(-ARROW_SIZE, ARROW_SIZE / 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawConditionalArrow(ctx, x1, y1, x2, y2, isActive, colors, isHighlight) {
+  // Draw an arrow that curves around to signify conditioning
+  ctx.save();
+  ctx.strokeStyle = isActive ? colors.blue : colors.border;
+  ctx.lineWidth = isHighlight ? 2.5 : 1.5;
+  ctx.setLineDash([4, 4]); // Dashed line for conditional input
+
+  // Adjust control points for a smooth curve
+  const midX = x1; // Keep X constant initially for vertical drop
+  const midY = y2; // Then move horizontally to target Y
+
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(midX, midY); // Vertical segment
+  ctx.lineTo(x2, midY); // Horizontal segment
+  ctx.stroke();
+
+  // Arrowhead at the end of the horizontal segment
+  const angle = Math.atan2(0, x2 - midX); // Angle for horizontal line
+  ctx.fillStyle = isActive ? colors.blue : colors.border;
+  ctx.translate(x2, midY);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-ARROW_SIZE, -ARROW_SIZE / 2);
+  ctx.lineTo(-ARROW_SIZE, ARROW_SIZE / 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() {
+  currentStep = 0;
+  promptText = "a photorealistic cat wearing sunglasses, in a cyberpunk city, 8k";
+  document.getElementById('promptInput').value = promptText;
+  detailFidelity = 0.5;
+  document.getElementById('fidelitySlider').value = detailFidelity;
+  updateFidelity(); // This also calls render()
+}
+
+// ── PROGRESS DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+document.addEventListener('DOMContentLoaded', () => {
+  // Set initial slider value display
+  document.getElementById('fidelityValue').textContent = detailFidelity.toFixed(2);
+  const initialHint = detailFidelity < 0.5 ? 'Lower fidelity = more noise added, more creative/divergent detail.' : 'Higher fidelity = less noise added, stricter adherence to previous stage.';
+  document.getElementById('fidelityHint').textContent = initialHint;
+
+  initDots();
+  render();
+  window.addEventListener('resize', () => drawCanvas(steps[currentStep])); // Redraw on resize
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Denoising Diffusion: U-Net for Noise Prediction — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.viz-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1rem;margin-bottom:1rem;}
+.viz-image-box{background:var(--bg2);border-radius:var(--radius);padding:10px;text-align:center;position:relative;}
+.viz-image-box canvas{width:100%;height:100px;object-fit:contain;border-radius:var(--radius-sm);background:var(--surface);border:1px solid var(--border);}
+.viz-image-box .label{font-size:12px;font-weight:600;color:var(--text2);margin-top:8px;}
+.viz-image-box .value{font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:4px;}
+.viz-image-box .overlay-label{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--text);background:rgba(255,255,255,0.8);border-radius:var(--radius);opacity:0;transition:opacity 0.3s;}
+.viz-image-box .overlay-label.active{opacity:1;}
+.viz-unet-diagram{display:flex;justify-content:center;align-items:center;position:relative;margin-top:1.5rem;margin-bottom:1rem;height:180px;}
+.unet-block{background:var(--blue-bg);border:1px solid var(--blue-border);border-radius:var(--radius-sm);padding:6px 10px;font-size:11px;font-weight:600;color:var(--blue-mid);text-align:center;position:absolute;transition:all 0.3s;}
+.unet-block.active{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);transform:scale(1.05);}
+.unet-arrow{position:absolute;height:2px;background:var(--text3);transition:all 0.3s;}
+.unet-arrow.active{background:var(--purple-mid);transform:scaleX(1.1);}
+.unet-arrow::after{content:'';position:absolute;right:-4px;top:-3px;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:4px solid var(--text3);transition:border-left-color 0.3s;}
+.unet-arrow.active::after{border-left-color:var(--purple-mid);}
+.unet-skip{position:absolute;border:1px dashed var(--text3);transition:all 0.3s;}
+.unet-skip.active{border-color:var(--purple-mid);border-style:solid;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:90px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-forward{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-denoise{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-unet{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .viz-grid{grid-template-columns:1fr;}
+  .unet-block{font-size:10px;padding:4px 8px;}
+  .unet-diagram{height:150px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Denoising Diffusion: U-Net for Noise Prediction</h1>
+  <div class="subtitle">Learning the reverse process to generate images by iteratively removing predicted noise</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-complexity">O(T · N log N)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Denoising Diffusion Models</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Denoising Diffusion Probabilistic Models (DDPMs) are a class of generative models that learn to create data (like images) by reversing a controlled process of adding noise. Instead of directly generating an image, they learn a "denoiser" network that, given a noisy image, predicts the noise that was added to it. By iteratively subtracting this predicted noise, a clean image emerges from pure random noise.</p>
+    <p><strong>Analogy:</strong> Imagine you have a beautiful sculpture, and you gradually cover it with layers of clay until it's just an amorphous blob. A diffusion model is like learning to reverse this: starting with the blob, you learn to chip away precisely the right amount of clay at each step, revealing the original sculpture underneath. The "denoising network" is the sculptor's skill, predicting exactly what clay to remove to get closer to the original form.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The core idea is to train a neural network (typically a U-Net) to predict the <strong>noise component</strong> that was added to an image at a specific timestep, rather than trying to predict the clean image itself. This seemingly small change simplifies the learning problem significantly and leads to highly effective generative models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">The Forward & Reverse Processes</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Forward Diffusion Process (Training)</h4>
+    <p>This is a fixed, Markovian process that gradually adds Gaussian noise to an image \(x_0\) over \(T\) discrete time steps. At each step \(t\), a small amount of noise is added, transitioning from \(x_{t-1}\) to \(x_t\). Crucially, \(x_t\) can be sampled directly from \(x_0\) for any \(t\), which simplifies training. As \(t \to T\), \(x_t\) approaches pure Gaussian noise, completely obscuring the original image.</p>
+    <div class="eq">$$q(x_t | x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t} x_{t-1}, \beta_t I)$$</div>
+    <p>where \(\beta_t\) is a small variance schedule. An important property is that \(x_t\) can be sampled directly from \(x_0\) and a noise sample \(\epsilon \sim \mathcal{N}(0, I)\):</p>
+    <div class="eq">$$x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$$</div>
+    <p>where \(\alpha_t = 1-\beta_t\) and \(\bar{\alpha}_t = \prod_{s=1}^t \alpha_s\).</p>
+
+    <h4>The Reverse Denoising Process (Generation)</h4>
+    <p>This is the learned process. We start with pure Gaussian noise \(x_T\) and iteratively denoise it back to \(x_0\). At each step, a neural network (the "denoising network" or "noise predictor") estimates the noise \(\epsilon\) that was added to \(x_t\). This estimated noise is then subtracted to yield a slightly cleaner image \(x_{t-1}\).</p>
+    <div class="eq">$$x_{t-1} = \frac{1}{\sqrt{\alpha_t}} \left(x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}} \epsilon_\theta(x_t, t)\right) + \sigma_t z$$</div>
+    <p>where \(\epsilon_\theta(x_t, t)\) is our U-Net's prediction of the noise, and \(z \sim \mathcal{N}(0, I)\) is a small amount of added stochasticity (often zero for deterministic sampling).</p>
+
+    <h4>The Denoising Network: A U-Net Architecture</h4>
+    <p>The neural network responsible for predicting \(\epsilon\) is almost universally a U-Net. U-Nets are encoder-decoder architectures with "skip connections" that link corresponding layers in the encoder and decoder. This structure is ideal for image-to-image tasks like denoising because:</p>
+    <ul>
+      <li><strong>Encoder:</strong> Downsamples the input, capturing high-level semantic features (what's in the image).</li>
+      <li><strong>Decoder:</strong> Upsamples, reconstructing the output with fine-grained detail (where exactly is the noise).</li>
+      <li><strong>Skip Connections:</strong> Allow low-level spatial information (edges, textures) from the encoder to directly bypass the bottleneck and reach the decoder. This is crucial for precise noise prediction, as noise patterns often have high-frequency components.</li>
+      <li><strong>Time Embeddings:</strong> The U-Net also takes the current timestep \(t\) as an input, usually via a sinusoidal positional embedding, allowing it to learn \(t\)-specific noise patterns.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The U-Net is trained with a simple <strong>L2 loss</strong>. For a given \(x_0\) and a random timestep \(t\), we add random noise \(\epsilon\) to create \(x_t\). The U-Net then takes \((x_t, t)\) as input and predicts \(\epsilon_\theta\). The loss is \(\| \epsilon - \epsilon_\theta(x_t, t) \|^2\). This direct noise prediction simplifies the training objective significantly.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Training Objective</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Training Objective</h4>
+    <p>The core idea of DDPMs is to train a neural network, \(\epsilon_\theta\), to predict the noise component \(\epsilon\) given a noisy image \(x_t\) and its corresponding timestep \(t\). This is achieved by minimizing a simplified L2 loss function:</p>
+    <div class="eq">$$\mathcal{L}(\theta) = \mathbb{E}_{t \sim [1, T], x_0 \sim q(x_0), \epsilon \sim \mathcal{N}(0, I)} \left[ \left\| \epsilon - \epsilon_\theta(\sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon, t) \right\|^2 \right]$</div>
+    <p>In practice, for each training step:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Sample a real image \(x_0\) from the training data.</li>
+      <li>Sample a timestep \(t\) uniformly from \(\{1, \dots, T\}\).</li>
+      <li>Sample pure Gaussian noise \(\epsilon \sim \mathcal{N}(0, I)\).</li>
+      <li>Compute the noisy image \(x_t\) using the direct sampling formula: \(x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon\).</li>
+      <li>Train the U-Net \(\epsilon_\theta\) to predict \(\epsilon\) from \((x_t, t)\), minimizing \(\| \epsilon - \epsilon_\theta(x_t, t) \|^2\).</li>
+    </ol>
+    <p>This objective is derived from a variational lower bound (VLB) on the likelihood of the data, but the simplified L2 loss works surprisingly well and is much easier to implement and optimize. It effectively trains the U-Net to be a "noise estimator" at different noise levels.</p>
+
+    <h4>Why Predict Noise, Not the Clean Image?</h4>
+    <p>Intuitively, it's easier to predict the *difference* (the noise) between a noisy image and a clean one than to predict the clean image directly, especially since the noise distribution is known (Gaussian). The noise prediction task is well-conditioned because the target \(\epsilon\) is a standard Gaussian, regardless of the image content or noise level \(t\). If the model tried to predict \(x_0\) directly, the target distribution would be complex and multimodal.</p>
+    <p>The connection to score-based generative models further explains this. Predicting the noise \(\epsilon\) is equivalent to predicting the score function \(\nabla_{x_t} \log q(x_t | x_0)\), which is a key component in score-based diffusion models. This link provides a strong theoretical foundation for why noise prediction is an effective strategy.</p>
+    <div class="concept-box math">
+      <div class="concept-box-title">➕ Denoising Step Math</div>
+      <p style="font-size:14px;margin:0;">The actual denoising step to go from \(x_t\) to \(x_{t-1}\) involves estimating the mean of \(q(x_{t-1} | x_t)\). This mean can be expressed in terms of the predicted noise \(\epsilon_\theta(x_t, t)\):
+      $$ \mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} \left(x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}} \epsilon_\theta(x_t, t)\right) $$
+      The reverse step then becomes \(x_{t-1} = \mu_\theta(x_t, t) + \sigma_t z\), where \(\sigma_t\) controls the variance of the added noise (often small or zero for deterministic sampling).</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Diffusion models require a large number of steps (\(T\) often in the hundreds or thousands) to produce high-quality images. This makes sampling a new image very slow compared to VAEs or GANs. Recent advancements like DDIM (Denoising Diffusion Implicit Models) and consistency models address this by allowing fewer sampling steps, but the core U-Net noise prediction remains.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow a single image through the forward diffusion process, then see how the U-Net iteratively removes predicted noise to reconstruct it.</p>
+
+    <div class="viz-container">
+      <div class="viz-grid">
+        <div class="viz-image-box">
+          <canvas id="canvasOriginal" width="100" height="100"></canvas>
+          <div class="label">Original Image (\(x_0\))</div>
+        </div>
+        <div class="viz-image-box">
+          <canvas id="canvasNoisy" width="100" height="100"></canvas>
+          <div class="label">Noisy Image (\(x_t\))</div>
+          <div class="value" id="noisyValue">t=0, noise=0%</div>
+          <div class="overlay-label" id="noisyOverlay"></div>
+        </div>
+        <div class="viz-image-box">
+          <canvas id="canvasPredictedNoise" width="100" height="100"></canvas>
+          <div class="label">Predicted Noise (\(\epsilon_\theta\))</div>
+          <div class="value" id="predictedNoiseValue"></div>
+          <div class="overlay-label" id="predictedNoiseOverlay"></div>
+        </div>
+        <div class="viz-image-box">
+          <canvas id="canvasDenoised" width="100" height="100"></canvas>
+          <div class="label">Denoised Image (\(x_{t-1}\))</div>
+          <div class="value" id="denoisedValue"></div>
+          <div class="overlay-label" id="denoisedOverlay"></div>
+        </div>
+      </div>
+
+      <div class="viz-unet-diagram">
+        <div id="unet-enc1" class="unet-block" style="left:10%;top:10%;width:100px;">Input \(x_t\)</div>
+        <div id="unet-enc2" class="unet-block" style="left:20%;top:30%;width:80px;">Encoder</div>
+        <div id="unet-enc3" class="unet-block" style="left:30%;top:50%;width:60px;">Bottleneck</div>
+        <div id="unet-dec1" class="unet-block" style="left:60%;top:50%;width:60px;">Decoder</div>
+        <div id="unet-dec2" class="unet-block" style="left:70%;top:30%;width:80px;">Output \(\epsilon_\theta\)</div>
+
+        <div id="unet-arrow1" class="unet-arrow" style="left:18%;top:20%;width:10%;"></div>
+        <div id="unet-arrow2" class="unet-arrow" style="left:28%;top:40%;width:10%;"></div>
+        <div id="unet-arrow3" class="unet-arrow" style="left:38%;top:59%;width:20%;"></div>
+        <div id="unet-arrow4" class="unet-arrow" style="left:68%;top:40%;width:10%;transform:rotate(180deg);"></div>
+        <div id="unet-arrow5" class="unet-arrow" style="left:78%;top:20%;width:10%;transform:rotate(180deg);"></div>
+
+        <div id="unet-skip1" class="unet-skip" style="left:20%;top:30%;width:40%;height:40px;border-top-left-radius:10px;border-bottom-left-radius:10px;border-width:1px 0 0 1px;"></div>
+        <div id="unet-skip2" class="unet-skip" style="left:30%;top:50%;width:30%;height:40px;border-top-left-radius:10px;border-bottom-left-radius:10px;border-width:1px 0 0 1px;"></div>
+        <div class="unet-block" style="left:45%;top:80%;width:100px;background:var(--cyan-bg);color:var(--cyan-mid);border-color:var(--cyan-border);">Time Embedding (t)</div>
+      </div>
+
+      <div class="slider-panel" id="sliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">Noise Level (t)</div>
+          <input type="range" id="noiseSlider" min="0" max="100" step="1" value="0">
+          <div class="slider-value" id="noiseValue">0</div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial State: The Clean Image</div>
+        <div class="info-desc" id="infoDesc">We begin with a simple clean image, \(x_0\), which our diffusion model aims to generate. This is our ground truth.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Image (noisy or clean)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Added Noise (\(\epsilon\))</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Predicted Noise (\(\epsilon_\theta\))</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> U-Net Processing</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Denoising Diffusion Models:</strong></p>
+    <ul>
+      <li><strong>High-quality Image Generation:</strong> Diffusion models, especially when conditioned (e.g., text-to-image), produce state-of-the-art visual fidelity.</li>
+      <li><strong>Image Editing/Restoration:</strong> Tasks like inpainting, super-resolution, and general denoising benefit from the iterative refinement process.</li>
+      <li><strong>Flexible Sampling:</strong> The iterative nature allows for various sampling strategies (deterministic vs. stochastic, fast vs. slow).</li>
+      <li><strong>Robustness:</strong> The training objective's focus on noise prediction makes the model robust to different noise levels and distributions.</li>
+    </ul>
+    <p><strong>When to consider alternatives:</strong></p>
+    <ul>
+      <li><strong>Fast Inference:</strong> Direct generation models (GANs, VAEs) can be much faster for sampling, although often at a quality trade-off. However, faster sampling techniques for diffusion models are rapidly evolving.</li>
+      <li><strong>Small Datasets:</strong> Diffusion models tend to be data-hungry, requiring extensive datasets for optimal performance.</li>
+      <li><strong>Computational Resources:</strong> Both training and sampling (especially with many steps) can be computationally intensive, requiring significant GPU resources.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">The U-Net, originally developed for biomedical image segmentation, found a new life as the workhorse of diffusion models. Its skip connections are key to preserving fine details and localizing noise patterns, making it exceptionally well-suited for the image-to-image translation task of noise prediction across various scales and noise levels.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Simplified Denoising Loop</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from my_unet_model import UNet</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume model is trained and on device</div>
+      <div class="code-line" id="cl4">model = UNet(in_channels=3, out_channels=3, time_embedding_dim=256)</div>
+      <div class="code-line" id="cl5">model.load_state_dict(torch.load('denoising_unet.pth'))</div>
+      <div class="code-line" id="cl6">model.eval()</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># Hyperparameters for diffusion process</div>
+      <div class="code-line" id="cl9">T = 1000 # Total diffusion steps</div>
+      <div class="code-line" id="cl10">betas = torch.linspace(0.0001, 0.02, T)</div>
+      <div class="code-line" id="cl11">alphas = 1.0 - betas</div>
+      <div class="code-line" id="cl12">alphas_cumprod = torch.cumprod(alphas, dim=0)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># --- Sampling (Reverse Process) ---</div>
+      <div class="code-line" id="cl15">img_size = 64</div>
+      <div class="code-line" id="cl16">x_t = torch.randn((1, 3, img_size, img_size)) # Start with pure noise</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">with torch.no_grad():</div>
+      <div class="code-line" id="cl19">    for t in reversed(range(T)):</div>
+      <div class="code-line" id="cl20">        # 1. Prepare time embedding</div>
+      <div class="code-line" id="cl21">        t_tensor = torch.tensor([t], dtype=torch.long)</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">        # 2. U-Net predicts noise epsilon_theta</div>
+      <div class="code-line" id="cl24">        predicted_noise = model(x_t, t_tensor)</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">        # 3. Calculate coefficients for denoising step</div>
+      <div class="code-line" id="cl27">        alpha_t = alphas[t]</div>
+      <div class="code-line" id="cl28">        alpha_cumprod_t = alphas_cumprod[t]</div>
+      <div class="code-line" id="cl29">        beta_t = betas[t]</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">        # 4. Estimate x_0 (clean image) from x_t and predicted noise</div>
+      <div class="code-line" id="cl32">        # This is a key intermediate step in deriving the reverse mean</div>
+      <div class="code-line" id="cl33">        pred_x0 = (x_t - torch.sqrt(beta_t) * predicted_noise) / torch.sqrt(alpha_t)</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35">        # 5. Compute mean of q(x_{t-1} | x_t, x_0) (simplified for DDPM)</div>
+      <div class="code-line" id="cl36">        mean_x_t_minus_1 = (1 / torch.sqrt(alpha_t)) * (x_t - ((1 - alpha_t) / torch.sqrt(1 - alpha_cumprod_t)) * predicted_noise)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">        # 6. Add noise for stochasticity (optional, for deterministic sampling can be 0)</div>
+      <div class="code-line" id="cl39">        variance = beta_t # or a smaller schedule for DDIM</div>
+      <div class="code-line" id="cl40">        noise_for_next_step = torch.randn_like(x_t) if t > 0 else 0</div>
+      <div class="code-line" id="cl41">        x_t = mean_x_t_minus_1 + torch.sqrt(variance) * noise_for_next_step</div>
+      <div class="code-line" id="cl42"></div>
+      <div class="code-line" id="cl43"># x_t now contains the generated image (x_0)</div>
+      <div class="code-line" id="cl44"># display_image(x_t)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── IMAGE GENERATION & NOISE FUNCTIONS ──
+const IMG_SIZE = 100;
+const MAX_TIME_STEPS = 100; // T in diffusion model
+const BETA_START = 0.0001;
+const BETA_END = 0.02;
+
+function generateOriginalImage(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
+  ctx.fillStyle = '#66A3FF'; // Blue color
+  ctx.fillRect(20, 20, 60, 60); // A simple square
+  ctx.fillStyle = '#FF6666'; // Red color
+  ctx.beginPath();
+  ctx.arc(50, 50, 15, 0, Math.PI * 2); // A circle in the middle
+  ctx.fill();
+  return ctx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+}
+
+function addGaussianNoise(imageData, noiseLevel, seed = 0) {
+  const data = new Uint8ClampedArray(imageData.data); // Copy data to avoid modifying original
+  const rng = mulberry32(seed); // Seeded RNG for reproducibility
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    // Generate Gaussian noise for each channel
+    const noiseR = boxMuller(rng) * noiseLevel * 255;
+    const noiseG = boxMuller(rng) * noiseLevel * 255;
+    const noiseB = boxMuller(rng) * noiseLevel * 255;
+
+    data[i] = Math.min(255, Math.max(0, r + noiseR));
+    data[i + 1] = Math.min(255, Math.max(0, g + noiseG));
+    data[i + 2] = Math.min(255, Math.max(0, b + noiseB));
+  }
+  return new ImageData(data, IMG_SIZE, IMG_SIZE);
+}
+
+// Simple simulation of U-Net predicting noise
+function predictNoise(noisyImageData, originalImageData, noiseLevel) {
+  const noisyData = noisyImageData.data;
+  const originalData = originalImageData.data;
+  const predictedNoiseData = new Uint8ClampedArray(noisyData.length);
+
+  // In a real U-Net, this is learned. Here, we simulate it by taking the difference
+  // between noisy and a slightly less noisy version of the original.
+  // The U-Net's job is to estimate the *epsilon* that was added to x_0 to get x_t.
+  // So, predicted_noise = noisy_image - (slightly_less_noisy_original_image).
+  // For simulation, we'll make predicted_noise = noisy_image - original_image
+  // then scale it by noiseLevel to make it look like "actual noise".
+
+  for (let i = 0; i < noisyData.length; i += 4) {
+    const r_noisy = noisyData[i];
+    const g_noisy = noisyData[i + 1];
+    const b_noisy = noisyData[i + 2];
+
+    const r_orig = originalData[i];
+    const g_orig = originalData[i + 1];
+    const b_orig = originalData[i + 2];
+
+    // Simulate the noise component that the U-Net would predict.
+    // This is essentially (noisy - original) scaled to look like noise.
+    predictedNoiseData[i] = Math.min(255, Math.max(0, 128 + (r_noisy - r_orig) / (noiseLevel + 1e-6)));
+    predictedNoiseData[i + 1] = Math.min(255, Math.max(0, 128 + (g_noisy - g_orig) / (noiseLevel + 1e-6)));
+    predictedNoiseData[i + 2] = Math.min(255, Math.max(0, 128 + (b_noisy - b_orig) / (noiseLevel + 1e-6)));
+    predictedNoiseData[i + 3] = 255; // Alpha
+  }
+  return new ImageData(predictedNoiseData, IMG_SIZE, IMG_SIZE);
+}
+
+// Denoise image by subtracting predicted noise
+function denoiseImage(noisyImageData, predictedNoiseData, noiseLevel) {
+  const noisyData = noisyImageData.data;
+  const predictedNoiseRawData = predictedNoiseData.data;
+  const denoisedData = new Uint8ClampedArray(noisyData.length);
+
+  for (let i = 0; i < noisyData.length; i += 4) {
+    const r_noisy = noisyData[i];
+    const g_noisy = noisyData[i + 1];
+    const b_noisy = noisyData[i + 2];
+
+    // Predicted noise is centered around 128 for visualization.
+    // So, actual noise component = (predictedNoiseRawData - 128) * noiseLevel
+    const r_pred_noise = (predictedNoiseRawData[i] - 128) * noiseLevel;
+    const g_pred_noise = (predictedNoiseRawData[i + 1] - 128) * noiseLevel;
+    const b_pred_noise = (predictedNoiseRawData[i + 2] - 128) * noiseLevel;
+
+    // x_{t-1} = x_t - predicted_noise
+    denoisedData[i] = Math.min(255, Math.max(0, r_noisy - r_pred_noise));
+    denoisedData[i + 1] = Math.min(255, Math.max(0, g_noisy - g_pred_noise));
+    denoisedData[i + 2] = Math.min(255, Math.max(0, b_noisy - b_pred_noise));
+    denoisedData[i + 3] = 255; // Alpha
+  }
+  return new ImageData(denoisedData, IMG_SIZE, IMG_SIZE);
+}
+
+// ── UTILS (RNG) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function boxMuller(rng) {
+  const u1 = Math.max(rng(), 1e-12), u2 = rng();
+  return Math.sqrt(-2*Math.log(u1)) * Math.cos(2*Math.PI*u2);
+}
+
+// ── GLOBAL STATE ──
+let originalImageData;
+let currentStep = 0;
+let noiseSliderValue = 0; // For interactive step
+
+// ── CANVAS ELEMENTS ──
+const canvasOriginal = document.getElementById('canvasOriginal');
+const canvasNoisy = document.getElementById('canvasNoisy');
+const canvasPredictedNoise = document.getElementById('canvasPredictedNoise');
+const canvasDenoised = document.getElementById('canvasDenoised');
+
+const ctxOriginal = canvasOriginal.getContext('2d');
+const ctxNoisy = canvasNoisy.getContext('2d');
+const ctxPredictedNoise = canvasPredictedNoise.getContext('2d');
+const ctxDenoised = canvasDenoised.getContext('2d');
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State: The Clean Image',
+    desc: 'We begin with a simple clean image, \(x_0\), which our diffusion model aims to generate. This is our ground truth. In generative tasks, we start from pure noise and aim to reach such an image.',
+    codeLines: [],
+    overlay: { noisy: 'x_0', predicted: '', denoised: '' }
+  },
+  {
+    phase: 'forward', title: 'Forward Diffusion: Adding Noise (Step T)',
+    desc: 'The forward process gradually adds Gaussian noise. Here, we simulate adding a large amount of noise, transforming \(x_0\) into a highly noisy image \(x_T\). This is the starting point for the reverse (denoising) process.',
+    codeLines: [],
+    overlay: { noisy: 'x_T', predicted: '', denoised: '' }
+  },
+  {
+    phase: 'unet', title: 'The Denoising U-Net Architecture',
+    desc: 'The U-Net takes the noisy image \(x_t\) and the current timestep \(t\) as input. Its encoder (left side) extracts features, and its decoder (right side) reconstructs the output. Skip connections (dashed lines) preserve fine details.',
+    codeLines: [],
+    highlightUnet: ['unet-enc1', 'unet-enc2', 'unet-enc3', 'unet-dec1', 'unet-dec2', 'unet-arrow1', 'unet-arrow2', 'unet-arrow3', 'unet-arrow4', 'unet-arrow5', 'unet-skip1', 'unet-skip2']
+  },
+  {
+    phase: 'denoise', title: 'U-Net Predicts Noise (\(\epsilon_\theta\))',
+    desc: 'The U-Net processes the noisy image \(x_t\) at timestep \(t\). It learns to predict the specific noise \(\epsilon\) that was added to \(x_0\) to get \(x_t\). This predicted noise \(\epsilon_\theta\) is what we will subtract.',
+    codeLines: [23, 24],
+    highlightUnet: ['unet-enc1', 'unet-enc2', 'unet-enc3', 'unet-dec1', 'unet-dec2', 'unet-arrow1', 'unet-arrow2', 'unet-arrow3', 'unet-arrow4', 'unet-arrow5'],
+    overlay: { noisy: 'x_t', predicted: 'ε_θ(x_t, t)', denoised: '' }
+  },
+  {
+    phase: 'denoise', title: 'Subtracting Predicted Noise (to \(x_{t-1}\))',
+    desc: 'With the predicted noise \(\epsilon_\theta\), we can now take a step back in the reverse process. We subtract the estimated noise from \(x_t\) to get a slightly cleaner image, \(x_{t-1}\). This is one step of denoising.',
+    codeLines: [36, 41],
+    highlightUnet: [],
+    overlay: { noisy: 'x_t', predicted: 'ε_θ(x_t, t)', denoised: 'x_{t-1}' }
+  },
+  {
+    phase: 'denoise', title: 'Iterative Refinement: Next Step',
+    desc: 'The newly denoised image \(x_{t-1}\) now becomes the input for the next denoising step (at timestep \(t-1\)). This process repeats, with the U-Net predicting less and less noise as the image becomes clearer.',
+    codeLines: [19],
+    overlay: { noisy: 'x_{t-1}', predicted: 'ε_θ(x_{t-1}, t-1)', denoised: 'x_{t-2}' }
+  },
+  {
+    phase: 'denoise', title: 'Approaching the Clean Image',
+    desc: 'After many such iterative steps, the image gradually transforms from pure noise back to the original clean image. Each step removes a small amount of predicted noise, guided by the U-Net.',
+    codeLines: [19, 43],
+    overlay: { noisy: 'x_1', predicted: 'ε_θ(x_1, 1)', denoised: 'x_0' }
+  },
+  {
+    phase: 'explore', title: 'Interactive Denoising: Control Noise Level',
+    desc: 'Use the slider below to manually adjust the "noise level" or timestep \(t\). Observe how the noisy image \(x_t\) changes, and how the U-Net\'s predicted noise \(\epsilon_\theta\) guides the reconstruction towards \(x_0\).',
+    codeLines: [],
+    overlay: { noisy: 'x_t', predicted: 'ε_θ(x_t, t)', denoised: 'x_{t-1}' }
+  }
+];
+
+const totalSteps = steps.length;
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() { currentStep = 0; noiseSliderValue = 0; document.getElementById('noiseSlider').value = 0; render(); }
+
+// ── SLIDER ──
+const noiseSlider = document.getElementById('noiseSlider');
+noiseSlider.addEventListener('input', () => {
+  noiseSliderValue = parseFloat(noiseSlider.value);
+  document.getElementById('noiseValue').textContent = noiseSliderValue;
+  if (steps[currentStep].phase === 'explore') renderCanvas(currentStep);
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStep];
+
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', forward: 'phase-forward', denoise: 'phase-denoise', unet: 'phase-unet', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  document.getElementById('sliderPanel').style.display = (s.phase === 'explore') ? 'flex' : 'none';
+
+  renderUnetDiagram(s.highlightUnet || []);
+  renderCanvas(currentStep);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function renderCanvas(stepIdx) {
+  const s = steps[stepIdx];
+  let currentNoise;
+  if (s.phase === 'explore') {
+    currentNoise = noiseSliderValue;
+  } else if (stepIdx === 0) { // Initial state, x_0
+    currentNoise = 0;
+  } else if (stepIdx === 1) { // Forward diffusion, x_T
+    currentNoise = MAX_TIME_STEPS;
+  } else if (stepIdx === 2) { // U-Net architecture, show x_T
+    currentNoise = MAX_TIME_STEPS;
+  } else if (stepIdx === 3) { // U-Net predicts noise, x_t (high noise)
+    currentNoise = MAX_TIME_STEPS * 0.9;
+  } else if (stepIdx === 4) { // Subtracting predicted noise (mid-high noise)
+    currentNoise = MAX_TIME_STEPS * 0.7;
+  } else if (stepIdx === 5) { // Iterative refinement (mid noise)
+    currentNoise = MAX_TIME_STEPS * 0.4;
+  } else if (stepIdx === 6) { // Approaching clean (low noise)
+    currentNoise = MAX_TIME_STEPS * 0.1;
+  }
+  
+  const actualNoiseLevel = currentNoise / MAX_TIME_STEPS; // Normalized [0,1]
+
+  // Always draw original
+  ctxOriginal.putImageData(originalImageData, 0, 0);
+
+  let noisyImageData, predictedNoiseImageData, denoisedImageData;
+
+  if (currentNoise === 0) {
+    // Initial state: Noisy is also x_0
+    noisyImageData = originalImageData;
+    predictedNoiseImageData = new ImageData(IMG_SIZE, IMG_SIZE); // Blank
+    denoisedImageData = new ImageData(IMG_SIZE, IMG_SIZE); // Blank
+  } else {
+    noisyImageData = addGaussianNoise(originalImageData, actualNoiseLevel, 1);
+    predictedNoiseImageData = predictNoise(noisyImageData, originalImageData, actualNoiseLevel);
+    denoisedImageData = denoiseImage(noisyImageData, predictedNoiseImageData, actualNoiseLevel);
+  }
+
+  // Draw images
+  ctxNoisy.putImageData(noisyImageData, 0, 0);
+  ctxPredictedNoise.putImageData(predictedNoiseImageData, 0, 0);
+  ctxDenoised.putImageData(denoisedImageData, 0, 0);
+
+  // Update image labels and overlays
+  document.getElementById('noisyValue').textContent = `t=${Math.round(currentNoise)}, noise=${(actualNoiseLevel * 100).toFixed(0)}%`;
+  document.getElementById('predictedNoiseValue').textContent = `t=${Math.round(currentNoise)}`;
+  document.getElementById('denoisedValue').textContent = `t=${Math.round(currentNoise) - 1}`;
+
+  document.getElementById('noisyOverlay').textContent = s.overlay.noisy || '';
+  document.getElementById('noisyOverlay').classList.toggle('active', !!s.overlay.noisy);
+  document.getElementById('predictedNoiseOverlay').textContent = s.overlay.predicted || '';
+  document.getElementById('predictedNoiseOverlay').classList.toggle('active', !!s.overlay.predicted);
+  document.getElementById('denoisedOverlay').textContent = s.overlay.denoised || '';
+  document.getElementById('denoisedOverlay').classList.toggle('active', !!s.overlay.denoised);
+}
+
+// ── U-NET DIAGRAM HIGHLIGHTING ──
+function renderUnetDiagram(activeBlocks) {
+  document.querySelectorAll('.unet-block, .unet-arrow, .unet-skip').forEach(el => {
+    el.classList.remove('active');
+  });
+  activeBlocks.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+  });
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+document.addEventListener('DOMContentLoaded', () => {
+  originalImageData = generateOriginalImage(canvasOriginal);
+  initDots();
+  render();
+  // No need to redraw on resize for this particular canvas setup as it's fixed size
+  // window.addEventListener('resize', () => renderCanvas(currentStep)); 
+});
+</script>
+</body>
+</html>
