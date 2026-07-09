@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>β-VAE: Disentangled Representations — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Trace table */
+.trace-table{border-collapse:collapse;font-family:var(--mono);font-size:12px;margin:0.75rem 0;width:100%;max-width:420px;}
+.trace-table th,.trace-table td{padding:6px 12px;text-align:center;border:1px solid var(--border);}
+.trace-table th{background:var(--bg2);color:var(--text2);font-weight:700;}
+.trace-table td:first-child{text-align:left;color:var(--text2);font-weight:600;background:var(--bg2);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Beta / traverse controls */
+.beta-controls{display:flex;align-items:center;gap:12px;margin-bottom:1rem;flex-wrap:wrap;background:var(--bg2);padding:12px 16px;border-radius:var(--radius);}
+.beta-controls label{font-size:12px;font-weight:700;color:var(--text2);min-width:76px;}
+.beta-controls input[type=range]{flex:1;min-width:140px;}
+.val-badge{font-family:var(--mono);font-weight:700;font-size:13px;padding:3px 10px;border-radius:20px;background:var(--purple-bg);color:var(--purple-mid);min-width:54px;text-align:center;}
+.dim-buttons{display:flex;gap:6px;flex-wrap:wrap;}
+.dim-btn{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .2s;}
+.dim-btn:hover{border-color:var(--blue-border);}
+.dim-btn.active{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-mid);}
+input[type=range]{appearance:none;-webkit-appearance:none;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+
+/* Stat grid */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:1rem 0;}
+.stat-tile{background:var(--bg2);border-radius:var(--radius);padding:8px 10px;font-family:var(--mono);font-size:11px;border-left:3px solid var(--border2);transition:border-color .3s;}
+.stat-tile.collapsed{border-left-color:var(--red-mid);}
+.stat-name{font-weight:700;font-size:11px;margin-bottom:4px;color:var(--text);font-family:var(--sans);}
+.stat-row{display:flex;justify-content:space-between;color:var(--text2);}
+.stat-totals{margin-top:8px;padding:10px 14px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);font-family:var(--mono);font-size:12px;color:var(--cyan-text);display:flex;flex-wrap:wrap;gap:16px;justify-content:center;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-kl{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-traverse{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .stat-grid{grid-template-columns:repeat(2,1fr);}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>β-VAE: Disentangled Representations</h1>
+  <div class="subtitle">Weighting the KL term to trade reconstruction fidelity for factorized, interpretable latents</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-category">Representation Learning</span>
+    <span class="tag tag-complexity">O(d) latent</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding β-VAE</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A Variational Autoencoder (VAE) compresses data \(x\) into a latent code \(z\) using an encoder \(q(z|x)\), then reconstructs \(x\) from \(z\) using a decoder \(p(x|z)\). A β-VAE is the same machine with one dial added: it multiplies the KL-divergence penalty in the training objective by a constant \(\beta\). Turning that dial up forces the encoder's latent distributions to squeeze closer to the prior \(p(z)=\mathcal{N}(0,I)\) — and, remarkably, this pressure tends to make each latent dimension track one independent, human-interpretable factor of variation (e.g. rotation, or object scale) instead of a tangled mixture of several.</p>
+    <p><strong>Analogy:</strong> Imagine describing a face using a control panel of sliders — one for age, one for smile, one for hair length. A plain autoencoder is free to wire the sliders however is most convenient for copying the photo exactly, so one slider might secretly control "age AND smile AND lighting" at once. β-VAE puts a tax on using slider capacity at all (the KL term), so the network can only afford to keep the sliders that carry real, independent information — and it is cheapest to make each surviving slider do exactly one clean job.</p>
+    <p><strong>One-sentence summary:</strong> β-VAE disentangles representations by over-penalizing the KL term in the ELBO, pushing the approximate posterior toward the isotropic, factorized prior and thereby rewarding statistically independent, axis-aligned latent codes.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The β-VAE objective is the standard ELBO with the KL term reweighted: $$\mathcal{L}_\beta = \mathbb{E}_{q(z|x)}[\log p(x|z)] - \beta \cdot D_{KL}\big(q(z|x)\,\|\,p(z)\big)$$ \(\beta=1\) recovers the ordinary VAE; \(\beta>1\) trades reconstruction sharpness for disentanglement and interpretability.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How β-VAE Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Machinery</h4>
+    <p>The encoder network outputs \(\mu(x)\) and \(\log\sigma^2(x)\) for a diagonal Gaussian \(q(z|x)=\mathcal{N}(\mu(x),\operatorname{diag}(\sigma^2(x)))\). A sample is drawn via the <em>reparameterization trick</em> \(z=\mu(x)+\sigma(x)\odot\varepsilon,\ \varepsilon\sim\mathcal{N}(0,I)\), which keeps the sampling step differentiable. The decoder maps \(z\) back to \(\hat{x}\), and the two loss terms — reconstruction error and \(D_{KL}(q(z|x)\|p(z))\) — are backpropagated jointly. β multiplies <em>only</em> the KL term, so during training it scales exactly one gradient pressure: the pull of every latent dimension toward matching the standard normal prior in both mean (→0) and variance (→1).</p>
+
+    <h4>Design Decision: Why Weight Only the KL Term?</h4>
+    <p>Higgins et al. (2017) motivate β-VAE as a Lagrangian relaxation of a <em>constrained</em> optimization problem: maximize reconstruction likelihood subject to a hard cap on representational capacity, \(D_{KL}(q(z|x)\|p(z)) < \epsilon\). Introducing a Lagrange multiplier \(\beta \ge 0\) for that inequality constraint turns the constrained problem into the unconstrained β-ELBO above — \(\beta\) is literally the shadow price of latent "information budget." Larger \(\beta\) means a tighter budget, so the encoder can only afford to spend bits on the factors that reduce reconstruction error the most, and it is cheapest (lowest KL per unit of error reduction) to encode each such factor along its own separate axis, because the isotropic prior imposes no preferred rotation — independence is the path of least resistance once capacity is scarce.</p>
+
+    <h4>Numerical Trace — One Latent Dimension</h4>
+    <p>Consider a toy linear-Gaussian channel for a single latent: true factor value \(x_0=1.3\), decoder noise variance \(\sigma^2=0.15\). Solving for the optimal posterior at different \(\beta\) (derivation in Card 3) gives \(\mu^*=x_0/(\beta\sigma^2+1)\), \(v^*=\beta\sigma^2/(\beta\sigma^2+1)\):</p>
+    <table class="trace-table">
+      <tr><th></th><th>β = 0.1</th><th>β = 1</th><th>β = 8</th></tr>
+      <tr><td>μ* (mean)</td><td>1.281</td><td>1.130</td><td>0.591</td></tr>
+      <tr><td>v* (variance)</td><td>0.015</td><td>0.130</td><td>0.545</td></tr>
+    </table>
+    <p>As \(\beta\) climbs, the posterior mean shrinks toward the prior mean 0 and the variance inflates toward the prior variance 1 — the latent literally becomes less informative about \(x_0\) as the KL tax rises. The interactive walkthrough (Card 4) computes exactly this formula live across four latent dimensions with different signal strengths.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">β does not directly reward "disentanglement" — it rewards <strong>minimal KL per dimension</strong>. Disentanglement is an emergent side-effect: when the model must spend its scarce KL budget efficiently and the true generative factors are (close to) statistically independent, axis-aligned coding is the cheapest way to satisfy the budget.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>From Constrained Optimization to the β-ELBO</h4>
+    <p>Start from Higgins et al.'s constrained objective and its Lagrangian (KKT form, \(\beta\ge0\), constant \(\epsilon\) dropped since it does not affect the argmax):</p>
+    <div class="eq">$$\max_{\phi,\theta}\ \mathbb{E}_{q_\phi(z|x)}[\log p_\theta(x|z)]\quad \text{s.t.}\quad D_{KL}\big(q_\phi(z|x)\,\|\,p(z)\big) < \epsilon \;\;\Longrightarrow\;\; \mathcal{L}_\beta = \mathbb{E}_{q_\phi}[\log p_\theta(x|z)] - \beta D_{KL}\big(q_\phi(z|x)\,\|\,p(z)\big)$$</div>
+
+    <h4>Closed Form for a Linear-Gaussian Channel</h4>
+    <p>To see exactly how β reshapes the posterior, solve the toy case explicitly: prior \(p(z)=\mathcal{N}(0,1)\), likelihood \(p(x|z)=\mathcal{N}(z,\sigma^2)\). For fixed \(x\), the function \(q\) that maximizes \(\mathcal{L}_\beta(q)=\mathbb{E}_q[\log p(x|z)] - \beta D_{KL}(q\|p)\) over all densities \(q\) is found via calculus of variations. Rewriting \(D_{KL}\) and collecting terms under the entropy of \(q\):</p>
+    <div class="eq">$$\mathcal{L}_\beta(q) = \mathbb{E}_q\Big[\log p(x|z) + \beta\log p(z) - \beta\log q(z)\Big]$$</div>
+    <p>This is maximized by the annealed (\("\)tempered\("\)) posterior \(q^*(z) \propto p(z)\cdot p(x|z)^{1/\beta}\). Substituting the Gaussians, \(p(x|z)^{1/\beta}\propto\mathcal{N}(z; x,\beta\sigma^2)\) as a function of \(z\), so \(q^*\) is the product of two Gaussians — itself Gaussian by conjugacy, with precision-weighted mean:</p>
+    <div class="eq">$$\mu^*=\frac{x}{\beta\sigma^2+1}, \qquad v^*=\frac{\beta\sigma^2}{\beta\sigma^2+1}$$</div>
+    <p>This is the exact formula used in Card 2's numeric trace and in the live visualization below. As \(\beta\to0\): \(\mu^*\to x\), \(v^*\to0\) — the posterior collapses to a delta at the true value (perfect, unregularized encoding, like a plain autoencoder). As \(\beta\to\infty\): \(\mu^*\to0\), \(v^*\to1\) — the posterior collapses onto the <em>prior</em>, discarding all information about \(x\) ("posterior collapse").</p>
+
+    <h4>KL and Reconstruction in Closed Form</h4>
+    <p>With \(q=\mathcal{N}(\mu^*,v^*)\) and prior \(\mathcal{N}(0,1)\):</p>
+    <div class="eq">$$D_{KL}(q\|p) = \tfrac12\big(v^* + (\mu^*)^2 - 1 - \ln v^*\big), \qquad \mathbb{E}_q\big[-\log p(x|z)\big] \propto \frac{(x-\mu^*)^2 + v^*}{2\sigma^2}$$</div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"\(\beta>1\) guarantees disentanglement" — false. β only guarantees pressure toward a <strong>factorized, isotropic posterior</strong>. Whether that pressure yields axis-aligned <em>semantic</em> factors also depends on the true generative factors actually being close to independent and on decoder capacity being well matched. Push β too high and every dimension in the trace above marches toward \((\mu,v)=(0,1)\) regardless of \(x\) — total posterior collapse, not disentanglement.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">A toy 4-factor generative model (x-position, y-position, scale, rotation), each with a different noise level \(\sigma_i^2\) (informativeness). Drag β to reshape the KL pressure live; pick a latent dimension and scrub it to traverse that factor while the others stay at their inferred posterior means.</p>
+
+    <div class="viz-container">
+      <div class="beta-controls">
+        <label for="betaSlider">β = </label>
+        <input type="range" id="betaSlider" min="0.02" max="15" step="0.02" value="1" oninput="onBetaInput(this.value)">
+        <span class="val-badge" id="betaVal">1.00</span>
+      </div>
+      <div class="beta-controls">
+        <label>Traverse</label>
+        <div class="dim-buttons" id="dimButtons"></div>
+        <input type="range" id="tSlider" min="-3" max="3" step="0.02" value="0" oninput="onTInput(this.value)" style="min-width:120px;">
+        <span class="val-badge" id="tVal">0.00</span>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div id="statsPanel"></div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Generative Model</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset. Drag β and the traversal slider anytime.</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Prior N(0,1) (dashed)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> z₀ x-position</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> z₁ y-position</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> z₂ scale</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> z₃ rotation</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> decoded sample</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to increase β:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>You need interpretable, independently-controllable latent axes for downstream editing or analysis</li>
+      <li>You want to measure or improve disentanglement (e.g. for fairness, causal factor discovery)</li>
+      <li>Your true generative factors are plausibly close to statistically independent</li>
+    </ul>
+    <p><strong>When NOT to push β too high:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Pure sample-fidelity / generation-quality tasks — high β blurs reconstructions and can fully collapse weak factors</li>
+      <li>Factors are strongly correlated in the data — there is no clean axis-aligned solution to find</li>
+      <li>Consider capacity annealing (Burgess et al. 2018, "Understanding disentangling in β-VAE") — ramp a target KL capacity \(C\) up over training instead of fixing β, to disentangle without starving reconstruction</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Hierarchy</div>
+      <p style="font-size:14px;margin:0;"><strong>Plain Autoencoder</strong> (\(\beta=0\), no KL pressure, unstructured latents) ⊂ <strong>Standard VAE</strong> (\(\beta=1\), valid ELBO, balanced) ⊂ <strong>β-VAE</strong> (\(\beta>1\), disentanglement pressure, degraded reconstruction) ⊂ <strong>Total collapse</strong> (\(\beta\to\infty\), \(q(z|x)\to p(z)\), latents carry zero information).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch, torch.nn as nn, torch.nn.functional as F</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">class BetaVAE(nn.Module):</div>
+      <div class="code-line" id="cl3">    def __init__(self, in_dim, z_dim, beta=4.0):</div>
+      <div class="code-line" id="cl4">        super().__init__()</div>
+      <div class="code-line" id="cl5">        self.beta = beta</div>
+      <div class="code-line" id="cl6">        self.enc = nn.Sequential(nn.Linear(in_dim, 128), nn.ReLU())</div>
+      <div class="code-line" id="cl7">        self.mu_head = nn.Linear(128, z_dim)</div>
+      <div class="code-line" id="cl8">        self.logvar_head = nn.Linear(128, z_dim)</div>
+      <div class="code-line" id="cl9">        self.dec = nn.Sequential(nn.Linear(z_dim, 128), nn.ReLU(), nn.Linear(128, in_dim))</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">    def reparameterize(self, mu, logvar):</div>
+      <div class="code-line" id="cl12">        std = torch.exp(0.5 * logvar)      # sigma(x)</div>
+      <div class="code-line" id="cl13">        eps = torch.randn_like(std)         # epsilon ~ N(0, I)</div>
+      <div class="code-line" id="cl14">        return mu + eps * std                # z = mu + sigma * epsilon</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    def forward(self, x):</div>
+      <div class="code-line" id="cl17">        h = self.enc(x)</div>
+      <div class="code-line" id="cl18">        mu, logvar = self.mu_head(h), self.logvar_head(h)</div>
+      <div class="code-line" id="cl19">        z = self.reparameterize(mu, logvar)</div>
+      <div class="code-line" id="cl20">        x_hat = self.dec(z)</div>
+      <div class="code-line" id="cl21">        return x_hat, mu, logvar</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">    def loss(self, x):</div>
+      <div class="code-line" id="cl24">        x_hat, mu, logvar = self.forward(x)</div>
+      <div class="code-line" id="cl25">        recon = F.mse_loss(x_hat, x, reduction='sum') / x.size(0)</div>
+      <div class="code-line" id="cl26">        # closed-form KL(N(mu,var) || N(0,I)) per dim, summed</div>
+      <div class="code-line" id="cl27">        kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())</div>
+      <div class="code-line" id="cl28">        kl = kl / x.size(0)</div>
+      <div class="code-line" id="cl29">        return recon + self.beta * kl, recon, kl   # beta scales ONLY the KL term</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── TOY GENERATIVE FACTORS ──
+// Each latent dim decodes one shape factor. sigma2 = decoder noise variance
+// (lower sigma2 = more "informative"/salient factor = survives higher beta before collapsing).
+const DIMS = [
+  {name:'x-position', symbol:'z₀', sigma2:0.15, x0:1.3,  colorVar:'--blue-mid'},
+  {name:'y-position', symbol:'z₁', sigma2:0.35, x0:-0.9, colorVar:'--green-mid'},
+  {name:'scale',       symbol:'z₂', sigma2:0.9,  x0:1.6,  colorVar:'--amber-mid'},
+  {name:'rotation',    symbol:'z₃', sigma2:2.0,  x0:0.9,  colorVar:'--purple-mid'},
+];
+
+// ── CLOSED-FORM LINEAR-GAUSSIAN beta-POSTERIOR ──
+function postMean(i, beta) { const d = DIMS[i]; return d.x0 / (beta * d.sigma2 + 1); }
+function postVar(i, beta)  { const d = DIMS[i]; return (beta * d.sigma2) / (beta * d.sigma2 + 1); }
+function klOf(mean, v) { const vv = Math.max(v, 1e-6); return 0.5 * (vv + mean*mean - 1 - Math.log(vv)); }
+function reconOf(mean, v, x0, sigma2) { return ((x0 - mean)**2 + v) / (2 * sigma2); }
+function gaussPdf(z, mean, v) { const vv = Math.max(v, 1e-6); return Math.exp(-0.5*(z-mean)*(z-mean)/vv) / Math.sqrt(2*Math.PI*vv); }
+
+function computeAll(beta) {
+  return DIMS.map((d,i) => {
+    const mean = postMean(i, beta), v = postVar(i, beta);
+    return { mean, v, kl: klOf(mean, v), recon: reconOf(mean, v, d.x0, d.sigma2) };
+  });
+}
+
+// ── STATE ──
+let beta = 1.0;
+let traverseDim = 0;
+let traverseT = postMean(0, 1.0);
+let step = 0;
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Generative Model', beta: 1.0,
+    desc: 'Four independent ground-truth factors generate the object below: \\(x_0\\)=x-position, \\(x_1\\)=y-position, \\(x_2\\)=scale, \\(x_3\\)=rotation. Encoder \\(q(z|x)=\\mathcal{N}(\\mu(x),\\sigma^2(x))\\), decoder \\(p(x|z)\\), prior \\(p(z)=\\mathcal{N}(0,I)\\). Each factor has a different noise level \\(\\sigma_i^2\\) — rotation is the "weakest" signal, x-position the "strongest."',
+    codeLines: [6,7,8,9]
+  },
+  {
+    phase: 'setup', title: 'The β-Weighted Objective', beta: 1.0,
+    desc: 'Training minimizes \\(\\text{recon} + \\beta\\cdot D_{KL}(q(z|x)\\|p(z))\\) — equivalently maximizes the β-ELBO. The stat panel below shows this loss computed live, per-dimension and totalled, from the closed-form posterior \\(\\mu^*=x_0/(\\beta\\sigma^2+1)\\), \\(v^*=\\beta\\sigma^2/(\\beta\\sigma^2+1)\\) derived in Card 3.',
+    codeLines: [23,24,25,26,27,28,29]
+  },
+  {
+    phase: 'kl', title: 'β = 0.05 — Almost a Plain Autoencoder', beta: 0.05,
+    desc: 'With negligible KL pressure, every posterior collapses to a near-delta spike at its true value (\\(v^*\\approx0\\)): reconstruction is near-perfect but KL is large and the latent space has no enforced structure — you could not sample new objects from \\(p(z)\\) and get anything sensible.',
+    codeLines: [25]
+  },
+  {
+    phase: 'kl', title: 'β = 1 — Standard VAE', beta: 1.0,
+    desc: 'This is the ordinary ELBO. Posteriors shrink moderately toward the prior, scaled by how noisy (uninformative) each factor is: strong factors like x-position keep a mean far from 0 and tight variance, weak factors like rotation already drift noticeably toward \\((\\mu,v)=(0,1)\\).',
+    codeLines: [25,27]
+  },
+  {
+    phase: 'kl', title: 'β = 4 — Disentanglement Pressure', beta: 4.0,
+    desc: 'KL is now taxed 4×. Weak factors (rotation, scale) collapse further toward the prior — their posterior means shrink hard and variances balloon toward 1 — while the strong x-position factor still resists, because giving it up would cost far more reconstruction error than it saves in KL.',
+    codeLines: [27,29]
+  },
+  {
+    phase: 'kl', title: 'β = 12 — Near-Total Posterior Collapse', beta: 12.0,
+    desc: 'At extreme β, even the strong x-position factor is being pulled hard toward \\((0,1)\\). Reconstruction has degraded across the board — the decoded shape below drifts back toward its canonical (default) pose regardless of the true factors. This is the failure mode: β too high destroys information faster than it disentangles it.',
+    codeLines: [27]
+  },
+  {
+    phase: 'traverse', title: 'Traversing z₀ (x-position) at β = 4', beta: 4.0, traverse: true, dim: 0,
+    desc: 'Drag the traversal slider: because x-position survived the KL tax at β=4, sweeping z₀ visibly and cleanly moves the shape left-right while y-position, scale and rotation stay fixed at their inferred means — a clean, disentangled factor.',
+    codeLines: [12,13,14]
+  },
+  {
+    phase: 'traverse', title: 'Traversing z₃ (rotation) at β = 12', beta: 12.0, traverse: true, dim: 3,
+    desc: 'Now sweep z₃ at β=12. Because rotation already collapsed near the prior, the decoder barely uses this axis — dragging the slider produces only a small residual rotation instead of the full swing you saw for x-position. This is the diagnostic signature of posterior collapse on a specific dimension.',
+    codeLines: [26,27]
+  },
+  {
+    phase: 'result', title: 'The Rate–Distortion Trade-off Curve', beta: 4.0,
+    desc: 'Sweeping β from ~0 to 15 traces the rate (\\(D_{KL}\\), the "bits" spent) against distortion (reconstruction loss) — the classic β-VAE / information-bottleneck frontier (cf. Alemi et al. 2018). Every β picks one point on this curve; there is no free lunch between compression and fidelity.',
+    codeLines: [], tradeoff: true
+  }
+];
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DIM BUTTONS ──
+function initDimButtons() {
+  const wrap = document.getElementById('dimButtons');
+  wrap.innerHTML = '';
+  DIMS.forEach((d,i) => {
+    const b = document.createElement('button');
+    b.className = 'dim-btn' + (i === traverseDim ? ' active' : '');
+    b.textContent = d.symbol;
+    b.title = d.name;
+    b.onclick = () => selectDim(i);
+    wrap.appendChild(b);
+  });
+}
+function selectDim(i) {
+  traverseDim = i;
+  traverseT = postMean(i, beta);
+  document.getElementById('tSlider').value = traverseT;
+  document.getElementById('tVal').textContent = traverseT.toFixed(2);
+  document.querySelectorAll('.dim-btn').forEach((b,idx) => b.classList.toggle('active', idx === i));
+  renderAll();
+}
+
+// ── SLIDER HANDLERS ──
+function onBetaInput(v) {
+  beta = parseFloat(v);
+  document.getElementById('betaVal').textContent = beta.toFixed(2);
+  renderAll();
+}
+function onTInput(v) {
+  traverseT = parseFloat(v);
+  document.getElementById('tVal').textContent = traverseT.toFixed(2);
+  renderAll();
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  applyStep();
+}
+function goTo(i) { step = i; applyStep(); }
+function reset() { step = 0; applyStep(); }
+
+function applyStep() {
+  const s = steps[step];
+  beta = s.beta;
+  document.getElementById('betaSlider').value = beta;
+  document.getElementById('betaVal').textContent = beta.toFixed(2);
+  if (s.traverse) {
+    traverseDim = s.dim;
+  }
+  traverseT = postMean(traverseDim, beta);
+  document.getElementById('tSlider').value = traverseT;
+  document.getElementById('tVal').textContent = traverseT.toFixed(2);
+  document.querySelectorAll('.dim-btn').forEach((b,idx) => b.classList.toggle('active', idx === traverseDim));
+  render();
+}
+
+// ── RENDER (full: info card + code + stats + canvas) ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', kl:'phase-kl', traverse:'phase-traverse', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  renderStats();
+  drawCanvas(s.tradeoff === true);
+  updateDots();
+}
+
+// renderAll = re-render without touching step navigation (used by sliders)
+function renderAll() {
+  renderStats();
+  drawCanvas(steps[step].tradeoff === true);
+}
+
+// ── STATS PANEL ──
+function renderStats() {
+  const vals = computeAll(beta);
+  let totalKL = 0, totalRecon = 0;
+  const cs = getComputedStyle(document.documentElement);
+  let html = '<div class="stat-grid">';
+  vals.forEach((r, i) => {
+    totalKL += r.kl; totalRecon += r.recon;
+    const collapsed = r.v > 0.85;
+    const colorHex = cs.getPropertyValue(DIMS[i].colorVar).trim();
+    html += `<div class="stat-tile${collapsed ? ' collapsed' : ''}" style="border-left-color:${collapsed ? cs.getPropertyValue('--red-mid').trim() : colorHex}">
+      <div class="stat-name">${DIMS[i].symbol} ${DIMS[i].name}</div>
+      <div class="stat-row"><span>μ*</span><span>${r.mean.toFixed(3)}</span></div>
+      <div class="stat-row"><span>v*</span><span>${r.v.toFixed(3)}</span></div>
+      <div class="stat-row"><span>KL</span><span>${r.kl.toFixed(3)}</span></div>
+      <div class="stat-row"><span>recon</span><span>${r.recon.toFixed(3)}</span></div>
+      ${collapsed ? '<div class="stat-row" style="color:var(--red-mid);font-weight:700;">collapsed</div>' : ''}
+    </div>`;
+  });
+  html += '</div>';
+  const loss = totalRecon + beta * totalKL;
+  html += `<div class="stat-totals">
+    <span>Σ KL = <strong>${totalKL.toFixed(3)}</strong></span>
+    <span>Σ recon = <strong>${totalRecon.toFixed(3)}</strong></span>
+    <span>β = <strong>${beta.toFixed(2)}</strong></span>
+    <span>loss = recon + β·KL = <strong>${loss.toFixed(3)}</strong></span>
+  </div>`;
+  document.getElementById('statsPanel').innerHTML = html;
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(tradeoffMode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width || 640, H = rect.height || 360;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+
+  if (tradeoffMode) { drawTradeoff(ctx, W, H, {text, text2, text3, borderC, redMid, cyanMid}); return; }
+
+  // Layout: left 62% = 4 stacked gaussian rows, right 38% = decoded shape stage
+  const leftW = W * 0.6, rightX = W * 0.62, rightW = W * 0.36;
+  const rowH = H / 4;
+  const vals = computeAll(beta);
+
+  vals.forEach((r, i) => {
+    const d = DIMS[i];
+    const color = cs.getPropertyValue(d.colorVar).trim();
+    const rowTop = i * rowH, rowBot = rowTop + rowH;
+    const baseline = rowBot - 10;
+    const zMin = -3.5, zMax = 3.5, padL = 10, padR = 10;
+    const plotW = leftW - padL - padR;
+    const toX = z => padL + (z - zMin) / (zMax - zMin) * plotW;
+
+    // separator
+    ctx.strokeStyle = borderC; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, rowTop); ctx.lineTo(leftW, rowTop); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // prior curve (dashed, gray)
+    const priorPeak = gaussPdf(0, 0, 1);
+    ctx.strokeStyle = text3; ctx.lineWidth = 1.3; ctx.setLineDash([4,3]);
+    ctx.beginPath();
+    for (let z = zMin; z <= zMax; z += 0.05) {
+      const y = baseline - (gaussPdf(z,0,1)/priorPeak) * (rowH*0.72);
+      if (z === zMin) ctx.moveTo(toX(z), y); else ctx.lineTo(toX(z), y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // posterior curve (filled, colored)
+    const postPeak = gaussPdf(r.mean, r.mean, r.v);
+    ctx.beginPath();
+    for (let z = zMin; z <= zMax; z += 0.05) {
+      const y = baseline - (gaussPdf(z, r.mean, r.v)/postPeak) * (rowH*0.72);
+      if (z === zMin) ctx.moveTo(toX(z), y); else ctx.lineTo(toX(z), y);
+    }
+    ctx.lineTo(toX(zMax), baseline); ctx.lineTo(toX(zMin), baseline); ctx.closePath();
+    ctx.fillStyle = color; ctx.globalAlpha = 0.22; ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let z = zMin; z <= zMax; z += 0.05) {
+      const y = baseline - (gaussPdf(z, r.mean, r.v)/postPeak) * (rowH*0.72);
+      if (z === zMin) ctx.moveTo(toX(z), y); else ctx.lineTo(toX(z), y);
+    }
+    ctx.stroke();
+
+    // mean marker
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(toX(r.mean), baseline); ctx.lineTo(toX(r.mean), baseline - rowH*0.74); ctx.stroke();
+
+    // decoded-sample marker (traversal dim uses traverseT, others use their mean)
+    const decodedZ = (i === traverseDim) ? traverseT : r.mean;
+    if (i === traverseDim) {
+      ctx.fillStyle = redMid;
+      ctx.beginPath();
+      const mx = toX(decodedZ);
+      ctx.moveTo(mx, baseline - rowH*0.8);
+      ctx.lineTo(mx-5, baseline - rowH*0.68);
+      ctx.lineTo(mx+5, baseline - rowH*0.68);
+      ctx.closePath(); ctx.fill();
+    }
+
+    // label
+    ctx.fillStyle = text; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText(`${d.symbol} ${d.name}`, padL, rowTop + 14);
+    ctx.fillStyle = text2; ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.fillText(`σ²=${d.sigma2}  KL=${r.kl.toFixed(2)}`, padL, rowTop + 28);
+  });
+
+  // decoded shape stage (right panel)
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+  ctx.strokeRect(rightX, 4, rightW - 8, H - 8);
+  ctx.fillStyle = text3; ctx.font = '10px "DM Sans", system-ui';
+  ctx.fillText('decoded x̂', rightX + 10, 18);
+
+  const stageCX = rightX + rightW/2 - 4, stageCY = H/2 + 8;
+  // crosshair at canonical origin
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+  ctx.beginPath(); ctx.moveTo(stageCX-40, stageCY); ctx.lineTo(stageCX+40, stageCY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(stageCX, stageCY-40); ctx.lineTo(stageCX, stageCY+40); ctx.stroke();
+  ctx.setLineDash([]);
+
+  const decodeVec = vals.map((r,i) => (i === traverseDim) ? traverseT : r.mean);
+  const posScale = 22, baseSize = 46;
+  const cx = stageCX + decodeVec[0] * posScale;
+  const cy = stageCY - decodeVec[1] * posScale;
+  const size = Math.max(baseSize*0.35, Math.min(baseSize*1.8, baseSize * (1 + 0.25*decodeVec[2])));
+  const rot = decodeVec[3] * 22 * Math.PI / 180;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  const grad = ctx.createLinearGradient(-size/2,-size/2,size/2,size/2);
+  grad.addColorStop(0, cs.getPropertyValue('--blue-mid').trim());
+  grad.addColorStop(1, cs.getPropertyValue('--purple-mid').trim());
+  ctx.fillStyle = grad; ctx.globalAlpha = 0.85;
+  roundRect(ctx, -size/2, -size/2, size, size, 8);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  roundRect(ctx, -size/2, -size/2, size, size, 8);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = text2; ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillText(`x=${decodeVec[0].toFixed(2)} y=${decodeVec[1].toFixed(2)}`, rightX + 10, H - 28);
+  ctx.fillText(`scale=${decodeVec[2].toFixed(2)} rot=${decodeVec[3].toFixed(2)}`, rightX + 10, H - 14);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawTradeoff(ctx, W, H, colors) {
+  const pad = {l:56, r:20, t:20, b:44};
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+
+  // sweep beta to trace the rate-distortion frontier
+  const betas = [];
+  for (let b = 0.02; b <= 15; b += 0.06) betas.push(b);
+  const pts = betas.map(b => {
+    const vals = computeAll(b);
+    const kl = vals.reduce((s,r) => s+r.kl, 0);
+    const recon = vals.reduce((s,r) => s+r.recon, 0);
+    return {b, kl, recon};
+  });
+  const maxKL = Math.max(...pts.map(p=>p.kl));
+  const maxRecon = Math.max(...pts.map(p=>p.recon));
+  const toX = kl => pad.l + (kl / maxKL) * pw;
+  const toY = rc => pad.t + (1 - rc / maxRecon) * ph;
+
+  ctx.strokeStyle = colors.borderC; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H-pad.b); ctx.lineTo(W-pad.r, H-pad.b); ctx.stroke();
+  ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui';
+  ctx.fillText('Total KL (rate) →', W - pad.r - 110, H - pad.b + 30);
+  ctx.save(); ctx.translate(14, pad.t + ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Total reconstruction loss (distortion)', -ph/2 + 20, 0);
+  ctx.restore();
+
+  ctx.strokeStyle = colors.cyanMid; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  pts.forEach((p,i) => { const x=toX(p.kl), y=toY(p.recon); if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.stroke();
+
+  // current beta marker
+  const curVals = computeAll(beta);
+  const curKL = curVals.reduce((s,r)=>s+r.kl,0);
+  const curRecon = curVals.reduce((s,r)=>s+r.recon,0);
+  const mx = toX(curKL), my = toY(curRecon);
+  ctx.strokeStyle = colors.text3; ctx.setLineDash([3,3]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(mx, H-pad.b); ctx.lineTo(mx,my); ctx.lineTo(pad.l,my); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI*2);
+  ctx.fillStyle = colors.redMid; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = colors.text; ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillText(`β=${beta.toFixed(2)}`, mx + 10, my - 10);
+
+  ctx.fillStyle = colors.text2; ctx.font = '11px "DM Sans", system-ui';
+  ctx.fillText('low β (high fidelity, high rate)', pad.l + pw - 190, pad.t + 14);
+  ctx.fillText('high β →', pad.l + 6, H - pad.b - 6);
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDimButtons();
+initDots();
+applyStep();
+window.addEventListener('resize', () => renderAll());
+</script>
+</body>
+</html>
