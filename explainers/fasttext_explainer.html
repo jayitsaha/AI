@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FastText — Subword Embeddings Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Token / n-gram chips */
+.token-container{display:flex;flex-wrap:wrap;gap:6px;margin:1rem 0;justify-content:center;}
+.token{padding:6px 12px;border-radius:6px;font-family:var(--mono);font-size:13px;border:2px solid var(--border2);transition:all 0.3s;display:inline-flex;align-items:center;gap:4px;background:var(--surface);}
+.token.active{border-color:var(--purple-mid);background:var(--purple-bg);color:var(--purple-text);font-weight:600;}
+.token.ghost{opacity:0.35;}
+.token.oov{border-color:var(--red-mid);background:var(--red-bg);color:var(--red-text);}
+.token .token-id{font-size:9px;color:var(--text3);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Control panel (slider + input) */
+.ctrl-panel{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:center;background:var(--bg2);padding:12px 16px;border-radius:var(--radius);margin-bottom:1rem;}
+.ctrl-group{display:flex;align-items:center;gap:8px;}
+.ctrl-label{font-size:12px;font-weight:600;color:var(--text2);}
+.ctrl-value{font-family:var(--mono);font-size:12px;font-weight:600;min-width:34px;text-align:center;}
+input[type="range"]{appearance:none;-webkit-appearance:none;width:120px;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border:none;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="text"]{font-family:var(--mono);font-size:13px;padding:6px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--surface);color:var(--text);width:140px;}
+input[type="text"]:focus{outline:none;border-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-transform{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-solve{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-oov{background:var(--red-bg);color:var(--red-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+table.cmp th, table.cmp td{border:1px solid var(--border);padding:6px 10px;text-align:left;}
+table.cmp th{background:var(--bg2);font-weight:700;}
+
+footer{text-align:center;font-size:11px;color:var(--text3);margin:2rem 0 1rem;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .token{font-size:11px;padding:4px 8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>FastText</h1>
+  <div class="subtitle">Word vectors built from character n-grams — so every word, even ones you've never seen, gets a meaningful embedding</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">NLP</span>
+    <span class="tag tag-category">Embeddings</span>
+    <span class="tag tag-complexity">Skip-gram + Subwords</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding FastText</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Word2Vec and GloVe give every word in the vocabulary one opaque vector, learned as if the word were a single indivisible symbol. FastText (Bojanowski, Grave, Joulin &amp; Mikolov, Facebook AI, 2017) instead represents a word as a <em>bag of its character n-grams</em> — overlapping chunks of 3–6 characters — plus the whole word itself, and simply <strong>sums their vectors</strong>. The word's embedding is a byproduct of its spelling, not a lookup of a single row in a table.</p>
+    <p><strong>Analogy:</strong> Think of a word like a smoothie made from fruit chunks (the n-grams). "Playing", "played", and "player" all share the chunks "play" and "pla" and "lay" — so their smoothies taste similar even before you've ever tasted "playing" specifically. If someone hands you a brand-new fruit combo you've never seen — say "replayable" — you can still blend it from familiar chunks and get a sensible-tasting result, instead of shrugging and saying "unknown fruit, no vector."</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">A FastText word vector is the <strong>sum</strong> of the embeddings of its character n-grams (plus the whole-word token): $$v_w = \sum_{g \in G_w} \mathbf{z}_g$$ Because morphologically similar words share n-grams, FastText captures prefixes/suffixes automatically and can embed <strong>out-of-vocabulary (OOV) words</strong> that Word2Vec/GloVe simply cannot.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How FastText Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Problem With Atomic Word Vectors</h4>
+    <p>Word2Vec's skip-gram model learns one \(d\)-dimensional vector per vocabulary word by predicting context words from a center word. It works beautifully for words seen often during training, but has two hard failure modes: (1) <strong>rare words</strong> get noisy, under-trained vectors, and (2) <strong>unseen words</strong> at inference time (typos, new slang, morphological variants like plurals or a language's rich inflections) have no vector at all — they're simply absent from the lookup table.</p>
+
+    <h4>Step 1 — Add Boundary Symbols</h4>
+    <p>FastText wraps each word with <code>&lt;</code> and <code>&gt;</code>, e.g. "playing" → <code>&lt;playing&gt;</code>. This lets the model distinguish a n-gram that occurs at a word boundary (like <code>&lt;pl</code>, a likely prefix) from the same substring occurring in the middle of a longer word.</p>
+
+    <h4>Step 2 — Extract All Character N-grams</h4>
+    <p>Slide a window of length \(n\) (typically \(n \in \{3,4,5,6\}\)) across the padded word, collecting every substring. For "playing" with \(n=3\): <code>&lt;pl, pla, lay, ayi, yin, ing, ng&gt;</code>. The <em>whole word</em> <code>&lt;playing&gt;</code> is also added as its own special token, so the model can still memorize a word-specific signal when data is plentiful.</p>
+
+    <h4>Step 3 — Hash Each N-gram Into a Fixed Bucket</h4>
+    <p>Storing a unique vector per distinct n-gram would need tens of millions of rows. Instead FastText hashes each n-gram string into one of \(B\) buckets (typically \(B{=}2{,}000{,}000\)) with a cheap hash function (FNV-1a), and keeps one embedding row per bucket. Collisions are rare and empirically harmless — this is the same "hashing trick" used in large-scale linear models.</p>
+
+    <h4>Step 4 — Sum to Get the Word Vector</h4>
+    <p>The final representation is just elementwise vector addition of every n-gram's (bucket) embedding, plus the whole-word embedding if the word itself was frequent enough to get one:</p>
+    <div class="eq">$$v_w = \sum_{g \in G_w} \mathbf{z}_g$$</div>
+    <p>This sum is <em>differentiable</em> in every \(\mathbf{z}_g\), so standard backprop trains all n-gram vectors jointly with the skip-gram objective — no separate "morphology model" is needed.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Any string — vocabulary word or not — decomposes into n-grams, and n-grams are shared across many words. So FastText can synthesize a plausible vector for <strong>any</strong> input string, including ones never seen in training, purely from pieces it <em>has</em> seen.</p>
+    </div>
+
+    <h4>Design Decision: Why Sum, Not Concatenate or Average?</h4>
+    <p>Summation keeps the output dimensionality fixed regardless of word length (concatenation wouldn't), and keeps gradients simple — each n-gram vector gets the exact same gradient signal as the full word during backprop (averaging would just rescale this uniformly, so sum vs. mean is mostly a matter of convention/learning-rate scaling).</p>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Skip-gram With Negative Sampling (SGNS), Recap</h4>
+    <p>Standard skip-gram scores a center word \(w\) against a context word \(c\) with a plain dot product of two lookup vectors, then applies the logistic function:</p>
+    <div class="eq">$$p(c \mid w) = \sigma(u_w^\top v_c), \qquad \sigma(x) = \frac{1}{1+e^{-x}}$$</div>
+
+    <h4>FastText's Modification: Replace the Word Vector With a Sum</h4>
+    <p>FastText keeps the same skip-gram-with-negative-sampling objective, but swaps the atomic word vector \(u_w\) for the sum over its n-gram set \(G_w\):</p>
+    <div class="eq">$$s(w, c) = \Big(\sum_{g \in G_w} \mathbf{z}_g\Big)^{\top} v_c$$</div>
+    <p>The full negative-sampling loss for one (center, context) pair with \(K\) negative samples \(n_1,\dots,n_K\) drawn from a noise distribution is:</p>
+    <div class="eq">$$\mathcal{L} = -\log\sigma\big(s(w,c)\big) \;-\; \sum_{k=1}^{K} \log\sigma\big(-s(w,n_k)\big)$$</div>
+
+    <h4>Gradient Flow Into Subword Vectors</h4>
+    <p>Because \(s(w,c)\) is linear in the sum, the gradient with respect to <em>any single</em> n-gram embedding \(\mathbf{z}_g\) is identical to the gradient that would flow into a plain word vector, scaled by nothing extra:</p>
+    <div class="eq">$$\frac{\partial \mathcal{L}}{\partial \mathbf{z}_g} = \frac{\partial \mathcal{L}}{\partial s(w,c)} \cdot v_c \quad \text{for every } g \in G_w$$</div>
+    <p>Every n-gram that participates in a word gets the <em>same</em> update direction from that training example. Frequent, informative n-grams (like the suffix <code>ing&gt;</code>) accumulate signal from thousands of different words and converge to stable, meaningful vectors — which is exactly why they generalize to unseen words.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">FastText does <strong>not</strong> learn a separate vector for every word from scratch and then "add morphology on top." The whole-word vector is <em>just one more summand</em> in the same sum — for rare/unseen words the sum is dominated entirely by shared n-grams, which is what makes OOV inference possible.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Watch a word get decomposed into character n-grams, hashed into buckets, and summed into a live vector — then watch the exact same machinery embed a word it has never seen.</p>
+
+    <div class="viz-container">
+      <div class="ctrl-panel">
+        <div class="ctrl-group">
+          <span class="ctrl-label">n-gram range</span>
+          <input type="range" id="nMinSlider" min="2" max="4" value="3" step="1">
+          <span class="ctrl-value" id="nMinVal">3</span>
+          <span class="ctrl-label">–</span>
+          <input type="range" id="nMaxSlider" min="4" max="6" value="6" step="1">
+          <span class="ctrl-value" id="nMaxVal">6</span>
+        </div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">try your own OOV word</span>
+          <input type="text" id="oovInput" value="playfulness" maxlength="16" spellcheck="false">
+        </div>
+      </div>
+
+      <div id="tokenViz" class="token-container"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">One Symbol, One Vector</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset · slider &amp; text box update the diagram live</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> N-gram vector</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Sum = word vector</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> OOV word</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> In-vocabulary word</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Comparison -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">FastText vs. The Alternatives</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Dimension</th><th>Word2Vec / GloVe</th><th>FastText</th><th>BPE + Transformer (BERT/GPT)</th></tr>
+      <tr><td>Unit of representation</td><td>Whole word</td><td>Word = sum of char n-grams</td><td>Subword merge tokens</td></tr>
+      <tr><td>Handles OOV words</td><td>No — unknown token / no vector</td><td>Yes — composed from shared n-grams</td><td>Yes — via subword fallback</td></tr>
+      <tr><td>Captures morphology</td><td>No</td><td>Yes, implicitly via shared substrings</td><td>Partially, via learned merges</td></tr>
+      <tr><td>Context-sensitivity</td><td>Static (1 vector/word)</td><td>Static (1 vector/word)</td><td>Contextual (different per sentence)</td></tr>
+      <tr><td>Training cost</td><td>Low</td><td>Slightly higher (more parameters via hashing)</td><td>High (deep attention stacks)</td></tr>
+      <tr><td>Good for morphologically rich languages (Finnish, Turkish)</td><td>Poor</td><td>Strong</td><td>Strong</td></tr>
+    </table>
+    <p><strong>When to use FastText:</strong> low-resource or morphologically rich languages, noisy user-generated text (typos, slang), search/autocomplete where new terms constantly appear, or when you need fast, lightweight, CPU-friendly static embeddings (e.g. as a baseline or a feature for classical ML).</p>
+    <p><strong>When not to use it:</strong> tasks that need context-dependent meaning (e.g. "bank" the riverbank vs. "bank" the institution) — use a contextual transformer encoder instead. FastText still assigns one fixed vector per word regardless of sentence.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">🎯 Decision Rule</div>
+      <p style="font-size:14px;margin:0;">Need speed, low resources, and robustness to unseen/rare words → <strong>FastText</strong>. Need deep contextual understanding and have compute to spare → <strong>Transformer embeddings</strong>. Need neither morphology nor OOV robustness and want the simplest baseline → <strong>Word2Vec/GloVe</strong> is still fine.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>FastText reframes a word embedding as an <em>additive composition</em> of character n-gram embeddings rather than an atomic lookup. This one change — sum instead of lookup — buys morphological generalization (shared prefixes/suffixes pull related words together) and true OOV robustness (any string can be decomposed, hashed, and summed) at almost no extra inference cost.</p>
+    <p><strong>Related topics:</strong> Word2Vec / Skip-gram with Negative Sampling (the training objective FastText reuses), Byte-Pair Encoding &amp; SentencePiece (the subword-tokenization lineage that transformers adopted next), the hashing trick in large-scale ML, and contextual embeddings (ELMo, BERT) as the next evolutionary step beyond static vectors.</p>
+    <div class="concept-box math">
+      <div class="concept-box-title">📎 Reference</div>
+      <p style="font-size:14px;margin:0;">Bojanowski, Grave, Joulin &amp; Mikolov, <em>"Enriching Word Vectors with Subword Information,"</em> TACL 2017 — the original FastText paper.</p>
+    </div>
+  </div>
+</div>
+
+<footer>FastText — Bojanowski, Grave, Joulin &amp; Mikolov, 2017 · Interactive explainer</footer>
+
+<script>
+function toggleSection(headerEl){
+  const body = headerEl.nextElementSibling;
+  const toggle = headerEl.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+/* ============ CORE FASTTEXT MATH (computed live, no hard-coded vectors) ============ */
+const NUM_BUCKETS = 211;           // demo bucket count (real FastText default: 2,000,000)
+const MAIN_WORD = 'playing';
+const TRAIN_WORDS = ['playing','player','played','play','playful','running','runner','jumper','singing','teacher'];
+const CONTEXT_WORDS = ['game','field','music','ball'];
+
+function fnv1a(str){
+  let h = 0x811c9dc5;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function bucketFor(gram){ return fnv1a(gram) % NUM_BUCKETS; }
+function vecForBucket(bucket){
+  const rnd = mulberry32(bucket * 2654435761 >>> 0);
+  const angle = rnd() * Math.PI * 2;
+  const mag = 0.35 + rnd() * 0.65;
+  return { x: Math.cos(angle) * mag, y: Math.sin(angle) * mag };
+}
+function ngramsOf(word, nMin, nMax){
+  const padded = '<' + word.toLowerCase() + '>';
+  const seen = new Map();
+  for(let n = nMin; n <= nMax; n++){
+    if(n > padded.length) continue;
+    for(let i = 0; i + n <= padded.length; i++){
+      seen.set(padded.slice(i, i + n), true);
+    }
+  }
+  seen.set(padded, true); // whole-word token
+  return Array.from(seen.keys());
+}
+function wordVector(word, nMin, nMax){
+  const grams = ngramsOf(word, nMin, nMax).map(g => {
+    const bucket = bucketFor(g);
+    const vec = vecForBucket(bucket);
+    return { gram: g, bucket, vec, isWhole: g[0] === '<' && g[g.length-1] === '>' && g.length === word.length + 2 };
+  });
+  let sx = 0, sy = 0;
+  grams.forEach(g => { sx += g.vec.x; sy += g.vec.y; });
+  return { grams, sum: { x: sx, y: sy } };
+}
+function trainingGramSet(nMin, nMax){
+  const s = new Set();
+  TRAIN_WORDS.forEach(w => ngramsOf(w, nMin, nMax).forEach(g => s.add(g)));
+  return s;
+}
+
+/* ============ CANVAS HELPERS ============ */
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function getCtx(){
+  const canvas = document.getElementById('vizCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, rect.width * dpr);
+  canvas.height = Math.max(1, rect.height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  return { ctx, w: rect.width, h: rect.height };
+}
+function drawArrow(ctx, from, to, color, lw, alpha){
+  ctx.save();
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+  const ang = Math.atan2(to.y - from.y, to.x - from.x);
+  const headLen = 6 + lw;
+  ctx.beginPath();
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(to.x - headLen * Math.cos(ang - Math.PI/7), to.y - headLen * Math.sin(ang - Math.PI/7));
+  ctx.lineTo(to.x - headLen * Math.cos(ang + Math.PI/7), to.y - headLen * Math.sin(ang + Math.PI/7));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawAxes(ctx, w, h){
+  ctx.save();
+  ctx.strokeStyle = cssVar('--border2'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(8, h/2); ctx.lineTo(w-8, h/2); ctx.moveTo(w/2, 8); ctx.lineTo(w/2, h-8); ctx.stroke();
+  ctx.restore();
+}
+function drawVectorPlot(ctx, w, h, grams, sum, opts){
+  opts = opts || {};
+  drawAxes(ctx, w, h);
+  const mags = grams.map(g => Math.hypot(g.vec.x, g.vec.y));
+  mags.push(Math.hypot(sum.x, sum.y));
+  (opts.extra || []).forEach(e => mags.push(Math.hypot(e.x, e.y)));
+  const maxMag = Math.max(0.5, ...mags);
+  const scale = (Math.min(w, h) * 0.42) / maxMag;
+  const center = { x: w/2, y: h/2 };
+  grams.forEach(g => {
+    const to = { x: center.x + g.vec.x * scale, y: center.y - g.vec.y * scale };
+    drawArrow(ctx, center, to, cssVar('--purple-mid'), 1.4, 0.55);
+  });
+  (opts.extra || []).forEach(e => {
+    const to = { x: center.x + e.x * scale, y: center.y - e.y * scale };
+    drawArrow(ctx, center, to, e.color || cssVar('--blue-mid'), 2.4, 0.9);
+  });
+  if(opts.showSum !== false){
+    const to = { x: center.x + sum.x * scale, y: center.y - sum.y * scale };
+    drawArrow(ctx, center, to, cssVar('--green-mid'), 3.2, 1);
+    ctx.fillStyle = cssVar('--green-mid');
+    ctx.font = '600 11px var(--mono)';
+    ctx.fillText('Σ = word vector', to.x + 8, to.y - 4);
+  }
+}
+function drawBanner(ctx, w, h, text, opts){
+  opts = opts || {};
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const fontSize = Math.min(40, Math.max(22, 320 / text.length));
+  ctx.font = `700 ${fontSize}px 'JetBrains Mono', monospace`;
+  const charWidths = text.split('').map(c => ctx.measureText(c).width);
+  const totalWidth = charWidths.reduce((a,b)=>a+b,0);
+  let x = w/2 - totalWidth/2;
+  const y = opts.y || h/2;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    const isBoundary = (c === '<' || c === '>');
+    ctx.fillStyle = isBoundary ? cssVar('--amber-mid') : cssVar('--text');
+    ctx.fillText(c, x + charWidths[i]/2, y);
+    x += charWidths[i];
+  }
+  ctx.restore();
+  return { fontSize, charWidths, totalWidth, startX: w/2 - totalWidth/2, y };
+}
+function drawNgramRows(ctx, w, h, word, nMin, nMax){
+  const padded = '<' + word.toLowerCase() + '>';
+  const banner = drawBanner(ctx, w, h, padded, { y: 34 });
+  const rows = nMax - nMin + 1;
+  const rowH = Math.min(26, (h - 60) / Math.max(rows,1));
+  ctx.save();
+  ctx.font = '600 10px var(--mono)';
+  for(let n = nMin; n <= nMax; n++){
+    if(n > padded.length) continue;
+    const rowY = 58 + (n - nMin) * rowH;
+    ctx.fillStyle = cssVar('--text3');
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('n=' + n, banner.startX - 10, rowY);
+    for(let i=0; i + n <= padded.length; i++){
+      const x0 = banner.startX + banner.charWidths.slice(0,i).reduce((a,b)=>a+b,0);
+      const x1 = banner.startX + banner.charWidths.slice(0,i+n).reduce((a,b)=>a+b,0);
+      ctx.fillStyle = cssVar('--purple-mid');
+      ctx.globalAlpha = 0.28;
+      ctx.fillRect(x0+1, rowY-7, (x1-x0)-2, 14);
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.restore();
+}
+function drawHashTable(ctx, w, h, grams){
+  ctx.save();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '700 12px var(--mono)';
+  ctx.fillStyle = cssVar('--text2');
+  const colX = [w*0.08, w*0.46, w*0.74];
+  ['n-gram','hash (FNV-1a)','bucket #'].forEach((t,i)=> ctx.fillText(t, colX[i], 20));
+  ctx.strokeStyle = cssVar('--border'); ctx.beginPath(); ctx.moveTo(w*0.06,30); ctx.lineTo(w*0.94,30); ctx.stroke();
+  const shown = grams.slice(0, 7);
+  ctx.font = '500 12px var(--mono)';
+  shown.forEach((g,i) => {
+    const y = 52 + i * 24;
+    ctx.fillStyle = cssVar('--text');
+    ctx.fillText(g.gram, colX[0], y);
+    ctx.fillStyle = cssVar('--text3');
+    ctx.fillText('0x' + fnv1a(g.gram).toString(16).slice(0,8), colX[1], y);
+    ctx.fillStyle = cssVar('--purple-mid');
+    ctx.fillText('#' + g.bucket, colX[2], y);
+  });
+  if(grams.length > shown.length){
+    ctx.fillStyle = cssVar('--text3');
+    ctx.fillText('… + ' + (grams.length - shown.length) + ' more n-grams, same idea', colX[0], 52 + shown.length*24);
+  }
+  ctx.restore();
+}
+function drawScoreBars(ctx, w, h, items){
+  ctx.save();
+  const top = 24, rowH = (h - top - 10) / items.length;
+  const maxBarW = w * 0.55;
+  items.forEach((it, i) => {
+    const y = top + i*rowH + rowH/2;
+    ctx.font = '600 12px var(--mono)';
+    ctx.textAlign = 'right'; ctx.textBaseline='middle';
+    ctx.fillStyle = cssVar('--text2');
+    ctx.fillText(it.label, w*0.22, y);
+    ctx.fillStyle = cssVar('--bg2');
+    ctx.fillRect(w*0.25, y-8, maxBarW, 16);
+    ctx.fillStyle = it.score > 0.5 ? cssVar('--green-mid') : cssVar('--red-mid');
+    ctx.fillRect(w*0.25, y-8, maxBarW*it.score, 16);
+    ctx.textAlign='left'; ctx.fillStyle = cssVar('--text');
+    ctx.fillText('σ='+it.score.toFixed(2), w*0.25 + maxBarW + 8, y);
+  });
+  ctx.restore();
+}
+function drawScatter(ctx, w, h, points){
+  drawAxes(ctx, w, h);
+  const maxMag = Math.max(0.5, ...points.map(p => Math.hypot(p.x,p.y)));
+  const scale = (Math.min(w,h) * 0.42) / maxMag;
+  const center = { x: w/2, y: h/2 };
+  ctx.save();
+  points.forEach(p => {
+    const sx = center.x + p.x*scale, sy = center.y - p.y*scale;
+    ctx.beginPath(); ctx.arc(sx, sy, p.r || 6, 0, Math.PI*2);
+    ctx.fillStyle = p.color; ctx.fill();
+    ctx.strokeStyle = cssVar('--surface'); ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = '600 11px var(--mono)'; ctx.fillStyle = cssVar('--text');
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(p.label, sx + 10, sy);
+  });
+  ctx.restore();
+}
+function drawRecap(ctx, w, h, oovWord){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const panelW = w*0.44;
+  // Left: Word2Vec
+  ctx.fillStyle = cssVar('--red-bg'); ctx.fillRect(w*0.03, 16, panelW, h-32);
+  ctx.strokeStyle = cssVar('--red-border'); ctx.strokeRect(w*0.03, 16, panelW, h-32);
+  ctx.fillStyle = cssVar('--red-mid'); ctx.font='700 14px var(--sans)';
+  ctx.fillText('Word2Vec / GloVe', w*0.03 + panelW/2, 40);
+  ctx.font='600 12px var(--mono)';
+  ctx.fillText('"'+oovWord+'"', w*0.03 + panelW/2, h/2 - 14);
+  ctx.font='800 26px var(--sans)';
+  ctx.fillText('∅  no vector', w*0.03 + panelW/2, h/2 + 16);
+  // Right: FastText
+  ctx.fillStyle = cssVar('--green-bg'); ctx.fillRect(w*0.53, 16, panelW, h-32);
+  ctx.strokeStyle = cssVar('--green-border'); ctx.strokeRect(w*0.53, 16, panelW, h-32);
+  ctx.fillStyle = cssVar('--green-mid'); ctx.font='700 14px var(--sans)';
+  ctx.fillText('FastText', w*0.53 + panelW/2, 40);
+  ctx.font='600 12px var(--mono)';
+  ctx.fillText('"'+oovWord+'"', w*0.53 + panelW/2, h/2 - 14);
+  ctx.font='800 22px var(--sans)';
+  ctx.fillText('Σ n-grams → vector ✓', w*0.53 + panelW/2, h/2 + 16);
+  ctx.restore();
+}
+
+/* ============ STEP-BY-STEP DRIVER (live, no hard-coded numbers) ============ */
+let currentStep = 0;
+let nMin = 3, nMax = 6;
+let oovWord = 'playfulness';
+const STEP_COUNT = 11;
+
+const STEPS_META = [
+  { phase: 'setup',     title: 'One Symbol, One Vector (The Old Way)' },
+  { phase: 'setup',     title: 'Add Boundary Symbols' },
+  { phase: 'transform', title: 'Slide the N-gram Window' },
+  { phase: 'transform', title: 'Hash Each N-gram Into a Bucket' },
+  { phase: 'transform', title: 'Each Bucket Gets Its Own Vector' },
+  { phase: 'solve',     title: 'Sum → the Word Vector' },
+  { phase: 'result',    title: 'Score Context Words via Skip-gram' },
+  { phase: 'result',    title: 'Morphology Pulls Related Words Together' },
+  { phase: 'oov',       title: 'An Unseen Word Arrives' },
+  { phase: 'oov',       title: 'Decompose & Hash It — Same Machinery' },
+  { phase: 'oov',       title: 'FastText Succeeds Where Word2Vec Fails' }
+];
+
+function renderChips(list, opts){
+  opts = opts || {};
+  const el = document.getElementById('tokenViz');
+  el.innerHTML = '';
+  list.forEach(g => {
+    const span = document.createElement('span');
+    span.className = 'token';
+    if(opts.mode === 'active') span.classList.add('active');
+    else if(opts.mode === 'oov') span.classList.add('oov');
+    else if(opts.mode === 'shared'){
+      if(opts.trainSet && opts.trainSet.has(g)) span.classList.add('active');
+      else span.classList.add('oov');
+    }
+    span.textContent = g;
+    el.appendChild(span);
+  });
+}
+
+function safeMath(el){
+  if(window.renderMathInElement){
+    renderMathInElement(el, { delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\(', right: '\\)', display: false }
+    ]});
+  }
+}
+
+function renderStep(i){
+  currentStep = Math.min(STEP_COUNT - 1, Math.max(0, i));
+  const meta = STEPS_META[currentStep];
+  const { ctx, w, h } = getCtx();
+  const data = wordVector(MAIN_WORD, nMin, nMax);
+  const oovData = wordVector(oovWord, nMin, nMax);
+  const trainSet = trainingGramSet(nMin, nMax);
+  let desc = '';
+
+  switch(currentStep){
+    case 0: {
+      drawBanner(ctx, w, h, MAIN_WORD, { y: h/2 });
+      renderChips([MAIN_WORD], { mode: 'active' });
+      desc = `Word2Vec / GloVe give "<b>${MAIN_WORD}</b>" one opaque row in a |V|×d lookup table. Nothing in that vector is derived from the letters "p-l-a-y-i-n-g" — it is a symbol, not a spelling.`;
+      break;
+    }
+    case 1: {
+      drawBanner(ctx, w, h, '<' + MAIN_WORD + '>', { y: h/2 });
+      renderChips(['<' + MAIN_WORD + '>'], { mode: 'active' });
+      desc = `FastText pads the word: "<b>${MAIN_WORD}</b>" → <code>&lt;${MAIN_WORD}&gt;</code>. The boundary symbols (amber) let a prefix n-gram like <code>&lt;pl</code> be distinguished from the same substring occurring mid-word elsewhere.`;
+      break;
+    }
+    case 2: {
+      drawNgramRows(ctx, w, h, MAIN_WORD, nMin, nMax);
+      const gramList = data.grams.filter(g => !g.isWhole).map(g => g.gram);
+      renderChips(gramList, { mode: 'active' });
+      desc = `Sliding windows of length n = ${nMin}…${nMax} across <code>&lt;${MAIN_WORD}&gt;</code> yield <b>${gramList.length}</b> distinct character n-grams (plus the whole-word token) — every highlighted span above is a real substring extracted live from the padded string.`;
+      break;
+    }
+    case 3: {
+      drawHashTable(ctx, w, h, data.grams);
+      renderChips(data.grams.map(g => g.gram), { mode: 'active' });
+      const g0 = data.grams[0];
+      desc = `Each n-gram string is hashed with FNV-1a and reduced mod B (demo uses B=${NUM_BUCKETS} buckets; production FastText uses B=2,000,000). "<code>${g0.gram}</code>" → bucket <b>#${g0.bucket}</b>, computed live in your browser right now.`;
+      break;
+    }
+    case 4: {
+      drawVectorPlot(ctx, w, h, data.grams, data.sum, { showSum: false });
+      renderChips(data.grams.map(g => g.gram), { mode: 'active' });
+      desc = `Every bucket owns one trainable embedding \\(\\mathbf{z}_g \\in \\mathbb{R}^2\\) (2D here for display; d≈300 in production). The ${data.grams.length} purple arrows are "${MAIN_WORD}"'s n-gram vectors — nothing has been combined yet.`;
+      break;
+    }
+    case 5: {
+      drawVectorPlot(ctx, w, h, data.grams, data.sum, { showSum: true });
+      renderChips(data.grams.map(g => g.gram), { mode: 'active' });
+      desc = `Elementwise sum: $$v_{${MAIN_WORD}} = \\sum_{g \\in G_w} \\mathbf{z}_g = (${data.sum.x.toFixed(2)}, ${data.sum.y.toFixed(2)})$$ (green arrow) — computed live from all ${data.grams.length} n-gram vectors. This is the exact vector the skip-gram objective uses as \\(u_w\\).`;
+      break;
+    }
+    case 6: {
+      const ctxScores = CONTEXT_WORDS.map(c => {
+        const cv = vecForBucket(bucketFor('<' + c + '>'));
+        const dot = data.sum.x * cv.x + data.sum.y * cv.y;
+        return { label: c, score: 1 / (1 + Math.exp(-dot * 3)) };
+      });
+      drawScoreBars(ctx, w, h, ctxScores);
+      renderChips([MAIN_WORD], { mode: 'active' });
+      const best = ctxScores.reduce((a, b) => (b.score > a.score ? b : a));
+      desc = `FastText plugs the summed vector straight into the unmodified skip-gram-with-negative-sampling score \\(s(w,c) = v_w^\\top v_c\\), \\(p = \\sigma(s)\\) — no separate morphology model needed. Live scores: context word "<b>${best.label}</b>" ranks highest right now (σ=${best.score.toFixed(2)}).`;
+      break;
+    }
+    case 7: {
+      const sameRoot = new Set(['player', 'played', 'play', 'playful']);
+      const pts = TRAIN_WORDS.map(wd => {
+        const v = wordVector(wd, nMin, nMax).sum;
+        return {
+          x: v.x, y: v.y, label: wd,
+          r: wd === MAIN_WORD ? 8 : 5,
+          color: wd === MAIN_WORD ? cssVar('--green-mid') : (sameRoot.has(wd) ? cssVar('--blue-mid') : cssVar('--text3'))
+        };
+      });
+      drawScatter(ctx, w, h, pts);
+      renderChips(TRAIN_WORDS, { mode: 'active' });
+      let nearest = null, nd = Infinity;
+      TRAIN_WORDS.forEach(wd => {
+        if(wd === MAIN_WORD) return;
+        const v = wordVector(wd, nMin, nMax).sum;
+        const d = Math.hypot(v.x - data.sum.x, v.y - data.sum.y);
+        if(d < nd){ nd = d; nearest = wd; }
+      });
+      desc = `Every point is a live-computed word vector (sum of its own n-grams). Nearest neighbour to "<b>${MAIN_WORD}</b>" by Euclidean distance is "<b>${nearest}</b>" (d=${nd.toFixed(2)}) — words sharing the "play" root cluster together (blue) purely because they share n-grams.`;
+      break;
+    }
+    case 8: {
+      drawBanner(ctx, w, h, '<' + oovWord + '>', { y: h/2 });
+      renderChips(['<' + oovWord + '>'], { mode: 'oov' });
+      const inVocab = TRAIN_WORDS.includes(oovWord);
+      desc = `Now feed in "<b>${oovWord}</b>" — a string ${inVocab ? 'that happens to already be in' : 'that is NOT in'} the training vocabulary. A classic Word2Vec/GloVe lookup table has no row for it: <code>KeyError</code> / <code>&lt;UNK&gt;</code>.`;
+      break;
+    }
+    case 9: {
+      drawVectorPlot(ctx, w, h, oovData.grams, oovData.sum, { showSum: true });
+      const gramStrs = oovData.grams.map(g => g.gram);
+      renderChips(gramStrs, { mode: 'shared', trainSet });
+      const sharedCount = gramStrs.filter(g => trainSet.has(g)).length;
+      desc = `"${oovWord}" decomposes into ${gramStrs.length} n-grams the exact same way. <b>${sharedCount}</b> of them (purple chips) were already seen while training on other words — those shared pieces anchor the sum in a sensible region of space even though "${oovWord}" itself was never trained on.`;
+      break;
+    }
+    case 10: {
+      drawRecap(ctx, w, h, oovWord);
+      const gramStrs = oovData.grams.map(g => g.gram);
+      renderChips(gramStrs, { mode: 'shared', trainSet });
+      desc = `Same input, two systems. Word2Vec/GloVe return <b>nothing</b> for "${oovWord}" (∅ — not in the table). FastText returns $$v_{${oovWord}} = \\sum_{g} \\mathbf{z}_g = (${oovData.sum.x.toFixed(2)}, ${oovData.sum.y.toFixed(2)})$$ — a real, usable vector, composed entirely from pieces the model has seen before.`;
+      break;
+    }
+  }
+
+  const infoPhase = document.getElementById('infoPhase');
+  infoPhase.textContent = meta.phase.toUpperCase();
+  infoPhase.className = 'info-phase phase-' + meta.phase;
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${STEP_COUNT}`;
+  document.getElementById('infoTitle').textContent = meta.title;
+  const descEl = document.getElementById('infoDesc');
+  descEl.innerHTML = desc;
+  safeMath(descEl);
+  updateDots();
+  updateButtons();
+}
+
+function buildDots(){
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for(let i = 0; i < STEP_COUNT; i++){
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.onclick = () => renderStep(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots(){
+  const dots = document.querySelectorAll('#progressDots .dot');
+  dots.forEach((d, idx) => {
+    d.classList.toggle('active', idx === currentStep);
+    d.classList.toggle('done', idx < currentStep);
+  });
+}
+function updateButtons(){
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === STEP_COUNT - 1;
+}
+function go(delta){ renderStep(currentStep + delta); }
+function reset(){ renderStep(0); }
+
+document.addEventListener('keydown', e => {
+  if(e.key === 'ArrowRight') go(1);
+  if(e.key === 'ArrowLeft') go(-1);
+  if(e.key === 'r' || e.key === 'R') reset();
+});
+window.addEventListener('resize', () => renderStep(currentStep));
+
+function initControls(){
+  const nMinSlider = document.getElementById('nMinSlider');
+  const nMaxSlider = document.getElementById('nMaxSlider');
+  const nMinVal = document.getElementById('nMinVal');
+  const nMaxVal = document.getElementById('nMaxVal');
+  const oovInput = document.getElementById('oovInput');
+
+  nMinSlider.addEventListener('input', () => {
+    nMin = +nMinSlider.value;
+    if(nMin >= nMax){ nMax = Math.min(6, nMin + 1); nMaxSlider.value = nMax; }
+    nMinVal.textContent = nMin; nMaxVal.textContent = nMax;
+    renderStep(currentStep);
+  });
+  nMaxSlider.addEventListener('input', () => {
+    nMax = +nMaxSlider.value;
+    if(nMax <= nMin){ nMin = Math.max(2, nMax - 1); nMinSlider.value = nMin; }
+    nMinVal.textContent = nMin; nMaxVal.textContent = nMax;
+    renderStep(currentStep);
+  });
+  oovInput.addEventListener('input', () => {
+    const v = oovInput.value.trim().toLowerCase().replace(/[^a-z]/g, '');
+    oovWord = v.length ? v : 'playfulness';
+    renderStep(currentStep);
+  });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  buildDots();
+  initControls();
+  renderStep(0);
+});
+</script>
+
+</body>
+</html>

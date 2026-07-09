@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ControlNet: Additional Conditioning — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-domain{background:var(--green-bg);color:var(--green-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-input{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-process{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-integrate{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-output{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Slider for viz */
+.slider-container{margin-top:1rem;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2);}
+.slider-container input[type="range"]{flex-grow:1;height:4px;background:var(--border2);border-radius:2px;outline:none;appearance:none;}
+.slider-container input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:3px solid var(--surface);}
+.slider-container input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:3px solid var(--surface);}
+.slider-value{font-weight:600;color:var(--purple-mid);width:30px;text-align:right;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>ControlNet: Additional Conditioning</h1>
+  <div class="subtitle">Guiding Diffusion Models with Spatial Control</div>
+  <div class="tags">
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-domain">Computer Vision</span>
+    <span class="tag tag-complexity">Advanced</span>
+    <span class="tag tag-category">Deep Learning</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding ControlNet</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> ControlNet is a neural network architecture that enables large pre-trained diffusion models (like Stable Diffusion) to be conditioned on additional spatial inputs. Before ControlNet, diffusion models primarily relied on text prompts for guidance. ControlNet adds a powerful mechanism to control the spatial layout, pose, depth, or other structural aspects of the generated image.</p>
+    <p><strong>Analogy:</strong> Imagine you're an artist using a powerful AI assistant. You tell it, "Draw a dog in a park" (text prompt). Normally, the assistant might draw any dog in any park. With ControlNet, you can also give it a rough sketch of the dog's pose, or a depth map of the scene, or an outline of the park's layout. The assistant then uses both your text description and your spatial sketch to generate an image that precisely matches your vision.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">ControlNet works by creating a trainable copy of the diffusion model's encoder, which learns to process an additional spatial conditioning input (e.g., Canny edges, human pose, depth maps). This "ControlNet branch" then injects its learned features into the original, locked diffusion model's U-Net via special "zero-convolution" layers, guiding the generation process without altering the original model's powerful generative capabilities.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How ControlNet Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Idea: A Parallel Encoder</h4>
+    <p>A typical diffusion model uses a U-Net architecture for denoising. This U-Net has an encoder that downsamples and extracts features, a bottleneck, and a decoder that upsamples and reconstructs the image. ControlNet's key innovation is to create a <strong>trainable copy of the U-Net's encoder blocks</strong>. This copy, called the ControlNet branch, is initialized with the weights of the original U-Net's encoder.</p>
+
+    <h4>Locked vs. Trainable</h4>
+    <p>Crucially, during ControlNet training:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>The <strong>original diffusion model (U-Net) is completely locked</strong>. Its weights are frozen. This preserves its vast knowledge of image generation.</li>
+      <li>The <strong>ControlNet branch is trained</strong> to learn how to interpret the spatial conditioning input (e.g., a Canny edge map) and produce meaningful features.</li>
+    </ol>
+
+    <h4>The Zero-Convolution Trick</h4>
+    <p>At the end of each encoder block in the ControlNet branch, there's a special layer called a <strong>"zero-convolution"</strong>. This is a 1x1 convolution layer whose weights and biases are initialized to zero. This means that at the very beginning of training, the ControlNet branch outputs nothing, effectively having no impact on the original U-Net. This allows training to start smoothly without disrupting the pre-trained model.</p>
+    <p>As training progresses, the zero-convolution layers gradually learn non-zero weights, allowing the ControlNet's features to be injected into the original U-Net's skip connections. These skip connections are where the U-Net typically combines features from its encoder and decoder paths.</p>
+
+    <h4>Feature Injection</h4>
+    <p>The output features from each zero-convolution layer in the ControlNet branch are added directly to the corresponding skip connection features of the original U-Net. This means the U-Net's decoder receives information from both its own encoder (as usual) and the ControlNet branch (carrying the spatial conditioning). This guides the denoising process to adhere to the provided spatial control.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Mechanism</div>
+      <p style="font-size:14px;margin:0;">ControlNet acts as an "additional input encoder" that learns to extract spatial features from a control map. These features are then <strong>added to the skip connections</strong> of a frozen U-Net, allowing it to incorporate the spatial guidance without needing to retrain the entire large model.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Diffusion Model Objective</h4>
+    <p>A typical diffusion model aims to learn a denoising function \(\varepsilon_\theta\) that predicts the noise \(\varepsilon\) added to a noisy image \(\mathbf{x}_t\) at timestep \(t\). The objective function is often a simple mean squared error:</p>
+    <div class="eq">$$\mathcal{L}_{DM} = E_{t, \mathbf{x}_0, \varepsilon} \left[ || \varepsilon - \varepsilon_\theta(\mathbf{x}_t, t, \mathbf{c}_{text}) ||^2 \right]$$</div>
+    <p>Here, \(\mathbf{x}_t\) is the noisy image, \(t\) is the timestep, and \(\mathbf{c}_{text}\) is the text conditioning (e.g., CLIP embeddings).</p>
+
+    <h4>ControlNet's Modification</h4>
+    <p>ControlNet introduces an additional spatial conditioning input, \(\mathbf{c}_{spatial}\). It modifies the U-Net's internal feature representation. Let \(F_{U}(i, \mathbf{x}_t, t, \mathbf{c}_{text})\) be the features at the \(i\)-th skip connection of the original U-Net, and \(F_{C}(i, \mathbf{c}_{spatial}, \mathbf{x}_t, t)\) be the features produced by the ControlNet branch for the same level. The effective features passed to the U-Net's decoder become:</p>
+    <div class="eq}">$$F'_{U}(i) = F_{U}(i, \mathbf{x}_t, t, \mathbf{c}_{text}) + \text{ZeroConv}_i(F_{C}(i, \mathbf{c}_{spatial}, \mathbf{x}_t, t))$$</div>
+    <p>The \(\text{ZeroConv}_i\) denotes the \(i\)-th zero-convolution layer. The output of the combined model, \(\varepsilon_\theta\), is then a function of these modified features:</p>
+    <div class="eq">$$\varepsilon_\theta(\mathbf{x}_t, t, \mathbf{c}_{text}, \mathbf{c}_{spatial}) = \text{U-Net}_{modified}(\mathbf{x}_t, t, \mathbf{c}_{text}, \mathbf{c}_{spatial})$$</div>
+    <p>During training, the loss function is applied to this modified U-Net, but only the ControlNet branch's weights (including the zero-convolutions) are updated:</p>
+    <div class="eq">$$\mathcal{L}_{ControlNet} = E_{t, \mathbf{x}_0, \varepsilon, \mathbf{c}_{spatial}} \left[ || \varepsilon - \varepsilon_\theta(\mathbf{x}_t, t, \mathbf{c}_{text}, \mathbf{c}_{spatial}) ||^2 \right]$$</div>
+    <p>This setup ensures that the ControlNet learns to generate features that, when added to the U-Net's skip connections, guide the denoising process to align with the spatial conditioning, without disturbing the original model's learned distribution.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Importance of Freezing</div>
+      <p style="font-size:14px;margin:0;">Freezing the original U-Net is critical. If its weights were also trained, it would likely lead to <strong>catastrophic forgetting</strong>, where the model loses its general generative capabilities. ControlNet's design allows it to leverage the immense knowledge of a pre-trained model for specific tasks without retraining it from scratch.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the ControlNet architecture to see how spatial conditioning guides a diffusion model.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-input" id="infoPhase">INPUT</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Inputs</div>
+        <div class="info-desc" id="infoDesc">The process begins with an input image (optional, for control map extraction) and a text prompt.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+
+      <div class="slider-container" id="controlStrengthSlider" style="display:none;">
+        <span>Control Strength:</span>
+        <input type="range" min="0" max="1" value="0.7" step="0.05" id="controlStrengthRange">
+        <span class="slider-value" id="controlStrengthValue">0.70</span>
+      </div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input/Text</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> ControlNet</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Locked U-Net</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Intermediate Features</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Output Image</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use ControlNet:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Precise Spatial Control:</strong> When you need the generated image to adhere to a specific structure, pose, or layout (e.g., a specific character pose, room layout, or object outline).</li>
+      <li><strong>Complex Compositions:</strong> To create intricate scenes where multiple elements need to be placed accurately.</li>
+      <li><strong>Style Transfer with Structure Preservation:</strong> Applying a new style to an image while maintaining its original structural integrity.</li>
+      <li><strong>Iterative Refinement:</strong> Using an initial generation to create a control map, then refining it with ControlNet.</li>
+      <li><strong>Accessibility:</strong> Enabling users to guide generation with simple sketches or low-fidelity inputs.</li>
+    </ul>
+    <p><strong>When NOT to use ControlNet:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Simple Text-to-Image:</strong> For basic prompts where precise spatial control is not a priority, a standard diffusion model is sufficient and simpler.</li>
+      <li><strong>Low-Quality Control Maps:</strong> If your control map (e.g., Canny edge, depth map) is noisy, inaccurate, or doesn't represent the desired structure well, ControlNet might produce poor results.</li>
+      <li><strong>Over-Constraining Creativity:</strong> Sometimes, too much control can stifle the generative model's creativity. If you want more surprising or varied outputs, less control might be better.</li>
+      <li><strong>Computational Cost:</strong> ControlNet adds an extra branch and computation, making inference slightly slower and more memory-intensive than a pure diffusion model.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Relationship to other conditioning</div>
+      <p style="font-size:14px;margin:0;">ControlNet extends the idea of conditioning beyond just text embeddings. While text provides semantic guidance, ControlNet provides <em>spatial</em> guidance. Other methods like IP-Adapter focus on image-based style or content conditioning. ControlNet's architectural approach of a parallel, trainable encoder with zero-convolutions is a highly efficient way to add new modalities to large pre-trained models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">from diffusers import StableDiffusionPipeline, ControlNetModel, UniPCMultistepScheduler</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># 1. Load pre-trained U-Net (diffusion model) and ControlNet</div>
+      <div class="code-line" id="cl4">unet = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5").unet</div>
+      <div class="code-line" id="cl5">controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny")</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># 2. Prepare inputs</div>
+      <div class="code-line" id="cl8">noisy_latents = torch.randn(1, 4, 64, 64) # Latent representation of noisy image</div>
+      <div class="code-line" id="cl9">timestep = torch.tensor([500])          # Current denoising timestep</div>
+      <div class="code-line" id="cl10">text_embeddings = torch.randn(1, 77, 768) # Encoded text prompt</div>
+      <div class="code-line" id="cl11">control_map = torch.randn(1, 3, 512, 512) # Canny edge map, depth map, etc.</div>
+      <div class="code-line" id="cl12">control_guidance_scale = 0.7             # How strongly ControlNet guides</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># 3. ControlNet forward pass: extract spatial features</div>
+      <div class="code-line" id="cl15"># This method returns a list of hidden states (features) from its encoder blocks</div>
+      <div class="code-line" id="cl16"># Each feature map has undergone a zero-convolution layer.</div>
+      <div class="code-line" id="cl17">control_features = controlnet(</div>
+      <div class="code-line" id="cl18">    noisy_latents,</div>
+      <div class="code-line" id="cl19">    timestep,</div>
+      <div class="code-line" id="cl20">    encoder_hidden_states=text_embeddings,</div>
+      <div class="code-line" id="cl21">    controlnet_cond=control_map,</div>
+      <div class="code-line" id="cl22">    conditioning_scale=control_guidance_scale,</div>
+      <div class="code-line" id="cl23">    return_dict=False,</div>
+      <div class="code-line" id="cl24">)[0] # [0] gets the list of features</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># 4. U-Net forward pass: denoise with added control features</div>
+      <div class="code-line" id="cl27"># The U-Net's forward method internally adds control_features to its skip connections</div>
+      <div class="code-line" id="cl28"># (or rather, the pipeline orchestrates this by passing control_features to U-Net)</div>
+      <div class="code-line" id="cl29">noise_pred = unet(</div>
+      <div class="code-line" id="cl30">    noisy_latents,</div>
+      <div class="code-line" id="cl31">    timestep,</div>
+      <div class="code-line" id="cl32">    encoder_hidden_states=text_embeddings,</div>
+      <div class="code-line" id="cl33">    down_block_additional_residuals=control_features, # ControlNet features injected here</div>
+      <div class="code-line" id="cl34">    return_dict=False,</div>
+      <div class="code-line" id="cl35">)[0]</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># 5. Use noise_pred to denoise the latents (iteratively in a full pipeline)</div>
+      <div class="code-line" id="cl38"># ... (denoising scheduler steps, VAE decode to image) ...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA ──
+const controlStrength = { value: 0.7 }; // Global state for slider
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'input', title: 'Initial Inputs',
+    desc: 'The process begins with a <strong>Text Prompt</strong> (e.g., "A dog in a park") providing semantic guidance, and an <strong>Input Image</strong> (optional, used here to derive the control map).',
+    codeLines: [8,9,10],
+    vizState: {
+      highlight: ['input_image', 'text_prompt'],
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'input', title: 'Control Map Extraction',
+    desc: 'From the Input Image, a specific <strong>Control Map</strong> is extracted. This could be a Canny edge map, a depth map, a human pose skeleton, or a segmentation mask. This map provides the spatial conditioning.',
+    codeLines: [11],
+    vizState: {
+      highlight: ['input_image', 'control_map', 'arrow_img_to_map'],
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'process', title: 'Original U-Net (Locked)',
+    desc: 'The core of the diffusion model is a U-Net architecture. During ControlNet training and inference, this <strong>U-Net is kept completely locked</strong> (frozen weights). It receives the noisy image latents and the text prompt embeddings.',
+    codeLines: [4],
+    vizState: {
+      highlight: ['unet_encoder_blocks', 'unet_bottleneck', 'unet_decoder_blocks', 'text_prompt', 'arrow_text_to_unet'],
+      lockedUnet: true,
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'process', title: 'ControlNet Branch (Trainable)',
+    desc: 'A parallel <strong>ControlNet branch</strong> is created. It\'s initialized as a copy of the U-Net\'s encoder. This branch is <strong>trainable</strong> and takes the Control Map as its primary input, along with the noisy latents and text embeddings.',
+    codeLines: [5],
+    vizState: {
+      highlight: ['controlnet_encoder_blocks', 'control_map', 'arrow_map_to_controlnet'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'integrate', title: 'Zero-Convolution Layers',
+    desc: 'Each ControlNet encoder block ends with a <strong>Zero-Convolution layer</strong>. These 1x1 convolutions are initialized to zero, meaning they initially output nothing. They gradually learn to produce features that will be injected into the U-Net.',
+    codeLines: [16],
+    vizState: {
+      highlight: ['controlnet_zero_convs'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'integrate', title: 'Feature Injection via Skip Connections',
+    desc: 'The features from ControlNet\'s zero-convolution layers are <strong>added to the corresponding skip connections</strong> of the original U-Net. This is where the spatial guidance from the control map is merged with the U-Net\'s internal representations.',
+    codeLines: [17,18,19,20,21,22,23,24,33],
+    vizState: {
+      highlight: ['controlnet_zero_convs', 'unet_skip_connections', 'arrow_controlnet_to_unet_skips'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'process', title: 'Denoising with Combined Features',
+    desc: 'With the injected features, the <strong>locked U-Net proceeds with its denoising task</strong>. It now has both semantic (text) and spatial (ControlNet) guidance, allowing it to generate an image that matches the prompt AND the control map.',
+    codeLines: [26,27,28,29,30,31,32,34,35],
+    vizState: {
+      highlight: ['unet_decoder_blocks', 'output_image'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      featuresInjected: true,
+      controlStrengthVisible: false
+    }
+  },
+  {
+    phase: 'output', title: 'Controlled Output Image',
+    desc: 'The final denoised latent is decoded into an <strong>Output Image</strong>. This image is now precisely guided by both the text prompt and the spatial control map, enabling high-fidelity and controllable generation.',
+    codeLines: [37,38],
+    vizState: {
+      highlight: ['output_image'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      featuresInjected: true,
+      controlStrengthVisible: true
+    }
+  },
+  {
+    phase: 'output', title: 'Adjusting Control Strength',
+    desc: 'The <strong>Control Strength</strong> parameter allows you to fine-tune how strongly the ControlNet\'s guidance influences the final image. A higher value means stricter adherence to the control map, while a lower value allows more freedom for the text prompt.',
+    codeLines: [12,22],
+    vizState: {
+      highlight: ['controlnet_zero_convs', 'unet_skip_connections', 'arrow_controlnet_to_unet_skips', 'output_image'],
+      lockedUnet: true,
+      controlNetTrainable: true,
+      featuresInjected: true,
+      controlStrengthVisible: true
+    }
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  const isCollapsed = body.classList.contains('collapsed');
+
+  if (isCollapsed) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.classList.remove('collapsed');
+    toggle.classList.add('open');
+  } else {
+    body.style.maxHeight = body.scrollHeight + 'px'; // Set current height before collapsing
+    requestAnimationFrame(() => {
+      body.style.maxHeight = '0';
+      body.classList.add('collapsed');
+      toggle.classList.remove('open');
+    });
+  }
+}
+
+// Ensure sections are correctly initialized on load
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.section-body').forEach(body => {
+    if (body.classList.contains('collapsed')) {
+      body.style.maxHeight = '0';
+    } else {
+      body.style.maxHeight = body.scrollHeight + 'px';
+    }
+  });
+});
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {input:'phase-input',process:'phase-process',integrate:'phase-integrate',output:'phase-output'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawViz(s.vizState);
+
+  // Control Strength Slider visibility
+  const sliderContainer = document.getElementById('controlStrengthSlider');
+  if (s.vizState.controlStrengthVisible) {
+    sliderContainer.style.display = 'flex';
+  } else {
+    sliderContainer.style.display = 'none';
+  }
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawViz(state) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '12px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Define block dimensions and positions
+  const blockW = 80, blockH = 30;
+  const gapX = 40, gapY = 25;
+  const startX = 20, startY = 40;
+
+  const blocks = {
+    input_image: { x: startX, y: startY + 50, w: blockW, h: blockW, label: 'Input Image', color: blueMid, isSquare: true },
+    control_map: { x: startX, y: startY + 50 + blockW + gapY, w: blockW, h: blockW, label: 'Control Map', color: blueMid, isSquare: true },
+    text_prompt: { x: W / 2 - blockW / 2, y: startY, w: blockW * 1.5, h: blockH, label: 'Text Prompt', color: blueMid },
+
+    unet_encoder_blocks: { x: startX + blockW + gapX * 2, y: startY + 50, w: blockW, h: blockH * 3 + gapY * 2, label: 'U-Net Encoder (Locked)', color: redMid, isUnetStack: true },
+    unet_bottleneck: { x: startX + blockW + gapX * 2, y: startY + 50 + blockH * 3 + gapY * 2 + gapY, w: blockW, h: blockH, label: 'Bottleneck', color: redMid },
+    unet_decoder_blocks: { x: startX + blockW + gapX * 2, y: startY + 50 + blockH * 3 + gapY * 2 + gapY + blockH + gapY, w: blockW, h: blockH * 3 + gapY * 2, label: 'U-Net Decoder (Locked)', color: redMid, isUnetStack: true },
+
+    controlnet_encoder_blocks: { x: startX + blockW + gapX * 2 + blockW + gapX * 2, y: startY + 50, w: blockW, h: blockH * 3 + gapY * 2, label: 'ControlNet Encoder (Trainable)', color: purpleMid, isUnetStack: true },
+    controlnet_zero_convs: { x: startX + blockW + gapX * 2 + blockW + gapX * 2 + blockW + 5, y: startY + 50, w: 10, h: blockH * 3 + gapY * 2, label: 'Zero-Convs', color: purpleMid, isZeroConvStack: true },
+
+    output_image: { x: W - startX - blockW, y: H / 2 - blockW / 2, w: blockW, h: blockW, label: 'Output Image', color: greenMid, isSquare: true }
+  };
+
+  const arrows = {
+    arrow_img_to_map: { from: 'input_image', to: 'control_map', dir: 'down' },
+    arrow_map_to_controlnet: { from: 'control_map', to: 'controlnet_encoder_blocks', dir: 'right' },
+    arrow_text_to_unet: { from: 'text_prompt', to: 'unet_encoder_blocks', dir: 'down' },
+    arrow_unet_down: { from: 'unet_encoder_blocks', to: 'unet_bottleneck', dir: 'down' },
+    arrow_unet_up: { from: 'unet_bottleneck', to: 'unet_decoder_blocks', dir: 'down' },
+    arrow_controlnet_down: { from: 'controlnet_encoder_blocks', to: 'controlnet_zero_convs', dir: 'right' },
+    arrow_controlnet_to_unet_skips: { from: 'controlnet_zero_convs', to: 'unet_encoder_blocks', dir: 'left', isSkip: true }, // Visual helper
+    arrow_unet_to_output: { from: 'unet_decoder_blocks', to: 'output_image', dir: 'right' }
+  };
+
+  // Draw Block Helper
+  function drawBlock(block, isHighlighted = false, isLocked = false, isTrainable = false) {
+    ctx.save();
+    ctx.fillStyle = isHighlighted ? block.color : bg2;
+    ctx.strokeStyle = isHighlighted ? block.color : borderC;
+    ctx.lineWidth = isHighlighted ? 2.5 : 1;
+    ctx.roundRect(block.x, block.y, block.w, block.h, varToPx('--radius'));
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = isHighlighted ? textC : text2;
+    ctx.font = isHighlighted ? '600 13px "DM Sans", system-ui' : '12px "DM Sans", system-ui';
+    ctx.fillText(block.label, block.x + block.w / 2, block.y + block.h / 2);
+
+    if (isLocked) {
+      ctx.fillStyle = redMid; ctx.font = '10px "DM Sans", system-ui';
+      ctx.fillText('(Locked)', block.x + block.w / 2, block.y + block.h / 2 + 15);
+    }
+    if (isTrainable) {
+      ctx.fillStyle = purpleMid; ctx.font = '10px "DM Sans", system-ui';
+      ctx.fillText('(Trainable)', block.x + block.w / 2, block.y + block.h / 2 + 15);
+    }
+
+    if (block.isUnetStack) {
+      const numBlocks = 3;
+      const subBlockH = (block.h - (numBlocks - 1) * gapY) / numBlocks;
+      for (let i = 0; i < numBlocks; i++) {
+        const subY = block.y + i * (subBlockH + gapY);
+        ctx.strokeStyle = isHighlighted ? block.color : borderC;
+        ctx.lineWidth = isHighlighted ? 2.5 : 1;
+        ctx.roundRect(block.x, subY, block.w, subBlockH, varToPx('--radius') / 2);
+        ctx.stroke();
+      }
+    }
+    if (block.isZeroConvStack) {
+      const numBlocks = 3;
+      const subBlockH = (block.h - (numBlocks - 1) * gapY) / numBlocks;
+      for (let i = 0; i < numBlocks; i++) {
+        const subY = block.y + i * (subBlockH + gapY);
+        ctx.fillStyle = isHighlighted ? block.color : bg2;
+        ctx.strokeStyle = isHighlighted ? block.color : borderC;
+        ctx.lineWidth = isHighlighted ? 2.5 : 1;
+        ctx.beginPath();
+        ctx.arc(block.x + block.w / 2, subY + subBlockH / 2, subBlockH / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Draw Arrow Helper
+  function drawArrow(fromBlock, toBlock, isHighlighted = false, isSkip = false) {
+    ctx.save();
+    ctx.strokeStyle = isHighlighted ? amberMid : text3;
+    ctx.fillStyle = isHighlighted ? amberMid : text3;
+    ctx.lineWidth = isHighlighted ? 2 : 1;
+    ctx.lineCap = 'round';
+
+    let startX, startY, endX, endY;
+
+    if (isSkip) { // Special drawing for skip connections
+      const unet_enc = blocks.unet_encoder_blocks;
+      const ctrl_zero = blocks.controlnet_zero_convs;
+      const numBlocks = 3;
+      const subBlockH = (unet_enc.h - (numBlocks - 1) * gapY) / numBlocks;
+
+      for (let i = 0; i < numBlocks; i++) {
+        const ctrl_y = ctrl_zero.y + i * (subBlockH + gapY) + subBlockH / 2;
+        const unet_y = unet_enc.y + i * (subBlockH + gapY) + subBlockH / 2;
+        startX = ctrl_zero.x + ctrl_zero.w;
+        startY = ctrl_y;
+        endX = unet_enc.x;
+        endY = unet_y;
+
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(startX + gapX/2, startY);
+        ctx.lineTo(startX + gapX/2, endY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        drawArrowhead(endX, endY, 'left');
+      }
+    } else {
+      // Determine start and end points based on block positions
+      if (fromBlock.x < toBlock.x) startX = fromBlock.x + fromBlock.w; else startX = fromBlock.x;
+      if (fromBlock.y < toBlock.y) startY = fromBlock.y + fromBlock.h; else startY = fromBlock.y;
+      if (toBlock.x < fromBlock.x) endX = toBlock.x + toBlock.w; else endX = toBlock.x;
+      if (toBlock.y < fromBlock.y) endY = toBlock.y + toBlock.h; else endY = toBlock.y;
+
+      if (fromBlock.x === toBlock.x) { // Vertical
+        startX = fromBlock.x + fromBlock.w / 2;
+        endX = toBlock.x + toBlock.w / 2;
+      }
+      if (fromBlock.y === toBlock.y) { // Horizontal
+        startY = fromBlock.y + fromBlock.h / 2;
+        endY = toBlock.y + toBlock.h / 2;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      drawArrowhead(endX, endY, fromBlock.x < toBlock.x ? 'right' : (fromBlock.x > toBlock.x ? 'left' : (fromBlock.y < toBlock.y ? 'down' : 'up')));
+    }
+    ctx.restore();
+  }
+
+  function drawArrowhead(x, y, direction) {
+    const size = 6;
+    ctx.beginPath();
+    if (direction === 'right') {
+      ctx.moveTo(x, y); ctx.lineTo(x - size, y - size / 2); ctx.lineTo(x - size, y + size / 2);
+    } else if (direction === 'left') {
+      ctx.moveTo(x, y); ctx.lineTo(x + size, y - size / 2); ctx.lineTo(x + size, y + size / 2);
+    } else if (direction === 'down') {
+      ctx.moveTo(x, y); ctx.lineTo(x - size / 2, y - size); ctx.lineTo(x + size / 2, y - size);
+    } else if (direction === 'up') {
+      ctx.moveTo(x, y); ctx.lineTo(x - size / 2, y + size); ctx.lineTo(x + size / 2, y + size);
+    }
+    ctx.fill();
+  }
+
+  function varToPx(cssVar) {
+    return parseFloat(cs.getPropertyValue(cssVar));
+  }
+
+  // Draw all blocks
+  for (const key in blocks) {
+    const block = blocks[key];
+    const isHighlighted = state.highlight && state.highlight.includes(key);
+    const isLocked = state.lockedUnet && (key.startsWith('unet_') || key === 'unet_bottleneck');
+    const isTrainable = state.controlNetTrainable && key.startsWith('controlnet_');
+    drawBlock(block, isHighlighted, isLocked, isTrainable);
+  }
+
+  // Draw all arrows
+  for (const key in arrows) {
+    const arrow = arrows[key];
+    const isHighlighted = state.highlight && state.highlight.includes(key);
+    if (key === 'arrow_controlnet_to_unet_skips' && !state.featuresInjected && !isHighlighted) continue; // Only show when features are injected or highlighted
+    drawArrow(blocks[arrow.from], blocks[arrow.to], isHighlighted, arrow.isSkip);
+  }
+
+  // Draw the output image representation
+  if (state.highlight && state.highlight.includes('output_image')) {
+    const outputBlock = blocks.output_image;
+    const strength = controlStrength.value;
+
+    ctx.save();
+    ctx.translate(outputBlock.x + outputBlock.w / 2, outputBlock.y + outputBlock.h / 2);
+
+    // Target shape (e.g., a perfect square)
+    ctx.strokeStyle = purpleMid; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(-outputBlock.w * 0.3, -outputBlock.h * 0.3, outputBlock.w * 0.6, outputBlock.h * 0.6);
+    ctx.stroke();
+    ctx.fillStyle = text3; ctx.font = '10px "DM Sans", system-ui';
+    ctx.fillText('Target Shape (from control map)', 0, outputBlock.h * 0.4);
+
+    // Generated shape (influenced by control strength)
+    ctx.strokeStyle = greenMid; ctx.lineWidth = 2;
+    ctx.beginPath();
+    const size = outputBlock.w * 0.2 + outputBlock.w * 0.1 * strength;
+    const offset = outputBlock.w * 0.1 * (1 - strength);
+    ctx.rect(-size / 2 + offset, -size / 2 - offset, size, size);
+    ctx.stroke();
+
+    ctx.fillStyle = greenMid; ctx.font = '10px "DM Sans", system-ui';
+    ctx.fillText('Generated Shape', 0, outputBlock.h * 0.4 + 12);
+
+    ctx.restore();
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── SLIDER INTERACTION ──
+const controlStrengthRange = document.getElementById('controlStrengthRange');
+const controlStrengthValue = document.getElementById('controlStrengthValue');
+
+controlStrengthRange.addEventListener('input', (event) => {
+  controlStrength.value = parseFloat(event.target.value);
+  controlStrengthValue.textContent = controlStrength.value.toFixed(2);
+  drawViz(steps[step].vizState); // Redraw canvas with new strength
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawViz(steps[step].vizState));
+</script>
+</body>
+</html>

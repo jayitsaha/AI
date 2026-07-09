@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decoder Stack: Masked Self-Attention + Cross-Attention + FFN — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-expert{background:var(--purple-bg);color:var(--purple-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body table{width:100%;border-collapse:collapse;font-size:12.5px;margin:0.75rem 0;}
+.section-body th,.section-body td{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+.section-body th{background:var(--bg2);font-weight:700;color:var(--text2);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Matrix displays */
+.matrix-row{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-display{display:inline-grid;gap:2px;padding:8px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:12px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);}
+.matrix-cell{width:50px;height:28px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11.5px;border-radius:3px;transition:all 0.4s;}
+.matrix-cell.small{width:38px;height:26px;font-size:10px;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.omega{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.matrix-cell.amber{background:var(--amber-bg);color:var(--amber-mid);font-weight:600;}
+.matrix-cell.masked{background:var(--red-bg);color:var(--red-mid);font-weight:600;}
+.op-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/11;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-selfattn{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-crossattn{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-ffn{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .matrix-cell{width:38px;height:24px;font-size:10px;}
+  .matrix-row{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Decoder Stack: Masked Self-Attention + Cross-Attention + FFN</h1>
+  <div class="subtitle">Inside a single Transformer decoder layer — how generation, source-grounding, and per-token refinement combine</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Transformers</span>
+    <span class="tag tag-category">Sequence-to-Sequence</span>
+    <span class="tag tag-complexity">O(Ty² + Ty·Tx)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Decoder Stack</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A Transformer decoder layer is the block that generates output tokens one at a time. Each layer runs THREE sub-operations in sequence: (1) <em>masked self-attention</em> over the tokens generated so far, (2) <em>cross-attention</em> over the encoder's finished representation of the source sequence, and (3) a <em>position-wise feed-forward network (FFN)</em> that refines each token's vector independently. Every sub-layer is wrapped in a residual connection and LayerNorm ("Add &amp; Norm").</p>
+    <p><strong>Analogy:</strong> Picture a translator writing a French sentence live, word by word. Before writing the next word they (1) re-read only the French words already on the page — never words they haven't written yet, that's <em>masked</em> self-attention; (2) glance back at the original English sentence for meaning — that's <em>cross-attention</em>, and it's the only channel through which source information enters the decoder; (3) apply their personal style rules to polish the word choice — that's the FFN, applied identically to every word position.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">A decoder layer is <strong>masked self-attention → cross-attention → FFN</strong>, each followed by Add &amp; Norm. Self-attention lets a position see the past; cross-attention lets it see the entire source; the FFN does per-token nonlinear processing. Stack this block \(N\) times (6, 12, 96...) and finish with a linear layer + softmax over the vocabulary.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Decoder Layer Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Sub-layer 1 — Masked Multi-Head Self-Attention</h4>
+    <p>The decoder's own partial output \(Y \in \mathbb{R}^{T_y \times d}\) is projected into queries, keys, and values: \(Q=YW^Q, K=YW^K, V=YW^V\). Raw attention scores \(QK^\top/\sqrt{d_k}\) are computed for every pair of positions, but before the softmax a <strong>causal mask</strong> sets every score where the key position \(j\) is strictly after the query position \(i\) to \(-\infty\). This guarantees position \(i\) can only draw information from positions \(\le i\) — the same constraint that holds at inference time, when future tokens simply don't exist yet.</p>
+
+    <h4>Sub-layer 2 — Encoder-Decoder Cross-Attention</h4>
+    <p>Queries now come from the decoder's own (masked-self-attended) hidden state; keys and values come from the encoder's final output "memory" \(M \in \mathbb{R}^{T_x \times d}\), which is <em>fixed</em> for the whole decoding process and reused by every decoder layer and every generation step. No causal mask is applied here — a decoder position is allowed to look at the entire source sentence, since the source is fully known in advance. This is the ONLY sub-layer where information crosses from encoder to decoder.</p>
+
+    <h4>Sub-layer 3 — Position-wise Feed-Forward Network</h4>
+    <p>Each token's vector is passed independently through the same two-layer MLP: expand to \(d_{ff}\) (typically \(4d\)), apply a nonlinearity (ReLU or GELU), then project back to \(d\). "Position-wise" means the exact same weights are applied to every position separately — there is no mixing across positions inside the FFN; all cross-position mixing happens in the attention sub-layers.</p>
+
+    <h4>Add &amp; Norm</h4>
+    <p>Every sub-layer is wrapped as \(x \leftarrow \text{LayerNorm}(x + \text{Sublayer}(x))\). The residual path gives gradients a direct identity route through dozens of stacked layers; LayerNorm keeps activation scale stable regardless of depth.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Design Decision — Why keep self-attn and cross-attn separate?</div>
+      <p style="font-size:14px;margin:0;">Splitting "what have I generated" (self-attention) from "what does the source say" (cross-attention) lets each be optimized independently, and — critically for inference speed — the cross-attention keys/values from the encoder are computed <strong>once</strong> and reused (cached) at every decoding step, while only the self-attention K/V cache grows token by token.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Why −∞ masking, not zero-out-after-softmax?</div>
+      <p style="font-size:14px;margin:0;">Adding \(-\infty\) BEFORE the softmax makes \(\exp(-\infty)=0\) exactly, so masked positions contribute nothing to the normalizing sum. Zeroing weights AFTER a softmax computed over all positions would still let future tokens skew the normalization constant — a subtle but real correctness bug.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Masked Scaled Dot-Product Attention</h4>
+    <div class="eq">$$\text{Attention}(Q,K,V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}} + M\right)V, \qquad M_{ij} = \begin{cases}0 & j \le i \\ -\infty & j > i\end{cases}$$</div>
+    <p>The mask \(M\) is added ONLY in self-attention. In cross-attention \(M \equiv 0\) (aside from optional source-padding masks), and \(K, V\) are derived from the encoder memory \(M_{enc}\) instead of \(Y\):</p>
+    <div class="eq">$$Q = YW^Q, \quad K = M_{enc}W^K, \quad V = M_{enc}W^V, \qquad \text{CrossAttn}(Y, M_{enc}) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$</div>
+
+    <h4>Multi-Head Form</h4>
+    <p>Each attention (self or cross) is run \(h\) times in parallel on \(d_k = d/h\)-dimensional projections, then concatenated and mixed with an output projection \(W^O\):</p>
+    <div class="eq">$$\text{MultiHead}(Q,K,V) = \text{Concat}(\text{head}_1,\dots,\text{head}_h)W^O, \quad \text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V)$$</div>
+
+    <h4>Position-wise FFN</h4>
+    <div class="eq">$$\text{FFN}(x) = \max(0,\, xW_1 + b_1)\,W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times d_{ff}},\; W_2 \in \mathbb{R}^{d_{ff} \times d}$$</div>
+
+    <h4>Full Layer Recurrence</h4>
+    <div class="eq">$$\begin{aligned}Z_1 &= \text{LayerNorm}\big(Y + \text{MaskedSelfAttn}(Y)\big)\\ Z_2 &= \text{LayerNorm}\big(Z_1 + \text{CrossAttn}(Z_1, M_{enc})\big)\\ Z_3 &= \text{LayerNorm}\big(Z_2 + \text{FFN}(Z_2)\big)\end{aligned}$$</div>
+
+    <h4>Why Residuals Matter for Depth</h4>
+    <p>Differentiating the wrapper \(x + f(x)\) with respect to \(x\) gives \(I + \partial f/\partial x\) — an identity term is always present, so gradients cannot vanish purely from stacking sub-layers, even across very deep stacks (GPT-style models routinely exceed 80 decoder layers).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The causal mask alone is not enough with batched, padded sequences — you must ALSO combine it with a <strong>padding mask</strong> so attention never attends to \(\langle\text{pad}\rangle\) tokens. Forgetting the padding mask silently leaks garbage into otherwise-correct causal attention.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through ONE decoder layer processing \(T_y=4\) target positions against \(T_x=3\) encoder-memory positions (\(d_{model}=4\)). Every number is computed live in JavaScript from fixed toy weight matrices — nothing is hard-coded.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div id="matrixViz"></div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Decoder Stack — Big Picture</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Masked self-attention</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Cross-attention</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> FFN / Add &amp; Norm</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Encoder memory</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table>
+      <tr><th>Architecture</th><th>Masked self-attn</th><th>Cross-attn</th><th>FFN</th><th>Examples</th></tr>
+      <tr><td>Encoder-decoder</td><td>Yes (decoder side)</td><td>Yes</td><td>Yes (both sides)</td><td>Original Transformer, T5, BART</td></tr>
+      <tr><td>Decoder-only</td><td>Yes</td><td>No — dropped entirely</td><td>Yes</td><td>GPT family, LLaMA</td></tr>
+      <tr><td>Encoder-only</td><td>No (bidirectional instead)</td><td>No</td><td>Yes</td><td>BERT, RoBERTa</td></tr>
+    </table>
+    <p><strong>When each sub-layer matters:</strong></p>
+    <ul>
+      <li>Masked self-attention is what makes generation <em>autoregressive</em> — it enforces that training (teacher forcing) and inference (token-by-token decoding) see the same causal structure.</li>
+      <li>Cross-attention is the ONLY bridge between encoder and decoder — remove it and you get a decoder-only language model that can no longer condition on a separate source sequence.</li>
+      <li>The FFN holds roughly two-thirds of a Transformer's parameters (\(2 \times d \times d_{ff}\) vs. \(4d^2\) for attention when \(d_{ff}=4d\)) and is where much per-token "knowledge" is believed to be stored.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 KV-Cache Insight</div>
+      <p style="font-size:14px;margin:0;">At inference time, cross-attention K/V are computed <strong>once per source sentence</strong> and cached; self-attention K/V grow by one row per generated token and are also cached. This is why autoregressive decoding is \(O(T_y)\) incremental steps rather than recomputing the whole stack from scratch each time.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def layer_norm(x, eps=1e-5):</div>
+      <div class="code-line" id="cl3">    mu = x.mean(-1, keepdims=True)</div>
+      <div class="code-line" id="cl4">    var = x.var(-1, keepdims=True)</div>
+      <div class="code-line" id="cl5">    return (x - mu) / np.sqrt(var + eps)</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7">def attention(Q, K, V, mask=None):</div>
+      <div class="code-line" id="cl8">    scores = Q @ K.T / np.sqrt(Q.shape[-1])</div>
+      <div class="code-line" id="cl9">    if mask is not None:</div>
+      <div class="code-line" id="cl10">        scores = scores + mask          # mask: 0 or -inf</div>
+      <div class="code-line" id="cl11">    weights = softmax(scores, axis=-1)</div>
+      <div class="code-line" id="cl12">    return weights @ V</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">def causal_mask(T):</div>
+      <div class="code-line" id="cl15">    m = np.triu(np.ones((T, T)), k=1)   # j &gt; i</div>
+      <div class="code-line" id="cl16">    return np.where(m == 1, -np.inf, 0.0)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">def decoder_layer(Y, M_enc, W):</div>
+      <div class="code-line" id="cl19">    # 1. Masked self-attention</div>
+      <div class="code-line" id="cl20">    Q1, K1, V1 = Y @ W.Wq1, Y @ W.Wk1, Y @ W.Wv1</div>
+      <div class="code-line" id="cl21">    self_out = attention(Q1, K1, V1, causal_mask(Y.shape[0]))</div>
+      <div class="code-line" id="cl22">    Z1 = layer_norm(Y + self_out)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">    # 2. Cross-attention (Q from decoder, K/V from encoder memory)</div>
+      <div class="code-line" id="cl25">    Q2 = Z1 @ W.Wq2</div>
+      <div class="code-line" id="cl26">    K2, V2 = M_enc @ W.Wk2, M_enc @ W.Wv2</div>
+      <div class="code-line" id="cl27">    cross_out = attention(Q2, K2, V2, mask=None)</div>
+      <div class="code-line" id="cl28">    Z2 = layer_norm(Z1 + cross_out)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">    # 3. Position-wise feed-forward network</div>
+      <div class="code-line" id="cl31">    hidden = np.maximum(0, Z2 @ W.W1 + W.b1)   # expand + ReLU</div>
+      <div class="code-line" id="cl32">    ffn_out = hidden @ W.W2 + W.b2              # project back down</div>
+      <div class="code-line" id="cl33">    Z3 = layer_norm(Z2 + ffn_out)</div>
+      <div class="code-line" id="cl34">    return Z3   # feeds the next decoder layer, or Linear+softmax if last</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================= SEEDED PRNG (deterministic "learned" weights) =================
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const rng = mulberry32(1337);
+function genMatrix(rows, cols, diagBoost){
+  const M = [];
+  for(let i=0;i<rows;i++){
+    const row = [];
+    for(let j=0;j<cols;j++){
+      let v = (rng()-0.5)*0.8;
+      if(diagBoost && i===j) v += diagBoost;
+      row.push(v);
+    }
+    M.push(row);
+  }
+  return M;
+}
+
+// ================= MATRIX OPS =================
+function matmul(A,B){const r=A.length,k=A[0].length,c=B[0].length;const out=Array.from({length:r},()=>Array(c).fill(0));for(let i=0;i<r;i++)for(let j=0;j<c;j++){let s=0;for(let t=0;t<k;t++)s+=A[i][t]*B[t][j];out[i][j]=s;}return out;}
+function transpose(A){return A[0].map((_,j)=>A.map(row=>row[j]));}
+function addMat(A,B){return A.map((row,i)=>row.map((v,j)=>v+B[i][j]));}
+function addBiasRow(A,b){return A.map(row=>row.map((v,j)=>v+b[j]));}
+function scaleMat(A,s){return A.map(row=>row.map(v=>v*s));}
+function softmaxRow(row){const finite=row.filter(v=>v>-1e8);const max=finite.length?Math.max(...finite):0;const exps=row.map(v=>v<=-1e8?0:Math.exp(v-max));const sum=exps.reduce((a,b)=>a+b,0);return exps.map(v=>v/sum);}
+function softmaxMat(M){return M.map(softmaxRow);}
+function layerNorm(M){const eps=1e-5;return M.map(row=>{const mean=row.reduce((a,b)=>a+b,0)/row.length;const variance=row.reduce((a,b)=>a+(b-mean)*(b-mean),0)/row.length;return row.map(v=>(v-mean)/Math.sqrt(variance+eps));});}
+function reluMat(M){return M.map(row=>row.map(v=>Math.max(0,v)));}
+function causalMask(T){const M=Array.from({length:T},()=>Array(T).fill(0));for(let i=0;i<T;i++)for(let j=0;j<T;j++)if(j>i)M[i][j]=-1e9;return M;}
+
+// ================= TOY PROBLEM: Ty=4 target tokens, Tx=3 source tokens, d_model=4 =================
+const dModel=4, dFF=8, Ty=4, Tx=3, scaleFactor=1/Math.sqrt(dModel);
+
+const X = [   // decoder input embeddings (output-embedding + positional encoding), one row per target position
+  [1.0, 0.5, -0.5, 0.2],
+  [0.3,-0.2,  0.8, 0.1],
+  [-0.4,0.6,  0.2,-0.3],
+  [0.7,-0.1,  0.4, 0.5]
+];
+const Menc = [  // encoder memory (final encoder layer output), one row per source position
+  [0.2, 0.9,-0.3, 0.4],
+  [-0.5,0.3, 0.6,-0.2],
+  [0.8,-0.4, 0.1, 0.3]
+];
+
+const Wq1=genMatrix(4,4,0.4), Wk1=genMatrix(4,4,0.4), Wv1=genMatrix(4,4,0.3);
+const Wq2=genMatrix(4,4,0.3), Wk2=genMatrix(4,4,0.3), Wv2=genMatrix(4,4,0.3);
+const W1=genMatrix(4,8,0);
+const b1=Array.from({length:8},()=>(rng()-0.5)*0.2);
+const W2=genMatrix(8,4,0);
+const b2=Array.from({length:4},()=>(rng()-0.5)*0.2);
+
+// ---- Sub-layer 1: masked self-attention ----
+const Q1 = matmul(X, Wq1), K1 = matmul(X, Wk1), V1 = matmul(X, Wv1);
+const rawScores1 = scaleMat(matmul(Q1, transpose(K1)), scaleFactor);
+const mask = causalMask(Ty);
+const maskedScores1 = addMat(rawScores1, mask);
+const attnW1 = softmaxMat(maskedScores1);
+const attnOut1 = matmul(attnW1, V1);
+const Z1 = layerNorm(addMat(X, attnOut1));
+
+// ---- Sub-layer 2: cross-attention ----
+const Q2 = matmul(Z1, Wq2), K2 = matmul(Menc, Wk2), V2 = matmul(Menc, Wv2);
+const rawScores2 = scaleMat(matmul(Q2, transpose(K2)), scaleFactor);
+const attnW2 = softmaxMat(rawScores2); // no mask: full visibility over source
+const attnOut2 = matmul(attnW2, V2);
+const Z2 = layerNorm(addMat(Z1, attnOut2));
+
+// ---- Sub-layer 3: position-wise FFN ----
+const ffnHidden = reluMat(addBiasRow(matmul(Z2, W1), b1));
+const ffnOut = addBiasRow(matmul(ffnHidden, W2), b2);
+const Z3 = layerNorm(addMat(Z2, ffnOut));
+
+const MATS = {X,Menc,Wq1,Wk1,Wv1,Q1,K1,V1,mask,maskedScores1,attnW1,attnOut1,Z1,Wq2,Wk2,Wv2,Q2,K2,V2,rawScores2,attnW2,attnOut2,Z2,ffnHidden,ffnOut,Z3};
+
+const LABELS = {
+  X:'X (decoder input)', Menc:'M_enc (encoder memory)',
+  Wq1:'W^Q₁', Wk1:'W^K₁', Wv1:'W^V₁',
+  Q1:'Q₁ = X·W^Q₁', K1:'K₁ = X·W^K₁', V1:'V₁ = X·W^V₁',
+  mask:'Causal mask M', maskedScores1:'QK^T/√d + M',
+  attnW1:'softmax → self-attn weights', attnOut1:'attnW₁·V₁',
+  Z1:'Z₁ = LN(X + attnOut₁)',
+  Wq2:'W^Q₂', Wk2:'W^K₂', Wv2:'W^V₂',
+  Q2:'Q₂ = Z₁·W^Q₂', K2:'K₂ = M_enc·W^K₂', V2:'V₂ = M_enc·W^V₂',
+  rawScores2:'Q₂K₂^T/√d', attnW2:'softmax → cross-attn weights', attnOut2:'attnW₂·V₂',
+  Z2:'Z₂ = LN(Z₁ + attnOut₂)',
+  ffnHidden:'ReLU(Z₂W₁+b₁)', ffnOut:'ffnHidden·W₂+b₂',
+  Z3:'Z₃ = LN(Z₂ + ffnOut)  → next layer'
+};
+const HEATMAPS = new Set(['attnW1','attnW2']);
+
+// ================= STEPS =================
+const steps = [
+  {
+    phase:'setup', title:'The Decoder Stack — Big Picture',
+    desc:'A decoder layer processes \\(T_y=4\\) target positions (rows of \\(X\\)) and has access to \\(T_x=3\\) fixed encoder-memory positions (\\(M_{enc}\\)). The layer runs masked self-attention, then cross-attention against \\(M_{enc}\\), then a position-wise FFN — each wrapped in Add &amp; Norm. This exact block repeats \\(N\\) times before a final linear + softmax over the vocabulary.',
+    codeLines:[18], matrixShow:['X','Menc'], stage:'overview'
+  },
+  {
+    phase:'selfattn', title:'Masked Self-Attention — Q, K, V Projections',
+    desc:'The decoder input \\(X\\) is linearly projected three ways: \\(Q_1=XW^Q_1\\), \\(K_1=XW^K_1\\), \\(V_1=XW^V_1\\). These are LEARNED weight matrices (shown here as fixed toy values) shared across all target positions — the projection itself does not yet mix information between positions.',
+    codeLines:[19,20], matrixShow:['Q1','K1'], stage:'self-attn-proj'
+  },
+  {
+    phase:'selfattn', title:'Causal Mask',
+    desc:'Raw similarity scores \\(Q_1K_1^\\top/\\sqrt{d_k}\\) are computed for every pair \\((i,j)\\), then the causal mask adds \\(-\\infty\\) wherever \\(j>i\\) (upper triangle, shown in red). Row \\(i\\) of the masked score matrix literally cannot contain information about target position \\(j>i\\) — this is what makes generation autoregressive.',
+    codeLines:[9,10,14,15,16], matrixShow:['mask','maskedScores1'], stage:'self-attn-mask'
+  },
+  {
+    phase:'selfattn', title:'Masked Softmax Weights',
+    desc:'Softmax is applied per row of the masked scores. Because masked entries were \\(-\\infty\\), their softmax weight is EXACTLY \\(0\\) — position 1 (top row) puts 100% of its weight on itself, while position 4 (bottom row) freely distributes weight across all 4 positions it is allowed to see.',
+    codeLines:[11], matrixShow:['attnW1'], stage:'self-attn-weights'
+  },
+  {
+    phase:'selfattn', title:'Weighted Sum + Add & Norm → Z₁',
+    desc:'Each row of the attention weights is used to take a weighted average of \\(V_1\\)\'s rows, producing the self-attention output. Adding the residual \\(X\\) and applying LayerNorm yields \\(Z_1\\) — the representation that now knows about the causal past, ready to query the encoder.',
+    codeLines:[12,21,22], matrixShow:['attnOut1','Z1'], stage:'self-attn-out'
+  },
+  {
+    phase:'crossattn', title:'Cross-Attention — Q from Decoder, K/V from Encoder Memory',
+    desc:'This is the ONLY place source information enters the decoder. Queries \\(Q_2=Z_1W^Q_2\\) come from the decoder\'s own state; keys and values \\(K_2=M_{enc}W^K_2,\\; V_2=M_{enc}W^V_2\\) come from the encoder\'s fixed output. \\(K_2,V_2\\) are identical for every decoder layer and every generation step — perfect for caching.',
+    codeLines:[24,25,26], matrixShow:['Q2','K2'], stage:'cross-attn-proj'
+  },
+  {
+    phase:'crossattn', title:'Cross-Attention Weights (No Mask)',
+    desc:'Scores \\(Q_2K_2^\\top/\\sqrt{d_k}\\) are softmaxed with NO causal mask — every target position may attend to every source position, since the whole source sentence is known upfront. Each of the 4 rows sums to 1 across all 3 source columns (contrast with self-attention\'s ragged triangular pattern).',
+    codeLines:[27], matrixShow:['attnW2'], stage:'cross-attn-weights'
+  },
+  {
+    phase:'crossattn', title:'Weighted Sum + Add & Norm → Z₂',
+    desc:'The cross-attention weights average over \\(V_2\\)\'s rows (source-derived values), pulling relevant source content into each target position. Residual + LayerNorm gives \\(Z_2\\), which now blends "what I\'ve said" (from \\(Z_1\\)) with "what the source means" (from \\(M_{enc}\\)).',
+    codeLines:[28], matrixShow:['attnOut2','Z2'], stage:'cross-attn-out'
+  },
+  {
+    phase:'ffn', title:'Position-wise Feed-Forward Network',
+    desc:'Every row of \\(Z_2\\) is pushed independently through the SAME two-layer MLP: expand \\(4\\!\\to\\!8\\) with \\(W_1,b_1\\), apply ReLU, then project \\(8\\!\\to\\!4\\) with \\(W_2,b_2\\). No information crosses between positions here — that already happened in the two attention sub-layers.',
+    codeLines:[30,31,32], matrixShow:['ffnHidden','ffnOut'], stage:'ffn'
+  },
+  {
+    phase:'ffn', title:'Final Add & Norm → Decoder Layer Output',
+    desc:'\\(Z_3 = \\text{LayerNorm}(Z_2 + \\text{FFN}(Z_2))\\) is the finished output of this decoder layer. It becomes the INPUT \\(X\\) to the next decoder layer (repeat \\(N\\) times), or — if this is the last layer — is projected by a final linear layer and softmax to produce next-token probabilities over the vocabulary.',
+    codeLines:[33,34], matrixShow:['Z3'], stage:'output'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ================= SECTION TOGGLE =================
+function toggleSection(el){
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ================= DOTS =================
+function initDots(){
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML='';
+  for(let i=0;i<totalSteps;i++){
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.onclick=()=>goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.className='dot';
+    if(i<step) d.classList.add('done');
+    if(i===step) d.classList.add('active');
+  });
+}
+
+// ================= NAVIGATION =================
+function go(dir){ const n=step+dir; if(n<0||n>=totalSteps) return; step=n; render(); }
+function goTo(i){ step=i; render(); }
+function reset(){ step=0; render(); }
+
+// ================= RENDER =================
+function render(){
+  const s = steps[step];
+  document.getElementById('btnPrev').disabled = step===0;
+  document.getElementById('btnNext').disabled = step===totalSteps-1;
+
+  const phaseMap = {setup:'phase-setup', selfattn:'phase-selfattn', crossattn:'phase-crossattn', ffn:'phase-ffn'};
+  const phaseName = {setup:'SETUP', selfattn:'MASKED SELF-ATTENTION', crossattn:'CROSS-ATTENTION', ffn:'FEED-FORWARD'};
+  document.getElementById('infoPhase').className = 'info-phase '+phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = phaseName[s.phase];
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if(typeof renderMathInElement === 'function'){
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl=>cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i=>{ const el=document.getElementById('cl'+i); if(el) el.classList.add('active'); });
+
+  renderMatrices(s.matrixShow||[]);
+  drawCanvas(s.stage);
+  updateDots();
+}
+
+// ================= MATRIX / HEATMAP RENDERING =================
+function renderMatrices(which){
+  const container = document.getElementById('matrixViz');
+  if(!which.length){ container.innerHTML=''; return; }
+  let html = '<div class="matrix-row">';
+  which.forEach((name, idx) => {
+    if(idx>0) html += '<div class="op-symbol">&nbsp;</div>';
+    html += HEATMAPS.has(name) ? renderHeatmap(name) : renderOneMatrix(name);
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function cellClassFor(name){
+  if(name==='mask') return 'masked';
+  if(name==='X'||name==='Menc') return 'highlight';
+  if(name==='Z1'||name==='Z2'||name==='Z3') return 'result';
+  if(name==='ffnHidden'||name==='ffnOut') return 'amber';
+  return 'omega';
+}
+
+function renderOneMatrix(name){
+  const rows = MATS[name];
+  const label = LABELS[name] || name;
+  const cols = Array.isArray(rows[0]) ? rows[0].length : 1;
+  const sizeCls = cols>6 ? 'small' : '';
+  const cls = cellClassFor(name);
+  let html = `<div><div class="matrix-label">${label}</div><div class="matrix-display" style="grid-template-columns:repeat(${cols},1fr)">`;
+  rows.forEach(row=>{
+    const r = Array.isArray(row) ? row : [row];
+    r.forEach(v=>{
+      const disp = (name==='mask' && v < -1e8) ? '-∞' : v.toFixed(2);
+      const useCls = (name==='mask' && v < -1e8) ? 'masked' : cls;
+      html += `<div class="matrix-cell ${sizeCls} ${useCls}">${disp}</div>`;
+    });
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function renderHeatmap(name){
+  const rows = MATS[name];
+  const label = LABELS[name] || name;
+  const cols = rows[0].length;
+  const rowPrefix = 'y', colPrefix = (name==='attnW1') ? 'y' : 'x';
+  let html = `<div><div class="matrix-label">${label}</div><div class="matrix-display" style="grid-template-columns:repeat(${cols},1fr)">`;
+  rows.forEach((row,i)=>{
+    row.forEach((v,j)=>{
+      const alpha = Math.max(0.06, Math.min(1, v*1.15));
+      const textLight = alpha > 0.5;
+      html += `<div class="matrix-cell" style="background:rgba(83,74,183,${alpha});color:${textLight?'#fff':'var(--text)'};font-weight:600;" title="attends from ${rowPrefix}${i+1} to ${colPrefix}${j+1}: ${v.toFixed(3)}">${v.toFixed(2)}</div>`;
+    });
+  });
+  html += '</div></div>';
+  return html;
+}
+
+// ================= ARCHITECTURE CANVAS =================
+function drawCanvas(stage){
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width*dpr; canvas.height = rect.height*dpr;
+  ctx.scale(dpr,dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = n => cs.getPropertyValue(n).trim();
+  const surface=col('--surface'), bg2=col('--bg2'), border2=col('--border2'), text=col('--text'), text2=col('--text2'), text3=col('--text3');
+  const purpleBg=col('--purple-bg'), purpleMid=col('--purple-mid'), purpleBorder=col('--purple-border');
+  const amberBg=col('--amber-bg'), amberMid=col('--amber-mid'), amberBorder=col('--amber-border');
+  const greenBg=col('--green-bg'), greenMid=col('--green-mid'), greenBorder=col('--green-border');
+  const blueBg=col('--blue-bg'), blueMid=col('--blue-mid'), blueBorder=col('--blue-border');
+
+  ctx.clearRect(0,0,W,H);
+  ctx.textBaseline = 'middle';
+
+  const pad = {t:16, b:14, l:16, r:16};
+  const stackX = W*0.34, stackW = W*0.50;
+  const rowH = (H - pad.t - pad.b) / 8;
+  // rows top->bottom: 0 output, 1 addnorm3, 2 ffn, 3 addnorm2, 4 cross-attn, 5 addnorm1, 6 self-attn, 7 input
+  const yOf = i => pad.t + rowH*i + rowH/2;
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function box(rowIdx, label, sub, fill, borderC, textC, active, h){
+    const bh = h || rowH*0.66;
+    const y = yOf(rowIdx) - bh/2;
+    ctx.lineWidth = active ? 2.6 : 1.4;
+    ctx.fillStyle = active ? fill : surface;
+    ctx.strokeStyle = active ? borderC : border2;
+    roundRect(stackX, y, stackW, bh, 8);
+    ctx.fill(); ctx.stroke();
+    if(active){
+      ctx.save(); ctx.shadowColor = borderC; ctx.shadowBlur = 12;
+      ctx.strokeStyle = borderC; ctx.stroke(); ctx.restore();
+    }
+    ctx.fillStyle = active ? textC : text;
+    ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, stackX+stackW/2, y+bh/2 + (sub? -7: 0));
+    if(sub){
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillStyle = active ? textC : text3;
+      ctx.fillText(sub, stackX+stackW/2, y+bh/2+9);
+    }
+    ctx.textAlign = 'left';
+    return {x:stackX,y,w:stackW,h:bh};
+  }
+
+  function arrowUp(x, yTop, yBottom, color){
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(x, yBottom); ctx.lineTo(x, yTop+8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x-4, yTop+8); ctx.lineTo(x+4, yTop+8); ctx.lineTo(x, yTop); ctx.closePath(); ctx.fill();
+  }
+
+  const isActive = key => stage === key;
+  const selfActive = ['self-attn-proj','self-attn-mask','self-attn-weights','self-attn-out'].includes(stage);
+  const crossActive = ['cross-attn-proj','cross-attn-weights','cross-attn-out'].includes(stage);
+  const ffnActive = stage === 'ffn';
+  const outActive = stage === 'output';
+  const overview = stage === 'overview';
+
+  // Encoder memory box (left side, aligned with cross-attn row)
+  const memY = yOf(4);
+  const memX = pad.l, memW = stackX - pad.l - 14, memH = rowH*0.9;
+  ctx.lineWidth = (crossActive||overview) ? 2.4 : 1.3;
+  ctx.fillStyle = (crossActive||overview) ? blueBg : surface;
+  ctx.strokeStyle = (crossActive||overview) ? blueBorder : border2;
+  roundRect(memX, memY-memH/2, memW, memH, 8);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = (crossActive||overview) ? blueMid : text2;
+  ctx.font = '600 11px "DM Sans", system-ui'; ctx.textAlign='center';
+  ctx.fillText('Encoder', memX+memW/2, memY-14);
+  ctx.fillText('Memory', memX+memW/2, memY);
+  ctx.font = '9px "JetBrains Mono", monospace';
+  ctx.fillText('M_enc (K, V)', memX+memW/2, memY+16);
+  ctx.textAlign='left';
+
+  // Arrow encoder memory -> cross-attn box
+  ctx.strokeStyle = crossActive ? amberMid : border2;
+  ctx.lineWidth = crossActive ? 2 : 1.2;
+  ctx.beginPath(); ctx.moveTo(memX+memW, memY); ctx.lineTo(stackX-6, memY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(stackX-6, memY); ctx.lineTo(stackX-14, memY-5); ctx.lineTo(stackX-14, memY+5); ctx.closePath();
+  ctx.fillStyle = crossActive ? amberMid : border2; ctx.fill();
+
+  // Row 7: decoder input
+  box(7, 'Decoder Input', 'X: shifted-right + pos-enc', blueBg, blueBorder, blueMid, overview);
+  arrowUp(stackX+stackW/2, yOf(6)+rowH*0.33, yOf(7)-rowH*0.33, selfActive||overview?purpleMid:border2);
+
+  // Row 6: masked self-attention
+  box(6, 'Masked Self-Attention', 'causal: pos i sees j ≤ i', purpleBg, purpleBorder, purpleMid, selfActive||overview);
+  arrowUp(stackX+stackW/2, yOf(5)+rowH*0.28, yOf(6)-rowH*0.33, selfActive||overview?purpleMid:border2);
+
+  // Row 5: add & norm 1
+  box(5, 'Add & Norm → Z₁', '', selfActive?purpleBg:bg2, purpleBorder, purpleMid, selfActive||overview, rowH*0.5);
+  arrowUp(stackX+stackW/2, yOf(4)+rowH*0.33, yOf(5)-rowH*0.25, crossActive||overview?amberMid:border2);
+
+  // Row 4: cross-attention
+  box(4, 'Cross-Attention', 'Q: decoder · K,V: encoder memory', amberBg, amberBorder, amberMid, crossActive||overview);
+  arrowUp(stackX+stackW/2, yOf(3)+rowH*0.28, yOf(4)-rowH*0.33, crossActive||overview?amberMid:border2);
+
+  // Row 3: add & norm 2
+  box(3, 'Add & Norm → Z₂', '', crossActive?amberBg:bg2, amberBorder, amberMid, crossActive||overview, rowH*0.5);
+  arrowUp(stackX+stackW/2, yOf(2)+rowH*0.33, yOf(3)-rowH*0.25, ffnActive||overview?greenMid:border2);
+
+  // Row 2: FFN
+  box(2, 'Feed-Forward Network', 'per-position: 4 → 8 (ReLU) → 4', greenBg, greenBorder, greenMid, ffnActive||overview);
+  arrowUp(stackX+stackW/2, yOf(1)+rowH*0.28, yOf(2)-rowH*0.33, (ffnActive||outActive||overview)?greenMid:border2);
+
+  // Row 1: add & norm 3
+  box(1, 'Add & Norm → Z₃', '', outActive?greenBg:bg2, greenBorder, greenMid, outActive||overview, rowH*0.5);
+  arrowUp(stackX+stackW/2, yOf(0)+rowH*0.30, yOf(1)-rowH*0.25, outActive||overview?greenMid:border2);
+
+  // Row 0: output
+  box(0, 'Decoder Layer Output', '→ ×N layers → Linear + Softmax', outActive?greenBg:surface, greenBorder, greenMid, outActive||overview, rowH*0.6);
+
+  // Residual skip curves (dashed) around each sub-layer pair
+  function residual(rowBottom, rowTop, color, active){
+    const xEdge = stackX + stackW + 10;
+    ctx.save();
+    ctx.setLineDash([4,3]);
+    ctx.strokeStyle = active ? color : border2;
+    ctx.lineWidth = active ? 1.8 : 1;
+    ctx.beginPath();
+    ctx.moveTo(stackX+stackW, yOf(rowBottom));
+    ctx.bezierCurveTo(xEdge+14, yOf(rowBottom), xEdge+14, yOf(rowTop), stackX+stackW, yOf(rowTop));
+    ctx.stroke();
+    ctx.restore();
+  }
+  residual(7, 5, purpleMid, selfActive);
+  residual(4, 3, amberMid, crossActive);
+  residual(2, 1, greenMid, ffnActive||outActive);
+
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillStyle = text3; ctx.textAlign='right';
+  ctx.fillText('residual', W-6, (yOf(6)+yOf(5))/2 - 26);
+  ctx.textAlign='left';
+}
+
+// ================= KEYBOARD =================
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft') go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+// ================= INIT =================
+initDots();
+render();
+window.addEventListener('resize', ()=>drawCanvas(steps[step].stage));
+</script>
+</body>
+</html>
+

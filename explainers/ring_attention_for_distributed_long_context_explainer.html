@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ring Attention for Distributed Long-Context — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Comparison table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+table.cmp th, table.cmp td{border:1px solid var(--border);padding:6px 10px;text-align:left;}
+table.cmp th{background:var(--bg2);font-weight:700;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/10;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Stats grid under ring */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0.75rem 0;}
+.stat-cell{background:var(--bg2);border-radius:var(--radius);padding:8px 10px;font-family:var(--mono);font-size:11px;text-align:center;transition:all 0.3s;border:2px solid transparent;}
+.stat-cell .dname{font-weight:700;font-size:12px;margin-bottom:4px;}
+.stat-cell.updated{border-color:var(--purple-border);background:var(--purple-bg);}
+
+/* Formula readout */
+.formula-readout{font-family:var(--mono);font-size:12px;background:var(--bg2);border-radius:var(--radius);padding:10px 14px;margin:0.5rem 0;overflow-x:auto;color:var(--text2);}
+.formula-readout b{color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-compute{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-communicate{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-finalize{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .stats-grid{grid-template-columns:repeat(2,1fr);}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Ring Attention for Distributed Long-Context</h1>
+  <div class="subtitle">Sharding the sequence across a device ring so context length scales with cluster size, not GPU memory</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">LLMs / Distributed Systems</span>
+    <span class="tag tag-category">Long Context</span>
+    <span class="tag tag-complexity">O(N/R) memory per device</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Ring Attention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A Transformer's context window is limited by how much memory one GPU has, because standard attention needs every query to see every key/value pair for the full sequence. Ring Attention removes this limit by splitting the sequence into blocks, giving one block to each device, and passing the key/value (KV) blocks around a ring of devices while each device keeps computing attention with whatever block currently sits in its hands. No device ever needs the whole sequence at once.</p>
+    <p><strong>Analogy:</strong> Imagine a study group where the textbook is too big for any one person to hold. Instead, everyone keeps their own question ("query") and one chapter of the book. Each person reads their chapter, notes anything relevant to their question, then passes the chapter to their neighbor and receives a new one — in a circle. After every chapter has passed through every pair of hands, each person has consulted the entire book, but no one ever held more than one chapter at a time.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Ring Attention shards Q, K, V by sequence position across devices arranged in a ring. Each device keeps a fixed Q block and rotates KV blocks around the ring over \(R\) steps, accumulating exact attention output with <strong>online softmax</strong> — communication of KV blocks is overlapped with compute, so per-device memory is \(O(N/R)\) instead of \(O(N)\), while the attention result is numerically identical to full attention.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Ring Attention Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Memory Wall</h4>
+    <p>Vanilla self-attention materializes an \(N \times N\) score matrix, and even memory-efficient variants like FlashAttention still need the full \(K\) and \(V\) tensors — \(O(N)\) — resident on the device computing a query block. At context lengths of 1M+ tokens, \(K\)/\(V\) alone can exceed a single GPU's HBM, long before compute becomes the bottleneck.</p>
+
+    <h4>Sequence Parallelism + a Ring Topology</h4>
+    <p>Ring Attention (Liu, Zaharia & Abbeel, 2023) splits the sequence of length \(N\) into \(R\) contiguous blocks, one per device: device \(i\) permanently owns query block \(Q_i\) and starts by owning key/value block \((K_i, V_i)\). Devices are logically arranged in a ring. At each of \(R\) rounds:</p>
+    <ul>
+      <li><strong>Compute</strong> — every device computes attention scores between its resident \(Q_i\) and whichever KV block it currently holds, and folds the result into a running (unnormalized) output using <em>online softmax</em>.</li>
+      <li><strong>Communicate</strong> — every device simultaneously sends its current KV block to its ring-neighbor and receives a new one from the other neighbor — a single non-blocking peer-to-peer transfer, not an all-gather.</li>
+    </ul>
+    <p>Because step \(r\)'s communication only feeds step \(r+1\)'s compute, the KV send/receive for round \(r+1\) is issued <em>while</em> round \(r\)'s compute is still running. If compute per block takes at least as long as one KV transfer, communication is fully hidden — the wall-clock cost approaches pure compute time, not compute + communication.</p>
+
+    <h4>Design Decision: why a ring and not all-to-all?</h4>
+    <p>An all-gather would require \(O(N)\) memory again once gathered. A ring needs each device to hold only <em>two</em> KV blocks at a time (current + incoming) — \(O(N/R)\) — and needs exactly \(R\) point-to-point hops to guarantee every query block meets every KV block exactly once, with predictable, overlappable communication.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">After \(R\) rounds, every \(Q_i\) has attended to every \((K_j, V_j)\) exactly once. The output is <strong>mathematically identical</strong> to standard full attention — Ring Attention is an exact, communication-efficient reformulation, not an approximation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — Online Softmax</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>For a query \(q\), standard attention over keys/values \(\{(k_j, v_j)\}_{j=1}^{N}\) with scale \(d\) is:</p>
+    <div class="eq">$$\text{Attn}(q) = \sum_{j=1}^{N} \frac{\exp(s_j - m)}{\sum_{l=1}^{N}\exp(s_l - m)}\, v_j, \qquad s_j = \frac{q \cdot k_j}{\sqrt{d}}, \qquad m = \max_j s_j$$</div>
+    <p>The problem: computing \(m\) and the denominator normally requires seeing <em>all</em> \(N\) keys at once. Online softmax (used inside FlashAttention and reused by Ring Attention) computes this incrementally, one block at a time, by carrying three running statistics: the running max \(m\), the running normalizer \(l\), and the running weighted accumulator \(\text{acc}\).</p>
+
+    <h4>The Update Rule</h4>
+    <p>Given running state \((m, l, \text{acc})\) and a new block contributing score \(s\) and value \(v\):</p>
+    <div class="eq">$$m' = \max(m, s) \qquad \alpha = e^{m - m'}$$</div>
+    <div class="eq">$$l' = \alpha \, l + e^{s - m'} \qquad \text{acc}' = \alpha \, \text{acc} + e^{s - m'} v$$</div>
+    <p>\(\alpha = e^{m-m'}\) is the <em>correction factor</em>: whenever a new block raises the running max, every previously accumulated term is rescaled down by exactly the right amount so the final ratio stays exact. After the last block, the true attention output is simply:</p>
+    <div class="eq">$$\text{Attn}(q) = \frac{\text{acc}}{l}$$</div>
+    <p>In Ring Attention this is applied per device, per round: each device's \((m_i, l_i, \text{acc}_i)\) triple is updated using whatever KV block currently sits in its hands, regardless of the order blocks arrive in — the ring order is arbitrary, only completeness (seeing all \(R\) blocks) matters.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"Ring Attention approximates long-context attention." It does not — online softmax is <strong>algebraically exact</strong>. Given infinite precision it returns bit-identical results to computing softmax over the whole sequence at once; in practice, floating-point rounding differences are negligible (same order as any reduction reordering).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">4 devices (\(R=4\)) share a sequence split into 4 KV blocks. Watch a query block's KV block rotate around the ring each round while every device accumulates exact attention via online softmax — all numbers below are computed live from the vectors shown.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <div class="formula-readout" id="formulaReadout"></div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Ring is Formed</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Device / fixed Q block</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> KV block 0 (origin D0)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> KV block 1 (origin D1)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> KV block 2 (origin D2)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> KV block 3 (origin D3)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Active transfer</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Ring Attention:</strong></p>
+    <ul>
+      <li>Context length exceeds what fits in one device's HBM (documents, books, video, genomics, multi-hour audio)</li>
+      <li>You have a multi-GPU/multi-node cluster with fast peer-to-peer interconnect (NVLink, InfiniBand)</li>
+      <li>You need an <em>exact</em> attention result, not a sparse/linear approximation</li>
+      <li>Combined with causal masking, blocks can be skipped once a device's queries only need past blocks — further cutting communication</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>Short sequences that already fit comfortably on one device — the ring adds coordination overhead for no benefit</li>
+      <li>Slow interconnects where KV transfer time dwarfs compute time — communication can no longer hide behind compute and the ring stalls</li>
+      <li>Single-GPU training/inference — there's no ring to form</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Hierarchy</div>
+      <p style="font-size:14px;margin:0;"><strong>FlashAttention</strong> makes single-device attention memory-efficient via online softmax over tiled blocks in one GPU's SRAM. <strong>Ring Attention</strong> takes that exact same online-softmax tiling and distributes the tiles across devices connected in a ring, so the "tile" boundary becomes a network hop instead of a memory-hierarchy boundary — this is why context length now scales with cluster size, not single-GPU memory.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — From-Scratch Ring Attention (single process, simulated)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">R = 4                          # number of devices / ring size</div>
+      <div class="code-line" id="cl3">d = 8                          # head dim</div>
+      <div class="code-line" id="cl4">Q = [np.random.randn(1, d) for _ in range(R)]   # device i's query block</div>
+      <div class="code-line" id="cl5">K = [np.random.randn(1, d) for _ in range(R)]   # device i's OWN key block</div>
+      <div class="code-line" id="cl6">V = [np.random.randn(1, 1) for _ in range(R)]   # device i's OWN value block</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># running online-softmax state per device</div>
+      <div class="code-line" id="cl9">m = [-np.inf] * R</div>
+      <div class="code-line" id="cl10">l = [0.0] * R</div>
+      <div class="code-line" id="cl11">acc = [0.0] * R</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">def online_update(m_i, l_i, acc_i, s, v):</div>
+      <div class="code-line" id="cl14">    m_new = max(m_i, s)</div>
+      <div class="code-line" id="cl15">    alpha = np.exp(m_i - m_new)          # correction for past terms</div>
+      <div class="code-line" id="cl16">    l_new = alpha * l_i + np.exp(s - m_new)</div>
+      <div class="code-line" id="cl17">    acc_new = alpha * acc_i + np.exp(s - m_new) * v</div>
+      <div class="code-line" id="cl18">    return m_new, l_new, acc_new</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">cur_K, cur_V = list(K), list(V)          # each device currently holds block i</div>
+      <div class="code-line" id="cl21">for round in range(R):</div>
+      <div class="code-line" id="cl22">    # ── COMPUTE: use whatever KV block is currently held ──</div>
+      <div class="code-line" id="cl23">    for i in range(R):</div>
+      <div class="code-line" id="cl24">        s = float(Q[i] @ cur_K[i].T) / np.sqrt(d)</div>
+      <div class="code-line" id="cl25">        m[i], l[i], acc[i] = online_update(m[i], l[i], acc[i], s, cur_V[i])</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    # ── COMMUNICATE: send to next device, receive from previous (overlaps next compute) ──</div>
+      <div class="code-line" id="cl28">    cur_K = [cur_K[(i - 1) % R] for i in range(R)]</div>
+      <div class="code-line" id="cl29">    cur_V = [cur_V[(i - 1) % R] for i in range(R)]</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">output = [acc[i] / l[i] for i in range(R)]   # exact full-attention result, O(N/R) memory</div>
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-top:0.75rem;">In production (e.g. JAX/PyTorch), the compute loop and the <code>isend</code>/<code>irecv</code> collective for the next block are issued together and the compute kernel runs while the network transfer is in flight, so step <code>round+1</code>'s communication cost is hidden behind step <code>round</code>'s compute — this overlap is the entire point of the ring topology.</p>
+  </div>
+</div>
+
+<script>
+// ── DATA (real vectors — every number on screen is computed live from these) ──
+const R = 4;                 // ring size / number of devices = number of KV blocks
+const dim = 4;                // toy head dimension
+const scale = Math.sqrt(dim);
+const Q = [[1.0,0.4,-0.3,0.2],[0.2,1.1,0.1,-0.4],[-0.3,0.3,1.0,0.5],[0.5,-0.2,0.4,0.9]];
+const K = [[0.8,0.3,-0.2,0.1],[0.1,0.9,0.2,-0.3],[-0.4,0.2,1.0,0.3],[0.4,-0.1,0.3,0.8]];
+const V = [2.0,-1.0,3.0,0.5]; // scalar value per block (stands in for a value vector)
+
+function dot(a,b){ let s=0; for(let k=0;k<a.length;k++) s+=a[k]*b[k]; return s; }
+function scoreOf(i,j){ return dot(Q[i],K[j]) / scale; }
+function heldBlock(i,r){ return ((i-r)%R+R)%R; }
+function fmt(x){ return x===-Infinity ? '−∞' : x.toFixed(2); }
+
+// Run online softmax for `roundsCompleted` rounds (fresh computation every call — nothing cached/hard-coded)
+function computeState(roundsCompleted){
+  const m = new Array(R).fill(-Infinity), l = new Array(R).fill(0), acc = new Array(R).fill(0);
+  const log = [];
+  for (let r = 0; r < roundsCompleted; r++) {
+    const roundLog = [];
+    for (let i = 0; i < R; i++) {
+      const j = heldBlock(i, r);
+      const s = scoreOf(i, j);
+      const mOld = m[i], lOld = l[i], accOld = acc[i];
+      const mNew = Math.max(mOld, s);
+      const alpha = Math.exp(mOld - mNew);
+      const lNew = alpha*lOld + Math.exp(s - mNew);
+      const accNew = alpha*accOld + Math.exp(s - mNew) * V[j];
+      roundLog.push({i,j,s,mOld,mNew,alpha,lOld,lNew,accOld,accNew});
+      m[i]=mNew; l[i]=lNew; acc[i]=accNew;
+    }
+    log.push(roundLog);
+  }
+  return {m,l,acc,log};
+}
+
+// Direct full-attention (all blocks visible at once) — used only to verify Ring Attention is exact
+function fullAttention(i){
+  const scores = []; for (let j=0;j<R;j++) scores.push(scoreOf(i,j));
+  const mx = Math.max(...scores);
+  const exps = scores.map(s => Math.exp(s-mx));
+  const sum = exps.reduce((a,b)=>a+b, 0);
+  let out = 0; for (let j=0;j<R;j++) out += (exps[j]/sum) * V[j];
+  return out;
+}
+
+// ── STEPS ──
+const steps = [
+  {phase:'setup',       roundsCompleted:0, assignRound:0, title:'The Ring is Formed'},
+  {phase:'compute',     roundsCompleted:1, assignRound:0, title:'Round 1 — Compute (own block)'},
+  {phase:'communicate', roundsCompleted:1, assignRound:1, title:'Round 1 — Communicate (rotate KV)'},
+  {phase:'compute',     roundsCompleted:2, assignRound:1, title:'Round 2 — Compute (merge)'},
+  {phase:'communicate', roundsCompleted:2, assignRound:2, title:'Round 2 — Communicate (rotate KV)'},
+  {phase:'compute',     roundsCompleted:3, assignRound:2, title:'Round 3 — Compute (merge)'},
+  {phase:'communicate', roundsCompleted:3, assignRound:3, title:'Round 3 — Communicate (rotate KV)'},
+  {phase:'compute',     roundsCompleted:4, assignRound:3, title:'Round 4 — Compute (final block)'},
+  {phase:'finalize',    roundsCompleted:4, assignRound:3, title:'Finalize — Normalize Output'},
+  {phase:'compare',     roundsCompleted:4, assignRound:3, title:'Verify vs Full Attention'},
+];
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el){
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DOTS ──
+function initDots(){
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i=0;i<totalSteps;i++){
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir){ const next = step+dir; if (next<0 || next>=totalSteps) return; step = next; render(); }
+function goTo(i){ step = i; render(); }
+function reset(){ step = 0; render(); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+window.addEventListener('resize', () => drawRing(step));
+
+// ── DESCRIPTION TEXT (built from live numbers) ──
+function buildDesc(idx){
+  const s = steps[idx];
+  const state = computeState(s.roundsCompleted);
+  if (s.phase === 'setup') {
+    return `The sequence is split into ${R} blocks. Devices <b>D0…D${R-1}</b> each keep a fixed query block \\(Q_i\\) for the whole computation, and start by holding their own key/value block \\((K_i,V_i)\\). No device ever holds more than \\(1/${R}\\) of the sequence — this is the source of the \\(O(N/${R})\\) memory bound.`;
+  }
+  if (s.phase === 'compute') {
+    const r = s.roundsCompleted - 1;
+    const d0 = state.log[r][0];
+    return `Every device scores its \\(Q_i\\) against the KV block it currently holds. For D0 against block \\(K_{${d0.j}}\\): \\(s=${fmt(d0.s)}\\). Online softmax folds this in: \\(m'=\\max(${fmt(d0.mOld)},${fmt(d0.s)})=${fmt(d0.mNew)}\\), \\(l'=${d0.lNew.toFixed(2)}\\), running estimate \\(\\text{acc}/l=${(d0.accNew/d0.lNew).toFixed(2)}\\) after round ${r+1} of ${R}.`;
+  }
+  if (s.phase === 'communicate') {
+    return `Communication step: every device forwards its current KV block to its clockwise ring-neighbor and receives a new block from its counter-clockwise neighbor — one non-blocking peer-to-peer transfer, issued so it overlaps with the <em>next</em> round's compute. Each device needs only 2 KV blocks in memory at once (current + incoming).`;
+  }
+  if (s.phase === 'finalize') {
+    const lines = state.m.map((_,i) => `D${i}: \\(${(state.acc[i]/state.l[i]).toFixed(2)}\\)`).join(', ');
+    return `After ${R} rounds every device has folded in all ${R} KV blocks exactly once — no more, no less. Normalizing \\(\\text{acc}/l\\) gives the final exact attention output per device: ${lines}.`;
+  }
+  if (s.phase === 'compare') {
+    const diffs = state.m.map((_,i) => Math.abs(state.acc[i]/state.l[i] - fullAttention(i)));
+    const maxDiff = Math.max(...diffs);
+    return `Computing full softmax attention directly — all ${R} blocks visible to one device at once, needing \\(O(N)\\) memory — gives the identical answer: max discrepancy across devices is \\(${maxDiff.toExponential(2)}\\) (floating-point noise only). Ring Attention reached the same result with \\(O(N/${R})\\) memory per device and ${R} overlapped communication hops instead of one \\(O(N)\\) allocation.`;
+  }
+  return '';
+}
+
+// ── STATS GRID ──
+function renderStatsGrid(idx){
+  const s = steps[idx];
+  const state = computeState(s.roundsCompleted);
+  const grid = document.getElementById('statsGrid');
+  let html = '';
+  for (let i=0;i<R;i++){
+    const out = state.l[i] > 0 ? (state.acc[i]/state.l[i]).toFixed(2) : '—';
+    const cls = s.phase === 'compute' ? 'stat-cell updated' : 'stat-cell';
+    html += `<div class="${cls}"><div class="dname">D${i}</div>m=${fmt(state.m[i])}<br>l=${state.l[i].toFixed(2)}<br>out=${out}</div>`;
+  }
+  grid.innerHTML = html;
+}
+
+// ── FORMULA READOUT ──
+function renderFormula(idx){
+  const s = steps[idx];
+  const box = document.getElementById('formulaReadout');
+  if (s.phase === 'setup') {
+    box.innerHTML = `Q<sub>i</sub>, K<sub>i</sub> are ${dim}-dim vectors; V<sub>i</sub> is a scalar value (stands in for a value vector). Initial state for every device: <b>m = −∞, l = 0, acc = 0</b>.`;
+    return;
+  }
+  const state = computeState(s.roundsCompleted);
+  if (s.phase === 'compute') {
+    const r = s.roundsCompleted - 1;
+    const rows = state.log[r].map(e => `D${e.i} ← KV${e.j}: s=${fmt(e.s)}, α=${e.alpha.toFixed(3)}, l: ${fmt(e.lOld)}→${e.lNew.toFixed(2)}, acc: ${fmt(e.accOld)}→${e.accNew.toFixed(2)}`).join('<br>');
+    box.innerHTML = `<b>m'=max(m,s), α=e^(m−m'), l'=α·l+e^(s−m'), acc'=α·acc+e^(s−m')·v</b><br>${rows}`;
+    return;
+  }
+  if (s.phase === 'communicate') {
+    const rows = [];
+    for (let i=0;i<R;i++){
+      const oldBlock = heldBlock(i, s.assignRound-1);
+      const newBlock = heldBlock(i, s.assignRound);
+      rows.push(`D${i}: forwards KV${oldBlock} → D${(i+1)%R}, now holds KV${newBlock} (from D${(i-1+R)%R})`);
+    }
+    box.innerHTML = `<b>Ring shift (overlapped with the previous round's tail compute):</b><br>${rows.join('<br>')}`;
+    return;
+  }
+  if (s.phase === 'finalize') {
+    const rows = state.m.map((_,i) => `Attn(q${i}) = acc/l = ${fmt(state.acc[i])} / ${state.l[i].toFixed(2)} = ${(state.acc[i]/state.l[i]).toFixed(3)}`).join('<br>');
+    box.innerHTML = `<b>Final normalization:</b><br>${rows}`;
+    return;
+  }
+  if (s.phase === 'compare') {
+    const rows = state.m.map((_,i) => {
+      const ring = state.acc[i]/state.l[i], full = fullAttention(i);
+      return `D${i}: ring=${ring.toFixed(4)} vs full=${full.toFixed(4)} (Δ=${Math.abs(ring-full).toExponential(2)})`;
+    }).join('<br>');
+    box.innerHTML = `<b>Ring-accumulated result vs directly-computed full softmax attention:</b><br>${rows}`;
+    return;
+  }
+}
+
+// ── MAIN RENDER ──
+function render(){
+  const s = steps[step];
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup',compute:'phase-compute',communicate:'phase-communicate',finalize:'phase-finalize',compare:'phase-compare'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = buildDesc(step);
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+
+  renderStatsGrid(step);
+  renderFormula(step);
+  drawRing(step);
+  updateDots();
+}
+
+// ── ROUNDED RECT HELPER ──
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// ── RING CANVAS ──
+function drawRing(idx){
+  const s = steps[idx];
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const text = col('--text'), text2 = col('--text2'), text3 = col('--text3');
+  const blueMid = col('--blue-mid'), blueBg = col('--blue-bg'), surface = col('--surface');
+  const cyanMid = col('--cyan-mid'), borderC = col('--border2');
+  const blockMidColors = [col('--green-mid'), col('--amber-mid'), col('--purple-mid'), col('--red-mid')];
+  const blockBgColors  = [col('--green-bg'),  col('--amber-bg'),  col('--purple-bg'),  col('--red-bg')];
+
+  const cx = W/2, cy = H/2 - 8;
+  const radius = Math.min(W,H) * 0.32;
+  const nodeR = Math.max(24, Math.min(W,H) * 0.11);
+
+  const angle = i => -Math.PI/2 + i*(2*Math.PI/R);
+  const pos = i => ({x: cx + radius*Math.cos(angle(i)), y: cy + radius*Math.sin(angle(i))});
+
+  const isComm = s.phase === 'communicate';
+
+  // ring arrows (clockwise i -> i+1)
+  for (let i=0;i<R;i++){
+    const a = pos(i), b = pos((i+1)%R);
+    ctx.strokeStyle = isComm ? cyanMid : borderC;
+    ctx.lineWidth = isComm ? 3 : 1.5;
+    ctx.globalAlpha = isComm ? 1 : 0.45;
+    const midx=(a.x+b.x)/2, midy=(a.y+b.y)/2;
+    const dx=midx-cx, dy=midy-cy, dlen=Math.hypot(dx,dy)||1;
+    const bulge = radius*0.30;
+    const ctrlx = midx + dx/dlen*bulge, ctrly = midy + dy/dlen*bulge;
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y);
+    ctx.quadraticCurveTo(ctrlx,ctrly,b.x,b.y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    const ah = Math.atan2(b.y-ctrly, b.x-ctrlx);
+    const headLen = isComm ? 10 : 7;
+    ctx.fillStyle = isComm ? cyanMid : borderC;
+    const hx = b.x - nodeR*0.95*Math.cos(ah), hy = b.y - nodeR*0.95*Math.sin(ah);
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(hx - headLen*Math.cos(ah-Math.PI/6), hy - headLen*Math.sin(ah-Math.PI/6));
+    ctx.lineTo(hx - headLen*Math.cos(ah+Math.PI/6), hy - headLen*Math.sin(ah+Math.PI/6));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // devices
+  for (let i=0;i<R;i++){
+    const p = pos(i);
+    const computing = s.phase === 'compute';
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,nodeR,0,Math.PI*2);
+    ctx.fillStyle = computing ? blueBg : surface;
+    ctx.fill();
+    ctx.lineWidth = computing ? 3 : 2;
+    ctx.strokeStyle = computing ? blueMid : borderC;
+    ctx.stroke();
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = text;
+    ctx.font = 'bold 13px "JetBrains Mono", monospace';
+    ctx.fillText(`D${i}`, p.x, p.y - nodeR*0.28);
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillStyle = text2;
+    ctx.fillText(`Q${i} fixed`, p.x, p.y + nodeR*0.30);
+
+    // KV badge
+    const heldJ = heldBlock(i, s.assignRound);
+    const badgeY = p.y + nodeR + 17;
+    const label = `KV${heldJ}`;
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
+    const tw = ctx.measureText(label).width + 16;
+    ctx.fillStyle = blockBgColors[heldJ];
+    roundRect(ctx, p.x - tw/2, badgeY-11, tw, 22, 7); ctx.fill();
+    ctx.strokeStyle = blockMidColors[heldJ]; ctx.lineWidth = 1.5;
+    roundRect(ctx, p.x - tw/2, badgeY-11, tw, 22, 7); ctx.stroke();
+    ctx.fillStyle = blockMidColors[heldJ];
+    ctx.fillText(label, p.x, badgeY+1);
+  }
+
+  // center caption
+  ctx.fillStyle = text3;
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  let caption;
+  if (s.phase === 'setup') caption = 'Ring formed — each device holds its own block';
+  else if (s.phase === 'communicate') caption = 'KV blocks rotating clockwise around the ring →';
+  else if (s.phase === 'finalize' || s.phase === 'compare') caption = `All ${R} rounds complete — every Qᵢ has seen every KVⱼ`;
+  else caption = `Round ${s.assignRound+1} of ${R} — compute phase`;
+  ctx.fillText(caption, cx, cy);
+}
+
+// ── INIT ──
+initDots();
+render();
+</script>
+</body>
+</html>

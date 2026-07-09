@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reconstruction Losses: MSE, BCE, Perceptual, SSIM — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{padding-left:1.5rem;font-size:14px;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Pixel grid visualization */
+.grid-row{display:flex;gap:28px;align-items:flex-start;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.grid-block{text-align:center;}
+.grid-label{font-family:var(--mono);font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2);}
+.pixel-grid{display:grid;grid-template-columns:repeat(6,28px);grid-template-rows:repeat(6,28px);gap:2px;background:var(--border);padding:2px;border-radius:6px;}
+.pixel-cell{width:28px;height:28px;border-radius:2px;transition:background-color 0.5s ease;}
+.arrow-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;height:28px;margin-top:34px;}
+
+/* Bar chart (loss comparison) */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.bars-wrap{display:flex;gap:22px;justify-content:center;align-items:flex-end;height:160px;margin:1.25rem 0 0.5rem;padding:0 8px;}
+.bar-col{display:flex;flex-direction:column;align-items:center;gap:6px;width:70px;}
+.bar-track{width:38px;height:120px;display:flex;align-items:flex-end;background:var(--bg2);border-radius:6px 6px 2px 2px;overflow:hidden;}
+.bar-fill{width:100%;border-radius:6px 6px 0 0;transition:height 0.6s cubic-bezier(.4,0,.2,1),background-color 0.4s;}
+.bar-value{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2);}
+.bar-name{font-size:11px;font-weight:600;color:var(--text2);text-align:center;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-pixel{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-why{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-perceptual{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-structural{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .pixel-grid{grid-template-columns:repeat(6,22px);grid-template-rows:repeat(6,22px);}
+  .pixel-cell{width:22px;height:22px;}
+  .grid-row{gap:14px;}
+  .bars-wrap{gap:10px;}
+  .bar-col{width:52px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Reconstruction Losses</h1>
+  <div class="subtitle">MSE, BCE, perceptual loss, and SSIM — why pixel losses blur and perceptual losses look sharp</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-category">Autoencoders</span>
+    <span class="tag tag-complexity">O(HW) per loss</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Reconstruction Losses</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> An autoencoder (or VAE, or diffusion model's latent codec) compresses an image into a small code and then decodes it back. The <em>reconstruction loss</em> is the scoreboard that tells the network how close its decoded output is to the original — and different scoreboards reward completely different things.</p>
+    <p><strong>Analogy:</strong> Grading an essay by counting exactly-matching words (pixel MSE) is very different from grading it on whether the meaning and structure came through (perceptual/SSIM loss). Two essays that say the same thing in different words score badly on the word-matching rubric but well on the meaning rubric — that's exactly the gap between pixel losses and perceptual/structural losses on images.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">MSE and BCE are minimized by the <em>average</em> of all plausible outputs — which is blurry. Perceptual loss compares deep CNN features instead of raw pixels, and SSIM compares local structure instead of raw pixels, so neither is forced into that averaging trap. Formally: $$r^\star = \underset{r}{\operatorname{argmin}}\;\mathbb{E}_x[(r-x)^2] = \mathbb{E}[x]$$ — the MSE-optimal prediction is always a mean, never a mode.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Each Loss Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>MSE — Pixel-Space Euclidean Distance</h4>
+    <p>\(\mathcal{L}_{MSE} = \frac{1}{N}\sum_i (x_i - \hat{x}_i)^2\). It's the maximum-likelihood loss under a Gaussian pixel model, smooth, convex, and trivial to compute — but it treats every pixel as an independent, equally-important number with no notion of edges or texture.</p>
+
+    <h4>BCE — Pixel-Space Bernoulli Likelihood</h4>
+    <p>\(\mathcal{L}_{BCE} = -\frac{1}{N}\sum_i [x_i\log\hat{x}_i + (1-x_i)\log(1-\hat{x}_i)]\), treating each normalized pixel as a coin-flip probability. Its gradient is steeper than MSE's near confidently-wrong predictions, which historically made it popular for near-binary images (e.g. VAEs on binarized MNIST) — but it's a mismatched likelihood for continuous-toned natural images.</p>
+
+    <h4>Perceptual Loss — Feature-Space Distance</h4>
+    <p>Run both images through a <strong>frozen</strong> pretrained CNN (e.g. VGG-16) and compare intermediate activations: \(\mathcal{L}_{perc} = \sum_\ell \lambda_\ell \|\phi_\ell(x) - \phi_\ell(\hat{x})\|_2^2\). Shallow layers capture edges/texture, deeper layers capture semantic content. Because convolutional features are somewhat robust to exact sub-pixel alignment, this loss doesn't force convergence to a pixel-wise average — it just asks "does this look like the right textures and edges?"</p>
+
+    <h4>SSIM — Structural-Statistics Distance</h4>
+    <p>Slide a window across the image and compare local <em>luminance</em>, <em>contrast</em>, and <em>structure</em> (correlation) between \(x\) and \(\hat{x}\) instead of comparing raw values. This directly targets what the human visual system is believed to be sensitive to: structural distortions, not uniform brightness/contrast shifts.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Every reconstruction loss defines a different notion of "distance" between images: pixel-space Euclidean (MSE), pixel-space log-likelihood (BCE), feature-space Euclidean (perceptual), or structural-statistics similarity (SSIM). None is objectively correct — production autoencoders (VQ-GAN, Stable Diffusion's VAE) combine several: L1 + perceptual/LPIPS + adversarial + KL.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Why MSE Produces Blur: The Optimal Prediction Is a Mean</h4>
+    <p>Suppose a target pixel is genuinely uncertain — it could plausibly be \(x=0.9\) or \(x=0.1\) with equal probability (two equally valid sharp completions). The MSE-optimal deterministic prediction \(r^\star\) minimizes:</p>
+    <div class="eq">$$r^\star = \underset{r}{\operatorname{argmin}}\; \mathbb{E}_x\big[(r-x)^2\big]$$</div>
+    <p>Differentiating and setting to zero:</p>
+    <div class="eq">$$\frac{d}{dr}\mathbb{E}_x[(r-x)^2] = 2\big(r - \mathbb{E}[x]\big) = 0 \;\Longrightarrow\; r^\star = \mathbb{E}[x]$$</div>
+    <p>For our example, \(r^\star = 0.5(0.9) + 0.5(0.1) = 0.5\) — a mid-gray blur that matches <em>neither</em> plausible sharp value. And it really is optimal: \(\mathbb{E}[(0.5-x)^2] = 0.16\) versus \(\mathbb{E}[(0.9-x)^2] = 0.32\) for committing to one sharp mode — the blurry mean has <strong>half</strong> the expected squared error. This is the root mathematical cause of blur in MSE-trained generative models.</p>
+
+    <h4>SSIM — Full Formula</h4>
+    <p>For local windows with means \(\mu_x,\mu_{\hat x}\), variances \(\sigma_x^2,\sigma_{\hat x}^2\), and covariance \(\sigma_{x\hat x}\):</p>
+    <div class="eq">$$l=\frac{2\mu_x\mu_{\hat x}+C_1}{\mu_x^2+\mu_{\hat x}^2+C_1},\quad c=\frac{2\sigma_x\sigma_{\hat x}+C_2}{\sigma_x^2+\sigma_{\hat x}^2+C_2},\quad s=\frac{\sigma_{x\hat x}+C_3}{\sigma_x\sigma_{\hat x}+C_3}$$</div>
+    <div class="eq">$$\text{SSIM}(x,\hat x) = l\cdot c\cdot s \;\xrightarrow{C_3=C_2/2}\; \frac{(2\mu_x\mu_{\hat x}+C_1)(2\sigma_{x\hat x}+C_2)}{(\mu_x^2+\mu_{\hat x}^2+C_1)(\sigma_x^2+\sigma_{\hat x}^2+C_2)}$$</div>
+    <p>with \(C_1=(0.01L)^2, C_2=(0.03L)^2\) stabilizing division on flat patches. Training loss: \(\mathcal{L}_{SSIM} = 1 - \text{SSIM}(x,\hat x)\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"Lower reconstruction loss always means a better-looking image." False — MSE can be driven low by outputting a blurry average that humans rate as poor quality. Wang &amp; Bovik's original SSIM paper showed images with <em>identical</em> MSE but drastically different perceived quality depending on the <em>type</em> of distortion (blur vs. noise vs. contrast shift). The interactive walkthrough below reproduces exactly this phenomenon with real numbers.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough: Four Losses, One Patch</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:0.75rem;">A tiny 6×6 grayscale patch is reconstructed four different ways. Step through to see each loss computed <strong>live</strong> from the actual pixel values — then drag the blend slider to interpolate between a sharp and a blurred reconstruction and watch all four losses react differently.</p>
+
+    <div class="viz-container">
+      <div class="grid-row" id="gridRow"></div>
+      <div id="barsSection" class="bars-wrap" style="display:none;"></div>
+      <div id="sliderSection" style="display:none;margin-top:1rem;">
+        <div class="slider-group" style="justify-content:center;">
+          <span class="slider-label">Blend: Sharp → Blurry</span>
+          <input type="range" id="blendSlider" min="0" max="100" value="0" style="max-width:280px;">
+          <span class="slider-value" id="blendValue">t = 0.00</span>
+        </div>
+      </div>
+      <div class="legend" id="vizLegend"></div>
+
+      <div class="info-card">
+        <span class="info-phase" id="infoPhase">Setup</span>
+        <div class="info-step" id="infoStep">Step 1 / 9</div>
+        <div class="info-title" id="infoTitle"></div>
+        <div class="info-desc" id="infoDesc"></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)">← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <ul>
+      <li><strong>MSE/BCE</strong> operate purely pixel-by-pixel — they cannot distinguish a blurred reconstruction from a structurally different one as long as their squared/log-loss totals match.</li>
+      <li><strong>Perceptual loss</strong> compares learned (or, here, edge-energy) features instead of raw pixels, so it penalizes lost detail even when raw pixel MSE looks fine.</li>
+      <li><strong>SSIM</strong> explicitly separates luminance, contrast, and structure — it is far more sensitive to blur than to global brightness/contrast shifts.</li>
+      <li>Production autoencoders (VQ-GAN, Stable Diffusion's VAE) never use one loss alone — they sum L1/MSE + perceptual/LPIPS + adversarial + a KL/regularization term.</li>
+      <li>There is no universally "correct" reconstruction loss — each defines a different notion of image similarity, and the choice shapes what artifacts your model will and won't tolerate.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:0.5rem;">The exact computation driving the visualization above (the "perceptual" proxy uses local edge-energy in place of deep CNN features, since no network can run inline here — same idea, one layer):</p>
+    <div class="code-panel" id="codePanel"></div>
+  </div>
+</div>
+
+<script>
+/* ===================== 1. DATA: build a 6x6 patch + 4 reconstructions ===================== */
+const N = 6;
+function mat(fn){ const m=[]; for(let r=0;r<N;r++){ const row=[]; for(let c=0;c<N;c++) row.push(fn(r,c)); m.push(row);} return m; }
+function clamp01(v){ return Math.max(0,Math.min(1,v)); }
+
+// Ground truth: a sharp vertical edge (bright left, dark right) with mild texture
+const X = mat((r,c)=> clamp01((c<3?0.84:0.16) + (((r+c)%2===0)?0.03:-0.03)));
+
+// Candidate A: "Blurry Mean" — 3x3 box blur of X (edge-clamped)
+function boxBlur(m){
+  return mat((r,c)=>{
+    let s=0,n=0;
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+      const rr=r+dr, cc=c+dc;
+      if(rr>=0&&rr<N&&cc>=0&&cc<N){ s+=m[rr][cc]; n++; }
+    }
+    return s/n;
+  });
+}
+const A = boxBlur(X);
+
+// Candidate B: "Sharp but Shifted" — same sharp edge, boundary moved one column right
+const B = mat((r,c)=> clamp01((c<4?0.84:0.16) + (((r+c)%2===0)?0.03:-0.03)));
+
+// Candidate C: "Noisy" — deterministic pseudo-random structured noise added to X
+const C = mat((r,c)=>{
+  const seed = Math.sin(r*12.9898+c*78.233)*43758.5453;
+  const noise = (seed - Math.floor(seed) - 0.5) * 0.5;
+  return clamp01(X[r][c] + noise);
+});
+
+// Candidate D: "Low Contrast" — X compressed toward mid-gray
+const D = mat((r,c)=> clamp01(0.5 + (X[r][c]-0.5)*0.35));
+
+/* ===================== 2. METRICS: computed LIVE from pixel data ===================== */
+function mse(P,Q){
+  let s=0; for(let r=0;r<N;r++) for(let c=0;c<N;c++){ const d=P[r][c]-Q[r][c]; s+=d*d; }
+  return s/(N*N);
+}
+function bce(target,pred){
+  let s=0; for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+    const x=clamp01(target[r][c]), q=Math.min(0.999,Math.max(0.001,pred[r][c]));
+    s += -(x*Math.log(q) + (1-x)*Math.log(1-q));
+  }
+  return s/(N*N);
+}
+// simplified "perceptual" feature: local edge-energy (gradient magnitude), one-layer stand-in for deep CNN features
+function edgeFeatures(m){
+  return mat((r,c)=>{
+    const l=m[r][Math.max(0,c-1)], rr=m[r][Math.min(N-1,c+1)];
+    const u=m[Math.max(0,r-1)][c], d=m[Math.min(N-1,r+1)][c];
+    const gx=(rr-l)/2, gy=(d-u)/2;
+    return Math.sqrt(gx*gx+gy*gy);
+  });
+}
+function perceptual(P,Q){ return mse(edgeFeatures(P), edgeFeatures(Q)); }
+// global SSIM (whole 6x6 patch treated as one window) using the formula from Card 3
+function stats(m){
+  let sum=0; for(let r=0;r<N;r++) for(let c=0;c<N;c++) sum+=m[r][c];
+  const mu = sum/(N*N);
+  let varsum=0; for(let r=0;r<N;r++) for(let c=0;c<N;c++) varsum+=(m[r][c]-mu)**2;
+  return { mu, varr: varsum/(N*N) };
+}
+function ssim(P,Q){
+  const sp=stats(P), sq=stats(Q);
+  let cov=0; for(let r=0;r<N;r++) for(let c=0;c<N;c++) cov += (P[r][c]-sp.mu)*(Q[r][c]-sq.mu);
+  cov /= (N*N);
+  const C1=(0.01*1)**2, C2=(0.03*1)**2;
+  const num=(2*sp.mu*sq.mu+C1)*(2*cov+C2);
+  const den=(sp.mu*sp.mu+sq.mu*sq.mu+C1)*(sp.varr+sq.varr+C2);
+  return num/den;
+}
+function ssimLoss(P,Q){ return 1-ssim(P,Q); }
+
+function blend(P,Q,t){ return mat((r,c)=> P[r][c]*(1-t)+Q[r][c]*t); }
+
+/* ===================== 3. RENDERING helpers ===================== */
+function grayCSS(v){ const g=Math.round(clamp01(v)*255); return `rgb(${g},${g},${g})`; }
+function errCSS(v, maxV){ // white -> red heat scale
+  const t = maxV>0 ? clamp01(v/maxV) : 0;
+  const r = 255, g = Math.round(255-(255-40)*t), b = Math.round(255-(255-40)*t);
+  return `rgb(${r},${g},${b})`;
+}
+function renderGrid(container, m, label, mode, refM){
+  const block = document.createElement('div');
+  block.className = 'grid-block';
+  const lab = document.createElement('div'); lab.className='grid-label'; lab.textContent=label;
+  const grid = document.createElement('div'); grid.className='pixel-grid';
+  let maxErr = 0;
+  if(mode==='error'){
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++) maxErr = Math.max(maxErr, (m[r][c]-refM[r][c])**2);
+  }
+  for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+    const cell = document.createElement('div'); cell.className='pixel-cell';
+    if(mode==='error'){
+      cell.style.background = errCSS((m[r][c]-refM[r][c])**2, maxErr||1);
+    } else {
+      cell.style.background = grayCSS(m[r][c]);
+    }
+    grid.appendChild(cell);
+  }
+  block.appendChild(lab); block.appendChild(grid);
+  container.appendChild(block);
+}
+function renderArrow(container, symbol){
+  const a = document.createElement('div'); a.className='arrow-symbol'; a.textContent = symbol;
+  container.appendChild(a);
+}
+function renderBars(entries, unit){
+  // entries: [{name, value, color}]
+  const wrap = document.getElementById('barsSection');
+  wrap.style.display = 'flex';
+  wrap.innerHTML = '';
+  const maxV = Math.max(...entries.map(e=>e.value), 1e-9);
+  entries.forEach(e=>{
+    const col = document.createElement('div'); col.className='bar-col';
+    const track = document.createElement('div'); track.className='bar-track';
+    const fill = document.createElement('div'); fill.className='bar-fill';
+    const hpx = Math.max(4, Math.round((e.value/maxV)*116));
+    fill.style.height = hpx+'px';
+    fill.style.background = e.color;
+    track.appendChild(fill);
+    const val = document.createElement('div'); val.className='bar-value'; val.textContent = e.value.toFixed(4);
+    const name = document.createElement('div'); name.className='bar-name'; name.textContent = e.name;
+    col.appendChild(track); col.appendChild(val); col.appendChild(name);
+    wrap.appendChild(col);
+  });
+}
+function fmt(v){ return v.toFixed(4); }
+
+/* ===================== 4. STEPS ===================== */
+const COLORS = { A:'var(--red-mid)', B:'var(--blue-mid)', C:'var(--amber-mid)', D:'var(--purple-mid)', X:'var(--green-mid)', Custom:'var(--cyan-mid)' };
+let blendT = 0; // 0 = sharp (B), 1 = blurry (A)
+
+const steps = [
+  { phase:'setup', title:'The Setup — One Patch, Four Reconstructions',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+    },
+    desc(){
+      return `A 6×6 grayscale patch \\(x\\) (green label) is the ground truth. Below we build four different reconstructions \\(\\hat{x}\\) of it — a blur, a shifted-edge version, a noisy version, and a low-contrast version — then score all four with MSE, BCE, perceptual loss, and SSIM to see how differently they rank the same reconstructions.`;
+    }
+  },
+  { phase:'pixel', title:'Candidate A: "Blurry Mean" Reconstruction',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+      renderArrow(root,'vs');
+      renderGrid(root, A, 'Â (3×3 box blur)', 'value');
+    },
+    desc(){
+      const m = mse(X,A);
+      return `Candidate A is a 3×3 box-blur of \\(x\\) — exactly the kind of soft, averaged output an under-trained (or MSE-obsessed) decoder produces. Computed live: \\(\\mathcal{L}_{MSE}(x,\\hat A) = ${fmt(m)}\\). It looks "close" numerically because averaging neighboring pixels never moves any single pixel far from its original value.`;
+    }
+  },
+  { phase:'pixel', title:'Candidate B: "Sharp but Shifted" Reconstruction',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+      renderArrow(root,'vs');
+      renderGrid(root, B, 'B̂ (edge shifted 1px)', 'value');
+    },
+    desc(){
+      const mA = mse(X,A), mB = mse(X,B);
+      return `Candidate B keeps the edge perfectly sharp but places it one column to the right — a plausible, high-quality reconstruction with a small misalignment. Live numbers: \\(\\mathcal{L}_{MSE}(x,\\hat A){=}${fmt(mA)}\\) (blur) vs. \\(\\mathcal{L}_{MSE}(x,\\hat B){=}${fmt(mB)}\\) (shifted-sharp) — comparable magnitude, even though B looks far better to a human eye.`;
+    }
+  },
+  { phase:'pixel', title:'MSE Comparison Across All Candidates',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+    },
+    barsAfter(){
+      return { entries:[
+        {name:'A: Blur', value:mse(X,A), color:COLORS.A},
+        {name:'B: Shift', value:mse(X,B), color:COLORS.B},
+        {name:'C: Noisy', value:mse(X,C), color:COLORS.C},
+        {name:'D: LowContr.', value:mse(X,D), color:COLORS.D},
+      ]};
+    },
+    desc(){
+      return `\\(\\mathcal{L}_{MSE} = \\frac{1}{N}\\sum_i(x_i-\\hat x_i)^2\\) computed live for all four candidates. MSE has no concept of "edges" or "structure" — it only sums squared per-pixel differences, so blur (A) and misalignment (B) can score similarly, and structured noise (C) can look deceptively bad even though the underlying content is intact.`;
+    }
+  },
+  { phase:'pixel', title:'BCE Comparison Across All Candidates',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+    },
+    barsAfter(){
+      return { entries:[
+        {name:'A: Blur', value:bce(X,A), color:COLORS.A},
+        {name:'B: Shift', value:bce(X,B), color:COLORS.B},
+        {name:'C: Noisy', value:bce(X,C), color:COLORS.C},
+        {name:'D: LowContr.', value:bce(X,D), color:COLORS.D},
+      ]};
+    },
+    desc(){
+      return `\\(\\mathcal{L}_{BCE} = -\\frac{1}{N}\\sum_i[x_i\\log\\hat x_i+(1-x_i)\\log(1-\\hat x_i)]\\), treating each pixel as a Bernoulli probability. Notice the ranking is similar to MSE's — BCE is still a purely pixel-wise likelihood, just with steeper gradients near confidently-wrong predictions (close to 0 or 1).`;
+    }
+  },
+  { phase:'perceptual', title:'Extracting "Perceptual" Features (Edge Energy)',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+      renderArrow(root,'→');
+      renderGrid(root, edgeFeatures(X), 'φ(x): edge energy', 'value');
+      renderArrow(root,'vs');
+      renderGrid(root, edgeFeatures(A), 'φ(Â): edge energy', 'value');
+    },
+    desc(){
+      const p = perceptual(X,A);
+      return `Real perceptual loss runs both images through a frozen CNN (e.g. VGG-16) and compares deep feature maps. We approximate that with a one-layer stand-in — local gradient magnitude \\(\\phi(x)=\\|\\nabla x\\|\\) — which, like a CNN's first layer, responds to edges. Blurring destroys edge energy: live \\(\\mathcal{L}_{perc}(x,\\hat A)=\\|\\phi(x)-\\phi(\\hat A)\\|^2 = ${fmt(p)}\\).`;
+    }
+  },
+  { phase:'perceptual', title:'Perceptual Loss Comparison — Blur Gets Punished',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+    },
+    barsAfter(){
+      return { entries:[
+        {name:'A: Blur', value:perceptual(X,A), color:COLORS.A},
+        {name:'B: Shift', value:perceptual(X,B), color:COLORS.B},
+        {name:'C: Noisy', value:perceptual(X,C), color:COLORS.C},
+        {name:'D: LowContr.', value:perceptual(X,D), color:COLORS.D},
+      ]};
+    },
+    desc(){
+      const pa=perceptual(X,A), pb=perceptual(X,B);
+      return `This is the key reversal: in raw-pixel MSE, blur (A) and shift (B) looked similar. In feature space, blur is punished far more (\\(${fmt(pa)}\\)) than the sharp-but-shifted candidate (\\(${fmt(pb)}\\)), because blurring wipes out edge energy everywhere, while a shift merely relocates it. Perceptual loss rewards keeping detail sharp, even if it's not pixel-perfectly aligned.`;
+    }
+  },
+  { phase:'structural', title:'SSIM: Luminance × Contrast × Structure',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+      renderArrow(root,'vs');
+      renderGrid(root, D, 'D̂ (low contrast)', 'value');
+    },
+    desc(){
+      const sx=stats(X), sd=stats(D);
+      const s = ssim(X,D);
+      return `SSIM compares statistics instead of raw values: \\(\\mu_x=${fmt(sx.mu)}, \\mu_{\\hat D}=${fmt(sd.mu)}\\) (luminance term ≈ equal), \\(\\sigma_x^2=${fmt(sx.varr)}, \\sigma_{\\hat D}^2=${fmt(sd.varr)}\\) (D's variance collapsed — contrast term drops). Live \\(\\text{SSIM}(x,\\hat D)=${fmt(s)}\\), \\(\\mathcal{L}_{SSIM}=${fmt(1-s)}\\) — SSIM correctly flags the contrast loss that MSE barely notices.`;
+    }
+  },
+  { phase:'structural', title:'SSIM Loss Comparison Across All Candidates',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+    },
+    barsAfter(){
+      return { entries:[
+        {name:'A: Blur', value:ssimLoss(X,A), color:COLORS.A},
+        {name:'B: Shift', value:ssimLoss(X,B), color:COLORS.B},
+        {name:'C: Noisy', value:ssimLoss(X,C), color:COLORS.C},
+        {name:'D: LowContr.', value:ssimLoss(X,D), color:COLORS.D},
+      ]};
+    },
+    desc(){
+      return `\\(\\mathcal{L}_{SSIM}=1-\\text{SSIM}(x,\\hat x)\\) computed live for all four. Blur (A) collapses local variance and covariance with its neighborhood, so it scores worst here too — but for a completely different mathematical reason than perceptual loss: SSIM cares about *local statistical structure*, not learned features.`;
+    }
+  },
+  { phase:'result', title:'Drag the Slider: Sharp ↔ Blurry, Watch All Four Losses',
+    render(root){
+      renderGrid(root, X, 'Original x', 'value');
+      renderArrow(root,'vs');
+      const custom = blend(B,A,blendT);
+      renderGrid(root, custom, `Custom (t=${blendT.toFixed(2)})`, 'value');
+    },
+    barsAfter(){
+      const custom = blend(B,A,blendT);
+      return { entries:[
+        {name:'MSE', value:mse(X,custom), color:'var(--red-mid)'},
+        {name:'BCE', value:bce(X,custom), color:'var(--amber-mid)'},
+        {name:'Percept.', value:perceptual(X,custom), color:'var(--purple-mid)'},
+        {name:'SSIM loss', value:ssimLoss(X,custom), color:'var(--cyan-mid)'},
+      ]};
+    },
+    showSlider:true,
+    desc(){
+      const custom = blend(B,A,blendT);
+      return `\\(\\hat x_{custom} = (1-t)\\hat B + t\\hat A\\), interpolating live between the sharp-shifted (\\(t{=}0\\)) and blurry (\\(t{=}1\\)) reconstructions as you drag. Watch how MSE and BCE move roughly linearly with \\(t\\), while perceptual loss and SSIM loss can rise faster — they are more sensitive to the *onset* of blur than pixel losses are. Currently \\(t=${blendT.toFixed(2)}\\): MSE=${fmt(mse(X,custom))}, SSIM loss=${fmt(ssimLoss(X,custom))}.`;
+    }
+  }
+];
+
+/* ===================== 5. NAV / RENDER LOOP ===================== */
+let idx = 0;
+function el(id){ return document.getElementById(id); }
+
+function renderStep(){
+  const s = steps[idx];
+  const gridRow = el('gridRow'); gridRow.innerHTML='';
+  s.render(gridRow);
+
+  const barsSection = el('barsSection');
+  if(s.barsAfter){
+    const {entries} = s.barsAfter();
+    renderBars(entries);
+  } else {
+    barsSection.style.display='none'; barsSection.innerHTML='';
+  }
+
+  el('sliderSection').style.display = s.showSlider ? 'block' : 'none';
+
+  el('infoPhase').textContent = ({setup:'Setup',pixel:'Pixel-Space',why:'Why It Matters',perceptual:'Perceptual',structural:'Structural',result:'Live Comparison'})[s.phase] || s.phase;
+  el('infoPhase').className = 'info-phase phase-'+s.phase;
+  el('infoStep').textContent = `Step ${idx+1} / ${steps.length}`;
+  el('infoTitle').textContent = s.title;
+  el('infoDesc').innerHTML = s.desc();
+
+  el('vizLegend').innerHTML = `
+    <div class="legend-item"><span class="legend-swatch" style="background:#888;"></span>Grayscale value = pixel intensity</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--red-mid);"></span>Candidate A: Blur</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--blue-mid);"></span>Candidate B: Shift</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--amber-mid);"></span>Candidate C: Noisy</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--purple-mid);"></span>Candidate D: Low Contrast</div>`;
+
+  el('btnPrev').disabled = idx===0;
+  el('btnNext').disabled = idx===steps.length-1;
+
+  const dots = el('progressWrap'); dots.innerHTML='';
+  steps.forEach((_,i)=>{
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===idx?' active':(i<idx?' done':''));
+    d.onclick = ()=>{ idx=i; renderStep(); };
+    dots.appendChild(d);
+  });
+
+  renderCode();
+  if(window.renderMathInElement){
+    renderMathInElement(el('infoDesc'), { delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}] });
+  }
+}
+
+function go(dir){
+  const next = idx+dir;
+  if(next<0||next>=steps.length) return;
+  idx = next;
+  renderStep();
+}
+function reset(){ idx=0; blendT=0; el('blendSlider').value=0; el('blendValue').textContent='t = 0.00'; renderStep(); }
+
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight') go(1);
+  if(e.key==='ArrowLeft') go(-1);
+  if(e.key==='r'||e.key==='R') reset();
+});
+
+el('blendSlider')?.addEventListener('input', e=>{
+  blendT = (+e.target.value)/100;
+  el('blendValue').textContent = 't = '+blendT.toFixed(2);
+  renderStep();
+});
+
+/* ===================== 6. CODE PANEL ===================== */
+const CODE_LINES = [
+  {t:'def mse(x, xhat):', tags:['pixel']},
+  {t:'    return np.mean((x - xhat) ** 2)', tags:['pixel']},
+  {t:'', tags:[]},
+  {t:'def bce(x, xhat, eps=1e-3):', tags:['pixel']},
+  {t:'    q = np.clip(xhat, eps, 1 - eps)', tags:['pixel']},
+  {t:'    return -np.mean(x*np.log(q) + (1-x)*np.log(1-q))', tags:['pixel']},
+  {t:'', tags:[]},
+  {t:'def perceptual(x, xhat, phi):', tags:['perceptual']},
+  {t:'    return np.mean((phi(x) - phi(xhat)) ** 2)  # phi = CNN features', tags:['perceptual']},
+  {t:'', tags:[]},
+  {t:'def ssim_loss(x, xhat, C1=1e-4, C2=9e-4):', tags:['structural']},
+  {t:'    mu_x, mu_h = x.mean(), xhat.mean()', tags:['structural']},
+  {t:'    var_x, var_h = x.var(), xhat.var()', tags:['structural']},
+  {t:'    cov = ((x-mu_x)*(xhat-mu_h)).mean()', tags:['structural']},
+  {t:'    num = (2*mu_x*mu_h+C1)*(2*cov+C2)', tags:['structural']},
+  {t:'    den = (mu_x**2+mu_h**2+C1)*(var_x+var_h+C2)', tags:['structural']},
+  {t:'    return 1 - num/den', tags:['structural']},
+];
+function renderCode(){
+  const s = steps[idx];
+  const panel = el('codePanel'); panel.innerHTML='';
+  CODE_LINES.forEach(line=>{
+    const div = document.createElement('div');
+    div.className = 'code-line' + (line.tags.includes(s.phase)?' active':'');
+    div.textContent = line.t || ' ';
+    panel.appendChild(div);
+  });
+}
+
+/* ===================== 7. SECTION TOGGLE (cards 1-3) ===================== */
+function toggleSection(header){
+  const body = header.nextElementSibling;
+  const toggle = header.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+/* ===================== 8. INIT ===================== */
+renderStep();
+</script>
+
+</body>
+</html>

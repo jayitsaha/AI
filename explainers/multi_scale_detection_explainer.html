@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-scale Detection: FPN, PANet, BiFPN, NAS-FPN — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-fpn{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-panet{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-bifpn{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-nasfpn{background:var(--red-bg);color:var(--red-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Multi-scale Detection: FPN, PANet, BiFPN, NAS-FPN</h1>
+  <div class="subtitle">Architectures for robustly detecting objects across varying sizes</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-complexity">O(N) detection</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Multi-scale Detection</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Object detection models face a fundamental challenge: objects in images can appear at vastly different scales (e.g., a tiny bird vs. a large elephant). Deep Convolutional Neural Networks (CNNs) naturally produce feature maps at different spatial resolutions. Shallow layers retain high resolution and fine spatial details but lack semantic context. Deep layers have rich semantic information but low resolution, making them poor at localizing small objects.</p>
+    <p>Multi-scale detection architectures, starting with the Feature Pyramid Network (FPN), address this by building feature pyramids that combine both high-level semantic information (from deep layers) and high-resolution spatial information (from shallow layers) across all levels of the pyramid. This allows detectors to operate effectively on objects of all sizes.</p>
+    <p><strong>Analogy:</strong> Imagine you're a detective looking for clues. To find a tiny fingerprint, you need a high-resolution magnifying glass (shallow features). To understand the overall crime scene, you need a wide-angle view and context (deep features). Multi-scale detection is like having a set of specialized tools (feature maps) at different magnifications, each enriched with context, so you can find both the small fingerprint and the large getaway car with equal precision.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">FPN is the foundational idea for modern multi-scale object detection. It creates a feature pyramid where each level has both strong semantic information (from deep layers) and strong spatial information (from shallow layers), enabling robust detection across all object scales.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. CNN Backbone: The Feature Extractor</h4>
+    <p>The process begins with a standard CNN backbone (e.g., ResNet, EfficientNet) that extracts features. It produces a hierarchy of feature maps at different scales: \(C_2, C_3, C_4, C_5\). \(C_2\) is the highest resolution (e.g., 1/4th of input image size) but has low-level features. \(C_5\) is the lowest resolution (e.g., 1/32nd) but contains rich, high-level semantic information.</p>
+
+    <h4>2. Feature Pyramid Network (FPN)</h4>
+    <p>FPN (Lin et al., 2017) builds a top-down pathway with lateral connections:</p>
+    <ul>
+      <li><strong>Top-down pathway:</strong> Starting from the deepest feature map (\(C_5\)), it's progressively upsampled. The upsampled feature map is then fused with the corresponding backbone feature map from the previous level (e.g., \(C_4\)).</li>
+      <li><strong>Lateral connections:</strong> Before fusion, a 1x1 convolution is applied to the backbone feature maps (\(C_i\)) to reduce their channel dimensions and align them with the upsampled features.</li>
+      <li><strong>Fusion:</strong> The upsampled feature map and the corresponding 1x1 convolved backbone feature map are element-wise added. Another 3x3 convolution is often applied to the fused result to smooth the feature map and reduce aliasing effects from upsampling.</li>
+      <li><strong>Output:</strong> A new set of feature maps \(P_2, P_3, P_4, P_5\) (and often \(P_6\) from max-pooling \(P_5\)) are generated, each having strong semantics and fine localization details.</li>
+    </ul>
+
+    <h4>3. Path Aggregation Network (PANet)</h4>
+    <p>PANet (Liu et al., 2018) extends FPN by adding a <strong>bottom-up pathway</strong>. While FPN effectively propagates semantic information top-down, PANet introduces an additional path to propagate strong localization signals from lower (higher-resolution) levels upwards. This helps in more precise localization of objects.</p>
+    <ul>
+      <li>It takes the FPN output features (\(P_2, P_3, P_4, P_5\)) and builds a new pyramid (\(N_2, N_3, N_4, N_5\)) by propagating information from high-resolution features to low-resolution features.</li>
+      <li>This second pathway ensures that both rich semantic context and accurate spatial information are available at all scales.</li>
+    </ul>
+
+    <h4>4. Bi-directional Feature Pyramid Network (BiFPN)</h4>
+    <p>BiFPN (Tan et al., 2019), introduced in EfficientDet, improves upon FPN by proposing a more efficient and effective weighted bi-directional cross-scale connection. It addresses the limitation that FPN and PANet treat all input features equally during fusion.</p>
+    <ul>
+      <li><strong>Weighted Feature Fusion:</strong> BiFPN introduces learnable weights for each input feature map when combining them. This allows the network to learn the importance of different scale features, rather than simply summing them.</li>
+      <li><strong>Simplified and Optimized Connections:</strong> It removes nodes that only have one input edge (less contribution to feature fusion) and adds an extra edge between original input and output nodes if they are at the same scale.</li>
+      <li>The entire structure is a repeated block of these bi-directional connections.</li>
+    </ul>
+
+    <h4>5. NAS-FPN (Neural Architecture Search FPN)</h4>
+    <p>NAS-FPN (Ghiasi et al., 2019) uses Neural Architecture Search (NAS) to automatically discover novel FPN structures. Instead of hand-designing the connections and operations, a reinforcement learning controller searches for optimal cross-scale connections and feature fusion methods. This often results in highly irregular, complex, but extremely performant pyramid structures, albeit with significant computational cost for the search itself.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">All these methods aim to fuse features from different backbone layers to create a multi-scale pyramid where each level is rich in both semantic and spatial information, crucial for detecting objects of varying sizes.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. FPN: Top-Down Fusion</h4>
+    <p>The core operation in FPN's top-down pathway is the fusion of an upsampled, semantically rich feature map from a deeper layer with a spatially precise feature map from a shallower layer. For a pyramid level \(P_i\), formed from backbone feature \(C_i\) and the deeper pyramid feature \(P_{i+1}\):</p>
+    <div class="eq">$$P_i = \text{Conv}_{3\times3}(\text{Conv}_{1\times1}(C_i) + \text{Upsample}(P_{i+1}))$$</div>
+    <p>Here, \(\text{Conv}_{1\times1}(C_i)\) adjusts the channel dimension of \(C_i\), \(\text{Upsample}(P_{i+1})\) matches its spatial resolution to \(C_i\), and \(\text{Conv}_{3\times3}\) is a smoothing operation after element-wise addition.</p>
+
+    <h4>2. PANet: Bottom-Up Path Augmentation</h4>
+    <p>PANet adds a bottom-up path to FPN. For a feature map \(N_i\) in this new path, it combines information from the FPN feature \(P_i\) and a downsampled feature from the shallower path \(N_{i-1}\):</p>
+    <div class="eq">$$N_i = \text{Conv}_{3\times3}(\text{Conv}_{1\times1}(P_i) + \text{Downsample}(N_{i-1}))$$</div>
+    <p>This structure ensures that precise localization signals, which might be diluted in the FPN's top-down path, are explicitly propagated upwards through the pyramid, further enriching the features at each scale.</p>
+
+    <h4>3. BiFPN: Weighted Feature Fusion</h4>
+    <p>BiFPN's key innovation is its weighted fusion. For an intermediate feature \(P_{i}^{\text{td}}\) (top-down path) and \(P_{i}^{\text{out}}\) (output node), it combines multiple inputs with learnable weights. A common form of weighted fusion is:</p>
+    <div class="eq">$$P_{i}^{\text{out}} = \text{Conv}\left(\sum_k \frac{w_k}{\sum_j w_j + \epsilon} \cdot I_k\right)$$</div>
+    <p>where \(I_k\) are the input features (e.g., \(C_i\), \(\text{Upsample}(P_{i+1})\), \(\text{Downsample}(N_{i-1})\)), \(w_k \ge 0\) are learnable weights (often initialized to 1), and \(\epsilon\) is a small value (e.g., 0.0001) for numerical stability. The weights \(w_k\) are typically learned as scalars for each connection, often using a simple activation like ReLU to ensure non-negativity. This allows the network to dynamically adjust the contribution of each input feature, leading to more effective and efficient fusion.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Design Considerations</div>
+      <p style="font-size:14px;margin:0;">The choice of fusion operation (sum, concatenation, weighted sum) and the specific connections (top-down, bottom-up, skip) significantly impact performance. More complex connections (like BiFPN or NAS-FPN) often yield better results but increase architectural complexity and sometimes training difficulty.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the evolution of multi-scale detection architectures, from the foundational FPN to more advanced variants like PANet and BiFPN.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Backbone Feature Maps</div>
+        <div class="info-desc" id="infoDesc">A CNN backbone (e.g., ResNet) extracts features at different scales. C2 has high resolution but low semantics, C5 has low resolution but high semantics.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Backbone Feature (C)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> FPN Output (P)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> PANet Output (N)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> BiFPN Node</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> NAS-FPN (conceptual)</div>
+        <div class="legend-item"><div class="legend-swatch" style="border:1.5px solid var(--text2)"></div> Lateral/Skip Connection</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Upsample/Downsample</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use multi-scale detection architectures:</strong></p>
+    <ul>
+      <li>Any object detection task, especially when objects of widely varying sizes are present.</li>
+      <li>Instance segmentation, where precise pixel-level localization is critical.</li>
+      <li>Other dense prediction tasks (e.g., semantic segmentation) that benefit from multi-resolution feature fusion.</li>
+      <li>When using deep backbones where small object information might be lost.</li>
+    </ul>
+    <p><strong>Key differences &amp; trade-offs:</strong></p>
+    <ul>
+      <li><strong>FPN:</strong> The standard. Simple, effective, and widely adopted. Provides strong semantic features at all scales.</li>
+      <li><strong>PANet:</strong> Improves FPN by adding a bottom-up path, enhancing localization accuracy, particularly for small objects. Slightly more complex than FPN.</li>
+      <li><strong>BiFPN:</strong> Focuses on efficient and effective weighted feature fusion. Learnable weights allow the network to prioritize important features, leading to higher performance with fewer parameters and FLOPs than other complex FPNs.</li>
+      <li><strong>NAS-FPN:</strong> Achieves state-of-the-art performance by automatically discovering optimal (often irregular) architectures. However, the search process is computationally very expensive, making it less practical for general use unless you have vast compute resources.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Practical Advice</div>
+      <p style="font-size:14px;margin:0;">For most applications, FPN or PANet is an excellent starting point. For higher performance and efficiency, especially with EfficientNet backbones, BiFPN is a strong choice. NAS-FPN is typically for pushing state-of-the-art boundaries.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Core Components)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class FPN(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, in_channels_list, out_channels):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.lateral_convs = nn.ModuleList()</div>
+      <div class="code-line" id="cl8">        self.fpn_convs = nn.ModuleList()</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">        for in_channels in in_channels_list:</div>
+      <div class="code-line" id="cl11">            self.lateral_convs.append(nn.Conv2d(in_channels, out_channels, 1))</div>
+      <div class="code-line" id="cl12">            self.fpn_convs.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    def forward(self, features): # features = [C2, C3, C4, C5]</div>
+      <div class="code-line" id="cl15">        # build lateral connections</div>
+      <div class="code-line" id="cl16">        laterals = [lateral_conv(f) for lateral_conv, f in zip(self.lateral_convs, features)]</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">        # build top-down path</div>
+      <div class="code-line" id="cl19">        for i in range(len(laterals) - 2, -1, -1): # From P4 to P2</div>
+      <div class="code-line" id="cl20">            upsampled = F.interpolate(laterals[i+1], scale_factor=2, mode='nearest')</div>
+      <div class="code-line" id="cl21">            laterals[i] = laterals[i] + upsampled # Element-wise addition</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">        # build final FPN outputs</div>
+      <div class="code-line" id="cl24">        fpn_outputs = [fpn_conv(l) for fpn_conv, l in zip(self.fpn_convs, laterals)]</div>
+      <div class="code-line" id="cl25">        return fpn_outputs # P2, P3, P4, P5</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">class BiFPNNode(nn.Module):</div>
+      <div class="code-line" id="cl28">    def __init__(self, in_channels, out_channels):</div>
+      <div class="code-line" id="cl29">        super().__init__()</div>
+      <div class="code-line" id="cl30">        # For simplicity, assume two inputs for a node (e.g., from top-down and bottom-up)</div>
+      <div class="code-line" id="cl31">        self.w1 = nn.Parameter(torch.ones(1, dtype=torch.float32)) # Learnable weight 1</div>
+      <div class="code-line" id="cl32">        self.w2 = nn.Parameter(torch.ones(1, dtype=torch.float32)) # Learnable weight 2</div>
+      <div class="code-line" id="cl33">        self.relu = nn.ReLU() # Ensure weights are non-negative</div>
+      <div class="code-line" id="cl34">        self.conv = nn.Conv2d(in_channels, out_channels, 3, padding=1)</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">    def forward(self, input1, input2):</div>
+      <div class="code-line" id="cl37">        w1 = self.relu(self.w1)</div>
+      <div class="code-line" id="cl38">        w2 = self.relu(self.w2)</div>
+      <div class="code-line" id="cl39">        # Normalized weighted sum: I = (w1*I1 + w2*I2) / (w1 + w2 + epsilon)</div>
+      <div class="code-line" id="cl40">        epsilon = 1e-4</div>
+      <div class="code-line" id="cl41">        combined_feature = (w1 * input1 + w2 * input2) / (w1 + w2 + epsilon)</div>
+      <div class="code-line" id="cl42">        return self.conv(combined_feature)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── STEPS ──
+const steps = [
+  { phase: 'setup', title: 'Backbone Feature Maps',
+    desc: 'A CNN backbone extracts features at different scales. C2 has high resolution (e.g., 1/4 input size) but low semantics. C5 has low resolution (1/32 input size) but high semantics. We need to combine them.',
+    codeLines: [],
+    vizMode: 'backbone'
+  },
+  { phase: 'fpn', title: 'FPN: Initialize P5 from C5',
+    desc: 'The FPN top-down pathway starts from the deepest feature map. A 1x1 convolution is applied to C5 to reduce its channel dimension, forming P5.',
+    codeLines: [10, 11],
+    vizMode: 'fpn_p5'
+  },
+  { phase: 'fpn', title: 'FPN: Top-Down Fusion for P4',
+    desc: 'P5 is upsampled to match C4\'s resolution. C4 also undergoes a 1x1 convolution. These two are then element-wise added to form P4. A 3x3 conv smooths P4.',
+    codeLines: [19, 20, 21, 24],
+    vizMode: 'fpn_p4'
+  },
+  { phase: 'fpn', title: 'FPN: Completing the Pyramid (P3, P2)',
+    desc: 'This process continues for P3 and P2. Each FPN level (P2-P5) now has both rich semantic information from deep layers and fine-grained spatial detail from shallow layers, ready for detection.',
+    codeLines: [19, 20, 21, 24],
+    vizMode: 'fpn_full'
+  },
+  { phase: 'panet', title: 'PANet: Bottom-Up Pathway (N2, N3)',
+    desc: 'PANet adds a bottom-up path to FPN. It takes FPN outputs (P-levels) and propagates localization signals upwards. N2 is initialized from P2. N3 is formed by downsampling N2 and adding it to P3.',
+    codeLines: [], // PANet is an extension of FPN code, conceptual here
+    vizMode: 'panet_n3'
+  },
+  { phase: 'panet', title: 'PANet: Completing Bottom-Up (N4, N5)',
+    desc: 'The bottom-up path continues for N4 and N5. This second pathway ensures that precise localization details are robustly propagated through all scales, improving detection accuracy.',
+    codeLines: [],
+    vizMode: 'panet_full'
+  },
+  { phase: 'bifpn', title: 'BiFPN: Bidirectional Connections & Weights',
+    desc: 'BiFPN uses a more flexible, bi-directional fusion. Instead of simple addition, it learns scalar weights for each input feature. Here, P3 receives inputs from C3, P4 (top-down), and N2 (bottom-up), combining them with learned weights.',
+    codeLines: [31, 32, 36, 37, 38, 39, 40, 41],
+    vizMode: 'bifpn_node'
+  },
+  { phase: 'bifpn', title: 'BiFPN: Repeated Weighted Fusion',
+    desc: 'A full BiFPN consists of multiple repeated blocks of these weighted bi-directional connections. This allows for highly efficient and effective multi-scale feature fusion, leading to superior performance.',
+    codeLines: [31, 32, 36, 37, 38, 39, 40, 41],
+    vizMode: 'bifpn_full'
+  },
+  { phase: 'nasfpn', title: 'NAS-FPN: Architectures Discovered by Search',
+    desc: 'NAS-FPN uses Neural Architecture Search to automatically discover optimal feature pyramid structures. These are often irregular and complex, but can achieve state-of-the-art performance by finding highly optimized connection patterns.',
+    codeLines: [],
+    vizMode: 'nasfpn'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', fpn:'phase-fpn', panet:'phase-panet',
+    bifpn:'phase-bifpn', nasfpn:'phase-nasfpn'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.vizMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), amber: g('--amber-mid'),
+    red: g('--red-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+const nodeData = {
+  'C2': { x: 0.15, y: 0.15, w: 0.08, h: 0.08, label: 'C2', color: 'blue' },
+  'C3': { x: 0.15, y: 0.35, w: 0.07, h: 0.07, label: 'C3', color: 'blue' },
+  'C4': { x: 0.15, y: 0.55, w: 0.06, h: 0.06, label: 'C4', color: 'blue' },
+  'C5': { x: 0.15, y: 0.75, w: 0.05, h: 0.05, label: 'C5', color: 'blue' },
+
+  'P2': { x: 0.45, y: 0.15, w: 0.08, h: 0.08, label: 'P2', color: 'green' },
+  'P3': { x: 0.45, y: 0.35, w: 0.07, h: 0.07, label: 'P3', color: 'green' },
+  'P4': { x: 0.45, y: 0.55, w: 0.06, h: 0.06, label: 'P4', color: 'green' },
+  'P5': { x: 0.45, y: 0.75, w: 0.05, h: 0.05, label: 'P5', color: 'green' },
+
+  'N2': { x: 0.75, y: 0.15, w: 0.08, h: 0.08, label: 'N2', color: 'amber' },
+  'N3': { x: 0.75, y: 0.35, w: 0.07, h: 0.07, label: 'N3', color: 'amber' },
+  'N4': { x: 0.75, y: 0.55, w: 0.06, h: 0.06, label: 'N4', color: 'amber' },
+  'N5': { x: 0.75, y: 0.75, w: 0.05, h: 0.05, label: 'N5', color: 'amber' },
+
+  'BiFPN_P3': { x: 0.45, y: 0.35, w: 0.07, h: 0.07, label: 'P3', color: 'purple' },
+};
+
+function drawFeatureMap(ctx, W, H, node, colors, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const x = W * node.x, y = H * node.y, w = W * node.w, h = H * node.h;
+  ctx.fillStyle = colors[node.color];
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = 'white';
+  ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(node.label, x + w / 2, y + h / 2);
+  ctx.restore();
+}
+
+function drawArrow(ctx, W, H, fromNode, toNode, colors, type = 'normal', alpha = 1, weight = null) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  let fromX = W * (fromNode.x + fromNode.w / 2);
+  let fromY = H * (fromNode.y + fromNode.h / 2);
+  let toX = W * (toNode.x + toNode.w / 2);
+  let toY = H * (toNode.y + toNode.h / 2);
+
+  if (type === 'lateral') {
+    ctx.strokeStyle = colors.text2;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+  } else if (type === 'upsample' || type === 'downsample') {
+    ctx.strokeStyle = colors.cyan;
+    ctx.lineWidth = 2;
+  } else if (type === 'bifpn_weighted') {
+    ctx.strokeStyle = colors.purple;
+    ctx.lineWidth = 2.5;
+  } else {
+    ctx.strokeStyle = colors.text2;
+    ctx.lineWidth = 1.5;
+  }
+
+  // Adjust start/end points to hit node borders
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  const nodeRadiusFrom = Math.min(W * fromNode.w, H * fromNode.h) / 2;
+  const nodeRadiusTo = Math.min(W * toNode.w, H * toNode.h) / 2;
+  fromX += Math.cos(angle) * nodeRadiusFrom;
+  fromY += Math.sin(angle) * nodeRadiusFrom;
+  toX -= Math.cos(angle) * nodeRadiusTo;
+  toY -= Math.sin(angle) * nodeRadiusTo;
+
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.stroke();
+
+  // Arrowhead
+  const headlen = 8;
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.stroke();
+
+  if (weight !== null) {
+    ctx.fillStyle = colors.purple;
+    ctx.font = '600 11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`w=${weight.toFixed(2)}`, (fromX + toX) / 2, (fromY + toY) / 2 - 5);
+  }
+
+  ctx.restore();
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const nodes = [];
+  ['C2', 'C3', 'C4', 'C5'].forEach(n => nodes.push(nodeData[n]));
+
+  if (mode === 'backbone') {
+    nodes.forEach(n => drawFeatureMap(ctx, W, H, n, colors));
+  }
+  else if (mode.startsWith('fpn')) {
+    nodes.forEach(n => drawFeatureMap(ctx, W, H, n, colors));
+    ['P2', 'P3', 'P4', 'P5'].forEach(n => nodes.push(nodeData[n]));
+
+    drawFeatureMap(ctx, W, H, nodeData['P5'], colors);
+    drawArrow(ctx, W, H, nodeData['C5'], nodeData['P5'], colors, 'lateral');
+
+    if (mode === 'fpn_p4' || mode === 'fpn_full') {
+      drawFeatureMap(ctx, W, H, nodeData['P4'], colors);
+      drawArrow(ctx, W, H, nodeData['P5'], nodeData['P4'], colors, 'upsample');
+      drawArrow(ctx, W, H, nodeData['C4'], nodeData['P4'], colors, 'lateral');
+    }
+    if (mode === 'fpn_full') {
+      drawFeatureMap(ctx, W, H, nodeData['P3'], colors);
+      drawArrow(ctx, W, H, nodeData['P4'], nodeData['P3'], colors, 'upsample');
+      drawArrow(ctx, W, H, nodeData['C3'], nodeData['P3'], colors, 'lateral');
+      drawFeatureMap(ctx, W, H, nodeData['P2'], colors);
+      drawArrow(ctx, W, H, nodeData['P3'], nodeData['P2'], colors, 'upsample');
+      drawArrow(ctx, W, H, nodeData['C2'], nodeData['P2'], colors, 'lateral');
+    }
+  }
+  else if (mode.startsWith('panet')) {
+    nodes.forEach(n => drawFeatureMap(ctx, W, H, n, colors));
+    ['P2', 'P3', 'P4', 'P5'].forEach(n => drawFeatureMap(ctx, W, H, nodeData[n], colors));
+    ['N2', 'N3', 'N4', 'N5'].forEach(n => nodes.push(nodeData[n]));
+
+    // FPN structure (faded)
+    drawArrow(ctx, W, H, nodeData['C5'], nodeData['P5'], colors, 'lateral', 0.3);
+    drawArrow(ctx, W, H, nodeData['P5'], nodeData['P4'], colors, 'upsample', 0.3);
+    drawArrow(ctx, W, H, nodeData['C4'], nodeData['P4'], colors, 'lateral', 0.3);
+    drawArrow(ctx, W, H, nodeData['P4'], nodeData['P3'], colors, 'upsample', 0.3);
+    drawArrow(ctx, W, H, nodeData['C3'], nodeData['P3'], colors, 'lateral', 0.3);
+    drawArrow(ctx, W, H, nodeData['P3'], nodeData['P2'], colors, 'upsample', 0.3);
+    drawArrow(ctx, W, H, nodeData['C2'], nodeData['P2'], colors, 'lateral', 0.3);
+
+    drawFeatureMap(ctx, W, H, nodeData['N2'], colors);
+    drawArrow(ctx, W, H, nodeData['P2'], nodeData['N2'], colors, 'lateral'); // P2 to N2 (1x1 conv)
+
+    if (mode === 'panet_n3' || mode === 'panet_full') {
+      drawFeatureMap(ctx, W, H, nodeData['N3'], colors);
+      drawArrow(ctx, W, H, nodeData['N2'], nodeData['N3'], colors, 'downsample');
+      drawArrow(ctx, W, H, nodeData['P3'], nodeData['N3'], colors, 'lateral');
+    }
+    if (mode === 'panet_full') {
+      drawFeatureMap(ctx, W, H, nodeData['N4'], colors);
+      drawArrow(ctx, W, H, nodeData['N3'], nodeData['N4'], colors, 'downsample');
+      drawArrow(ctx, W, H, nodeData['P4'], nodeData['N4'], colors, 'lateral');
+      drawFeatureMap(ctx, W, H, nodeData['N5'], colors);
+      drawArrow(ctx, W, H, nodeData['N4'], nodeData['N5'], colors, 'downsample');
+      drawArrow(ctx, W, H, nodeData['P5'], nodeData['N5'], colors, 'lateral');
+    }
+  }
+  else if (mode.startsWith('bifpn')) {
+    nodes.forEach(n => drawFeatureMap(ctx, W, H, n, colors, 0.3)); // Fade backbone
+    ['P2', 'P3', 'P4', 'P5'].forEach(n => drawFeatureMap(ctx, W, H, nodeData[n], colors, 0.3)); // Fade FPN
+    ['N2', 'N3', 'N4', 'N5'].forEach(n => drawFeatureMap(ctx, W, H, nodeData[n], colors, 0.3)); // Fade PANet
+
+    const P3_out = { ...nodeData['BiFPN_P3'], label: 'P3_out' };
+    drawFeatureMap(ctx, W, H, P3_out, colors, 1);
+
+    // Inputs to P3_out (example for a single node)
+    const td_P4 = { ...nodeData['P4'], label: 'P4 (td)' };
+    const bu_N2 = { ...nodeData['N2'], label: 'N2 (bu)' };
+    const C3_input = { ...nodeData['C3'], label: 'C3' };
+
+    drawFeatureMap(ctx, W, H, td_P4, colors, 0.5);
+    drawFeatureMap(ctx, W, H, bu_N2, colors, 0.5);
+    drawFeatureMap(ctx, W, H, C3_input, colors, 0.5);
+
+    drawArrow(ctx, W, H, td_P4, P3_out, colors, 'bifpn_weighted', 1, 0.7); // P4 upsampled
+    drawArrow(ctx, W, H, C3_input, P3_out, colors, 'bifpn_weighted', 1, 1.2); // C3 lateral
+    drawArrow(ctx, W, H, bu_N2, P3_out, colors, 'bifpn_weighted', 1, 0.9); // N2 downsampled
+
+    if (mode === 'bifpn_full') {
+      // Draw more complex BiFPN connections (conceptual, not all precise)
+      // P5 to P4, P4 to P3, P3 to P2 (top-down)
+      drawArrow(ctx, W, H, nodeData['P5'], nodeData['P4'], colors, 'bifpn_weighted', 0.6, 0.8);
+      drawArrow(ctx, W, H, nodeData['P4'], nodeData['P3'], colors, 'bifpn_weighted', 0.6, 1.1);
+      drawArrow(ctx, W, H, nodeData['P3'], nodeData['P2'], colors, 'bifpn_weighted', 0.6, 1.0);
+
+      // C5 to P5, C4 to P4, C3 to P3, C2 to P2 (lateral)
+      drawArrow(ctx, W, H, nodeData['C5'], nodeData['P5'], colors, 'bifpn_weighted', 0.6, 1.3);
+      drawArrow(ctx, W, H, nodeData['C4'], nodeData['P4'], colors, 'bifpn_weighted', 0.6, 1.0);
+      drawArrow(ctx, W, H, nodeData['C2'], nodeData['P2'], colors, 'bifpn_weighted', 0.6, 0.9);
+
+      // N2 to N3, N3 to N4, N4 to N5 (bottom-up)
+      drawArrow(ctx, W, H, nodeData['N2'], nodeData['N3'], colors, 'bifpn_weighted', 0.6, 1.2);
+      drawArrow(ctx, W, H, nodeData['N3'], nodeData['N4'], colors, 'bifpn_weighted', 0.6, 0.7);
+      drawArrow(ctx, W, H, nodeData['N4'], nodeData['N5'], colors, 'bifpn_weighted', 0.6, 1.1);
+
+      // Skip connections (C3 to P3, P3 to N3, etc.)
+      drawArrow(ctx, W, H, nodeData['C3'], nodeData['P3'], colors, 'bifpn_weighted', 0.6, 1.0); // Example skip
+      drawArrow(ctx, W, H, nodeData['P3'], nodeData['N3'], colors, 'bifpn_weighted', 0.6, 0.8); // Example skip
+    }
+  }
+  else if (mode === 'nasfpn') {
+    // Conceptual NAS-FPN: draw a more irregular, complex graph
+    nodes.forEach(n => drawFeatureMap(ctx, W, H, n, colors, 0.3)); // Fade backbone
+
+    const nasNodes = {};
+    const nodeNames = ['C2', 'C3', 'C4', 'C5', 'P2', 'P3', 'P4', 'P5', 'N2', 'N3', 'N4', 'N5'];
+    nodeNames.forEach(name => {
+      nasNodes[name] = { ...nodeData[name] };
+      nasNodes[name].x += (Math.random() - 0.5) * 0.05; // Jitter positions
+      nasNodes[name].y += (Math.random() - 0.5) * 0.05;
+      drawFeatureMap(ctx, W, H, nasNodes[name], colors, 0.6);
+    });
+
+    const connections = [
+      ['C5', 'P5'], ['P5', 'P4'], ['C4', 'P4'], ['P4', 'P3'], ['C3', 'P3'], ['P3', 'P2'], ['C2', 'P2'],
+      ['P2', 'N2'], ['N2', 'N3'], ['P3', 'N3'], ['N3', 'N4'], ['P4', 'N4'], ['N4', 'N5'], ['P5', 'N5'],
+      // Example irregular connections
+      ['C2', 'P4'], ['P5', 'N2'], ['N4', 'P2'], ['C3', 'N5']
+    ];
+
+    connections.forEach(([from, to]) => {
+      drawArrow(ctx, W, H, nasNodes[from], nasNodes[to], colors, 'bifpn_weighted', 0.7, 1);
+    });
+
+    ctx.fillStyle = colors.red;
+    ctx.font = '600 16px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('NAS-FPN: Discovered Irregular Topology', W/2, H*0.08);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].vizMode));
+</script>
+</body>
+</html>

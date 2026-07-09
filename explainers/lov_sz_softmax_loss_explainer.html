@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovász-Softmax Loss (IoU Surrogate) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Grid viz specific */
+.grid-viz-wrap{display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1rem;}
+.grid-panel{display:flex;flex-direction:column;align-items:center;margin-bottom:1rem;}
+.grid-label{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2);}
+.grid-table{border-collapse:collapse;border:1px solid var(--border2);}
+.grid-cell{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;border:1px solid var(--border);transition:all 0.3s;}
+.grid-cell.gt-pos{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.grid-cell.gt-neg{background:var(--bg2);color:var(--text3);}
+.grid-cell.pred-prob{background-color:rgba(var(--blue-mid-rgb), var(--alpha));color:var(--blue-text);}
+.grid-cell.residual{background-color:rgba(var(--red-mid-rgb), var(--alpha));color:var(--red-text);}
+.grid-cell.active-prefix{border:2px solid var(--purple-mid);box-shadow:0 0 0 2px var(--purple-bg);}
+.grid-cell.sorted-item{width:60px;height:30px;font-size:10px;border-radius:4px;margin:2px;}
+.sorted-list{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-family:var(--mono);font-size:11px;border-radius:var(--radius);padding:8px;background:var(--bg2);border:1px solid var(--border);}
+.sorted-item{display:flex;align-items:center;gap:8px;padding:2px 6px;border-radius:4px;}
+.sorted-item.active{background:var(--purple-bg);color:var(--purple-text);font-weight:600;}
+.sorted-item-label{color:var(--text3);}
+.sorted-item-value{color:var(--text);}
+.sorted-item-gt{color:var(--green-mid);font-weight:600;}
+.sorted-item-gt-neg{color:var(--text3);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-calc{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-sort{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-sum{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.gt-pos{background:var(--green-mid);}
+.legend-swatch.gt-neg{background:var(--text3);}
+.legend-swatch.pred-high{background:var(--blue-mid);}
+.legend-swatch.pred-low{background:var(--blue-text);}
+.legend-swatch.res-high{background:var(--red-mid);}
+.legend-swatch.res-low{background:var(--red-text);}
+.legend-swatch.active-prefix{border:2px solid var(--purple-mid);background:var(--purple-bg);}
+.legend-swatch.sorted-item{background:var(--purple-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .grid-cell{width:30px;height:30px;font-size:10px;}
+  .grid-panel{margin-bottom:0.75rem;}
+  .grid-viz-wrap{gap:1rem;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Lovász-Softmax Loss</h1>
+  <div class="subtitle">Directly optimizing Intersection over Union (IoU) for semantic segmentation</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-complexity">O(N log N) per class</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Lovász-Softmax</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Lovász-Softmax is a differentiable loss function for image segmentation and object detection that directly optimizes the Intersection over Union (IoU) metric. Unlike common pixel-wise losses (like Binary Cross-Entropy), it considers the global structure of predicted objects, making it particularly effective for tasks where IoU is the primary evaluation metric.</p>
+    <p><strong>Why is it needed?</strong> In semantic segmentation, models predict a class for every pixel. Standard losses like cross-entropy treat each pixel independently. This means a model might achieve high pixel accuracy but produce jagged, poorly-defined object boundaries, or entirely miss small objects. IoU, on the other hand, measures the overlap between predicted and ground-truth regions, directly reflecting object-level quality. The problem is, IoU is non-differentiable because it involves thresholding and counting, making it unsuitable for direct gradient-based optimization.</p>
+    <p><strong>Analogy:</strong> Imagine judging a painter who's recreating a complex shape. A pixel-wise loss is like checking each tiny brushstroke individually: "Is this pixel the right color?" Even if 95% of pixels are correct, the overall shape might be distorted. IoU is like stepping back and saying, "How well does the painted shape overlap the reference shape?" Lovász-Softmax provides a way to train the painter to directly optimize for this overall shape overlap, rather than just individual brushstrokes.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Lovász-Softmax uses the <strong>Lovász extension</strong> to transform the non-differentiable Jaccard index (which is equivalent to IoU) into a continuous and differentiable surrogate loss. It achieves this by sorting per-pixel errors and computing a weighted sum of Jaccard indices over prefixes of the sorted pixels.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Lovász-Softmax Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Problem: Non-Differentiable IoU</h4>
+    <p>The Jaccard index, or Intersection over Union (IoU), for two sets \(A\) (ground truth) and \(B\) (prediction) is defined as \(J(A,B) = \frac{|A \cap B|}{|A \cup B|}\). For binary masks, this is typically computed after thresholding continuous model predictions to create binary regions. This thresholding operation, along with the counting of pixels, makes IoU a step-wise, non-differentiable function, meaning we can't directly compute gradients for backpropagation.</p>
+
+    <h4>The Solution: The Lovász Extension</h4>
+    <p>The Lovász extension is a powerful mathematical tool that can "lift" certain discrete set functions (specifically, submodular functions) to a continuous, convex (and thus differentiable) domain. The Jaccard error \((1 - \text{IoU})\) is a submodular function, making it a perfect candidate for this extension.</p>
+    <p>For Lovász-Softmax, the process for a single class (binary segmentation) works like this:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Compute Per-Pixel Residuals:</strong> For each pixel \(i\), calculate a "residual" \(r_i\). This residual quantifies how "wrong" the prediction is for that pixel. If the pixel is ground truth positive (\(y_i=1\)), a good prediction would be a high probability (\(f_i \approx 1\)), so the residual is \(1 - f_i\). If \(y_i=0\), a good prediction is a low probability (\(f_i \approx 0\)), so the residual is \(f_i\).</li>
+      <li><strong>Sort Residuals:</strong> Sort all pixels by their residuals \(r_i\) in <em>descending</em> order. This creates a ranking of pixels from "most wrong" to "least wrong." This sorting step is critical as it defines the order in which pixels are considered for the cumulative IoU calculation.</li>
+      <li><strong>Iterate and Compute Prefix IoU:</strong> Iterate through the sorted pixels. For each \(k\)-th pixel in the sorted list, consider the set \(P_k\) of all pixels up to this point (i.e., pixels \(1, \dots, k\) in the sorted order). Compute the Jaccard index (IoU) between this set \(P_k\) and the true ground truth \(Y\). Also compute for \(P_{k-1}\) (the set of pixels up to \(k-1\)).</li>
+      <li><strong>Weighted Sum:</strong> The final Lovász-Softmax loss is a weighted sum of the differences in these prefix Jaccard indices, where the weights are the sorted residuals themselves. This sum provides a differentiable approximation of the overall Jaccard error.</li>
+    </ol>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The sorting of per-pixel residuals allows the loss to consider the global context and structure of the segmentation mask. By weighting changes in prefix IoU with the residuals, the loss effectively gives more importance to pixels that are "more wrong" and contribute significantly to overall IoU error.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Jaccard Index (IoU)</h4>
+    <p>For a binary segmentation problem with \(N\) pixels, let \(\mathbf{y} \in \{0,1\}^N\) be the ground truth mask and \(\mathbf{f} \in [0,1]^N\) be the predicted probabilities (e.g., after a sigmoid activation). A binary prediction \(\hat{\mathbf{y}}\) is obtained by thresholding \(\mathbf{f}\).</p>
+    <p>The Jaccard index (IoU) for a predicted set \(S\) and ground truth set \(Y\) is:</p>
+    <div class="eq">$$ J(S, Y) = \frac{|S \cap Y|}{|S \cup Y|} = \frac{\sum_{i=1}^N \mathbb{I}(S_i=1 \land Y_i=1)}{\sum_{i=1}^N \mathbb{I}(S_i=1 \lor Y_i=1)} $$</div>
+    <p>where \(\mathbb{I}(\cdot)\) is the indicator function. This function is piecewise constant and non-differentiable, making it unsuitable for direct optimization.</p>
+
+    <h4>Lovász Extension of a Set Function</h4>
+    <p>The Lovász extension for a submodular set function \(h: \{0,1\}^N \to \mathbb{R}\) is defined for a continuous input \(\mathbf{x} \in \mathbb{R}^N\) as:</p>
+    <div class="eq">$$ \hat{h}(\mathbf{x}) = \sum_{k=1}^N x_{(k)} \left( h(S_k) - h(S_{k-1}) \right) $$</div>
+    <p>where \(x_{(k)}\) are the components of \(\mathbf{x}\) sorted in descending order, \(S_k = \{i \mid x_i \ge x_{(k)}\}\) is the set of elements whose original value is greater than or equal to the \(k\)-th largest value, and \(S_0 = \emptyset\).</p>
+
+    <h4>Lovász-Softmax Loss Formulation</h4>
+    <p>For Lovász-Softmax, we apply this extension to the Jaccard <em>error</em>, which is \(h(S) = 1 - J(S, Y)\). The input to the Lovász extension, \(\mathbf{x}\), is typically derived from the per-pixel residuals. Let \(\mathbf{f}\) be the predicted probabilities from the model's logits (e.g., \(\text{sigmoid}(\text{logits})\)).</p>
+    <p>The per-pixel residuals \(r_i\) are defined as:</p>
+    <div class="eq">$$ r_i = \begin{cases} 1 - f_i & \text{if } y_i = 1 \quad (\text{false negative error}) \\ f_i & \text{if } y_i = 0 \quad (\text{false positive error}) \end{cases} $$</div>
+    <p>We then sort these residuals in descending order: \(r_{(1)} \ge r_{(2)} \ge \dots \ge r_{(N)}\). Let \(P_k = \{i \mid r_i \ge r_{(k)}\}\) be the set of pixels corresponding to the \(k\) largest residuals (i.e., the first \(k\) pixels in the sorted list). The Lovász-Softmax loss for a single class is then:</p>
+    <div class="eq">$$ \mathcal{L}_{\text{Lovász-Softmax}}(\mathbf{f}, \mathbf{y}) = \sum_{k=1}^N \left( J(P_k, Y) - J(P_{k-1}, Y) \right) \cdot r_{(k)} $$</div>
+    <p>This sum effectively accumulates the weighted changes in IoU as more and more "least confident" pixels are added to the predicted set. The gradient of this loss with respect to \(\mathbf{f}\) can be computed, allowing end-to-end training. The sorting operation is the main computational bottleneck, resulting in an \(O(N \log N)\) complexity per class per image.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Computational Cost</div>
+      <p style="font-size:14px;margin:0;">The sorting step in Lovász-Softmax has a complexity of \(O(N \log N)\) for \(N\) pixels. For large images or high-resolution segmentation tasks, this can be computationally intensive compared to \(O(N)\) pixel-wise losses. Implementations often optimize this by using efficient sorting algorithms or approximations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the Lovász-Softmax calculation on a small 4x4 image. Adjust the logit offset to see how it affects residuals, sorting, prefix IoU, and the final loss.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Logit Offset (adds to all logits)</div>
+          <input type="range" id="logitOffsetSlider" min="-5" max="5" step="0.1" value="0">
+          <div class="slider-value" id="logitOffsetValue">0.0</div>
+        </div>
+        <div class="slider-hint">Adjusting this simulates a model getting better/worse at predicting foreground.</div>
+      </div>
+
+      <div class="grid-viz-wrap" id="gridVizWrap">
+        <!-- Grids will be rendered here by JS -->
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Ground Truth & Initial Logits</div>
+        <div class="info-desc" id="infoDesc">We have a 4x4 image with a simple ground truth mask (green for positive, gray for negative). The model predicts initial logits for each pixel.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch gt-pos"></div> Ground Truth Positive</div>
+        <div class="legend-item"><div class="legend-swatch gt-neg"></div> Ground Truth Negative</div>
+        <div class="legend-item"><div class="legend-swatch pred-high"></div> High Predicted Prob</div>
+        <div class="legend-item"><div class="legend-swatch pred-low"></div> Low Predicted Prob</div>
+        <div class="legend-item"><div class="legend-swatch res-high"></div> High Residual (Error)</div>
+        <div class="legend-item"><div class="legend-swatch res-low"></div> Low Residual (Error)</div>
+        <div class="legend-item"><div class="legend-swatch active-prefix"></div> Active Prefix Pixel</div>
+        <div class="legend-item"><div class="legend-swatch sorted-item" style="background:var(--purple-bg)"></div> Sorted Item</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Lovász-Softmax:</strong></p>
+    <ul>
+      <li><strong>Semantic Segmentation:</strong> When precise object boundaries and high IoU scores are critical, especially for medical imaging or autonomous driving.</li>
+      <li><strong>Instance Segmentation / Object Detection:</strong> Can be adapted for these tasks where IoU is a direct evaluation metric.</li>
+      <li><strong>Class Imbalance:</strong> Often performs better than pixel-wise losses in scenarios with severe class imbalance (e.g., small objects on a large background), as it focuses on object-level overlap rather than pixel counts.</li>
+      <li><strong>Small Objects:</strong> Improves performance on small objects which are easily missed by pixel-wise losses.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Simple Classification:</strong> For tasks not involving spatial overlap, Lovász-Softmax is unnecessary and computationally overkill.</li>
+      <li><strong>Computational Constraints:</strong> For extremely large images or real-time applications where the \(O(N \log N)\) sorting cost is prohibitive.</li>
+      <li><strong>Already Good Performance:</strong> If simpler losses already yield satisfactory IoU scores, the added complexity might not be worth it.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Lovász vs. Dice Loss</div>
+      <p style="font-size:14px;margin:0;">Both Lovász-Softmax and Dice Loss aim to optimize IoU/F1-score directly. Dice Loss is simpler to implement and faster, but can suffer from unstable gradients in certain scenarios. Lovász-Softmax, based on the mathematically rigorous Lovász extension, often provides a more robust and theoretically sound approach for direct IoU optimization, leading to superior performance in challenging segmentation tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def sigmoid(x):</div>
+      <div class="code-line" id="cl3">    return 1 / (1 + np.exp(-x))</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5">def jaccard_index(pred_mask, gt_mask):</div>
+      <div class="code-line" id="cl6">    intersection = np.sum(pred_mask * gt_mask)</div>
+      <div class="code-line" id="cl7">    union = np.sum(pred_mask) + np.sum(gt_mask) - intersection</div>
+      <div class="code-line" id="cl8">    return intersection / (union + 1e-10) # Add epsilon for stability</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">def lovasz_softmax_loss(logits, targets):</div>
+      <div class="code-line" id="cl11">    N = len(logits)</div>
+      <div class="code-line" id="cl12">    probabilities = sigmoid(logits)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    # 1. Compute per-pixel residuals `r_i`</div>
+      <div class="code-line" id="cl15">    residuals = np.where(targets == 1, 1 - probabilities, probabilities)</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">    # 2. Sort residuals in descending order and get permutation</div>
+      <div class="code-line" id="cl18">    sorted_indices = np.argsort(residuals)[::-1] # Descending</div>
+      <div class="code-line" id="cl19">    sorted_residuals = residuals[sorted_indices]</div>
+      <div class="code-line" id="cl20">    sorted_targets = targets[sorted_indices]</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    lovasz_loss = 0.0</div>
+      <div class="code-line" id="cl23">    current_pred_mask = np.zeros(N) # Initialize empty prediction mask</div>
+      <div class="code-line" id="cl24">    prev_jaccard = 0.0</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">    # 3. Iterate through sorted pixels (prefixes)</div>
+      <div class="code-line" id="cl27">    for k in range(N):</div>
+      <div class="code-line" id="cl28">        # Add k-th pixel (in sorted order) to current prediction mask</div>
+      <div class="code-line" id="cl29">        current_pred_mask[sorted_indices[k]] = 1</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">        # Compute Jaccard for current prefix P_k</div>
+      <div class="code-line" id="cl32">        current_jaccard = jaccard_index(current_pred_mask, targets)</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34">        # 4. Accumulate weighted sum</div>
+      <div class="code-line" id="cl35">        delta_jaccard = current_jaccard - prev_jaccard</div>
+      <div class="code-line" id="cl36">        lovasz_loss += delta_jaccard * sorted_residuals[k]</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">        prev_jaccard = current_jaccard</div>
+      <div class="code-line" id="cl39">    </div>
+      <div class="code-line" id="cl40">    return lovasz_loss</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42"># Example Usage:</div>
+      <div class="code-line" id="cl43">gt = np.array([0,0,1,1, 0,1,1,0, 0,1,0,0, 0,0,0,0])</div>
+      <div class="code-line" id="cl44">logits = np.array([-1.0, -0.5, 2.0, 1.5, -0.8, 1.8, 2.2, -0.3, -0.1, 1.2, -0.6, -0.9, -1.5, -2.0, -2.5, -3.0])</div>
+      <div class="code-line" id="cl45">loss = lovasz_softmax_loss(logits, gt)</div>
+      <div class="code-line" id="cl46">print(f"Lovász-Softmax Loss: {loss:.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+  // Adjust max-height for smooth transition
+  if (!body.classList.contains('collapsed')) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+  } else {
+    body.style.maxHeight = '0';
+  }
+}
+
+// Ensure sections are correctly sized on load for collapsed state
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.section-body').forEach(body => {
+    if (body.classList.contains('collapsed')) {
+      body.style.maxHeight = '0';
+    } else {
+      body.style.maxHeight = body.scrollHeight + 'px';
+    }
+  });
+});
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// REAL MATH & VIZ LOGIC — every number below is computed live in JS
+// ══════════════════════════════════════════════════════════════
+
+const GRID_SIZE = 4;
+const NUM_PIXELS = GRID_SIZE * GRID_SIZE;
+
+// Example Ground Truth Mask (1 for foreground, 0 for background)
+const GROUND_TRUTH = [
+  0, 0, 1, 1,
+  0, 1, 1, 0,
+  0, 1, 0, 0,
+  0, 0, 0, 0
+];
+
+// Initial Logits (random-ish values)
+const INITIAL_LOGITS = [
+  -1.0, -0.5, 2.0, 1.5,
+  -0.8, 1.8, 2.2, -0.3,
+  -0.1, 1.2, -0.6, -0.9,
+  -1.5, -2.0, -2.5, -3.0
+];
+
+let currentLogitOffset = 0;
+
+// Utility functions
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
+
+function jaccardIndex(predMask, gtMask) {
+  let intersection = 0;
+  let union = 0;
+  for (let i = 0; i < NUM_PIXELS; i++) {
+    if (predMask[i] === 1 && gtMask[i] === 1) {
+      intersection++;
+    }
+    if (predMask[i] === 1 || gtMask[i] === 1) { // Union includes GT positives and predicted positives
+      union++;
+    }
+  }
+  return union === 0 ? 1.0 : (intersection / (union + 1e-10)); // Handle empty union for stability
+}
+
+function calculateLovaszSoftmax(logits, gt) {
+  const probabilities = logits.map(sigmoid);
+
+  // 1. Compute per-pixel residuals
+  const residuals = probabilities.map((p, i) => {
+    return gt[i] === 1 ? (1 - p) : p;
+  });
+
+  // 2. Sort residuals in descending order
+  const sortedData = residuals
+    .map((r, i) => ({ residual: r, originalIndex: i, gt: gt[i], prob: probabilities[i], logit: logits[i] }))
+    .sort((a, b) => b.residual - a.residual); // Descending
+
+  let lovaszLoss = 0.0;
+  let currentPredMask = new Array(NUM_PIXELS).fill(0);
+  let prevJaccard = 0.0;
+  const prefixIoUs = [];
+  const deltaJaccards = [];
+  const cumulativeLosses = [];
+
+  // 3. Iterate through sorted pixels (prefixes)
+  for (let k = 0; k < NUM_PIXELS; k++) {
+    const pixelData = sortedData[k];
+    const originalIndex = pixelData.originalIndex;
+
+    // Add k-th pixel (in sorted order) to current prediction mask
+    currentPredMask[originalIndex] = 1;
+
+    // Compute Jaccard for current prefix P_k
+    const currentJaccard = jaccardIndex(currentPredMask, gt);
+    prefixIoUs.push(currentJaccard);
+
+    // 4. Accumulate weighted sum
+    const deltaJaccard = currentJaccard - prevJaccard;
+    deltaJaccards.push(deltaJaccard);
+    lovaszLoss += deltaJaccard * pixelData.residual;
+    cumulativeLosses.push(lovaszLoss);
+
+    prevJaccard = currentJaccard;
+  }
+
+  // Calculate BCE for comparison
+  let bceLoss = 0;
+  for(let i=0; i<NUM_PIXELS; i++) {
+      const p = probabilities[i];
+      const y = gt[i];
+      bceLoss -= (y * Math.log(p + 1e-10) + (1 - y) * Math.log(1 - p + 1e-10));
+  }
+  bceLoss /= NUM_PIXELS;
+
+  // Calculate simple IoU (threshold at 0.5) for comparison
+  const simplePredMask = probabilities.map(p => p >= 0.5 ? 1 : 0);
+  const simpleIoU = jaccardIndex(simplePredMask, gt);
+
+
+  return {
+    probabilities,
+    residuals,
+    sortedData,
+    prefixIoUs,
+    deltaJaccards,
+    cumulativeLosses,
+    lovaszLoss,
+    bceLoss,
+    simpleIoU,
+    finalPredMask: currentPredMask // The mask if all pixels with residual >= 0 are predicted positive
+  };
+}
+
+let currentCalculations = calculateLovaszSoftmax(INITIAL_LOGITS, GROUND_TRUTH);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Ground Truth & Initial Logits',
+    desc: 'We have a 4x4 image with a simple ground truth mask (green for positive, gray for negative). The model predicts initial logits for each pixel. Try adjusting the "Logit Offset" slider above to simulate different model predictions.',
+    mode: 'initial',
+    highlightK: -1 // No specific prefix highlight
+  },
+  {
+    phase: 'calc', title: 'Predicted Probabilities (Sigmoid)',
+    desc: 'The raw logits are passed through a sigmoid function to get per-pixel predicted probabilities \\(f_i \\in [0,1]\\). Higher logits correspond to higher probabilities. These probabilities are then used to calculate the residuals.',
+    mode: 'probabilities',
+    highlightK: -1
+  },
+  {
+    phase: 'calc', title: 'Per-pixel Residuals (Error)',
+    desc: 'For each pixel, we compute a residual \\(r_i\\): \\(1 - f_i\\) if \\(y_i=1\\) (false negative error, prediction too low), or \\(f_i\\) if \\(y_i=0\\) (false positive error, prediction too high). High residuals (red) mean the prediction is "more wrong".',
+    mode: 'residuals',
+    highlightK: -1
+  },
+  {
+    phase: 'sort', title: 'Sorting Residuals',
+    desc: 'The core step! All pixels are sorted by their residuals \\(r_i\\) in <strong>descending</strong> order (most wrong to least wrong). This ranking determines the order in which pixels are considered for the cumulative IoU calculation.',
+    mode: 'sorted_residuals',
+    highlightK: -1
+  },
+  {
+    phase: 'sum', title: 'Prefix 1: Most Wrong Pixel',
+    desc: 'For \\(k=1\\), we consider only the pixel with the highest residual. We form a temporary prediction mask \\(P_1\\) by setting this pixel to 1. The current Jaccard index \\(J(P_1, Y)\\) is calculated. The contribution to loss is \\((J(P_1, Y) - J(P_0, Y)) \cdot r_{(1)}\\).',
+    mode: 'prefix_iou',
+    highlightK: 0 // Highlight the 1st pixel in sortedData (index 0)
+  },
+  {
+    phase: 'sum', title: 'Prefix 2: Add Next Pixel',
+    desc: 'For \\(k=2\\), we add the second-most-wrong pixel to \\(P_1\\) to form \\(P_2\\). We compute \\(J(P_2, Y)\\). The contribution to loss is \\((J(P_2, Y) - J(P_1, Y)) \cdot r_{(2)}\\). This process continues for all pixels.',
+    mode: 'prefix_iou',
+    highlightK: 1 // Highlight the 2nd pixel in sortedData (index 1)
+  },
+  {
+    phase: 'sum', title: 'Prefix N: All Pixels Considered',
+    desc: 'The process completes after iterating through all \\(N\\) pixels. The final value of \\(P_N\\) is essentially the prediction mask where all pixels with residuals \(\\ge 0\\) are considered foreground. The loss accumulates contributions from each step.',
+    mode: 'prefix_iou',
+    highlightK: NUM_PIXELS - 1 // Highlight the last pixel in sortedData
+  },
+  {
+    phase: 'result', title: 'Final Lovász-Softmax Loss',
+    desc: `The accumulated sum is the final Lovász-Softmax loss. This loss is differentiable and directly optimizes IoU. Compare it to Binary Cross-Entropy (BCE) and a simple IoU (thresholded at 0.5) for the current predictions.`,
+    mode: 'final_loss',
+    highlightK: -1
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentLogitOffset = 0;
+  document.getElementById('logitOffsetSlider').value = 0;
+  document.getElementById('logitOffsetValue').textContent = '0.0';
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Recalculate everything with current offset
+  const currentLogits = INITIAL_LOGITS.map(l => l + currentLogitOffset);
+  currentCalculations = calculateLovaszSoftmax(currentLogits, GROUND_TRUTH);
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup: 'phase-setup', calc: 'phase-calc', sort: 'phase-sort',
+    sum: 'phase-sum', result: 'phase-result'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Visualization
+  drawGridViz(s.mode, s.highlightK);
+
+  updateDots();
+}
+
+// ── GRID VIZ RENDERING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const getVar = (name) => cs.getPropertyValue(name).trim();
+  return {
+    bg2: getVar('--bg2'),
+    border: getVar('--border'), border2: getVar('--border2'),
+    text: getVar('--text'), text2: getVar('--text2'), text3: getVar('--text3'),
+    blueMid: getVar('--blue-mid'), blueText: getVar('--blue-text'),
+    greenMid: getVar('--green-mid'), greenText: getVar('--green-text'),
+    redMid: getVar('--red-mid'), redText: getVar('--red-text'),
+    purpleMid: getVar('--purple-mid'), purpleBg: getVar('--purple-bg'), purpleText: getVar('--purple-text'),
+    amberMid: getVar('--amber-mid'),
+    // RGB for transparent backgrounds
+    blueMidRgb: '24, 95, 165', // Example: --blue-mid is #185FA5
+    redMidRgb: '163, 45, 45' // Example: --red-mid is #A32D2D
+  };
+}
+
+function createGridHTML(label, values, type, highlightIndices = [], k = -1) {
+  const colors = getColors();
+  let html = `<div class="grid-panel"><div class="grid-label">${label}</div><table class="grid-table">`;
+  for (let i = 0; i < GRID_SIZE; i++) {
+    html += '<tr>';
+    for (let j = 0; j < GRID_SIZE; j++) {
+      const idx = i * GRID_SIZE + j;
+      let cellClass = '';
+      let cellStyle = '';
+      let cellValue = '';
+
+      if (type === 'gt') {
+        cellClass = values[idx] === 1 ? 'gt-pos' : 'gt-neg';
+        cellValue = values[idx];
+      } else if (type === 'logits') {
+        cellValue = values[idx].toFixed(1);
+        const alpha = Math.min(1, Math.max(0, (values[idx] + 5) / 10)); // Scale -5 to 5 to 0-1
+        cellStyle = `background-color: rgba(${colors.blueMidRgb}, ${alpha}); color: ${alpha > 0.5 ? colors.blueText : colors.text2};`;
+      } else if (type === 'probabilities') {
+        cellClass = 'pred-prob';
+        cellValue = values[idx].toFixed(2);
+        const alpha = values[idx]; // Probabilities are already 0-1
+        cellStyle = `background-color: rgba(${colors.blueMidRgb}, ${alpha}); color: ${alpha > 0.5 ? colors.blueText : colors.text2};`;
+      } else if (type === 'residuals') {
+        cellClass = 'residual';
+        cellValue = values[idx].toFixed(2);
+        const alpha = values[idx]; // Residuals are already 0-1
+        cellStyle = `background-color: rgba(${colors.redMidRgb}, ${alpha}); color: ${alpha > 0.5 ? colors.redText : colors.text2};`;
+      }
+
+      if (highlightIndices.includes(idx)) {
+        cellClass += ' active-prefix';
+      }
+
+      html += `<td class="grid-cell ${cellClass}" style="${cellStyle}">${cellValue}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table></div>';
+  return html;
+}
+
+function createSortedListHTML(label, sortedData, highlightK = -1) {
+  const colors = getColors();
+  let html = `<div class="grid-panel"><div class="grid-label">${label}</div><div class="sorted-list">`;
+  sortedData.forEach((d, i) => {
+    const activeClass = i <= highlightK ? 'active' : '';
+    const gtClass = d.gt === 1 ? 'sorted-item-gt' : 'sorted-item-gt-neg';
+    html += `<div class="sorted-item ${activeClass}">
+              <span class="sorted-item-label">P${d.originalIndex}:</span>
+              <span class="sorted-item-value">${d.residual.toFixed(3)}</span>
+              <span class="${gtClass}">${d.gt}</span>
+            </div>`;
+  });
+  html += `</div></div>`;
+  return html;
+}
+
+function drawGridViz(mode, highlightK) {
+  const wrap = document.getElementById('gridVizWrap');
+  let html = '';
+  let infoNumbers = '';
+
+  const currentLogits = INITIAL_LOGITS.map(l => l + currentLogitOffset);
+  const calculations = currentCalculations;
+
+  const currentPrefixIndices = [];
+  if (highlightK !== -1) {
+    for (let i = 0; i <= highlightK; i++) {
+      currentPrefixIndices.push(calculations.sortedData[i].originalIndex);
+    }
+  }
+
+  if (mode === 'initial') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createGridHTML('Initial Logits', currentLogits, 'logits');
+    infoNumbers = `Logits: [${currentLogits.map(v => v.toFixed(1)).join(', ')}]`;
+  } else if (mode === 'probabilities') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createGridHTML('Probabilities (f)', calculations.probabilities, 'probabilities');
+    infoNumbers = `Probabilities: [${calculations.probabilities.map(v => v.toFixed(2)).join(', ')}]`;
+  } else if (mode === 'residuals') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createGridHTML('Residuals (r)', calculations.residuals, 'residuals');
+    infoNumbers = `Residuals: [${calculations.residuals.map(v => v.toFixed(2)).join(', ')}]`;
+  } else if (mode === 'sorted_residuals') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createSortedListHTML('Sorted Residuals', calculations.sortedData);
+    infoNumbers = `Sorted Residuals: [${calculations.sortedData.map(d => d.residual.toFixed(2)).join(', ')}]`;
+  } else if (mode === 'prefix_iou') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createGridHTML('Predicted (Prefix Pk)', calculations.probabilities, 'probabilities', currentPrefixIndices, highlightK);
+    html += createSortedListHTML('Sorted Residuals', calculations.sortedData, highlightK);
+
+    let currentPredMask = new Array(NUM_PIXELS).fill(0);
+    for (let i = 0; i <= highlightK; i++) {
+      currentPredMask[calculations.sortedData[i].originalIndex] = 1;
+    }
+    const currentJaccard = jaccardIndex(currentPredMask, GROUND_TRUTH);
+    const prevJaccard = highlightK > 0 ? calculations.prefixIoUs[highlightK - 1] : 0;
+    const deltaJaccard = currentJaccard - prevJaccard;
+    const currentResidual = calculations.sortedData[highlightK].residual;
+    const currentContribution = deltaJaccard * currentResidual;
+    const cumulativeLoss = calculations.cumulativeLosses[highlightK];
+
+    infoNumbers = `Prefix Pk (k=${highlightK + 1}): Pixels [${currentPrefixIndices.join(', ')}]\n` +
+                  `J(Pk, Y) = ${currentJaccard.toFixed(4)}\n` +
+                  `J(Pk-1, Y) = ${prevJaccard.toFixed(4)}\n` +
+                  `ΔJ = ${deltaJaccard.toFixed(4)}\n` +
+                  `r(k) = ${currentResidual.toFixed(4)}\n` +
+                  `Contribution = ${currentContribution.toFixed(4)}\n` +
+                  `Cumulative Loss = ${cumulativeLoss.toFixed(4)}`;
+  } else if (mode === 'final_loss') {
+    html += createGridHTML('Ground Truth', GROUND_TRUTH, 'gt');
+    html += createGridHTML('Final Predicted Mask', calculations.finalPredMask, 'probabilities');
+    infoNumbers = `Lovász-Softmax Loss = ${calculations.lovaszLoss.toFixed(4)}\n` +
+                  `Binary Cross-Entropy Loss = ${calculations.bceLoss.toFixed(4)}\n` +
+                  `Simple IoU (threshold 0.5) = ${calculations.simpleIoU.toFixed(4)}`;
+  }
+
+  wrap.innerHTML = html;
+  document.getElementById('infoNumbers').textContent = infoNumbers;
+}
+
+
+// ── SLIDER WIRING ──
+document.getElementById('logitOffsetSlider').addEventListener('input', (e) => {
+  currentLogitOffset = parseFloat(e.target.value);
+  document.getElementById('logitOffsetValue').textContent = currentLogitOffset.toFixed(1);
+  render(); // Re-render the entire visualization
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawGridViz(steps[step].mode, steps[step].highlightK));
+</script>
+</body>
+</html>

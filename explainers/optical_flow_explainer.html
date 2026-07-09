@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optical Flow: FlowNet, RAFT, PWC-Net — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-process{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-refine{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.flow-color{width:20px;height:20px;border-radius:50%;}
+
+/* Comparison table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+table.cmp th, table.cmp td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);}
+table.cmp th{color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;}
+table.cmp td strong{color:var(--purple-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Optical Flow: FlowNet, RAFT, PWC-Net</h1>
+  <div class="subtitle">Estimating pixel-wise motion between image frames with deep learning</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N) inference</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Optical Flow</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Optical flow is the pattern of apparent motion of objects, surfaces, and edges in a visual scene caused by the relative motion between an observer (camera) and the scene. It's represented as a 2D vector field, where each vector indicates the displacement of a pixel from one image frame to the next.</p>
+    <p>Applications are widespread: from robotics (navigation, obstacle avoidance), video compression, and action recognition, to medical imaging and autonomous driving. Essentially, any task that benefits from understanding "what moved where" between two moments in time.</p>
+    <p><strong>Analogy:</strong> Imagine you're watching a video of a busy street. Optical flow is like being able to draw a tiny arrow for every single pixel on the screen, showing exactly where that pixel (or the tiny piece of the world it represents) moved between one video frame and the next. A person walking might have arrows pointing left, a car driving right, and a static lamppost would have zero-length arrows.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Optical flow aims to assign a 2D motion vector \((u, v)\) to every pixel \((x, y)\) in an image, representing its displacement from frame \(I_1\) to frame \(I_2\). Deep learning models have revolutionized this field, moving from traditional local methods to robust end-to-end learning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Deep Learning Models Work</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>From Traditional to Deep Learning</h4>
+    <p>Classical methods like Lucas-Kanade or Horn-Schunck rely on strong assumptions (e.g., brightness constancy, spatial smoothness) and often struggle with large displacements or occlusions. Deep learning models learn to implicitly handle these challenges by extracting robust features and inferring motion directly from raw pixels.</p>
+
+    <h4>FlowNet (2015): The Pioneer</h4>
+    <p>FlowNet was the first end-to-end convolutional neural network for optical flow. It adopted an encoder-decoder structure: an encoder extracts features from two input images (or a concatenated pair), and a decoder upsamples these features to produce a dense flow field. A key innovation was the <strong>correlation layer</strong>, which explicitly computes similarities between feature patches from the two images, forming a "cost volume" that helps find correspondences.</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Encoder:</strong> Extracts hierarchical features from both images.</li>
+      <li><strong>Correlation Layer:</strong> Computes dot products between feature vectors of image 1 and image 2 at various displacements.</li>
+      <li><strong>Decoder:</strong> Processes the correlation volume to regress the flow vectors.</li>
+    </ul>
+
+    <h4>PWC-Net (2018): Efficiency and Accuracy</h4>
+    <p>PWC-Net introduced three key principles for efficient and accurate flow estimation: <strong>Pyramid</strong>, <strong>Warping</strong>, and <strong>Cost Volume</strong>. It processes images in a coarse-to-fine manner using a feature pyramid. At each pyramid level, it warps the second image's features using the current flow estimate (from the coarser level) to reduce the search range. Then, it constructs a cost volume and refines the flow.</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Pyramid:</strong> Processes images at multiple resolutions, starting coarse.</li>
+      <li><strong>Warping:</strong> Uses current flow estimate to align features of \(I_2\) with \(I_1\), reducing the search space for new motion.</li>
+      <li><strong>Cost Volume:</strong> Measures feature similarity between \(I_1\) and the warped \(I_2\), focusing on residual flow.</li>
+    </ul>
+
+    <h4>RAFT (2020): Recurrent All-Pairs Field Transforms</h4>
+    <p>RAFT achieved state-of-the-art by adopting an iterative, recurrent approach. Instead of a fixed-pass network, RAFT repeatedly updates a flow field using a GRU-based update operator. It builds a <strong>correlation pyramid</strong> for global context and a <strong>lookup operator</strong> to extract relevant information for each pixel, allowing for highly accurate, fine-grained flow refinements.</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Feature Encoder:</strong> Extracts features from both images.</li>
+      <li><strong>Correlation Pyramid:</strong> Computes multi-scale correlation volumes between all pairs of feature vectors.</li>
+      <li><strong>GRU-based Update:</strong> An iterative process where a GRU cell takes a small image patch, the current flow estimate, and samples from the correlation pyramid to predict an update to the flow.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Modern deep learning optical flow models leverage robust feature extraction (CNNs), efficient feature matching (correlation volumes), and often iterative refinement (warping, GRUs) to tackle the inherent challenges of motion estimation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Optical Flow Constraint Equation (OFCE)</h4>
+    <p>The fundamental assumption in optical flow is <strong>brightness constancy</strong>: a pixel's intensity does not change as it moves. If a pixel at \((x, y)\) in image \(I(t)\) moves to \((x+\delta x, y+\delta y)\) in image \(I(t+\delta t)\), then:</p>
+    <div class="eq">$$I(x, y, t) = I(x + \delta x, y + \delta y, t + \delta t)$$</div>
+    <p>Using a first-order Taylor expansion around \((x, y, t)\) and dividing by \(\delta t\), we get the linear approximation:</p>
+    <div class="eq">$$\frac{\partial I}{\partial x} \frac{dx}{dt} + \frac{\partial I}{\partial y} \frac{dy}{dt} + \frac{\partial I}{\partial t} = 0$$</div>
+    <p>Or, more compactly: \(I_x u + I_y v + I_t = 0\), where \((u, v) = (\frac{dx}{dt}, \frac{dy}{dt})\) is the optical flow vector. This is one equation with two unknowns (\(u, v\)), leading to the <strong>aperture problem</strong> (a small local patch cannot uniquely determine motion orthogonal to an edge).</p>
+
+    <h4>Traditional Solution: Adding Smoothness</h4>
+    <p>To overcome the aperture problem, traditional methods like Horn-Schunck add a global smoothness constraint, assuming nearby pixels have similar flow. This leads to an energy minimization problem:</p>
+    <div class="eq">$$\min_{u,v} \iint \left( (I_x u + I_y v + I_t)^2 + \alpha^2 (\|\nabla u\|^2 + \|\nabla v\|^2) \right) dx dy$$</div>
+    <p>Here, the first term is the data term (brightness constancy), and the second is the smoothness term, weighted by \(\alpha\). This is solved iteratively using variational methods.</p>
+
+    <h4>Deep Learning's Implicit Solution</h4>
+    <p>Deep learning models implicitly solve these issues. CNNs learn robust features that are less sensitive to brightness changes and can handle larger displacements than local gradient methods. The network architecture (e.g., encoder-decoder, correlation layers, recurrent units) learns to infer motion by:
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Extracting high-level semantic features that are more robust to noise and illumination changes.</li>
+      <li>Aggregating information over larger receptive fields to overcome the aperture problem.</li>
+      <li>Explicitly or implicitly modeling the cost of matching features across different displacements (cost volume).</li>
+      <li>Learning iterative refinement steps to progressively improve flow estimates, which is crucial for large displacements.</li>
+    </ul></p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Optical flow assumes brightness constancy and that pixels move within the image plane. Violations (e.g., strong illumination changes, objects appearing/disappearing, out-of-plane rotation) can lead to inaccurate flow estimates. Occluded regions are particularly challenging, as there's no corresponding pixel in the second image.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a simplified optical flow pipeline. Observe how a moving object's flow is estimated, and how iterative refinement helps with larger displacements. Adjust the "Displacement Magnitude" to see the impact.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Displacement Magnitude</div>
+          <input type="range" id="dispMagnitudeSlider" min="0" max="100" step="1" value="30">
+          <div class="slider-value" id="dispMagnitudeValue">30 pixels</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="iterativeRefinementToggle" checked>
+          <label for="iterativeRefinementToggle">Use Iterative Refinement (PWC/RAFT-like)</label>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Input Frames</div>
+        <div class="info-desc" id="infoDesc">Two consecutive frames, \(I_1\) and \(I_2\), with a moving red square. Our goal is to find the motion vector for each pixel.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input image features</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Cost volume / Similarity</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Warped features / Residual</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Final flow estimate</div>
+        <div class="legend-item"><div class="legend-swatch flow-color" style="background:linear-gradient(to right, red, yellow, green, cyan, blue, magenta, red);"></div> Flow color wheel (Hue=Direction, Sat=Magnitude)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Model</th><th>Core Idea</th><th>Strengths</th><th>Weaknesses</th></tr>
+      <tr><td><strong>FlowNet (2015)</strong></td><td>First end-to-end CNN, correlation layer, direct regression</td><td>Pioneering, established DL for flow, relatively fast</td><td>Less accurate for large displacements, fixed-pass</td></tr>
+      <tr><td><strong>PWC-Net (2018)</strong></td><td>Pyramid, Warping, Cost Volume; coarse-to-fine refinement</td><td>Efficient, good accuracy, handles large displacements better</td><td>Still prone to local minima due to warping, fixed iterations</td></tr>
+      <tr><td><strong>RAFT (2020)</strong></td><td>Recurrent GRU-based update, correlation pyramid, iterative refinement</td><td>State-of-the-art accuracy, robust to large displacements, flexible iterations</td><td>Higher computational cost due to iterative nature</td></tr>
+    </table>
+    <p><strong>When to use optical flow:</strong></p>
+    <ul>
+      <li><strong>Motion Estimation:</strong> Tracking objects, understanding scene dynamics.</li>
+      <li><strong>Video Processing:</strong> Frame interpolation, video stabilization, compression.</li>
+      <li><strong>Robotics & Autonomous Driving:</strong> Ego-motion estimation, obstacle detection, visual odometry.</li>
+      <li><strong>Action Recognition:</strong> Providing motion cues for understanding human activities.</li>
+    </ul>
+    <p><strong>When NOT to rely solely on optical flow:</strong></p>
+    <ul>
+      <li><strong>Severe Occlusions:</strong> When objects disappear or reappear, flow is undefined.</li>
+      <li><strong>Extreme Illumination Changes:</strong> Violates brightness constancy assumption.</li>
+      <li><strong>Textureless Regions:</strong> No unique features to track (aperture problem exacerbated).</li>
+      <li><strong>Complex 3D Motion:</strong> Optical flow is 2D projection; 3D scene flow might be needed for full understanding.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Evolution of Deep Flow</div>
+      <p style="font-size:14px;margin:0;">The journey from FlowNet to RAFT shows a clear trend: from direct regression to increasingly sophisticated feature matching (correlation volumes) and iterative refinement strategies, enabling higher accuracy and robustness to complex motion patterns.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># --- Simplified Feature Extractor (Encoder) ---</div>
+      <div class="code-line" id="cl5">class FeatureExtractor(nn.Module):</div>
+      <div class="code-line" id="cl6">    def __init__(self):</div>
+      <div class="code-line" id="cl7">        super().__init__()</div>
+      <div class="code-line" id="cl8">        self.conv = nn.Sequential(</div>
+      <div class="code-line" id="cl9">            nn.Conv2d(3, 32, kernel_size=7, padding=3), nn.ReLU(),</div>
+      <div class="code-line" id="cl10">            nn.Conv2d(32, 64, kernel_size=5, padding=2, stride=2), nn.ReLU(),</div>
+      <div class="code-line" id="cl11">            nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=2), nn.ReLU()</div>
+      <div class="code-line" id="cl12">        )</div>
+      <div class="code-line" id="cl13">    def forward(self, img):</div>
+      <div class="code-line" id="cl14">        return self.conv(img) # Returns feature map (C, H/4, W/4)</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16"># --- Correlation Layer (Core of FlowNet/PWC/RAFT) ---</div>
+      <div class="code-line" id="cl17">def build_correlation_volume(fmap1, fmap2, max_disp=4):</div>
+      <div class="code-line" id="cl18">    """Computes correlation between fmap1 and fmap2 for various displacements."""</div>
+      <div class="code-line" id="cl19">    batch, c, h, w = fmap1.shape</div>
+      <div class="code-line" id="cl20">    # Unfold fmap2 to get all possible patches for correlation</div>
+      <div class="code-line" id="cl21">    # This is a simplified conceptual view, actual implementation is more complex</div>
+      <div class="code-line" id="cl22">    corr_vol = torch.zeros(batch, h, w, (2*max_disp+1)**2) # (B, H, W, D*D)</div>
+      <div class="code-line" id="cl23">    for i in range(-max_disp, max_disp + 1):</div>
+      <div class="code-line" id="cl24">        for j in range(-max_disp, max_disp + 1):</div>
+      <div class="code-line" id="cl25">            # Shift fmap2 by (i,j) and compute dot product with fmap1</div>
+      <div class="code-line" id="cl26">            fmap2_shifted = F.pad(fmap2, (max_disp+j, max_disp-j, max_disp+i, max_disp-i))[:,:,max_disp:-max_disp,max_disp:-max_disp]</div>
+      <div class="code-line" id="cl27">            corr = torch.sum(fmap1 * fmap2_shifted, dim=1, keepdim=True) # (B, 1, H, W)</div>
+      <div class="code-line" id="cl28">            # Store corr in flattened dimension of corr_vol</div>
+      <div class="code-line" id="cl29">            # (Actual correlation layer uses grouped convolutions or specific ops)</div>
+      <div class="code-line" id="cl30">            # ... simplified for clarity ...</div>
+      <div class="code-line" id="cl31">    return corr_vol # Represents similarity scores for different displacements</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33"># --- Warping Layer (PWC-Net / RAFT) ---</div>
+      <div class="code-line" id="cl34">def warp_features(fmap, flow):</div>
+      <div class="code-line" id="cl35">    """Warps feature map fmap using current flow estimate."""</div>
+      <div class="code-line" id="cl36">    # Grid_sample expects normalized grid coordinates [-1, 1]</div>
+      <div class="code-line" id="cl37">    # Convert flow (pixel offsets) to normalized grid (flow + meshgrid)</div>
+      <div class="code-line" id="cl38">    # ... grid_sample logic ...</div>
+      <div class="code-line" id="cl39">    warped_fmap = F.grid_sample(fmap, grid, mode='bilinear', padding_mode='border')</div>
+      <div class="code-line" id="cl40">    return warped_fmap</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42"># --- Flow Head (Regression / Update Operator) ---</div>
+      <div class="code-line" id="cl43">class FlowHead(nn.Module):</div>
+      <div class="code-line" id="cl44">    def __init__(self, input_channels):</div>
+      <div class="code-line" id="cl45">        super().__init__()</div>
+      <div class="code-line" id="cl46">        self.conv = nn.Sequential(</div>
+      <div class="code-line" id="cl47">            nn.Conv2d(input_channels, 64, kernel_size=3, padding=1), nn.ReLU(),</div>
+      <div class="code-line" id="cl48">            nn.Conv2d(64, 32, kernel_size=3, padding=1), nn.ReLU(),</div>
+      <div class="code-line" id="cl49">            nn.Conv2d(32, 2, kernel_size=3, padding=1) # Output 2 channels (u, v)</div>
+      <div class="code-line" id="cl50">        )</div>
+      <div class="code-line" id="cl51">    def forward(self, x):</div>
+      <div class="code-line" id="cl52">        return self.conv(x)</div>
+      <div class="code-line" id="cl53"></div>
+      <div class="code-line" id="cl54"># --- High-level FlowNet-like inference ---</div>
+      <div class="code-line" id="cl55">def flownet_inference(img1, img2):</div>
+      <div class="code-line" id="cl56">    feat_ext = FeatureExtractor()</div>
+      <div class="code-line" id="cl57">    fmap1 = feat_ext(img1)</div>
+      <div class="code-line" id="cl58">    fmap2 = feat_ext(img2)</div>
+      <div class="code-line" id="cl59">    corr_vol = build_correlation_volume(fmap1, fmap2)</div>
+      <div class="code-line" id="cl60">    # Concatenate features and correlation volume, then regress flow</div>
+      <div class="code-line" id="cl61">    flow_input = torch.cat([fmap1, corr_vol.permute(0,3,1,2)], dim=1)</div>
+      <div class="code-line" id="cl62">    flow_head = FlowHead(flow_input.shape[1])</div>
+      <div class="code-line" id="cl63">    flow = flow_head(flow_input)</div>
+      <div class="code-line" id="cl64">    return F.interpolate(flow, scale_factor=4, mode='bilinear') # Upsample to original res</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+const steps = [
+  { phase: 'setup', title: 'Input Frames', desc: 'Two consecutive frames, \(I_1\) and \(I_2\), with a moving red square. Our goal is to find the motion vector for each pixel.' },
+  { phase: 'process', title: 'Feature Extraction (Encoder)', desc: 'First, deep networks extract robust, high-level features from both \(I_1\) and \(I_2\). These features are more abstract than raw pixels, making matching easier. Shown here as simplified colored grids.' },
+  { phase: 'process', title: 'Initial Flow Estimate (FlowNet-like)', desc: 'An initial (often coarse) flow field is estimated. FlowNet would directly regress this from the concatenated features and correlation volume. It\'s a decent start, but might miss fine details or large displacements.' },
+  { phase: 'refine', title: 'Warping Features (PWC-Net/RAFT)', desc: 'Using the current flow estimate, features from \(I_2\) are "warped" back towards \(I_1\). This aligns them, making the problem easier: now we only need to find a small *residual* flow to correct the initial estimate.' },
+  { phase: 'refine', title: 'Cost Volume Construction', desc: 'A cost volume is built by comparing features from \(I_1\) with the *warped* features from \(I_2\). This measures how well features match at various small displacements around the current estimate, providing a rich signal for refinement.' },
+  { phase: 'refine', title: 'Iterative Flow Update (RAFT-like)', desc: 'A recurrent unit (like a GRU in RAFT) processes the cost volume and current flow to predict an *update* vector. This update is added to the current flow, and the process repeats multiple times, progressively refining the estimate.' },
+  { phase: 'result', title: 'Final Flow Field', desc: 'After several refinement iterations, the model outputs a dense optical flow field where each arrow represents the estimated pixel motion. The standard color wheel helps visualize direction and magnitude.' },
+  { phase: 'compare', title: 'Flow Color Encoding', desc: 'Optical flow is often visualized using a color wheel: Hue represents the direction of motion, and saturation/brightness represents its magnitude. For example, pure red means motion to the right, pure blue means motion to the left.' }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let displacementMagnitude = 30; // pixels
+let useIterativeRefinement = true;
+
+// ── CANVAS DRAWING UTILS ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function flowToColor(u, v, maxFlow) {
+  const magnitude = Math.sqrt(u * u + v * v);
+  let angle = Math.atan2(v, u); // radians [-PI, PI]
+  angle = (angle + Math.PI) / (2 * Math.PI); // normalize to [0, 1]
+
+  const H = angle * 360; // Hue [0, 360)
+  const S = Math.min(1, magnitude / maxFlow); // Saturation [0, 1]
+  const L = 0.5; // Lightness [0, 1]
+
+  // Convert HSL to RGB
+  // Simplified for direct CSS hsl() usage
+  return `hsl(${H}, ${S * 100}%, ${L * 100}%)`;
+}
+
+// ── SCENE DATA (Simplified for illustration) ──
+const IMG_W = 320;
+const IMG_H = 180;
+const OBJ_SIZE = 40;
+const BG_GRID_SIZE = 20;
+
+function drawScene(ctx, frameNum, objDx, objDy, colors) {
+  ctx.clearRect(0, 0, IMG_W, IMG_H);
+
+  // Draw background grid
+  for (let y = 0; y < IMG_H; y += BG_GRID_SIZE) {
+    for (let x = 0; x < IMG_W; x += BG_GRID_SIZE) {
+      const col = (x / BG_GRID_SIZE + y / BG_GRID_SIZE) % 2 === 0 ? colors.bg2 : colors.border;
+      ctx.fillStyle = col;
+      ctx.fillRect(x, y, BG_GRID_SIZE, BG_GRID_SIZE);
+    }
+  }
+
+  // Draw moving object (red square)
+  let objX = (IMG_W - OBJ_SIZE) / 2;
+  let objY = (IMG_H - OBJ_SIZE) / 2;
+
+  if (frameNum === 2) {
+    objX += objDx;
+    objY += objDy;
+  }
+
+  ctx.fillStyle = colors.red;
+  ctx.fillRect(objX, objY, OBJ_SIZE, OBJ_SIZE);
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(objX, objY, OBJ_SIZE, OBJ_SIZE);
+
+  // Frame number label
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 16px var(--sans)';
+  ctx.textAlign = 'center';
+  ctx.fillText(`Frame ${frameNum}`, IMG_W / 2, 25);
+}
+
+function drawFeatures(ctx, imgData, colors) {
+  ctx.clearRect(0, 0, IMG_W, IMG_H);
+  const featGridSize = BG_GRID_SIZE * 2; // Coarser features
+  const numFeatsX = IMG_W / featGridSize;
+  const numFeatsY = IMG_H / featGridSize;
+
+  for (let y = 0; y < numFeatsY; y++) {
+    for (let x = 0; x < numFeatsX; x++) {
+      const val = imgData[y * numFeatsX + x]; // Simplified feature value
+      ctx.fillStyle = `hsl(${val * 360}, 70%, 50%)`; // Use hue for feature representation
+      ctx.fillRect(x * featGridSize, y * featGridSize, featGridSize, featGridSize);
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x * featGridSize, y * featGridSize, featGridSize, featGridSize);
+    }
+  }
+}
+
+function generateFeatures(objDx, objDy) {
+  const featGridSize = BG_GRID_SIZE * 2;
+  const numFeatsX = IMG_W / featGridSize;
+  const numFeatsY = IMG_H / featGridSize;
+  const features1 = [];
+  const features2 = [];
+
+  let objCenterX1 = (IMG_W - OBJ_SIZE) / 2 + OBJ_SIZE / 2;
+  let objCenterY1 = (IMG_H - OBJ_SIZE) / 2 + OBJ_SIZE / 2;
+  let objCenterX2 = objCenterX1 + objDx;
+  let objCenterY2 = objCenterY1 + objDy;
+
+  for (let y = 0; y < numFeatsY; y++) {
+    for (let x = 0; x < numFeatsX; x++) {
+      const cellCenterX = x * featGridSize + featGridSize / 2;
+      const cellCenterY = y * featGridSize + featGridSize / 2;
+
+      // Simple distance-based feature: closer to object center means higher value
+      const dist1 = Math.sqrt(Math.pow(cellCenterX - objCenterX1, 2) + Math.pow(cellCenterY - objCenterY1, 2));
+      const val1 = Math.max(0, 1 - dist1 / (IMG_W / 3)) * 0.8 + (x + y) / (numFeatsX + numFeatsY) * 0.2; // Add some background texture
+      features1.push(val1);
+
+      const dist2 = Math.sqrt(Math.pow(cellCenterX - objCenterX2, 2) + Math.pow(cellCenterY - objCenterY2, 2));
+      const val2 = Math.max(0, 1 - dist2 / (IMG_W / 3)) * 0.8 + (x + y) / (numFeatsX + numFeFeatsY) * 0.2;
+      features2.push(val2);
+    }
+  }
+  return { features1, features2, numFeatsX, numFeatsY, featGridSize };
+}
+
+function drawFlowVectors(ctx, flowField, colors, maxFlowMag) {
+  ctx.clearRect(0, 0, IMG_W, IMG_H);
+  const gridStep = BG_GRID_SIZE; // Draw flow on a grid
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, IMG_W, IMG_H);
+
+  for (let y = gridStep / 2; y < IMG_H; y += gridStep) {
+    for (let x = gridStep / 2; x < IMG_W; x += gridStep) {
+      const flowIdx = Math.floor(y / gridStep) * (IMG_W / gridStep) + Math.floor(x / gridStep);
+      const flow = flowField[flowIdx];
+      if (!flow) continue;
+
+      const [u, v] = flow;
+      const color = flowToColor(u, v, maxFlowMag);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + u, y + v);
+      ctx.stroke();
+
+      // Draw arrowhead
+      const headlen = 5;
+      const angle = Math.atan2(v, u);
+      ctx.beginPath();
+      ctx.moveTo(x + u, y + v);
+      ctx.lineTo(x + u - headlen * Math.cos(angle - Math.PI / 6), y + v - headlen * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(x + u, y + v);
+      ctx.lineTo(x + u - headlen * Math.cos(angle + Math.PI / 6), y + v - headlen * Math.sin(angle + Math.PI / 6));
+      ctx.stroke();
+    }
+  }
+}
+
+function simulateFlow(objDx, objDy, iterativeRefinement) {
+  const flowField = [];
+  const gridStep = BG_GRID_SIZE;
+  const numCellsX = IMG_W / gridStep;
+  const numCellsY = IMG_H / gridStep;
+
+  let objX1 = (IMG_W - OBJ_SIZE) / 2;
+  let objY1 = (IMG_H - OBJ_SIZE) / 2;
+  let objX2 = objX1 + objDx;
+  let objY2 = objY1 + objDy;
+
+  for (let y = 0; y < numCellsY; y++) {
+    for (let x = 0; x < numCellsX; x++) {
+      const cellCenterX = x * gridStep + gridStep / 2;
+      const cellCenterY = y * gridStep + gridStep / 2;
+
+      // Check if pixel is within the object in frame 1
+      const inObject1 = cellCenterX >= objX1 && cellCenterX <= objX1 + OBJ_SIZE &&
+                        cellCenterY >= objY1 && cellCenterY <= objY1 + OBJ_SIZE;
+
+      if (inObject1) {
+        // If it's the object, the flow is simply its displacement
+        let u = objDx;
+        let v = objDy;
+
+        if (!iterativeRefinement && Math.abs(objDx) > 40) { // Simulate FlowNet struggle with large disp
+          u *= 0.7; v *= 0.7; // Underestimate large flow
+        }
+        flowField.push([u, v]);
+      } else {
+        // Background assumed static, or very small noise flow
+        flowField.push([0, 0]);
+      }
+    }
+  }
+  return flowField;
+}
+
+function simulateWarpedFeatures(features2, currentFlow, numFeatsX, numFeatsY, featGridSize) {
+  const warpedFeatures = new Array(features2.length).fill(0);
+  // Simplified warping: For each feature point in I1, find where it *would* land in I2
+  // based on currentFlow. Then sample features2 at that location.
+  // This is a conceptual simplification.
+  for (let y = 0; y < numFeatsY; y++) {
+    for (let x = 0; x < numFeatsX; x++) {
+      const featIdx = y * numFeatsX + x;
+      const flow = currentFlow[featIdx]; // Using flow from the same grid
+      if (!flow) continue;
+
+      const [u, v] = flow;
+      const originalFeatX = x * featGridSize + featGridSize / 2;
+      const originalFeatY = y * featGridSize + featGridSize / 2;
+
+      const targetX = originalFeatX + u;
+      const targetY = originalFeatY + v;
+
+      // Sample feature2 at targetX, targetY (nearest neighbor for simplicity)
+      const sampleFeatX = Math.floor(targetX / featGridSize);
+      const sampleFeatY = Math.floor(targetY / featGridSize);
+
+      if (sampleFeatX >= 0 && sampleFeatX < numFeatsX && sampleFeatY >= 0 && sampleFeatY < numFeatsY) {
+        warpedFeatures[featIdx] = features2[sampleFeatY * numFeatsX + sampleFeatX];
+      } else {
+        warpedFeatures[featIdx] = 0; // Out of bounds
+      }
+    }
+  }
+  return warpedFeatures;
+}
+
+function simulateCostVolume(features1, warpedFeatures, numFeatsX, numFeatsY, featGridSize) {
+  const costVolume = new Array(features1.length).fill(0);
+  // Simplified cost volume: for each pixel, sum of squared differences (SSD)
+  // between features1 and warpedFeatures. Lower cost means better match.
+  for (let i = 0; i < features1.length; i++) {
+    const diff = features1[i] - warpedFeatures[i];
+    costVolume[i] = diff * diff; // SSD
+  }
+  return costVolume;
+}
+
+function drawCostVolume(ctx, costVolume, numFeatsX, numFeatsY, featGridSize, colors) {
+  ctx.clearRect(0, 0, IMG_W, IMG_H);
+  const maxCost = Math.max(...costVolume);
+
+  for (let y = 0; y < numFeatsY; y++) {
+    for (let x = 0; x < numFeatsX; x++) {
+      const cost = costVolume[y * numFeatsX + x];
+      const normalizedCost = cost / maxCost; // Higher cost = less match, more red
+      ctx.fillStyle = `hsl(0, ${normalizedCost * 100}%, ${50 - normalizedCost * 20}%)`; // Redder for higher cost
+      ctx.fillRect(x * featGridSize, y * featGridSize, featGridSize, featGridSize);
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x * featGridSize, y * featGridSize, featGridSize, featGridSize);
+    }
+  }
+}
+
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // Calculate object displacement
+  const objDx = displacementMagnitude;
+  const objDy = 0; // Fixed horizontal motion for simplicity
+
+  const { features1, features2, numFeatsX, numFeatsY, featGridSize } = generateFeatures(objDx, objDy);
+  const maxFlowMag = Math.sqrt(objDx * objDx + objDy * objDy);
+
+  // Draw based on step mode
+  if (mode === 'input_frames') {
+    ctx.save();
+    ctx.translate(W * 0.05, H * 0.1);
+    drawScene(ctx, 1, objDx, objDy, colors);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(W * 0.55, H * 0.1);
+    drawScene(ctx, 2, objDx, objDy, colors);
+    ctx.restore();
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Image 1', W * 0.275, H * 0.05);
+    ctx.fillText('Image 2', W * 0.775, H * 0.05);
+
+  } else if (mode === 'feature_extraction') {
+    ctx.save();
+    ctx.translate(W * 0.05, H * 0.1);
+    drawFeatures(ctx, features1, colors);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(W * 0.55, H * 0.1);
+    drawFeatures(ctx, features2, colors);
+    ctx.restore();
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Features (Image 1)', W * 0.275, H * 0.05);
+    ctx.fillText('Features (Image 2)', W * 0.775, H * 0.05);
+
+  } else if (mode === 'initial_flow') {
+    const initialFlow = simulateFlow(objDx, objDy, false); // FlowNet-like, no refinement
+    drawFlowVectors(ctx, initialFlow, colors, maxFlowMag);
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Initial Flow Estimate', W / 2, H * 0.05);
+
+  } else if (mode === 'warping') {
+    const initialFlow = simulateFlow(objDx, objDy, false);
+    const warpedFeatures = simulateWarpedFeatures(features2, initialFlow, numFeatsX, numFeatsY, featGridSize);
+    drawFeatures(ctx, warpedFeatures, colors);
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Warped Features (Image 2)', W / 2, H * 0.05);
+
+  } else if (mode === 'cost_volume') {
+    const initialFlow = simulateFlow(objDx, objDy, false);
+    const warpedFeatures = simulateWarpedFeatures(features2, initialFlow, numFeatsX, numFeatsY, featGridSize);
+    const costVolume = simulateCostVolume(features1, warpedFeatures, numFeatsX, numFeatsY, featGridSize);
+    drawCostVolume(ctx, costVolume, numFeatsX, numFeatsY, featGridSize, colors);
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Cost Volume', W / 2, H * 0.05);
+
+  } else if (mode === 'iterative_update') {
+    const currentFlow = simulateFlow(objDx, objDy, false); // Start with initial
+    let refinedFlow = currentFlow;
+    if (useIterativeRefinement) {
+      // Simulate a few refinement steps
+      for (let i = 0; i < 3; i++) { // 3 iterations for visual effect
+        const warpedFeatures = simulateWarpedFeatures(features2, refinedFlow, numFeatsX, numFeatsY, featGridSize);
+        const costVolume = simulateCostVolume(features1, warpedFeatures, numFeatsX, numFeatsY, featGridSize);
+        // Simplified update: if cost is high, nudge flow towards true flow
+        refinedFlow = refinedFlow.map((f, idx) => {
+          const cost = costVolume[idx];
+          if (cost > 0.1 && Math.random() < 0.8) { // Simulate update based on cost
+            // Nudge towards true flow (objDx, objDy)
+            const u = f[0] + (objDx - f[0]) * 0.2;
+            const v = f[1] + (objDy - f[1]) * 0.2;
+            return [u, v];
+          }
+          return f;
+        });
+      }
+    }
+    drawFlowVectors(ctx, refinedFlow, colors, maxFlowMag);
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Iterative Flow Update', W / 2, H * 0.05);
+
+  } else if (mode === 'final_flow') {
+    const finalFlow = simulateFlow(objDx, objDy, useIterativeRefinement);
+    drawFlowVectors(ctx, finalFlow, colors, maxFlowMag);
+    ctx.fillStyle = colors.text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Final Optical Flow Field', W / 2, H * 0.05);
+
+  } else if (mode === 'color_encoding') {
+    // Draw the color wheel
+    const centerX = W / 2;
+    const centerY = H / 2;
+    const radius = Math.min(W, H) * 0.35;
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fillStyle = colors.bg2;
+    ctx.fill();
+
+    for (let i = 0; i < 360; i += 1) {
+      const startAngle = i * Math.PI / 180;
+      const endAngle = (i + 1) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+      ctx.closePath();
+      ctx.fillStyle = `hsl(${i}, 100%, 50%)`;
+      ctx.fill();
+    }
+
+    // Draw inner circle for magnitude
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = colors.surface;
+    ctx.fill();
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = '12px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Direction (Hue)', centerX, centerY - radius - 10);
+    ctx.fillText('Magnitude (Saturation)', centerX, centerY + radius + 20);
+    ctx.fillText('Zero Flow (Center)', centerX, centerY + 5);
+  }
+}
+
+// ── STEP MODES ──
+const stepModes = [
+  'input_frames',
+  'feature_extraction',
+  'initial_flow',
+  'warping',
+  'cost_volume',
+  'iterative_update',
+  'final_flow',
+  'color_encoding'
+];
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; displacementMagnitude = 30; useIterativeRefinement = true; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', process: 'phase-process', refine: 'phase-refine', result: 'phase-result', compare: 'phase-compare' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Code highlight (simplified, real code trace is static for this explainer)
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  // Example: Highlight code lines relevant to current step
+  if (step === 1) { // Feature Extraction
+    for (let i = 4; i <= 14; i++) document.getElementById('cl' + i)?.classList.add('active');
+  } else if (step === 2) { // Initial Flow Estimate (FlowNet-like)
+    for (let i = 54; i <= 63; i++) document.getElementById('cl' + i)?.classList.add('active');
+  } else if (step === 3) { // Warping Features
+    for (let i = 33; i <= 40; i++) document.getElementById('cl' + i)?.classList.add('active');
+  } else if (step === 4) { // Cost Volume
+    for (let i = 16; i <= 31; i++) document.getElementById('cl' + i)?.classList.add('active');
+  } else if (step === 5) { // Iterative Update
+    // FlowHead and Warping/Cost Volume in a loop
+    for (let i = 42; i <= 52; i++) document.getElementById('cl' + i)?.classList.add('active');
+    for (let i = 33; i <= 40; i++) document.getElementById('cl' + i)?.classList.add('active');
+    for (let i = 16; i <= 31; i++) document.getElementById('cl' + i)?.classList.add('active');
+  }
+
+  // Update slider and toggle visibility
+  const isInteractiveStep = (stepModes[step] === 'initial_flow' || stepModes[step] === 'iterative_update' || stepModes[step] === 'final_flow');
+  document.getElementById('sliderPanel').style.display = isInteractiveStep ? 'flex' : 'none';
+  document.getElementById('dispMagnitudeSlider').value = displacementMagnitude;
+  document.getElementById('dispMagnitudeValue').textContent = `${displacementMagnitude} pixels`;
+  document.getElementById('iterativeRefinementToggle').checked = useIterativeRefinement;
+
+
+  drawCanvas(stepModes[step]);
+  updateDots();
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+document.getElementById('dispMagnitudeSlider').addEventListener('input', e => {
+  displacementMagnitude = parseInt(e.target.value);
+  document.getElementById('dispMagnitudeValue').textContent = `${displacementMagnitude} pixels`;
+  if (stepModes[step] === 'initial_flow' || stepModes[step] === 'iterative_update' || stepModes[step] === 'final_flow') {
+    drawCanvas(stepModes[step]);
+  }
+});
+document.getElementById('iterativeRefinementToggle').addEventListener('change', e => {
+  useIterativeRefinement = e.target.checked;
+  if (stepModes[step] === 'initial_flow' || stepModes[step] === 'iterative_update' || stepModes[step] === 'final_flow') {
+    drawCanvas(stepModes[step]);
+  }
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(stepModes[step]));
+</script>
+</body>
+</html>

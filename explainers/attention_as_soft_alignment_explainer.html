@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attention as Soft Alignment — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Matrix displays */
+.matrix-row{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-display{display:inline-grid;gap:2px;padding:8px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:12px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);}
+.matrix-cell{width:54px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;border-radius:3px;transition:all 0.4s;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.error{background:var(--red-bg);color:var(--red-mid);font-weight:600;}
+.matrix-cell.omega{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.op-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-align{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-combine{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Slider for interactive query */
+.slider-container{display:flex;align-items:center;gap:10px;margin-top:1rem;justify-content:center;}
+.slider-label{font-size:13px;color:var(--text2);font-weight:600;}
+.slider-input{width:150px;height:4px;background:var(--border2);border-radius:2px;outline:none;transition:opacity 0.2s;cursor:pointer;appearance:none;}
+.slider-input::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.slider-input::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--purple-mid);width:40px;text-align:center;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .matrix-cell{width:40px;height:26px;font-size:10px;}
+  .matrix-row{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Attention as Soft Alignment</h1>
+  <div class="subtitle">Dynamically focusing on relevant information in neural networks</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">NLP</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N²) complexity</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Attention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> In complex tasks like translating a sentence or generating text, not all parts of the input are equally important for every output step. Attention mechanisms allow a neural network to dynamically weigh the importance of different input elements when processing or generating an output element.</p>
+    <p><strong>Analogy:</strong> Imagine you're writing a summary of a long document. When you write a specific sentence in your summary, your "attention" focuses on a few key sentences or paragraphs in the original document that are most relevant to what you're currently writing. You don't read the whole document equally for every single word of your summary. Attention in neural networks works similarly: it allows the model to "look at" and prioritize specific parts of its input.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Attention computes a <strong>weighted sum</strong> of "Value" vectors, where the weights are determined by the "similarity" between a "Query" vector and a set of "Key" vectors. This allows the model to "softly align" the query with relevant information.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Attention Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The QKV Triad</h4>
+    <p>The core of attention revolves around three conceptual vectors:</p>
+    <ul>
+      <li><strong>Query (Q):</strong> Represents "what I'm looking for." This is typically the current state or element that needs context.</li>
+      <li><strong>Keys (K):</strong> Represents "what I have." These are labels or summaries of available information.</li>
+      <li><strong>Values (V):</strong> Represents "the actual information." These are the content associated with each key.</li>
+    </ul>
+    <p>Think of it like searching a database: your search query (Q) is matched against a list of keywords (K) for each document. For the documents that match well, you retrieve their full content (V).</p>
+
+    <h4>The Soft Alignment Process</h4>
+    <ol>
+      <li><strong>Calculate Similarity:</strong> The Query (Q) is compared to each Key (K) to determine how well they "align" or how similar they are. A common similarity measure is the dot product: \(Q \cdot K_i\).</li>
+      <li><strong>Scale (Optional but Common):</strong> The raw similarity scores are often scaled down by a factor (e.g., the square root of the key dimension, \(\sqrt{d_k}\)) to prevent the softmax function from having extremely small gradients when inputs are large.</li>
+      <li><strong>Softmax:</strong> The scaled similarity scores are passed through a softmax function. This converts them into a probability distribution, ensuring all weights are positive and sum to 1. These are the <em>attention weights</em>.</li>
+      <li><strong>Weighted Sum:</strong> Each Value (V) is multiplied by its corresponding attention weight. These weighted values are then summed up to produce the final <em>context vector</em> or <em>output</em>. This output is a blend of the input values, with more relevant values contributing more heavily.</li>
+    </ol>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Attention is <strong>differentiable</strong>, meaning it can be learned via backpropagation. The model learns how to generate Q, K, and V vectors, and thus learns what to attend to, and how much.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Scaled Dot-Product Attention Formula</h4>
+    <p>Given a Query vector \(\mathbf{q}\), a set of Key vectors \(\mathbf{K}\) (stacked as a matrix where each row is a key), and a set of Value vectors \(\mathbf{V}\) (stacked similarly), the attention output \(\mathbf{Z}\) is calculated as:</p>
+    <div class="eq">
+      $$\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{softmax}\left(\frac{\mathbf{Q}\mathbf{K}^\top}{\sqrt{d_k}}\right)\mathbf{V}$$
+    </div>
+    <p>Let's break this down step-by-step:</p>
+
+    <h4>Step 1: Compute Raw Alignment Scores</h4>
+    <p>The dot product \(\mathbf{Q}\mathbf{K}^\top\) measures the similarity between the query and each key. If \(\mathbf{Q}\) is a single vector, this results in a vector of scores. If \(\mathbf{Q}\) is a matrix (multiple queries), it results in a matrix of scores.</p>
+    <div class="eq">
+      $$\text{Scores} = \mathbf{Q}\mathbf{K}^\top$$
+    </div>
+    <p>Each element \(\text{Scores}_{ij}\) represents the similarity between query \(i\) and key \(j\).</p>
+
+    <h4>Step 2: Scale the Scores</h4>
+    <p>The scaling factor \(\frac{1}{\sqrt{d_k}}\) (where \(d_k\) is the dimension of the key vectors) is crucial. Without it, for large \(d_k\), the dot products can become very large in magnitude, pushing the softmax function into regions with extremely small gradients. This can hinder stable training.</p>
+    <div class="eq">
+      $$\text{Scaled Scores} = \frac{\mathbf{Q}\mathbf{K}^\top}{\sqrt{d_k}}$$
+    </div>
+
+    <h4>Step 3: Apply Softmax to Get Attention Weights</h4>
+    <p>The softmax function converts the scaled scores into a probability distribution. For each query, the sum of its attention weights across all keys will be 1. This ensures that the model assigns a relative "importance" to each value.</p>
+    <div class="eq">
+      $$\text{Attention Weights} = \text{softmax}(\text{Scaled Scores})$$
+    </div>
+    <p>If \(\mathbf{Q}\) is a single vector, this results in a vector of weights \(\alpha_1, \alpha_2, \dots, \alpha_n\).</p>
+
+    <h4>Step 4: Compute the Weighted Sum of Values</h4>
+    <p>Finally, these attention weights are used to take a weighted average of the Value vectors. The resulting output vector \(\mathbf{Z}\) (or context vector) is a combination of the input values, emphasizing those values whose corresponding keys were most similar to the query.</p>
+    <div class="eq">
+      $$\mathbf{Z} = \text{Attention Weights} \cdot \mathbf{V}$$
+    </div>
+    <p>This output \(\mathbf{Z}\) then serves as a context-aware representation that can be used by subsequent layers in the neural network.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">➗ Why \(\sqrt{d_k}\)?</div>
+      <p style="font-size:14px;margin:0;">If query and key components are independent random variables with mean 0 and variance 1, their dot product has mean 0 and variance \(d_k\). Dividing by \(\sqrt{d_k}\) ensures the variance of the scaled dot product remains 1, stabilizing training.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the attention mechanism using a query and three key-value pairs. Observe how the query aligns with keys to produce weighted values.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Interactive Query Slider -->
+      <div class="slider-container">
+        <span class="slider-label">Query Q[0]:</span>
+        <input type="range" min="-1" max="1" step="0.05" value="0.7" id="querySlider" class="slider-input" oninput="updateQuery(this.value); render();">
+        <span class="slider-value" id="querySliderValue">0.70</span>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Inputs: Query, Keys, Values</div>
+        <div class="info-desc" id="infoDesc">We have a Query vector <b>Q</b>, and three Key-Value pairs (<b>K₁</b>, <b>V₁</b>), (<b>K₂</b>, <b>V₂</b>), (<b>K₃</b>, <b>V₃</b>). <b>Q</b> and <b>K</b>s have dimension 3 (d_k=3), <b>V</b>s have dimension 2 (d_v=2).</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate. Use slider to change Q[0].</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Query (Q)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Keys (K)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Values (V)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Output / Weighted Value</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Attention Weights (α)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <p><strong>When to use Attention:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Sequence-to-sequence tasks:</strong> Machine translation, summarization, where output words need to focus on different input words.</li>
+      <li><strong>Long sequences:</strong> Helps models handle long-range dependencies by directly connecting distant parts of a sequence.</li>
+      <li><strong>Contextual understanding:</strong> Allows models to build representations that are dynamically informed by relevant parts of the input.</li>
+      <li><strong>Interpretability:</strong> Attention weights can sometimes be visualized to understand what parts of the input the model is focusing on.</li>
+    </ul>
+    <p><strong>Beyond Basic Attention:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Multi-Head Attention:</strong> Multiple attention mechanisms run in parallel, each focusing on different aspects of the input, then their outputs are concatenated. This is a core component of the Transformer architecture.</li>
+      <li><strong>Self-Attention:</strong> The Query, Keys, and Values all come from the same input sequence. This allows elements within a sequence to attend to each other, capturing internal dependencies.</li>
+      <li><strong>Cross-Attention:</strong> Queries come from one sequence (e.g., decoder state) and Keys/Values come from another (e.g., encoder output).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Impact</div>
+      <p style="font-size:14px;margin:0;">Attention mechanisms, especially in the form of Self-Attention and Multi-Head Attention, are the bedrock of the <strong>Transformer architecture</strong>, which revolutionized NLP and is now widely used in computer vision and other domains.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def softmax(x):</div>
+      <div class="code-line" id="cl3">    e_x = np.exp(x - np.max(x)) # Subtract max for numerical stability</div>
+      <div class="code-line" id="cl4">    return e_x / e_x.sum(axis=-1, keepdims=True)</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># Input vectors (example dimensions)</div>
+      <div class="code-line" id="cl7">query = np.array([0.7, 0.3, -0.1])      # d_k = 3</div>
+      <div class="code-line" id="cl8">keys = np.array([</div>
+      <div class="code-line" id="cl9">    [0.8, 0.2, 0.1],</div>
+      <div class="code-line" id="cl10">    [0.1, 0.9, 0.2],</div>
+      <div class="code-line" id="cl11">    [0.2, 0.1, 0.7]</div>
+      <div class="code-line" id="cl12">])</div>
+      <div class="code-line" id="cl13">values = np.array([</div>
+      <div class="code-line" id="cl14">    [1.0, 0.5],                      # d_v = 2</div>
+      <div class="code-line" id="cl15">    [0.2, 0.8],</div>
+      <div class="code-line" id="cl16">    [0.6, 0.4]</div>
+      <div class="code-line" id="cl17">])</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">d_k = query.shape[-1] # Dimension of keys</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># 1. Calculate raw alignment scores (dot product)</div>
+      <div class="code-line" id="cl22">scores = np.dot(query, keys.T)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24"># 2. Scale scores</div>
+      <div class="code-line" id="cl25">scaled_scores = scores / np.sqrt(d_k)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27"># 3. Apply softmax to get attention weights</div>
+      <div class="code-line" id="cl28">attention_weights = softmax(scaled_scores)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># 4. Compute weighted sum of values</div>
+      <div class="code-line" id="cl31">output = np.dot(attention_weights, values)</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33">print("Query:", query)</div>
+      <div class="code-line" id="cl34">print("Keys:\n", keys)</div>
+      <div class="code-line" id="cl35">print("Values:\n", values)</div>
+      <div class="code-line" id="cl36">print("Scores:", scores)</div>
+      <div class="code-line" id="cl37">print("Scaled Scores:", scaled_scores)</div>
+      <div class="code-line" id="cl38">print("Attention Weights:", attention_weights)</div>
+      <div class="code-line" id="cl39">print("Output (Context Vector):", output)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── UTILITY FUNCTIONS ──
+function dot(v1, v2) {
+  return v1.reduce((acc, _, i) => acc + v1[i] * v2[i], 0);
+}
+
+function softmax(arr) {
+  const maxVal = Math.max(...arr); // For numerical stability
+  const expArr = arr.map(val => Math.exp(val - maxVal));
+  const sumExp = expArr.reduce((a, b) => a + b, 0);
+  return expArr.map(val => val / sumExp);
+}
+
+function vecAdd(v1, v2) {
+  return v1.map((val, i) => val + v2[i]);
+}
+
+function vecScale(v, scalar) {
+  return v.map(val => val * scalar);
+}
+
+// ── DATA ──
+let query = [0.7, 0.3, -0.1]; // Initial query, Q[0] will be interactive
+const keys = [
+  [0.8, 0.2, 0.1], // K1
+  [0.1, 0.9, 0.2], // K2
+  [0.2, 0.1, 0.7]  // K3
+];
+const values = [
+  [1.0, 0.5], // V1
+  [0.2, 0.8], // V2
+  [0.6, 0.4]  // V3
+];
+const d_k = query.length; // Dimension of keys
+const sqrt_d_k = Math.sqrt(d_k);
+
+// ── COMPUTED VALUES (updated on query change) ──
+let scores = [];
+let scaledScores = [];
+let attentionWeights = [];
+let weightedValues = [];
+let outputVector = [];
+
+function computeAttention() {
+  scores = keys.map(k => dot(query, k));
+  scaledScores = scores.map(s => s / sqrt_d_k);
+  attentionWeights = softmax(scaledScores);
+  weightedValues = values.map((v, i) => vecScale(v, attentionWeights[i]));
+  outputVector = weightedValues.reduce((acc, wv) => vecAdd(acc, wv), Array(values[0].length).fill(0));
+}
+
+// Initial computation
+computeAttention();
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Inputs: Query, Keys, Values',
+    desc: 'We have a Query vector <b>Q</b>, and three Key-Value pairs (<b>K₁</b>, <b>V₁</b>), (<b>K₂</b>, <b>V₂</b>), (<b>K₃</b>, <b>V₃</b>). <b>Q</b> and <b>K</b>s have dimension 3 (d_k=3), <b>V</b>s have dimension 2 (d_v=2).',
+    codeLines: [7,8,9,10,11,12,13,14,15,16,17],
+    vizMode: 'inputs'
+  },
+  {
+    phase: 'align', title: 'Similarity: Dot Product Q · K',
+    desc: 'First, we compute the dot product between the Query <b>Q</b> and each Key <b>Kᵢ</b>. A higher dot product means higher similarity or "alignment". Here, <b>Q</b> aligns best with <b>K₁</b>.',
+    codeLines: [21,22],
+    vizMode: 'dot_products'
+  },
+  {
+    phase: 'align', title: 'All Raw Alignment Scores',
+    desc: 'We calculate \\(Q \\cdot K_i\\) for all keys. These raw scores indicate how relevant each key is to the query. Notice the score for <b>K₁</b> is highest, followed by <b>K₃</b> and then <b>K₂</b>.',
+    codeLines: [21,22],
+    vizMode: 'all_scores'
+  },
+  {
+    phase: 'align', title: 'Scaling for Stability',
+    desc: 'To prevent large dot product values from dominating the softmax function, we divide the scores by the square root of the key dimension, \\(\\sqrt{d_k}\\). Here, \\(d_k=3\\), so we divide by \\(\\sqrt{3} \\approx 1.732\\).',
+    codeLines: [19,24,25],
+    vizMode: 'scaled_scores'
+  },
+  {
+    phase: 'align', title: 'Soft Alignment: Softmax',
+    desc: 'The scaled scores are passed through a softmax function. This converts them into a probability distribution (attention weights), where all weights are positive and sum to 1. This is the "soft alignment".',
+    codeLines: [2,3,4,27,28],
+    vizMode: 'attention_weights'
+  },
+  {
+    phase: 'combine', title: 'Weighted Values (αᵢ * Vᵢ)',
+    desc: 'Now, each Value vector <b>Vᵢ</b> is multiplied by its corresponding attention weight \\(\\alpha_i\\). Values associated with more relevant keys (higher \\(\\alpha_i\\)) will contribute more strongly.',
+    codeLines: [30,31],
+    vizMode: 'weighted_values'
+  },
+  {
+    phase: 'combine', title: 'Summing for Context (Σ αᵢ * Vᵢ)',
+    desc: 'Finally, all the weighted Value vectors are summed together. This produces the final <b>Output</b> vector, which is a context-aware representation of the input values, dynamically focused by the query.',
+    codeLines: [30,31],
+    vizMode: 'output_sum'
+  },
+  {
+    phase: 'result', title: 'The Output Vector',
+    desc: 'The final <b>Output</b> vector is a blend of the input values, with the blend ratio determined by the attention weights. It represents the information most relevant to the query <b>Q</b>, extracted from the Key-Value pairs.',
+    codeLines: [30,31,39],
+    vizMode: 'output_final'
+  },
+  {
+    phase: 'result', title: 'Interactive Query',
+    desc: 'Use the slider below to change the first component of the Query vector <b>Q[0]</b>. Observe how the dot products, attention weights, and the final Output vector dynamically change based on the new query.',
+    codeLines: [7,22,25,28,31,39],
+    vizMode: 'interactive_query'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  query = [0.7, 0.3, -0.1]; // Reset query to initial value
+  document.getElementById('querySlider').value = query[0];
+  document.getElementById('querySliderValue').textContent = query[0].toFixed(2);
+  computeAttention();
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',align:'phase-align',combine:'phase-combine',result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.vizMode);
+
+  // Enable/disable slider
+  document.getElementById('querySlider').disabled = (s.vizMode !== 'interactive_query');
+
+  updateDots();
+}
+
+// ── INTERACTIVE CONTROL ──
+function updateQuery(val) {
+  query[0] = parseFloat(val);
+  document.getElementById('querySliderValue').textContent = query[0].toFixed(2);
+  computeAttention();
+  drawCanvas(steps[step].vizMode); // Redraw canvas immediately
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.fillStyle = textC;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  const rowHeight = 40;
+  const colWidth = 60;
+  const vecBoxWidth = 100;
+  const vecBoxHeight = rowHeight * d_k;
+  const valBoxHeight = rowHeight * values[0].length;
+  const padding = 20;
+
+  // --- Helper to draw a vector box ---
+  function drawVectorBox(x, y, label, vector, color, highlight = false, dim_override = null) {
+    const dims = dim_override || vector.length;
+    const h = rowHeight * dims;
+    ctx.fillStyle = highlight ? color + '33' : bg2; // Lighter background for highlight
+    ctx.strokeStyle = highlight ? color : borderC;
+    ctx.lineWidth = highlight ? 2 : 1;
+    ctx.roundRect(x, y, vecBoxWidth, h, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = highlight ? color : text2;
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText(label, x + 5, y - 12);
+
+    ctx.fillStyle = textC;
+    ctx.font = '12px "JetBrains Mono", monospace';
+    vector.forEach((val, i) => {
+      ctx.fillText(val.toFixed(2), x + 10, y + rowHeight / 2 + i * rowHeight);
+    });
+  }
+
+  // --- Helper to draw a score/weight box ---
+  function drawScoreBox(x, y, label, value, color, highlight = false, is_weight = false) {
+    ctx.fillStyle = highlight ? color + '33' : bg2;
+    ctx.strokeStyle = highlight ? color : borderC;
+    ctx.lineWidth = highlight ? 2 : 1;
+    ctx.roundRect(x, y, colWidth, rowHeight, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = highlight ? color : text2;
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText(label, x + 5, y - 12);
+
+    ctx.fillStyle = textC;
+    ctx.font = '12px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(value.toFixed(3), x + colWidth / 2, y + rowHeight / 2);
+    ctx.textAlign = 'left';
+
+    if (is_weight) {
+      // Draw a bar proportional to weight
+      const barHeight = rowHeight - 6;
+      ctx.fillStyle = color;
+      ctx.fillRect(x + 3, y + 3, (colWidth - 6) * value, barHeight);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.roundRect(x + 3, y + 3, (colWidth - 6), barHeight, 3); // Outline for max bar
+      ctx.stroke();
+    }
+  }
+
+  // --- Positions ---
+  const qX = padding;
+  const qY = padding + 20;
+  const kX = qX;
+  const kY = qY + vecBoxHeight + padding;
+  const vX = kX + vecBoxWidth + padding * 3;
+  const vY = kY;
+
+  const scoreX = qX + vecBoxWidth + padding;
+  const scoreY = kY;
+  const scaledScoreX = scoreX + colWidth + padding;
+  const scaledScoreY = kY;
+  const attnWeightX = scaledScoreX + colWidth + padding;
+  const attnWeightY = kY;
+
+  const weightedVX = attnWeightX + colWidth + padding * 2;
+  const weightedVY = kY;
+  const outputX = weightedVX + vecBoxWidth + padding;
+  const outputY = kY + (valBoxHeight * keys.length / 2) - (valBoxHeight / 2); // Center vertically
+
+  // --- Draw Q, K, V always ---
+  drawVectorBox(qX, qY, 'Q', query, blueMid, mode === 'inputs' || mode === 'interactive_query');
+
+  keys.forEach((k, i) => {
+    drawVectorBox(kX, kY + i * (vecBoxHeight + padding/2), `K${i+1}`, k, purpleMid, mode === 'inputs' || (mode === 'dot_products' && i === 0));
+  });
+
+  values.forEach((v, i) => {
+    drawVectorBox(vX, vY + i * (valBoxHeight + padding/2), `V${i+1}`, v, amberMid, mode === 'inputs');
+  });
+
+  // --- Dynamic Drawing based on mode ---
+  if (mode === 'dot_products') {
+    drawScoreBox(scoreX, scoreY, 'Q·K₁', scores[0], purpleMid, true);
+    ctx.strokeStyle = purpleMid; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(qX + vecBoxWidth, qY + vecBoxHeight/2);
+    ctx.lineTo(scoreX, scoreY + rowHeight/2);
+    ctx.moveTo(kX + vecBoxWidth, kY + vecBoxHeight/2);
+    ctx.lineTo(scoreX, scoreY + rowHeight/2);
+    ctx.stroke();
+  }
+
+  if (mode === 'all_scores' || mode === 'scaled_scores' || mode === 'attention_weights' || mode === 'weighted_values' || mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query') {
+    keys.forEach((k, i) => {
+      drawScoreBox(scoreX, scoreY + i * (vecBoxHeight + padding/2), `Q·K${i+1}`, scores[i], purpleMid, mode === 'all_scores');
+    });
+  }
+
+  if (mode === 'scaled_scores' || mode === 'attention_weights' || mode === 'weighted_values' || mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query') {
+    keys.forEach((k, i) => {
+      drawScoreBox(scaledScoreX, scaledScoreY + i * (vecBoxHeight + padding/2), `Scaled Score ${i+1}`, scaledScores[i], purpleMid, mode === 'scaled_scores');
+    });
+  }
+
+  if (mode === 'attention_weights' || mode === 'weighted_values' || mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query') {
+    keys.forEach((k, i) => {
+      drawScoreBox(attnWeightX, attnWeightY + i * (vecBoxHeight + padding/2), `α${i+1}`, attentionWeights[i], cyanMid, mode === 'attention_weights' || mode === 'interactive_query', true);
+    });
+  }
+
+  if (mode === 'weighted_values' || mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query') {
+    weightedValues.forEach((wv, i) => {
+      drawVectorBox(weightedVX, weightedVY + i * (valBoxHeight + padding/2), `α${i+1}V${i+1}`, wv, greenMid, mode === 'weighted_values' || mode === 'interactive_query', values[0].length);
+    });
+  }
+
+  if (mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query') {
+    drawVectorBox(outputX, outputY, 'Output', outputVector, greenMid, mode === 'output_sum' || mode === 'output_final' || mode === 'interactive_query', values[0].length);
+    
+    if (mode === 'output_sum') {
+      ctx.strokeStyle = greenMid; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+      weightedValues.forEach((_, i) => {
+        ctx.beginPath();
+        ctx.moveTo(weightedVX + vecBoxWidth, weightedVY + i * (valBoxHeight + padding/2) + valBoxHeight/2);
+        ctx.lineTo(outputX, outputY + valBoxHeight/2);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+    }
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].vizMode));
+</script>
+</body>
+</html>

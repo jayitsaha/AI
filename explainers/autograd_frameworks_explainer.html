@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autograd: Tape vs Graph — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:980px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Graph flow (autograd DAG) */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.direction-banner{display:flex;align-items:center;justify-content:center;gap:8px;font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;margin-bottom:1rem;width:fit-content;margin-left:auto;margin-right:auto;transition:all 0.3s;}
+.direction-banner.fwd{background:var(--blue-bg);color:var(--blue-mid);}
+.direction-banner.bwd{background:var(--red-bg);color:var(--red-mid);}
+.direction-banner.sym{background:var(--purple-bg);color:var(--purple-mid);}
+.graph-node.sym{border-style:dashed;border-color:var(--purple-border);background:var(--purple-bg);}
+.graph-arrow.sym-active{color:var(--purple-mid);}
+.graph-flow{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding:8px 4px 16px;}
+.graph-node{min-width:118px;flex-shrink:0;background:var(--bg2);border:2px solid var(--border2);border-radius:var(--radius);padding:10px 12px;text-align:center;transition:all 0.35s ease;}
+.graph-node .gn-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text3);margin-bottom:4px;}
+.graph-node .gn-formula{font-family:var(--mono);font-size:12px;color:var(--text2);margin-bottom:4px;}
+.graph-node .gn-value{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);}
+.graph-node .gn-grad{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--red-mid);margin-top:4px;min-height:16px;}
+.graph-node.active-fwd{border-color:var(--blue-mid);background:var(--blue-bg);box-shadow:0 0 16px rgba(24,95,165,0.18);}
+.graph-node.active-bwd{border-color:var(--red-mid);background:var(--red-bg);box-shadow:0 0 16px rgba(163,45,45,0.18);}
+.graph-node.done{opacity:0.55;}
+.graph-arrow{display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text3);flex-shrink:0;transition:color 0.3s;}
+.graph-arrow.fwd-active{color:var(--blue-mid);}
+.graph-arrow.bwd-active{color:var(--red-mid);}
+
+/* Tape panel */
+.tape-panel{margin-top:1.25rem;}
+.tape-heading{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:8px;}
+.tape-row{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;padding:8px 12px;border-radius:var(--radius);background:var(--bg2);border:1px solid transparent;margin-bottom:6px;opacity:0;transform:translateY(6px);transition:all 0.35s ease;}
+.tape-row.shown{opacity:1;transform:translateY(0);}
+.tape-row.walked{border-color:var(--red-border);background:var(--red-bg);color:var(--red-text);}
+.tape-row .tape-idx{width:20px;height:20px;border-radius:50%;background:var(--purple-bg);color:var(--purple-mid);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
+.tape-row.walked .tape-idx{background:var(--red-mid);color:white;}
+.tape-row .tape-op{font-weight:700;min-width:150px;}
+.tape-row .tape-grad{margin-left:auto;color:var(--text3);}
+.tape-row.walked .tape-grad{color:var(--red-mid);font-weight:700;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-transform{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-solve{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .graph-node{min-width:100px;padding:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Autograd: Tape vs Graph</h1>
+  <div class="subtitle">How PyTorch's dynamic tape, TensorFlow's GradientTape/static graph, and JAX's tracing all compute the same gradients</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">PyTorch · TensorFlow · JAX</span>
+    <span class="tag tag-complexity">O(1) backward passes</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Autograd</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card1body">
+    <p><strong>What is it?</strong> Autograd is the machinery that automatically computes derivatives of a model's output with respect to every parameter that produced it, so you never hand-derive calculus for a million-parameter network. It records every math operation you run, then replays that record backward using the chain rule.</p>
+    <p><strong>Analogy:</strong> Imagine baking a cake while someone writes down every step — add flour, mix, bake, ice. If you know how sensitive the final taste is to the icing (the last step), you can walk the recipe backward, multiplying "sensitivities" together, to learn how sensitive the taste is to the flour amount (the first step). That backward walk through the recorded recipe is exactly what autograd does over a <em>tape</em> (PyTorch) or a <em>graph</em> (classic TensorFlow 1).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">PyTorch rebuilds the computation tape fresh on every forward call ("define-by-run"). Classic TensorFlow 1 built the graph once, symbolically, before any data flowed ("define-then-run"). TensorFlow 2's <code>GradientTape</code> and JAX's tracing both moved toward the dynamic, PyTorch-like model — eager by default, compiled on demand.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card2body">
+    <h4>The Dynamic Tape (PyTorch, TF2 eager)</h4>
+    <p>Every <code>Tensor</code> with <code>requires_grad=True</code> carries a hidden <code>grad_fn</code> pointer. When you write <code>u = x * w</code>, PyTorch's dispatcher intercepts the multiply, computes <code>u</code> immediately (eager execution — you can <code>print(u)</code> right away), and attaches a <code>MulBackward0</code> node to <code>u</code> that remembers "my inputs were <code>x</code> and <code>w</code>, and here is how to compute local gradients." Each subsequent op appends another node, so the tape is literally a byproduct of running ordinary Python.</p>
+    <h4>The Static Graph (TF1)</h4>
+    <p>TF1 instead asked you to declare <code>x = tf.placeholder(...)</code> and build the entire expression symbolically <em>before</em> any real numbers existed. Nothing computes until <code>sess.run(L, feed_dict={...})</code>. The payoff: the whole graph is visible upfront, so the compiler can fuse and reorder operations for peak throughput. The cost: no native <code>if</code>/<code>for</code> on tensor values, and debugging means inspecting a symbolic graph instead of stepping through Python.</p>
+    <h4>Design Decision: Why Save Outputs, Not Inputs?</h4>
+    <p>Autograd engines save whatever is cheapest to reuse for the local derivative. Sigmoid's derivative is <code>z(1-z)</code> — expressible purely in terms of its own output <code>z</code> — so PyTorch's <code>SigmoidBackward0</code> discards the input <code>v</code> and keeps only <code>z</code>, halving the memory that op needs to hold alive until <code>backward()</code>.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">A tape/graph node stores exactly three things: a reference to its input tensors (or whatever subset is needed for the local derivative), the operation type, and a rule for computing <em>local</em> gradients. Backward propagation is just: multiply local gradients together along every recorded edge, chain-rule style.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card3body">
+    <h4>Reverse-Mode Automatic Differentiation</h4>
+    <p>For a composition \(L = f_n(f_{n-1}(\dots f_1(x)\dots))\), the multivariate chain rule gives the gradient of the final scalar output with respect to any intermediate variable \(v_i\) as a vector-Jacobian product:</p>
+    <div class="eq">$$\bar{v}_i = \frac{\partial L}{\partial v_i} = \frac{\partial L}{\partial v_{i+1}} \cdot \frac{\partial v_{i+1}}{\partial v_i} = \bar{v}_{i+1} \, J_i$$</div>
+    <p>where \(J_i = \partial v_{i+1} / \partial v_i\) is the local Jacobian of step \(i\), and \(\bar{v}_{i+1}\) is the already-computed upstream gradient ("adjoint"). Reverse mode starts from \(\bar{L} = \partial L/\partial L = 1\) and walks the tape backward, left-multiplying by each local Jacobian in turn — never materializing a full Jacobian matrix, only ever a vector-Jacobian product.</p>
+    <h4>Why Reverse Mode, Not Forward Mode?</h4>
+    <p>Forward-mode AD propagates a directional derivative <em>forward</em> alongside the computation, and needs one full pass per input to get the gradient of a scalar loss with respect to every parameter — cost \(O(n)\) for \(n\) inputs. Reverse mode instead propagates <em>one</em> adjoint backward from the single scalar output, obtaining gradients for <strong>all</strong> \(n\) inputs in a single backward pass — cost \(O(1)\) relative to the number of parameters (same order as the forward pass itself). Since deep nets have millions of parameters and one scalar loss, reverse mode is the only tractable choice.</p>
+    <div class="eq">$$\text{Forward-mode: } O(n_{\text{inputs}}) \text{ passes} \qquad \text{Reverse-mode: } O(1) \text{ pass (for 1 output)}$$</div>
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 The Chain Rule at Each Tape Node</div>
+      <p style="font-size:14px;margin:0;">Every <code>grad_fn</code> implements one function: given the upstream gradient \(\bar{v}_{i+1}\), return \(\bar{v}_i = \bar{v}_{i+1} \cdot J_i\) for each input. For elementwise ops like <code>sigmoid</code>, \(J_i\) is diagonal so this is just elementwise multiply; for <code>matmul</code>, \(J_i\) application becomes another matmul.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"Autograd computes the Jacobian." It almost never does — that would be far too large and slow. It only ever computes vector-Jacobian products (reverse mode) or Jacobian-vector products (forward mode, used by <code>torch.func.jvp</code> and JAX's <code>jvp</code>). The full Jacobian is only formed if you explicitly request it (e.g. <code>torch.autograd.functional.jacobian</code>).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card4body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Trace a toy computation \(L = (\sigma(xw+b) - \text{target})^2\) with \(x{=}2.0,\ w{=}0.5,\ b{=}{-}1.0,\ \text{target}{=}1.0\) — forward build, then backward walk of the recorded tape.</p>
+
+    <div class="viz-container">
+      <div class="direction-banner fwd" id="dirBanner">▶ FORWARD PASS — building the tape</div>
+
+      <div class="graph-flow" id="graphFlow"></div>
+
+      <div class="tape-panel">
+        <div class="tape-heading">The Tape (recorded ops, in order)</div>
+        <div id="tapeList"></div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 11</div>
+        <div class="info-title" id="infoTitle">The Forward Pass Begins</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Forward (building tape)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Backward (walking tape)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Recorded op node</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card5body">
+    <p><strong>When eager/dynamic (PyTorch default, TF2 default) wins:</strong></p>
+    <ul>
+      <li>Research & rapid iteration — native Python debugging with <code>pdb</code>/print statements</li>
+      <li>Data-dependent control flow — recursive trees, variable-length loops, early exits expressed as plain <code>if</code>/<code>for</code></li>
+      <li>Prototyping novel architectures where the graph shape isn't known in advance</li>
+    </ul>
+    <p><strong>When a compiled graph (TF1-style, <code>torch.compile</code>, JAX <code>jit</code>) wins:</strong></p>
+    <ul>
+      <li>Production serving — fixed architecture, need max throughput/latency</li>
+      <li>Repeated calls to the same function shape — compile once, amortize across millions of calls</li>
+      <li>Multi-device / XLA-fused execution (TPUs particularly reward graph compilation)</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Convergence</div>
+      <p style="font-size:14px;margin:0;">Modern frameworks give you both: PyTorch's dynamic tape is the default, and <code>torch.compile</code> traces it into a graph for speed. JAX defaults to functional tracing (closer to graph-mode) but stays eager until you wrap a function in <code>jit</code>. Pick eager for development, compile for the final training/serving loop.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;" id="card6body">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># Leaf tensors — autograd will track gradients for these</div>
+      <div class="code-line" id="cl3">x = torch.tensor(2.0, requires_grad=True)</div>
+      <div class="code-line" id="cl4">w = torch.tensor(0.5, requires_grad=True)</div>
+      <div class="code-line" id="cl5">b = torch.tensor(-1.0, requires_grad=True)</div>
+      <div class="code-line" id="cl6">target = torch.tensor(1.0)</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># Forward pass — each op is EXECUTED immediately (eager)</div>
+      <div class="code-line" id="cl9"># AND appended to the tape via a grad_fn on the output</div>
+      <div class="code-line" id="cl10">u = x * w              # u.grad_fn = MulBackward0</div>
+      <div class="code-line" id="cl11">v = u + b              # v.grad_fn = AddBackward0</div>
+      <div class="code-line" id="cl12">z = torch.sigmoid(v)   # z.grad_fn = SigmoidBackward0 (saves z, not v)</div>
+      <div class="code-line" id="cl13">L = (z - target) ** 2  # L.grad_fn = PowBackward0</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># Backward pass — walk the tape in reverse, seed dL/dL = 1.0</div>
+      <div class="code-line" id="cl16">L.backward()</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">print(x.grad)   # dL/dx = -0.125</div>
+      <div class="code-line" id="cl19">print(w.grad)   # dL/dw = -0.5</div>
+      <div class="code-line" id="cl20">print(b.grad)   # dL/db = -0.25</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># --- Equivalent TF2 (GradientTape records explicitly) ---</div>
+      <div class="code-line" id="cl23">with tf.GradientTape() as tape:</div>
+      <div class="code-line" id="cl24">    z = tf.sigmoid(x * w + b)</div>
+      <div class="code-line" id="cl25">    L = (z - target) ** 2</div>
+      <div class="code-line" id="cl26">grads = tape.gradient(L, [x, w, b])</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28"># --- Equivalent JAX (functional tracing, no tape at all) ---</div>
+      <div class="code-line" id="cl29">loss_fn = lambda x, w, b: (jax.nn.sigmoid(x*w+b) - target)**2</div>
+      <div class="code-line" id="cl30">dx, dw, db = jax.grad(loss_fn, argnums=(0,1,2))(x, w, b)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GRAPH DATA (toy computation: L = (sigmoid(x*w+b) - target)^2) ──
+const nodes = [
+  {label:'INPUTS', formula:'x, w, b, target', value:'x=2.0  w=0.5  b=-1.0  t=1.0'},
+  {label:'MUL', formula:'u = x·w', value:'u = 1.0'},
+  {label:'ADD', formula:'v = u+b', value:'v = 0.0'},
+  {label:'SIGMOID', formula:'z = σ(v)', value:'z = 0.5'},
+  {label:'LOSS', formula:'L = (z-t)²', value:'L = 0.25'},
+];
+
+const tapeDefs = [
+  {op:'MulBackward0', desc:'(x, w) → u', walkedGrad:'dL/dx = -0.125,  dL/dw = -0.5'},
+  {op:'AddBackward0', desc:'(u, b) → v', walkedGrad:'dL/du = -0.25,  dL/db = -0.25'},
+  {op:'SigmoidBackward0', desc:'(v) → z  [saves z]', walkedGrad:'dL/dv = -0.25'},
+  {op:'PowBackward0', desc:'(z, target) → L', walkedGrad:'dL/dz = -1.0'},
+];
+
+// ── STEPS ──
+const steps = [
+  {
+    phase:'setup', title:'The Forward Pass Begins (Dynamic Tape)',
+    desc:'PyTorch executes tensor operations eagerly, exactly like plain Python. \\(x=2.0\\), \\(w=0.5\\), \\(b=-1.0\\) are leaf tensors with <code>requires_grad=True</code>; \\(\\text{target}=1.0\\) is a plain constant. Nothing is recorded yet — the tape is empty.',
+    direction:'fwd', banner:'normal', activeNodes:[0], doneNodes:[],
+    arrows:['none','none','none','none'], tapeShown:0, tapeWalked:[], grads:{}, codeLines:[3,4,5,6],
+  },
+  {
+    phase:'setup', title:'Op 1: Multiply Is Recorded',
+    desc:'\\(u = x \\cdot w = 1.0\\). The dispatcher computes this immediately AND wraps the result in a <code>MulBackward0</code> node — the tape\'s first entry — storing references to \\(x\\) and \\(w\\) needed later for local gradients.',
+    direction:'fwd', banner:'normal', activeNodes:[1], doneNodes:[0],
+    arrows:['fwd','none','none','none'], tapeShown:1, tapeWalked:[], grads:{}, codeLines:[10],
+  },
+  {
+    phase:'setup', title:'Ops 2 & 3: Add and Sigmoid Recorded',
+    desc:'\\(v = u+b = 0.0\\) (<code>AddBackward0</code>), then \\(z = \\sigma(v) = 0.5\\) (<code>SigmoidBackward0</code>). Sigmoid\'s backward node saves only its OUTPUT \\(z\\) — not the input \\(v\\) — because \\(dz/dv = z(1-z)\\) needs just \\(z\\). A small memory win, repeated millions of times in a real network.',
+    direction:'fwd', banner:'normal', activeNodes:[2,3], doneNodes:[0,1],
+    arrows:['fwd','fwd','fwd','none'], tapeShown:3, tapeWalked:[], grads:{}, codeLines:[11,12],
+  },
+  {
+    phase:'transform', title:'Meanwhile: TF1 Would Build a Symbolic Graph First',
+    desc:'Classic TensorFlow 1 requires the ENTIRE graph — placeholders for \\(x, w, b,\\) target, and every op between them — declared symbolically before any number exists. Only <code>sess.run(L, feed_dict={...})</code> actually computes values. There is no "tape" being built during execution because the graph itself IS the permanent record, built once and reused for every call.',
+    direction:'fwd', banner:'sym', activeNodes:[0,1,2,3,4], doneNodes:[], sym:true,
+    arrows:['sym','sym','sym','sym'], tapeShown:3, tapeWalked:[], grads:{}, codeLines:[],
+  },
+  {
+    phase:'transform', title:'TF2 GradientTape & JAX Tracing Converge on Dynamic',
+    desc:'TF2\'s <code>tf.GradientTape()</code> context manager records ops during eager execution — the same idea as PyTorch\'s implicit tape, just an explicit context. JAX instead traces the Python function once using abstract <code>ShapedArray</code> placeholders to build a <code>jaxpr</code> (an intermediate representation, not a runtime tape), then <code>jit</code>-compiles it — closer to TF1\'s upfront cost, but derived automatically instead of hand-declared.',
+    direction:'fwd', banner:'normal', activeNodes:[4], doneNodes:[0,1,2,3],
+    arrows:['fwd','fwd','fwd','none'], tapeShown:3, tapeWalked:[], grads:{}, codeLines:[23,24,25,29],
+  },
+  {
+    phase:'solve', title:'Op 4: Loss Closes the Tape',
+    desc:'\\(L = (z - \\text{target})^2 = 0.25\\) (<code>PowBackward0</code>). The tape now has 4 nodes total. Calling <code>L.backward()</code> triggers a traversal starting at \\(L\\) and walking backward through every recorded node.',
+    direction:'fwd', banner:'normal', activeNodes:[4], doneNodes:[0,1,2,3],
+    arrows:['fwd','fwd','fwd','fwd'], tapeShown:4, tapeWalked:[], grads:{}, codeLines:[13,16],
+  },
+  {
+    phase:'solve', title:'Seed the Gradient: dL/dL = 1',
+    desc:'Backward propagation always starts with the trivial seed \\(dL/dL = 1.0\\) — every downstream gradient is a product of local derivatives times this seed.',
+    direction:'bwd', banner:'normal', activeNodes:[4], doneNodes:[],
+    arrows:['fwd','fwd','fwd','fwd'], tapeShown:4, tapeWalked:[], grads:{4:['dL/dL = 1.0']}, codeLines:[16],
+  },
+  {
+    phase:'solve', title:'Walk Tape Node 4→3: PowBackward0',
+    desc:'\\(dL/dz = 2(z - \\text{target}) = 2(0.5-1.0) = -1.0\\). The engine looks up the local derivative rule for "square", multiplies by the incoming seed (1.0), and passes \\(-1.0\\) upstream to \\(z\\).',
+    direction:'bwd', banner:'normal', activeNodes:[3], doneNodes:[4],
+    arrows:['fwd','fwd','fwd','bwd'], tapeShown:4, tapeWalked:[3], grads:{4:['dL/dL = 1.0'],3:['dL/dz = -1.0']}, codeLines:[13],
+  },
+  {
+    phase:'solve', title:'Walk Tape Node 3→2: SigmoidBackward0',
+    desc:'\\(dz/dv = z(1-z) = 0.5 \\times 0.5 = 0.25\\) (computed purely from the saved output \\(z\\)). \\(dL/dv = dL/dz \\times dz/dv = (-1.0)(0.25) = -0.25\\).',
+    direction:'bwd', banner:'normal', activeNodes:[2], doneNodes:[4,3],
+    arrows:['fwd','fwd','bwd','bwd'], tapeShown:4, tapeWalked:[3,2], grads:{4:['dL/dL = 1.0'],3:['dL/dz = -1.0'],2:['dL/dv = -0.25']}, codeLines:[12],
+  },
+  {
+    phase:'solve', title:'Walk Tape Node 2→1: AddBackward0 Fans Out',
+    desc:'Addition has local derivative 1 for BOTH inputs, so the gradient passes through unchanged to each branch: \\(dL/du = dL/db = -0.25\\). This is why bias gradients are just "the upstream gradient, summed over the batch."',
+    direction:'bwd', banner:'normal', activeNodes:[1], doneNodes:[4,3,2],
+    arrows:['fwd','bwd','bwd','bwd'], tapeShown:4, tapeWalked:[3,2,1],
+    grads:{4:['dL/dL = 1.0'],3:['dL/dz = -1.0'],2:['dL/dv = -0.25'],1:['dL/du = -0.25'],0:['dL/db = -0.25']}, codeLines:[11],
+  },
+  {
+    phase:'result', title:'Walk Tape Node 1→0: MulBackward0 — Final Gradients',
+    desc:'\\(du/dx = w = 0.5 \\Rightarrow dL/dx = (-0.25)(0.5) = -0.125\\). \\(du/dw = x = 2.0 \\Rightarrow dL/dw = (-0.25)(2.0) = -0.5\\). The tape is now exhausted — PyTorch frees it right after <code>backward()</code> (unless <code>retain_graph=True</code>). TF1\'s graph and JAX\'s compiled <code>jaxpr</code>, by contrast, persist and are reused for the next call without rebuilding.',
+    direction:'bwd', banner:'normal', activeNodes:[0], doneNodes:[4,3,2,1],
+    arrows:['bwd','bwd','bwd','bwd'], tapeShown:4, tapeWalked:[3,2,1,0],
+    grads:{4:['dL/dL = 1.0'],3:['dL/dz = -1.0'],2:['dL/dv = -0.25'],1:['dL/du = -0.25'],0:['dL/dx = -0.125','dL/dw = -0.5','dL/db = -0.25']}, codeLines:[18,19,20],
+  },
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── GRAPH RENDERING ──
+function renderGraph(s) {
+  const flow = document.getElementById('graphFlow');
+  flow.innerHTML = '';
+  nodes.forEach((n, i) => {
+    if (i > 0) {
+      const arrow = document.createElement('div');
+      const st = s.arrows[i-1];
+      arrow.className = 'graph-arrow' + (st === 'fwd' ? ' fwd-active' : st === 'bwd' ? ' bwd-active' : st === 'sym' ? ' sym-active' : '');
+      arrow.textContent = (st === 'bwd') ? '←' : (st === 'sym' ? '⇢' : '→');
+      flow.appendChild(arrow);
+    }
+    const div = document.createElement('div');
+    let cls = 'graph-node';
+    if (s.sym) cls += ' sym';
+    else if (s.activeNodes.includes(i)) cls += (s.direction === 'bwd') ? ' active-bwd' : ' active-fwd';
+    else if (s.doneNodes.includes(i)) cls += ' done';
+    div.className = cls;
+    const gradLines = (s.grads[i] || []).join('<br>');
+    div.innerHTML = `<div class="gn-label">${n.label}</div><div class="gn-formula">${n.formula}</div><div class="gn-value">${n.value}</div><div class="gn-grad">${gradLines}</div>`;
+    flow.appendChild(div);
+  });
+}
+
+// ── TAPE RENDERING ──
+function renderTape(s) {
+  const list = document.getElementById('tapeList');
+  list.innerHTML = '';
+  tapeDefs.forEach((t, i) => {
+    const row = document.createElement('div');
+    let cls = 'tape-row';
+    if (i < s.tapeShown) cls += ' shown';
+    if (s.tapeWalked.includes(i)) cls += ' walked';
+    row.className = cls;
+    const gradText = s.tapeWalked.includes(i) ? t.walkedGrad : '';
+    row.innerHTML = `<div class="tape-idx">${i}</div><div class="tape-op">${t.op}</div><div style="color:var(--text3);">${t.desc}</div><div class="tape-grad">${gradText}</div>`;
+    list.appendChild(row);
+  });
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Direction banner
+  const banner = document.getElementById('dirBanner');
+  banner.className = 'direction-banner ' + (s.banner === 'sym' ? 'sym' : (s.direction === 'bwd' ? 'bwd' : 'fwd'));
+  banner.textContent = s.banner === 'sym'
+    ? '⚙ STATIC GRAPH (TF1) — defined before any data'
+    : (s.direction === 'bwd' ? '◀ BACKWARD PASS — walking the tape' : '▶ FORWARD PASS — building the tape');
+
+  // Info card
+  const phaseMap = {setup:'phase-setup', transform:'phase-transform', solve:'phase-solve', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  renderGraph(s);
+  renderTape(s);
+  updateDots();
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+</script>
+</body>
+</html>

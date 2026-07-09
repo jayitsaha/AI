@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cross-Attention in Encoder–Decoder Models — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul {margin-bottom:0.75rem;padding-left:1.25rem;font-size:14px;}
+.section-body li {margin-bottom:0.25rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Comparison table */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+.cmp-table th,.cmp-table td{padding:8px 10px;border:1px solid var(--border);text-align:left;}
+.cmp-table th{background:var(--bg2);font-weight:700;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+.cmp-table td{color:var(--text);}
+
+/* Matrix displays */
+.matrix-row{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-container{display:flex;flex-direction:column;align-items:center;}
+.matrix-display{display:inline-grid;gap:2px;padding:6px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:11px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);white-space:nowrap;}
+.matrix-cell{width:42px;height:26px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;border-radius:3px;transition:all 0.3s;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.query{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.matrix-cell.key{background:var(--cyan-bg);color:var(--cyan-mid);font-weight:600;}
+.matrix-cell.value{background:var(--amber-bg);color:var(--amber-mid);font-weight:600;}
+.op-symbol{font-size:16px;font-weight:700;color:var(--text2);display:flex;align-items:center;user-select:none;}
+
+/* Interactive Controls Panel */
+.interactive-panel{background:var(--bg2);border-radius:var(--radius);padding:1rem;margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center;justify-content:space-between;border:1px solid var(--border);}
+.control-group{display:flex;flex-direction:column;gap:6px;}
+.control-label{font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;}
+.control-input-wrap{display:flex;align-items:center;gap:10px;}
+.slider-val{font-family:var(--mono);font-size:13px;font-weight:600;min-width:36px;color:var(--text);}
+select.styled-select{padding:6px 12px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border2);font-family:var(--sans);font-size:13px;cursor:pointer;}
+input[type="range"]{appearance:none;-webkit-appearance:none;width:140px;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:90px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-encoder{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-decoder{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-projection{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-attention{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-output{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .matrix-cell{width:34px;height:22px;font-size:9px;}
+  .matrix-row{gap:6px;}
+  .interactive-panel{flex-direction:column;align-items:stretch;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Cross-Attention in Encoder–Decoder Models</h1>
+  <div class="subtitle">How the decoder learns to look back at the source — Queries from the decoder, Keys &amp; Values from the encoder</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate Deep Learning</span>
+    <span class="tag tag-category">Seq2Seq / Transformers</span>
+    <span class="tag tag-complexity">O(N·M) Complexity</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Cross-Attention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card1body">
+    <p><strong>What is it?</strong> When a human translator writes the English sentence "The black cat sleeps peacefully," they don't just remember the French source once and forget it — for <em>every single word</em> they write, they glance back at the source sentence to check which part of it they're currently rendering. <strong>Cross-attention</strong> is exactly this mechanism inside an encoder–decoder Transformer: at every decoding step, the decoder issues a Query asking "which source tokens are relevant to what I'm producing right now?", and the encoder's finished representations answer via Keys and Values.</p>
+
+    <p><strong>The translator analogy:</strong> The encoder reads the whole source sentence once and produces a rich set of notes (one note per source word) — this happens a single time, up front. Then, as the decoder writes the output word by word, for each word it re-reads those notes and decides how much attention each one deserves. Writing "black" makes it focus heavily on the note for "noir"; writing "cat" makes it focus on "chat" — even though the words appear in a different order in each language.</p>
+
+    <ul>
+      <li><strong>Query (\(Q\)):</strong> comes from the <em>decoder's</em> current hidden state — "what am I trying to generate right now?"</li>
+      <li><strong>Key (\(K\)):</strong> comes from the <em>encoder's</em> final output — "what does each source token represent?"</li>
+      <li><strong>Value (\(V\)):</strong> also comes from the <em>encoder's</em> final output — "what content should be pulled in if this source token is relevant?"</li>
+    </ul>
+    <p>This is the crucial structural difference from self-attention: in self-attention \(Q\), \(K\), and \(V\) all come from the <em>same</em> sequence. In cross-attention, \(Q\) comes from one sequence (decoder/target) while \(K\) and \(V\) come from a <em>different</em> sequence (encoder/source) — it is the bridge that links generation to the source.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Core Intuition</div>
+      <p style="font-size:14px;margin:0;">Cross-attention lets a decoder of length \(N\) dynamically pull information from an encoder of length \(M\), forming an \(N \times M\) alignment matrix — a soft, learned, differentiable version of the hard word-alignment tables used in old statistical machine translation systems.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card2body">
+    <h4>The Two Halves of the Stack</h4>
+    <p>An encoder–decoder Transformer (original Transformer, T5, BART, mT5, Marian, Whisper's decoder, ...) has two towers. The <strong>encoder</strong> runs <em>self-attention</em> over the source sequence \(X_{src} \in \mathbb{R}^{M \times d}\) through several layers and produces a final contextualized representation \(H_{enc} \in \mathbb{R}^{M \times d}\). Crucially, this happens <strong>once</strong>, regardless of how many tokens the decoder will eventually generate.</p>
+
+    <p>The <strong>decoder</strong> generates the target sequence autoregressively. At each layer, a decoder block does two attention operations in sequence: first <em>masked self-attention</em> over the target tokens generated so far (causal — it cannot see the future), producing a hidden state \(h_{dec,t}\) for the current step \(t\); then <strong>cross-attention</strong>, where that hidden state becomes the Query against the encoder's cached \(K\) and \(V\).</p>
+
+    <h4>The Projections</h4>
+    <ul>
+      <li><strong>Query:</strong> \(q_t = h_{dec,t} W_Q \quad (W_Q \in \mathbb{R}^{d \times d_k})\) — recomputed at every decoder layer, every generation step.</li>
+      <li><strong>Keys:</strong> \(K = H_{enc} W_K \quad (W_K \in \mathbb{R}^{d \times d_k})\) — computed <em>once</em> per encoder layer, then cached and reused for every single decoding step.</li>
+      <li><strong>Values:</strong> \(V = H_{enc} W_V \quad (W_V \in \mathbb{R}^{d \times d_v})\) — same caching story as \(K\).</li>
+    </ul>
+
+    <h4>Why Cache K and V?</h4>
+    <p>Because \(H_{enc}\) never changes while decoding a single example, \(K\) and \(V\) are identical at every decoder timestep. Production systems compute them exactly once after encoding and reuse them for the entire generation loop — this is one of the biggest practical efficiency wins of the encoder-decoder split, distinct from the (growing) self-attention KV-cache on the decoder side.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Cross-Attention Pipeline (per decoder step \(t\))</div>
+      <p style="font-size:14px;margin:0;">1. Query from decoder: \(q_t = h_{dec,t} W_Q\) <br>
+      2. Keys/Values from encoder (cached): \(K = H_{enc}W_K,\ V = H_{enc}W_V\) <br>
+      3. Compatibility: \(s_t = q_t K^\top\) <br>
+      4. Scale &amp; normalize: \(a_t = \operatorname{softmax}(s_t/\sqrt{d_k})\) <br>
+      5. Context vector: \(c_t = a_t V\) — fused back into the decoder stream</p>
+    </div>
+
+    <table class="cmp-table">
+      <tr><th>Aspect</th><th>Self-Attention</th><th>Cross-Attention</th></tr>
+      <tr><td>Q source</td><td>same sequence</td><td>decoder (target)</td></tr>
+      <tr><td>K, V source</td><td>same sequence</td><td>encoder (source)</td></tr>
+      <tr><td>Attention matrix shape</td><td>\(N \times N\)</td><td>\(N \times M\)</td></tr>
+      <tr><td>Masking</td><td>causal (decoder) or none (encoder)</td><td>none — full source is visible</td></tr>
+      <tr><td>Recomputation</td><td>every step (grows with target)</td><td>K/V computed once, Q per step</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card3body">
+    <h4>The Complete Formula</h4>
+    <p>Cross-attention uses exactly the scaled dot-product attention formula from self-attention — only the <em>source</em> of each matrix differs:</p>
+    <div class="eq">$$\operatorname{CrossAttn}(H_{dec}, H_{enc}) = \operatorname{softmax}\!\left(\frac{(H_{dec}W_Q)(H_{enc}W_K)^\top}{\sqrt{d_k}}\right)(H_{enc}W_V)$$</div>
+    <p>For a single decoding step \(t\), with query \(q_t = h_{dec,t}W_Q \in \mathbb{R}^{d_k}\) and the full encoder Key/Value matrices \(K, V \in \mathbb{R}^{M \times d_k}\):</p>
+    <div class="eq">$$a_t = \operatorname{softmax}\!\left(\frac{q_t K^\top}{\sqrt{d_k}}\right) \in \mathbb{R}^{M}, \qquad c_t = a_t V \in \mathbb{R}^{d_v}$$</div>
+
+    <h4>Shapes Tell the Story</h4>
+    <p>Let \(N\) be the target (decoder) length and \(M\) the source (encoder) length. Self-attention inside the decoder produces an \(N \times N\) attention matrix (query and key both range over target positions). Cross-attention produces an \(N \times M\) matrix — <strong>rectangular, not square</strong> — because the query ranges over target positions while the key ranges over source positions. Row \(t\) of that matrix is exactly the vector \(a_t\) above: a probability distribution over the \(M\) source tokens for the token being generated at step \(t\).</p>
+
+    <h4>Why the Same \(\sqrt{d_k}\) Scaling Applies</h4>
+    <p>The variance argument from self-attention carries over unchanged, since it only depends on the dimensionality of the projected vectors, not on which sequence they came from. If \(q_i, k_i\) are independent, zero-mean, unit-variance, then \(\operatorname{Var}(q\cdot k) = \sum_{i=1}^{d_k}\operatorname{Var}(q_ik_i) = d_k\); dividing the raw score by \(\sqrt{d_k}\) restores unit variance and keeps softmax out of its saturated, low-gradient regime — regardless of whether \(K\) came from the same sequence as \(Q\) or a different one.</p>
+
+    <h4>Gradient Flow</h4>
+    <p>Gradients from the cross-attention output \(c_t\) flow two ways: back through \(W_Q\) into the decoder's self-attention stack (shaping how the decoder forms queries), and back through \(W_K, W_V\) into the <em>encoder</em> stack — meaning the encoder's representations are trained not just to reconstruct/understand the source, but specifically to be <strong>useful lookup targets</strong> for whatever the decoder will eventually need.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">Cross-attention is <em>not</em> masked/causal — every decoder step is allowed to see the <strong>entire</strong> source sequence, including "future" source tokens relative to word order. Only the decoder's <em>self</em>-attention is causally masked, because only the target sequence is being generated autoregressively; the full source is already known.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card4body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Source (French, encoder): <strong>"Le chat noir dort paisiblement"</strong> &rarr; Target being generated (English, decoder): <strong>"The black cat sleeps peacefully"</strong>. Pick which decoder step is "current" and watch its query search across every encoder position — notice the alignment isn't diagonal, because the languages reorder "chat noir" (cat black) into "black cat."</p>
+
+    <!-- LIVE CONTROLS -->
+    <div class="interactive-panel">
+      <div class="control-group">
+        <label class="control-label">Decoder Step (Current Query)</label>
+        <select class="styled-select" id="stepSelector" onchange="updateParams()">
+          <option value="0">t=0: "The"</option>
+          <option value="1" selected>t=1: "black"</option>
+          <option value="2">t=2: "cat"</option>
+          <option value="3">t=3: "sleeps"</option>
+          <option value="4">t=4: "peacefully"</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-label">Scale Factor (\(\sqrt{d_k}\))</label>
+        <div class="control-input-wrap">
+          <input type="range" id="scaleSlider" min="0.5" max="4.0" step="0.1" value="2.0" oninput="updateParams()">
+          <span class="slider-val" id="scaleVal">2.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="viz-container">
+      <!-- Matrix visualization -->
+      <div id="matrixViz"></div>
+
+      <!-- Canvas for flow / heatmap -->
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-encoder" id="infoPhase">ENCODER</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Encoder Reads the Source Sentence</div>
+        <div class="info-desc" id="infoDesc"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Encoder (source)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Decoder Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Keys K</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Values V</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Context / Output</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card5body">
+    <h4>Where You'll See It</h4>
+    <p>Cross-attention is the defining feature of encoder–decoder ("sequence-to-sequence") Transformers: the original Vaswani et al. Transformer for machine translation, T5/mT5, BART, Marian-NMT, and the encoder-decoder speech models like Whisper (audio encoder → text decoder). Multi-head cross-attention is standard — each head can learn a different kind of alignment (e.g., one head tracks nouns, another tracks verb tense agreement).</p>
+
+    <h4>Not Every Architecture Has It</h4>
+    <p><strong>Decoder-only</strong> LLMs (GPT-family, LLaMA, Mistral) have no separate encoder and therefore no cross-attention at all — everything is self-attention over one growing sequence. <strong>Encoder-only</strong> models (BERT) never generate, so they have no decoder and no cross-attention either. Cross-attention is unique to the two-tower generation setup — and it reappears outside NLP too, e.g. as the mechanism that lets a diffusion U-Net attend over CLIP text-embedding tokens (K/V) while the image latent supplies the Query.</p>
+
+    <h4>Computational Cost</h4>
+    <p>Cross-attention costs \(O(N \cdot M \cdot d)\) — linear in target length for a fixed, already-encoded source, versus the decoder's own self-attention which costs \(O(N^2 \cdot d)\) and grows quadratically with the output it has produced so far.</p>
+
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Summary of Dimensions</div>
+      <p style="font-size:14px;margin:0;">
+        • \(H_{enc} \in \mathbb{R}^{M \times d}\) (source, computed once) &nbsp;•&nbsp; \(h_{dec,t} \in \mathbb{R}^{d}\) (target step \(t\))<br>
+        • \(K, V \in \mathbb{R}^{M \times d_k}\) (cached, reused every step) &nbsp;•&nbsp; \(q_t \in \mathbb{R}^{d_k}\) (fresh each step)<br>
+        • \(a_t = \operatorname{softmax}(q_t K^\top/\sqrt{d_k}) \in \mathbb{R}^{M}\) &nbsp;•&nbsp; \(c_t = a_t V \in \mathbb{R}^{d_v}\)<br>
+        • Full attention map across generation: \(N \times M\), one row per decoder step
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;" id="card6body">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># M=5 source tokens (encoder), d=4 features -- computed ONCE</div>
+      <div class="code-line" id="cl3">H_enc = np.array([...])   # shape (5, 4), from encoder self-attention stack</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># N=5 target tokens (decoder), each h_dec_t built causally, one at a time</div>
+      <div class="code-line" id="cl6">H_dec = np.array([...])   # shape (5, 4), from decoder masked self-attention</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># Projection weights</div>
+      <div class="code-line" id="cl9">W_q = np.eye(4)            # decoder-side projection</div>
+      <div class="code-line" id="cl10">W_k = np.eye(4)            # encoder-side projection (shared across all steps)</div>
+      <div class="code-line" id="cl11">W_v = np.array([...])      # shape (4, 4)</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13"># Encoder K, V: compute ONCE, cache, reuse for every decoding step</div>
+      <div class="code-line" id="cl14">K = H_enc @ W_k   # shape (5, 4)</div>
+      <div class="code-line" id="cl15">V = H_enc @ W_v   # shape (5, 4)</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">def cross_attention_step(h_dec_t, K, V, d_k):</div>
+      <div class="code-line" id="cl18">    q_t = h_dec_t @ W_q                       # (4,) -- fresh query this step</div>
+      <div class="code-line" id="cl19">    scores = q_t @ K.T                        # (5,) -- compat. with every source tok</div>
+      <div class="code-line" id="cl20">    scaled = scores / np.sqrt(d_k)</div>
+      <div class="code-line" id="cl21">    exp_s = np.exp(scaled - np.max(scaled))</div>
+      <div class="code-line" id="cl22">    weights = exp_s / exp_s.sum()             # (5,) attention over SOURCE positions</div>
+      <div class="code-line" id="cl23">    context = weights @ V                     # (4,) weighted sum of source Values</div>
+      <div class="code-line" id="cl24">    return context, weights</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># Autoregressive loop: K, V reused every step; only q_t changes</div>
+      <div class="code-line" id="cl27">for t in range(H_dec.shape[0]):</div>
+      <div class="code-line" id="cl28">    c_t, a_t = cross_attention_step(H_dec[t], K, V, d_k=4)</div>
+      <div class="code-line" id="cl29">    fused = H_dec[t] + c_t     # residual fuse, then feed to output projection</div>
+      <div class="code-line" id="cl30">    print(f"step {t}: attends most to source idx {a_t.argmax()}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATIC DATA ──
+// Source (French, encoder) and target (English, decoder) — 4 semantic dims:
+// [animal, color, action, determiner]. Encoder states are treated as already
+// contextualized by the encoder's own self-attention stack (computed once).
+const encoderWords = ["Le", "chat", "noir", "dort", "paisiblement"];
+const decoderWords = ["The", "black", "cat", "sleeps", "peacefully"];
+
+const H_enc = [
+  [0.05, 0.02, 0.02, 0.85], // "Le"
+  [0.90, 0.08, 0.05, 0.05], // "chat"
+  [0.05, 0.88, 0.04, 0.02], // "noir"
+  [0.06, 0.04, 0.85, 0.03], // "dort"
+  [0.03, 0.15, 0.75, 0.02]  // "paisiblement"
+];
+const H_dec = [
+  [0.04, 0.02, 0.02, 0.82], // "The"
+  [0.04, 0.85, 0.05, 0.02], // "black"
+  [0.88, 0.06, 0.04, 0.03], // "cat"
+  [0.05, 0.04, 0.80, 0.03], // "sleeps"
+  [0.03, 0.12, 0.72, 0.02]  // "peacefully"
+];
+const W_Q = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]; // identity: query = decoder state as-is
+const W_K = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]; // identity: key = encoder state as-is
+const W_V = [
+  [0.60,0.15,0.15,0.10],
+  [0.15,0.60,0.15,0.10],
+  [0.15,0.15,0.60,0.10],
+  [0.10,0.10,0.10,0.70]
+];
+const d_k = 4;
+
+// ── MATRIX MATH HELPERS ──
+function matMul(A, B) {
+  let rA = A.length, cA = A[0].length, cB = B[0].length;
+  let out = Array(rA).fill(0).map(() => Array(cB).fill(0));
+  for (let i = 0; i < rA; i++) for (let j = 0; j < cB; j++) {
+    let sum = 0;
+    for (let k = 0; k < cA; k++) sum += A[i][k] * B[k][j];
+    out[i][j] = sum;
+  }
+  return out;
+}
+function vecMatMul(v, B) {
+  let cB = B[0].length, out = Array(cB).fill(0);
+  for (let j = 0; j < cB; j++) { let sum = 0; for (let k = 0; k < v.length; k++) sum += v[k]*B[k][j]; out[j] = sum; }
+  return out;
+}
+function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]*b[i]; return s; }
+function softmax(row) {
+  let max = Math.max(...row);
+  let exps = row.map(v => Math.exp(v - max));
+  let sum = exps.reduce((a,b) => a+b, 0);
+  return exps.map(v => v/sum);
+}
+
+// ── DYNAMIC STATE ──
+let scaleFactor = 2.0;
+let t = 1; // current decoder step (focus query)
+let step = 0;
+
+// Computed matrices (K, V computed once per encoder; q_t, s, a, c depend on t)
+let K, V, q_t, s, s_scaled, a, c;
+
+function computeAll() {
+  K = matMul(H_enc, W_K);          // (5,4) — computed once, cached across all decoding steps
+  V = matMul(H_enc, W_V);          // (5,4) — computed once, cached across all decoding steps
+  q_t = vecMatMul(H_dec[t], W_Q);  // (4,)  — fresh every decoder step
+  s = K.map(k => dot(q_t, k));     // (5,)  raw compatibility scores
+  s_scaled = s.map(v => v / scaleFactor);
+  a = softmax(s_scaled);           // (5,)  attention weights over SOURCE positions
+  c = [0,0,0,0];
+  for (let j = 0; j < V.length; j++) for (let d = 0; d < 4; d++) c[d] += a[j]*V[j][d];
+}
+
+// ── STEPS DEFINITION ──
+const steps = [
+  {
+    phase:'encoder', title:'Encoder Reads the Source Sentence',
+    desc:'The encoder runs self-attention over the French source "Le chat noir dort paisiblement," producing contextualized states \\(H_{enc} \\in \\mathbb{R}^{5\\times 4}\\) — one vector per source token. This happens exactly <strong>once</strong>, no matter how long the English translation turns out to be.',
+    codeLines:[2,3], matrixShow:['H_enc'], matrixOps:[], canvasMode:'encoder'
+  },
+  {
+    phase:'decoder', title:"Decoder Builds Its Query via Masked Self-Attention",
+    desc:'The decoder has generated target tokens up to the selected step. Masked (causal) self-attention over those target tokens produces the current hidden state \\(h_{dec,t}\\) — it can only see <em>previous</em> target words, never future ones. This state will become the cross-attention Query.',
+    codeLines:[5,6], matrixShow:['h_dec_t'], matrixOps:[], canvasMode:'decoder'
+  },
+  {
+    phase:'projection', title:'Project Decoder State → Query (Q)',
+    desc:'The decoder state is projected into query space: \\(q_t = h_{dec,t} W_Q\\). This is recomputed fresh at <strong>every</strong> decoding step — it represents "what information does the model need right now to pick the next word?"',
+    codeLines:[9,17,18], matrixShow:['h_dec_t','W_Q','q_t'], matrixOps:['×','='], canvasMode:'proj-q'
+  },
+  {
+    phase:'projection', title:'Project Encoder States → Keys (K)',
+    desc:'All five encoder states are projected into key space at once: \\(K = H_{enc} W_K\\). Because \\(H_{enc}\\) never changes during decoding, \\(K\\) is computed <strong>once</strong> and reused for every single decoder step — a major efficiency win over recomputing it per token.',
+    codeLines:[10,13,14], matrixShow:['H_enc','W_K','K'], matrixOps:['×','='], canvasMode:'proj-k'
+  },
+  {
+    phase:'projection', title:'Project Encoder States → Values (V)',
+    desc:'Likewise, \\(V = H_{enc} W_V\\) is computed once and cached. \\(K\\) tells the query "how relevant am I," while \\(V\\) carries the actual content that gets pulled in once relevance is decided.',
+    codeLines:[11,13,15], matrixShow:['H_enc','W_V','V'], matrixOps:['×','='], canvasMode:'proj-v'
+  },
+  {
+    phase:'attention', title:'Compatibility Scores (s = qₜ Kᵀ)',
+    desc:'The decoder query is dot-producted against <strong>every</strong> encoder key: \\(s = q_t K^\\top \\in \\mathbb{R}^5\\). Each entry measures how relevant one source token is to the word currently being generated. Change the decoder step above and watch which source word lights up.',
+    codeLines:[19], matrixShow:['q_t','K','s'], matrixOps:['·Kᵀ','='], canvasMode:'scores'
+  },
+  {
+    phase:'attention', title:'Scale by √d_k',
+    desc:'Scores are divided by the scale factor (currently <strong id="desc-scale-val">2.00</strong>, \\(=\\sqrt{d_k}\\) by default). This keeps the variance of dot products near 1 so softmax doesn\'t saturate — identical reasoning to self-attention, since it only depends on the projection dimension \\(d_k\\).',
+    codeLines:[20], matrixShow:['s','s_scaled'], matrixOps:['÷√d_k'], canvasMode:'scores-scaled'
+  },
+  {
+    phase:'attention', title:'Softmax → Cross-Attention Weights',
+    desc:'Softmax turns the scaled scores into a probability distribution \\(a_t\\) over the <strong>5 source positions</strong> — this row sums to 1.0 and is exactly one row of the full \\(N\\times M\\) cross-attention map. Try every decoder step: "black" peaks on "noir," "cat" peaks on "chat" — a non-diagonal, learned alignment.',
+    codeLines:[21,22], matrixShow:['s_scaled','a'], matrixOps:['softmax'], canvasMode:'weights'
+  },
+  {
+    phase:'output', title:'Weighted Sum of Values → Context Vector',
+    desc:'The attention weights combine the encoder Values into a single context vector: \\(c_t = a_t V \\in \\mathbb{R}^4\\). This vector is a soft, weighted blend of source content, dominated by whichever source token(s) scored highest.',
+    codeLines:[23], matrixShow:['a','V','c'], matrixOps:['×','='], canvasMode:'context'
+  },
+  {
+    phase:'output', title:'Fuse &amp; Predict the Next Token',
+    desc:'The context vector is added back to the decoder state (residual connection): \\(h_{dec,t} + c_t\\), then normalized and fed through a feed-forward block and final output projection to produce logits over the vocabulary for the next word. Cross-attention has now linked this generation step directly back to the source.',
+    codeLines:[24,28,29], matrixShow:['c','h_dec_t'], matrixOps:['+'], canvasMode:'fuse'
+  }
+];
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+function updateParams() {
+  scaleFactor = parseFloat(document.getElementById('scaleSlider').value);
+  document.getElementById('scaleVal').textContent = scaleFactor.toFixed(2);
+  t = parseInt(document.getElementById('stepSelector').value);
+  computeAll();
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s_ = steps[step];
+
+  const descScaleEl = document.getElementById('desc-scale-val');
+  if (descScaleEl) descScaleEl.textContent = scaleFactor.toFixed(2);
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {encoder:'phase-encoder', decoder:'phase-decoder', projection:'phase-projection', attention:'phase-attention', output:'phase-output'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s_.phase];
+  document.getElementById('infoPhase').textContent = s_.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps} — decoder t=${t} ("${decoderWords[t]}")`;
+  document.getElementById('infoTitle').innerHTML = s_.title;
+  document.getElementById('infoDesc').innerHTML = s_.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s_.codeLines||[]).forEach(i => { const el = document.getElementById('cl'+i); if (el) el.classList.add('active'); });
+
+  renderMatrices(s_.matrixShow || [], s_.matrixOps || []);
+  drawCanvas(s_.canvasMode);
+  updateDots();
+}
+
+// ── MATRIX RENDERING ──
+function renderMatrices(which, ops) {
+  const container = document.getElementById('matrixViz');
+  if (!which.length) { container.innerHTML = ''; return; }
+  let html = '<div class="matrix-row">';
+  which.forEach((name, idx) => {
+    if (idx > 0) html += `<div class="op-symbol">${ops[idx-1] || '×'}</div>`;
+    html += renderOneMatrix(name);
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderOneMatrix(name) {
+  const data = {
+    'H_enc': {label:'H_enc (source, ×1)', rows:H_enc, cls:'highlight'},
+    'h_dec_t': {label:`h_dec_t ("${decoderWords[t]}")`, rows:[H_dec[t]], cls:'highlight'},
+    'W_Q': {label:'W_Q', rows:W_Q, cls:'query'},
+    'q_t': {label:'q_t (Query)', rows:[q_t], cls:'query'},
+    'W_K': {label:'W_K', rows:W_K, cls:'key'},
+    'K': {label:'K (cached)', rows:K, cls:'key'},
+    'W_V': {label:'W_V', rows:W_V, cls:'value'},
+    'V': {label:'V (cached)', rows:V, cls:'value'},
+    's': {label:'s (raw scores)', rows:[s], cls:'highlight'},
+    's_scaled': {label:'s_scaled', rows:[s_scaled], cls:'highlight'},
+    'a': {label:'a (attention wts)', rows:[a], cls:'result'},
+    'c': {label:'c_t (context)', rows:[c], cls:'result'}
+  };
+  const m = data[name];
+  if (!m) return '';
+  const rows = m.rows;
+  const cols = rows[0].length;
+  let html = `<div class="matrix-container"><div class="matrix-label">${m.label}</div><div class="matrix-display" style="grid-template-columns:repeat(${cols},1fr)">`;
+  rows.forEach(row => {
+    row.forEach(v => { html += `<div class="matrix-cell ${m.cls}">${v.toFixed(2)}</div>`; });
+  });
+  html += '</div></div>';
+  return html;
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const leftX = W * 0.18, midX = W * 0.5, rightX = W * 0.82;
+  const rowY = [H*0.14, H*0.335, H*0.53, H*0.725, H*0.92];
+
+  function drawNodes(x, title, color, wordsArr, isRight, activeSet) {
+    ctx.fillStyle = text2;
+    ctx.font = 'bold 11px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, x, 12);
+    wordsArr.forEach((w, i) => {
+      const cy = rowY[i];
+      const active = activeSet === null || activeSet.has(i);
+      ctx.beginPath();
+      ctx.arc(x, cy, 13, 0, Math.PI*2);
+      ctx.fillStyle = active ? color : text3;
+      ctx.globalAlpha = active ? 1 : 0.35;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = textC;
+      ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.textAlign = isRight ? 'left' : 'right';
+      ctx.fillText(w, isRight ? x + 20 : x - 20, cy + 4);
+      ctx.textAlign = 'center';
+    });
+  }
+
+  if (mode === 'encoder') {
+    drawNodes(midX, 'ENCODER SELF-ATTENTION → H_enc (computed once)', blueMid, encoderWords, false, null);
+    // decorative self-attention connections among encoder tokens
+    for (let i = 0; i < encoderWords.length; i++) {
+      for (let j = 0; j < encoderWords.length; j++) {
+        if (i === j) continue;
+        ctx.strokeStyle = blueMid; ctx.globalAlpha = 0.12; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(midX - 60, rowY[i]);
+        ctx.bezierCurveTo(midX-120, (rowY[i]+rowY[j])/2, midX-120, (rowY[i]+rowY[j])/2, midX-60, rowY[j]);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  else if (mode === 'decoder') {
+    const activeSet = new Set(); for (let i = 0; i <= t; i++) activeSet.add(i);
+    drawNodes(midX, `DECODER MASKED SELF-ATTENTION (causal, up to t=${t})`, purpleMid, decoderWords, false, activeSet);
+    for (let i = 0; i <= t; i++) {
+      for (let j = 0; j <= i; j++) {
+        if (i === j) continue;
+        ctx.strokeStyle = purpleMid; ctx.globalAlpha = 0.25; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(midX - 60, rowY[i]);
+        ctx.bezierCurveTo(midX-110, (rowY[i]+rowY[j])/2, midX-110, (rowY[i]+rowY[j])/2, midX-60, rowY[j]);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = amberMid; ctx.font = '11px "JetBrains Mono"'; ctx.textAlign='center';
+    ctx.fillText('(future tokens masked — dimmed)', midX, H-6);
+  }
+
+  else if (mode.startsWith('proj-')) {
+    const kind = mode.split('-')[1];
+    const color = kind==='q' ? purpleMid : (kind==='k' ? cyanMid : amberMid);
+    if (kind === 'q') {
+      drawNodes(leftX, 'DECODER STATE', purpleMid, decoderWords, false, new Set([t]));
+      drawNodes(rightX, 'QUERY q_t', color, [decoderWords[t]], true, null);
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.moveTo(leftX+15, rowY[t]); ctx.lineTo(rightX-15, rowY[0]); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(midX, (rowY[t]+rowY[0])/2, 11, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.font = '10px "DM Sans"'; ctx.textAlign='center';
+      ctx.fillText('W_Q', midX, (rowY[t]+rowY[0])/2 + 3);
+    } else {
+      const label = kind==='k' ? 'KEYS K' : 'VALUES V';
+      drawNodes(leftX, 'ENCODER STATES', blueMid, encoderWords, false, null);
+      drawNodes(rightX, label + ' (cached)', color, encoderWords, true, null);
+      encoderWords.forEach((w,i) => {
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.globalAlpha = 0.7;
+        ctx.beginPath(); ctx.moveTo(leftX+15, rowY[i]); ctx.lineTo(rightX-15, rowY[i]); ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(midX, rowY[i], 9, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'white'; ctx.font = '9px "DM Sans"'; ctx.textAlign='center';
+        ctx.fillText(kind==='k'?'W_K':'W_V', midX, rowY[i]+3);
+      });
+    }
+  }
+
+  else if (mode === 'scores' || mode === 'scores-scaled') {
+    drawNodes(leftX, `QUERY (t=${t}, "${decoderWords[t]}")`, purpleMid, [decoderWords[t]], false, null);
+    drawNodes(rightX, 'ENCODER KEYS (source)', cyanMid, encoderWords, true, null);
+    const vals = mode === 'scores' ? s : s_scaled;
+    const maxAbs = Math.max(...vals.map(Math.abs), 0.01);
+    encoderWords.forEach((w,j) => {
+      const val = vals[j];
+      const strength = Math.abs(val) / maxAbs;
+      ctx.strokeStyle = purpleMid; ctx.globalAlpha = 0.25 + strength*0.55; ctx.lineWidth = 1 + strength*4;
+      ctx.beginPath(); ctx.moveTo(leftX+15, rowY[0]); ctx.lineTo(rightX-15, rowY[j]); ctx.stroke();
+      ctx.globalAlpha = 1;
+      const midY = (rowY[0]+rowY[j])/2;
+      ctx.fillStyle = bg2; ctx.fillRect(midX-22, midY-9, 44, 18);
+      ctx.strokeStyle = borderC; ctx.strokeRect(midX-22, midY-9, 44, 18);
+      ctx.fillStyle = textC; ctx.font = '10px "JetBrains Mono"'; ctx.textAlign='center';
+      ctx.fillText(val.toFixed(2), midX, midY+4);
+    });
+  }
+
+  else if (mode === 'weights') {
+    drawNodes(leftX, `QUERY (t=${t}, "${decoderWords[t]}")`, purpleMid, [decoderWords[t]], false, null);
+    drawNodes(rightX, 'ENCODER KEYS (source)', cyanMid, encoderWords, true, null);
+    const maxW = Math.max(...a);
+    encoderWords.forEach((w,j) => {
+      const weight = a[j];
+      ctx.strokeStyle = greenMid; ctx.lineWidth = 1 + weight*14; ctx.globalAlpha = 0.15 + weight*0.85;
+      ctx.beginPath(); ctx.moveTo(leftX+15, rowY[0]); ctx.lineTo(rightX-15, rowY[j]); ctx.stroke();
+      ctx.globalAlpha = 1;
+      const midY = (rowY[0]+rowY[j])/2;
+      const bx = leftX + (rightX-leftX)*0.62;
+      ctx.fillStyle = weight === maxW ? greenMid : text3;
+      ctx.beginPath(); ctx.arc(bx, midY, 13, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.font = 'bold 10px "JetBrains Mono"'; ctx.textAlign='center';
+      ctx.fillText(weight.toFixed(2), bx, midY+3);
+    });
+  }
+
+  else if (mode === 'context') {
+    drawNodes(leftX, 'VALUES V (weighted by aₜ)', amberMid, encoderWords, false, null);
+    drawNodes(rightX, 'CONTEXT c_t', greenMid, ['c_t'], true, null);
+    encoderWords.forEach((w,j) => {
+      const weight = a[j];
+      ctx.strokeStyle = greenMid; ctx.lineWidth = 1 + weight*10; ctx.globalAlpha = 0.15 + weight*0.8;
+      ctx.beginPath(); ctx.moveTo(leftX+15, rowY[j]); ctx.lineTo(rightX-15, rowY[0]); ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = textC; ctx.font = '11px "JetBrains Mono"'; ctx.textAlign='center';
+    ctx.fillText(`[${c.map(v=>v.toFixed(2)).join(', ')}]`, midX, rowY[0]-16);
+  }
+
+  else if (mode === 'fuse') {
+    drawNodes(leftX, `h_dec_t + c_t ("${decoderWords[t]}")`, purpleMid, [decoderWords[t]], false, null);
+    drawNodes(rightX, 'NEXT-TOKEN LOGITS', greenMid, [t < decoderWords.length-1 ? decoderWords[t+1]+' ?' : '(end)'], true, null);
+    ctx.strokeStyle = greenMid; ctx.lineWidth = 3; ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.moveTo(leftX+15, rowY[0]); ctx.lineTo(rightX-15, rowY[0]); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = greenMid; ctx.beginPath(); ctx.arc(midX, rowY[0], 11, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'white'; ctx.font = '9px "DM Sans"'; ctx.textAlign='center';
+    ctx.fillText('FFN', midX, rowY[0]+3);
+    ctx.fillStyle = textC; ctx.font = '11px "JetBrains Mono"'; ctx.textAlign='center';
+    ctx.fillText(`fused = [${c.map((v,i)=>(H_dec[t][i]+v).toFixed(2)).join(', ')}]`, midX, rowY[0]+30);
+  }
+}
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+computeAll();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forward Pass & Computational Graph Construction — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Graph visualization */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.graph-wrap{position:relative;width:100%;background:var(--bg2);border-radius:var(--radius);overflow:hidden;}
+.graph-wrap svg{width:100%;height:auto;display:block;}
+.gnode-circle{fill:var(--surface);stroke:var(--border2);stroke-width:2.5;transition:all 0.4s ease;}
+.gnode-circle.active{stroke:var(--blue-mid);fill:var(--blue-bg);filter:drop-shadow(0 0 6px rgba(24,95,165,0.3));}
+.gnode-circle.done{stroke:var(--green-mid);fill:var(--green-bg);}
+.gnode-circle.output{stroke-width:3.5;}
+.gnode-rect{fill:var(--surface);stroke:var(--border2);stroke-width:2.5;transition:all 0.4s ease;}
+.gnode-rect.active{stroke:var(--purple-mid);fill:var(--purple-bg);filter:drop-shadow(0 0 6px rgba(83,74,183,0.35));}
+.gnode-rect.done{stroke:var(--green-mid);fill:var(--green-bg);}
+.gnode-label{font-family:var(--sans);font-weight:700;font-size:15px;fill:var(--text);text-anchor:middle;dominant-baseline:middle;}
+.gnode-value{font-family:var(--mono);font-weight:600;font-size:11px;text-anchor:middle;dominant-baseline:middle;fill:var(--text2);opacity:0;transition:opacity 0.4s ease;}
+.gnode-value.shown{opacity:1;}
+.gedge{stroke:var(--border2);stroke-width:2;fill:none;transition:all 0.4s ease;marker-end:url(#arrow-inactive);}
+.gedge.active{stroke:var(--blue-mid);stroke-width:2.5;marker-end:url(#arrow-active);}
+.gedge.done{stroke:var(--green-mid);stroke-width:2.5;marker-end:url(#arrow-done);}
+.gedge.pending{stroke-dasharray:4 4;opacity:0.35;}
+
+/* topo order strip */
+.topo-strip{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.topo-chip{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;background:var(--bg2);color:var(--text3);border:1.5px solid var(--border2);transition:all 0.3s ease;}
+.topo-chip.active{background:var(--purple-bg);color:var(--purple-mid);border-color:var(--purple-border);}
+.topo-chip.done{background:var(--green-bg);color:var(--green-mid);border-color:var(--green-border);}
+
+/* cache table */
+.cache-table{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:1rem 0;font-family:var(--mono);font-size:13px;}
+.cache-cell{background:var(--bg2);border-radius:var(--radius);padding:8px 14px;text-align:center;min-width:60px;border:1.5px solid transparent;transition:all 0.3s ease;}
+.cache-cell .k{color:var(--text3);font-size:11px;}
+.cache-cell .v{font-weight:700;color:var(--text2);}
+.cache-cell.shown{border-color:var(--green-border);background:var(--green-bg);}
+.cache-cell.shown .v{color:var(--green-mid);}
+
+/* static vs dynamic comparison */
+.sd-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:1rem 0;}
+.sd-panel{border-radius:var(--radius);padding:14px;border:1.5px solid var(--border2);background:var(--bg2);transition:all 0.3s ease;}
+.sd-panel.highlight{border-color:var(--purple-border);background:var(--purple-bg);}
+.sd-panel h5{font-size:13px;font-weight:700;margin-bottom:6px;}
+.sd-panel p{font-size:12px;color:var(--text2);margin:0;}
+@media(max-width:640px){.sd-grid{grid-template-columns:1fr;}}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-build{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-forward{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Forward Pass & Computational Graph Construction</h1>
+  <div class="subtitle">How a framework builds a DAG of operations while computing your output — and caches every intermediate for backprop</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Automatic Differentiation</span>
+    <span class="tag tag-complexity">O(V+E) forward</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Computational Graph</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> When code computes an output, it chains together small operations — add, multiply, matmul, ReLU. The <strong>forward pass</strong> is running those operations. As it runs, the framework silently records a <strong>computational graph</strong>: nodes are operations (or input tensors), edges are the tensors flowing between them.</p>
+    <p><strong>Analogy:</strong> An assembly line. Each station (node) takes parts from earlier stations (edges) and performs one operation, then passes its output further down the line. The blueprint of "which station feeds which" is the graph. Running the belt once is the forward pass — and a good factory manager logs what every station produced, because quality control (backprop) will later walk back down the line and inspect exactly those numbers.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The forward pass doesn't just compute an output — it builds a DAG of every operation performed and <strong>caches</strong> every intermediate tensor, because backprop later needs to replay that exact graph in reverse using those cached values.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How it works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Graph Construction, One Op at a Time</h4>
+    <p>Consider <code>q = x + y</code> then <code>f = q * z</code>. In a dynamic ("define-by-run") framework like PyTorch, <code>x + y</code> calls the <code>Add</code> primitive's forward routine, which computes the sum, allocates a new node <code>q</code>, sets <code>q.grad_fn = AddBackward</code> pointing back at <code>(x, y)</code>, and marks <code>q</code> as requiring grad. This graph construction happens as ordinary Python executes — one statement, one node.</p>
+    <h4>Caching: the Non-Obvious Part</h4>
+    <p><code>Mul</code>'s backward formula needs <em>both</em> operands (\(\partial(qz)/\partial q = z\), \(\partial(qz)/\partial z = q\)), so its forward call caches <code>q</code> and <code>z</code> right there. This is why the forward pass exists as more than "just compute the number" — every op stashes exactly what its own local derivative will need later.</p>
+    <h4>Topological Order for Free</h4>
+    <p>In a dynamic graph, a node can only be built after its parents' Python statements have returned — program order <em>is already</em> a valid topological order, no explicit sort needed. Static-graph frameworks (graph described declaratively before running) DO need an explicit topological sort (Kahn's algorithm) before execution.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">A node is safe to evaluate exactly when all of its parents are done. This is precisely what topological order guarantees — and exactly why the graph must be acyclic: a cycle would leave no valid evaluation order.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: Why it works / the math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Formalizing the Forward Pass</h4>
+    <p>For a node \(v\) with parents \(\operatorname{pa}(v)\) in graph \(G\):</p>
+    <div class="eq">$$x_v = \operatorname{op}_v\big(\{x_u : u \in \operatorname{pa}(v)\}\big), \quad \text{evaluated in any topological order of } G$$</div>
+    <p>A topological order always exists because \(G\) is a finite DAG: Kahn's algorithm repeatedly removes a node with in-degree 0; if it ever got stuck, every remaining node would have in-degree \(\geq 1\), which forces a cycle — contradicting acyclicity.</p>
+    <h4>Why the Cache Matters</h4>
+    <p>Reverse-mode AD (backprop) accumulates gradients via the chain rule, using cached forward values to evaluate each local Jacobian:</p>
+    <div class="eq">$$\bar{x}_u = \sum_{v\,:\,u \in \operatorname{pa}(v)} \bar{x}_v \cdot J_{v,u}\big(x_u^{\text{cached}}\big)$$</div>
+    <p>Without the cache, evaluating \(J_{v,u}\) would require recomputing \(x_u\) — and everything upstream of it — all over again.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"The graph IS the network's layers." Not quite — the graph is a trace of <em>primitive</em> tensor ops, far more fine-grained. A single <code>nn.Linear</code> call expands into matmul + add nodes, each cached separately.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Walkthrough -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through building &amp; evaluating the graph for \( f(x,y,z) = (x+y)\cdot z \).</p>
+
+    <div class="viz-container">
+      <div class="graph-wrap">
+        <svg id="graphSvg" viewBox="0 0 640 340" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-inactive" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--border2)"/></marker>
+            <marker id="arrow-active" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--blue-mid)"/></marker>
+            <marker id="arrow-done" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--green-mid)"/></marker>
+          </defs>
+          <g id="edgesLayer"></g>
+          <g id="nodesLayer"></g>
+        </svg>
+      </div>
+
+      <div class="topo-strip" id="topoStrip"></div>
+      <div class="cache-table" id="cacheTable"></div>
+      <div class="sd-grid" id="sdGrid" style="display:none;">
+        <div class="sd-panel" id="sdStatic">
+          <h5 style="color:var(--blue-mid);">📐 Static (define-and-run)</h5>
+          <p>The full graph is described symbolically <em>before</em> any data flows — like TensorFlow 1.x's <code>Session.run()</code>. It's compiled &amp; optimized once (fused ops, memory planning), then executed repeatedly. Needs an explicit topological sort. Data-dependent control flow needs special ops (<code>tf.cond</code>).</p>
+        </div>
+        <div class="sd-panel" id="sdDynamic">
+          <h5 style="color:var(--purple-mid);">⚡ Dynamic (define-by-run)</h5>
+          <p>The graph is built <em>as</em> the code executes — like PyTorch autograd. Every forward call constructs a fresh graph from scratch. Topological order = program order, for free. Native Python <code>if</code>/<code>for</code> just works. JIT tracers (torch.compile) can still fuse it into a fast static graph afterward.</p>
+        </div>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Expression & Its Graph</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--surface);border:2px solid var(--border2)"></div> Not yet evaluated</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Currently computing</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Cached / done</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Operation node</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Static vs Dynamic, in one line:</strong> static graphs are <em>built once, run many times</em> (compile then execute); dynamic graphs are <em>built fresh every forward call</em> as the ops actually run (trace as you go).</p>
+    <p><strong>When it matters most:</strong></p>
+    <ul>
+      <li>Debugging a new architecture → dynamic graphs give real Python stack traces</li>
+      <li>Production throughput on a stable architecture → trace once (torch.compile / tf.function / jax.jit) to get static-graph-level speed</li>
+      <li>Very deep graphs → caching every intermediate costs O(depth) memory; gradient checkpointing trades that cache back for compute</li>
+      <li>Shared nodes (used by two branches) → cached once, but gradients from every consumer are <em>summed</em> during backward</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The One Invariant</div>
+      <p style="font-size:14px;margin:0;">Forward pass = build the DAG + evaluate it in topological order + cache what backward will need. Everything else (static vs dynamic, checkpointing, fusion) is an engineering trade-off layered on top of that one invariant.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">x, y, z = Node(-2.0), Node(5.0), Node(-4.0)</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># q = x + y  -->  builds AddBackward node, edges x->q, y->q</div>
+      <div class="code-line" id="cl3">q = x + y</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># f = q * z  -->  builds MulBackward node, CACHES q.value & z.value</div>
+      <div class="code-line" id="cl6">f = q * z</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">order = topological_order(f)</div>
+      <div class="code-line" id="cl9">print([n.op or 'leaf' for n in order])</div>
+      <div class="code-line" id="cl10"># -> ['leaf', 'leaf', 'leaf', 'add', 'mul']</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">print('f =', f.value)   # f = -12.0</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># backward reuses the CACHE -- no recomputation</div>
+      <div class="code-line" id="cl15">f.grad = 1.0</div>
+      <div class="code-line" id="cl16">for node in reversed(order): node._backward()</div>
+      <div class="code-line" id="cl17">print(x.grad, y.grad, z.grad)   # -4.0 -4.0 3.0</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el){
+  const body = el.nextElementSibling;
+  const t = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  t.classList.toggle('open');
+}
+
+// ── GRAPH DATA: f(x,y,z) = (x+y) * z ──
+const NODES = {
+  x: {type:'leaf', cx:90,  cy:270, label:'x', value:-2, key:'x'},
+  y: {type:'leaf', cx:90,  cy:170, label:'y', value:5,  key:'y'},
+  z: {type:'leaf', cx:90,  cy:70,  label:'z', value:-4, key:'z'},
+  q: {type:'op',   cx:330, cy:220, label:'+', sub:'q = x+y', value:3,   key:'q'},
+  f: {type:'op',   cx:540, cy:140, label:'×', sub:'f = q·z', value:-12, key:'f', output:true}
+};
+const EDGES = [
+  {id:'x-q', from:'x', to:'q'},
+  {id:'y-q', from:'y', to:'q'},
+  {id:'q-f', from:'q', to:'f'},
+  {id:'z-f', from:'z', to:'f'}
+];
+const TOPO = ['x','y','z','q','f'];
+
+// ── STEPS ──
+const steps = [
+  {
+    phase:'setup', title:'The Expression & Its Graph',
+    desc:'We want to evaluate \\(f(x,y,z) = (x+y)\\cdot z\\). Instead of computing this as one opaque formula, the framework represents it as a <strong>DAG</strong>: leaves \\(x,y,z\\) (input tensors) and operation nodes \\(q=x{+}y\\), \\(f=q\\cdot z\\) (edges = tensors flowing between them). Nothing has a value yet — this is the graph\\'s <em>structure</em>.',
+    codeLines:[0], activeNodes:[], doneNodes:[], activeEdges:[], doneEdges:[], cacheShown:[], topoShown:[], showSD:false
+  },
+  {
+    phase:'build', title:'Dynamic Graph Construction (Define-by-Run)',
+    desc:'In an eager framework like PyTorch, <code>q = x + y</code> runs <em>right now</em> — it allocates node \\(q\\), records edges \\(x\\to q\\) and \\(y\\to q\\), and sets \\(q\\).grad_fn = AddBackward. The rest of the graph (\\(q\\to f\\), \\(z\\to f\\)) doesn\\'t exist yet — it\\'s built by the <em>next</em> line of code, not upfront.',
+    codeLines:[3], activeNodes:['q'], doneNodes:[], activeEdges:['x-q','y-q'], doneEdges:[], cacheShown:[], topoShown:[], showSD:false, pendingEdges:['q-f','z-f']
+  },
+  {
+    phase:'build', title:'Topological Order Falls Out for Free',
+    desc:'A valid evaluation order just needs every parent before its children: \\(x, y, z\\) (in-degree 0) can go first, in any order; \\(q\\) only after \\(x,y\\); \\(f\\) only after \\(q,z\\). In a dynamic graph this order IS the order the Python statements ran in — no separate sort algorithm needed.',
+    codeLines:[3,6], activeNodes:[], doneNodes:[], activeEdges:['x-q','y-q','q-f','z-f'], doneEdges:[], cacheShown:[], topoShown:['x','y','z'], showSD:false
+  },
+  {
+    phase:'forward', title:'Evaluate the Leaves',
+    desc:'The forward pass begins: leaves already hold their values, so they\\'re immediately "done" and cached. \\(x=-2,\\ y=5,\\ z=-4\\). Nothing to compute here — but the cache still records them because \\(q\\)\\'s and \\(f\\)\\'s local derivatives will need them.',
+    codeLines:[0], activeNodes:[], doneNodes:['x','y','z'], activeEdges:[], doneEdges:[], cacheShown:['x','y','z'], topoShown:['x','y','z'], showSD:false
+  },
+  {
+    phase:'forward', title:'Compute q = x + y',
+    desc:'Now that both parents \\(x,y\\) are done, \\(q\\) can be evaluated: \\(q = -2 + 5 = 3\\). The result is cached as \\(q\\)\\'s forward value. Local derivatives here are trivial (\\(\\partial q/\\partial x=1,\\ \\partial q/\\partial y=1\\)), so nothing extra needs caching beyond \\(q\\) itself.',
+    codeLines:[3], activeNodes:['q'], doneNodes:['x','y','z'], activeEdges:['x-q','y-q'], doneEdges:[], cacheShown:['x','y','z'], topoShown:['x','y','z','q'], showSD:false
+  },
+  {
+    phase:'forward', title:'Compute f = q · z (Cache Reused)',
+    desc:'Both parents of \\(f\\) — \\(q=3\\) and \\(z=-4\\) — are now cached. \\(f = 3\\times(-4) = -12\\). Crucially, <code>Mul</code>\\'s backward formula needs \\(\\partial f/\\partial q = z\\) and \\(\\partial f/\\partial z = q\\) — so \\(q\\) and \\(z\\) must both be cached, not just \\(f\\)\\'s output. This is exactly the caching the backward pass will lean on.',
+    codeLines:[6], activeNodes:['f'], doneNodes:['x','y','z','q'], activeEdges:['q-f','z-f'], doneEdges:['x-q','y-q'], cacheShown:['x','y','z','q'], topoShown:['x','y','z','q'], showSD:false
+  },
+  {
+    phase:'result', title:'The Full Cache, Ready for Backward',
+    desc:'Forward pass complete: \\(f=-12\\). The cache now holds every intermediate value the graph produced: \\(\\{x{:}-2, y{:}5, z{:}-4, q{:}3, f{:}-12\\}\\). Backward will walk \\(f \\to q,z \\to x,y\\) — the <em>reverse</em> topological order — reading straight from this cache with zero recomputation.',
+    codeLines:[8,9,10,12], activeNodes:[], doneNodes:['x','y','z','q','f'], activeEdges:[], doneEdges:['x-q','y-q','q-f','z-f'], cacheShown:['x','y','z','q','f'], topoShown:['x','y','z','q','f'], showSD:false
+  },
+  {
+    phase:'result', title:'Static vs Dynamic Graph Construction',
+    desc:'What we just watched — building nodes as code executes — is the <strong>dynamic</strong> (define-by-run) style. The alternative, <strong>static</strong> graphs, describe the whole DAG symbolically first, then compile &amp; run it many times. Same DAG, same caching principle — different <em>when</em> the graph gets built.',
+    codeLines:[], activeNodes:[], doneNodes:['x','y','z','q','f'], activeEdges:[], doneEdges:['x-q','y-q','q-f','z-f'], cacheShown:['x','y','z','q','f'], topoShown:['x','y','z','q','f'], showSD:true
+  },
+  {
+    phase:'result', title:'Why the Cache Is the Whole Point',
+    desc:'Reverse-mode AD (backprop) can compute gradients for <em>every</em> input in roughly the cost of one extra forward pass — but only because it reuses this cache instead of recomputing. That efficiency guarantee is precisely why deep learning frameworks build &amp; cache this graph on every single forward call.',
+    codeLines:[14,15,16,17], activeNodes:[], doneNodes:['x','y','z','q','f'], activeEdges:[], doneEdges:['x-q','y-q','q-f','z-f'], cacheShown:['x','y','z','q','f'], topoShown:['x','y','z','q','f'], showSD:false
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── BUILD GRAPH STRUCTURE (once) ──
+function buildGraphStructure(){
+  const edgesLayer = document.getElementById('edgesLayer');
+  const nodesLayer = document.getElementById('nodesLayer');
+  let edgeHtml = '';
+  EDGES.forEach(e => {
+    const a = NODES[e.from], b = NODES[e.to];
+    const {x1,y1,x2,y2} = trimLine(a,b);
+    edgeHtml += `<line id="edge-${e.id}" class="gedge pending" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  });
+  edgesLayer.innerHTML = edgeHtml;
+
+  let nodeHtml = '';
+  Object.values(NODES).forEach(n => {
+    if (n.type === 'leaf') {
+      nodeHtml += `<circle id="node-${n.key}" class="gnode-circle" cx="${n.cx}" cy="${n.cy}" r="30"/>`;
+      nodeHtml += `<text class="gnode-label" x="${n.cx}" y="${n.cy}">${n.label}</text>`;
+      nodeHtml += `<text id="val-${n.key}" class="gnode-value" x="${n.cx}" y="${n.cy+46}">${n.value}</text>`;
+    } else {
+      const w=76,h=54, rx=n.cx-w/2, ry=n.cy-h/2;
+      nodeHtml += `<rect id="node-${n.key}" class="gnode-rect${n.output?' output':''}" x="${rx}" y="${ry}" width="${w}" height="${h}" rx="14"/>`;
+      nodeHtml += `<text class="gnode-label" x="${n.cx}" y="${n.cy-6}">${n.label}</text>`;
+      nodeHtml += `<text class="gnode-value" style="opacity:1;font-size:9px;" x="${n.cx}" y="${n.cy+14}">${n.sub}</text>`;
+      nodeHtml += `<text id="val-${n.key}" class="gnode-value" x="${n.cx}" y="${n.cy+40}">= ${n.value}</text>`;
+    }
+  });
+  nodesLayer.innerHTML = nodeHtml;
+}
+
+function trimLine(a,b){
+  const dx = b.cx-a.cx, dy = b.cy-a.cy;
+  const dist = Math.sqrt(dx*dx+dy*dy);
+  const ra = a.type==='leaf' ? 32 : 42;
+  const rb = b.type==='leaf' ? 32 : 42;
+  const ux = dx/dist, uy = dy/dist;
+  return {x1:a.cx+ux*ra, y1:a.cy+uy*ra, x2:b.cx-ux*rb, y2:b.cy-uy*rb};
+}
+
+// ── INIT DOTS ──
+function initDots(){
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i=0;i<totalSteps;i++){
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.className = 'dot';
+    if (i<step) d.classList.add('done');
+    if (i===step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir){
+  const next = step+dir;
+  if (next<0 || next>=totalSteps) return;
+  step = next; render();
+}
+function goTo(i){ step=i; render(); }
+function reset(){ step=0; render(); }
+
+// ── RENDER ──
+function render(){
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step===0;
+  document.getElementById('btnNext').disabled = step===totalSteps-1;
+
+  const phaseMap = {setup:'phase-setup', build:'phase-build', forward:'phase-forward', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+
+  // code highlight
+  document.querySelectorAll('.code-line').forEach(cl=>cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i=>{ const el=document.getElementById('cl'+i); if(el) el.classList.add('active'); });
+
+  // graph vs static/dynamic panel toggle
+  document.querySelector('.graph-wrap').style.display = s.showSD ? 'none' : 'block';
+  document.getElementById('topoStrip').style.display = s.showSD ? 'none' : 'flex';
+  document.getElementById('cacheTable').style.display = s.showSD ? 'none' : 'flex';
+  document.getElementById('sdGrid').style.display = s.showSD ? 'grid' : 'none';
+  if (s.showSD) {
+    document.getElementById('sdDynamic').classList.add('highlight');
+    document.getElementById('sdStatic').classList.remove('highlight');
+  }
+
+  // nodes
+  Object.keys(NODES).forEach(k=>{
+    const el = document.getElementById('node-'+k);
+    el.classList.remove('active','done');
+    if ((s.doneNodes||[]).includes(k)) el.classList.add('done');
+    else if ((s.activeNodes||[]).includes(k)) el.classList.add('active');
+    const valEl = document.getElementById('val-'+k);
+    if ((s.cacheShown||[]).includes(k)) valEl.classList.add('shown'); else valEl.classList.remove('shown');
+  });
+
+  // edges
+  EDGES.forEach(e=>{
+    const el = document.getElementById('edge-'+e.id);
+    el.classList.remove('active','done','pending');
+    if ((s.doneEdges||[]).includes(e.id)) el.classList.add('done');
+    else if ((s.activeEdges||[]).includes(e.id)) el.classList.add('active');
+    else el.classList.add('pending');
+  });
+
+  // topo strip
+  const topoWrap = document.getElementById('topoStrip');
+  topoWrap.innerHTML = TOPO.map(k=>{
+    let cls = 'topo-chip';
+    const shown = s.topoShown||[];
+    if (shown.includes(k)) {
+      const idx = shown.indexOf(k);
+      cls += (idx === shown.length-1 && (s.phase==='build'||s.phase==='forward') ) ? ' active' : ' done';
+    }
+    return `<div class="${cls}">${k}</div>`;
+  }).join('');
+
+  // cache table
+  const cacheWrap = document.getElementById('cacheTable');
+  cacheWrap.innerHTML = TOPO.map(k=>{
+    const shown = (s.cacheShown||[]).includes(k);
+    return `<div class="cache-cell${shown?' shown':''}"><div class="k">${k}</div><div class="v">${shown?NODES[k].value:'—'}</div></div>`;
+  }).join('');
+
+  updateDots();
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e=>{
+  if (e.key==='ArrowRight') go(1);
+  if (e.key==='ArrowLeft') go(-1);
+  if (e.key==='r'||e.key==='R') reset();
+});
+
+// ── INIT ──
+buildGraphStructure();
+initDots();
+render();
+</script>
+</body>
+</html>

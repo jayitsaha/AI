@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELBO Loss — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:0.35rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:1rem;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:4/3;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.bar-canvas-wrap{position:relative;width:100%;aspect-ratio:4/3;}
+.bar-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+@media(max-width:720px){ .viz-grid{grid-template-columns:1fr;} }
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:14px;background:var(--bg2);padding:16px 18px;border-radius:var(--radius-lg);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:12.5px;font-weight:600;min-width:150px;color:var(--text);}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:600;min-width:56px;text-align:right;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.snap-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+
+/* Readout chips */
+.readout-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;}
+.chip{font-family:var(--mono);font-size:11.5px;padding:6px 10px;border-radius:8px;background:var(--bg2);color:var(--text2);display:flex;gap:6px;align-items:center;}
+.chip b{color:var(--text);font-weight:700;}
+.chip .swatch{width:9px;height:9px;border-radius:2px;display:inline-block;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-derive{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-decompose{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-tighten{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.btn-sm{font-size:11px;padding:6px 12px;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;font-size:11.5px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>ELBO Loss</h1>
+  <div class="subtitle">The Evidence Lower BOund — how variational inference turns an intractable integral into a trainable loss</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Probabilistic ML</span>
+    <span class="tag tag-category">Generative Models</span>
+    <span class="tag tag-complexity">Jensen's Inequality</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the ELBO</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> To train a generative model like a VAE, we'd love to maximize \(\log p(x)\) — the probability the model assigns to real data. But \(p(x) = \int p(x,z)\,dz\) requires integrating over every possible latent cause \(z\), which is intractable. The ELBO is a computable stand-in: a guaranteed <em>lower bound</em> on \(\log p(x)\) that we can actually maximize with gradient descent.</p>
+    <p><strong>Analogy:</strong> You can't measure a mountain's exact height through the fog (that's \(\log p(x)\)), but you can plant a flag at your best current estimate and prove "the peak is <em>at least</em> this high." As you explore more carefully — bringing your guess \(q(z|x)\) closer to the true shape of the terrain \(p(z|x)\) — your flag climbs higher and higher, squeezing closer to the real summit.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">$$\log p(x) = \underbrace{\mathbb{E}_{q(z|x)}[\log p(x|z)] - D_{KL}\big(q(z|x)\,\|\,p(z)\big)}_{\text{ELBO}(x)} \;+\; \underbrace{D_{KL}\big(q(z|x)\,\|\,p(z|x)\big)}_{\text{the gap} \;\ge\, 0}$$ Maximizing the ELBO simultaneously fits the data <em>and</em> pulls \(q\) toward the true posterior — closing the gap.</p>
+    </div>
+  </div>
+</div>
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">Deriving the Bound from Jensen's Inequality</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Step 1 — Insert an arbitrary distribution</h4>
+    <p>Pick any distribution \(q(z|x)\) over the latent variable (it doesn't have to be good yet). Multiply and divide the integrand by it:</p>
+    <div class="eq">$$\log p(x) = \log \int p(x,z)\,dz = \log \int q(z|x)\,\frac{p(x,z)}{q(z|x)}\,dz = \log \mathbb{E}_{q(z|x)}\!\left[\frac{p(x,z)}{q(z|x)}\right]$$</div>
+    <h4>Step 2 — Apply Jensen's inequality</h4>
+    <p>\(\log(\cdot)\) is <em>concave</em>, so for any random variable \(Y\), Jensen's inequality gives \(\log \mathbb{E}[Y] \ge \mathbb{E}[\log Y]\) — pulling the log inside the expectation can only shrink the value. Applying this with \(Y = p(x,z)/q(z|x)\):</p>
+    <div class="eq">$$\log p(x) \;\ge\; \mathbb{E}_{q(z|x)}\!\left[\log \frac{p(x,z)}{q(z|x)}\right] \;=\; \text{ELBO}(x)$$</div>
+    <p>Equality holds exactly when \(Y\) is <strong>constant almost surely</strong> — i.e. when \(p(x,z)/q(z|x)\) doesn't depend on \(z\), which happens precisely when \(q(z|x) = p(z|x)\), the true posterior. That single condition is the whole story of variational inference: <em>the tighter \(q\) matches the true posterior, the tighter the bound.</em></p>
+    <h4>Design decision: why not just estimate \(\log p(x)\) directly?</h4>
+    <p>Monte-Carlo estimating \(p(x) = \mathbb{E}_{p(z)}[p(x|z)]\) by sampling from the prior needs an astronomical number of samples, because for most \(z \sim p(z)\), \(p(x|z) \approx 0\) — the prior rarely lands near the region of \(z\) that actually explains \(x\). Sampling instead from a learned \(q(z|x)\) that concentrates near the posterior makes the estimate tractable — this is <em>importance sampling</em> in disguise, and it's exactly what the ELBO exploits.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The ELBO is a lower bound for <strong>any</strong> choice of \(q(z|x)\), even a terrible one. Optimizing over \(q\) tightens the bound (variational inference); optimizing over the generative parameters \(\theta\) of \(p_\theta(x|z)\) raises the bound itself (learning). VAEs do both jointly.</p>
+    </div>
+  </div>
+</div>
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The exact gap: ELBO + KL = evidence</h4>
+    <p>Start from the definition and expand \(p(x,z) = p(z|x)p(x)\):</p>
+    <div class="eq">$$\text{ELBO}(x) = \mathbb{E}_q\!\left[\log\frac{p(z|x)p(x)}{q(z|x)}\right] = \log p(x) - \mathbb{E}_q\!\left[\log\frac{q(z|x)}{p(z|x)}\right] = \log p(x) - D_{KL}\big(q(z|x)\,\|\,p(z|x)\big)$$</div>
+    <p>Rearranged, this is an <strong>exact identity</strong> (not an approximation):</p>
+    <div class="eq">$$\log p(x) = \text{ELBO}(x) + D_{KL}\big(q(z|x)\,\|\,p(z|x)\big)$$</div>
+    <p>Since KL divergence is always \(\ge 0\) (Gibbs' inequality), this instantly re-derives the bound — and tells us the gap is <em>literally</em> the KL divergence between our approximation and the true posterior.</p>
+
+    <h4>The trainable decomposition: reconstruction − regularizer</h4>
+    <p>Expand \(p(x,z) = p(x|z)p(z)\) instead, and the ELBO splits into two pieces you can compute without ever knowing \(p(z|x)\):</p>
+    <div class="eq">$$\text{ELBO}(x) = \underbrace{\mathbb{E}_{q(z|x)}[\log p(x|z)]}_{\text{reconstruction}} \;-\; \underbrace{D_{KL}\big(q(z|x)\,\|\,p(z)\big)}_{\text{regularizer}}$$</div>
+    <p>The reconstruction term rewards \(z\)'s sampled from \(q\) that let the decoder \(p(x|z)\) reconstruct \(x\) well. The KL term penalizes \(q(z|x)\) for straying from the prior \(p(z)\), keeping the latent space well-behaved and sample-able. This is precisely the (negative) VAE loss.</p>
+
+    <h4>β-VAE: reweighting the trade-off</h4>
+    <div class="eq">$$\mathcal{L}_\beta(x) = \mathbb{E}_{q(z|x)}[\log p(x|z)] - \beta \cdot D_{KL}\big(q(z|x)\,\|\,p(z)\big)$$</div>
+    <p>Setting \(\beta = 1\) recovers the true ELBO. \(\beta > 1\) over-penalizes the KL term, pressuring latent dimensions to be independent and disentangled at the cost of reconstruction sharpness (and \(\mathcal{L}_\beta\) is <em>no longer</em> a valid lower bound on \(\log p(x)\)). \(\beta < 1\) prioritizes reconstruction fidelity over a clean prior-matching latent space.</p>
+
+    <h4>Reparameterization trick</h4>
+    <p>To backpropagate through the sampling step \(z \sim q(z|x)\), rewrite it as a deterministic function of noise: \(z = \mu_q + \sigma_q \odot \epsilon\), \(\epsilon \sim \mathcal{N}(0, I)\). Gradients flow through \(\mu_q, \sigma_q\) directly; the randomness is isolated in \(\epsilon\), which needs no gradient.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"Maximizing the ELBO maximizes \(\log p(x)\)." Not quite — it maximizes a lower bound, and the achievable value of \(\log p(x)\) via the ELBO is capped by how expressive \(q\) is. If \(q\) can never equal the true posterior (e.g. a diagonal Gaussian approximating a multimodal posterior), the gap \(D_{KL}(q\|p(z|x))\) stays strictly positive no matter how well you optimize.</p>
+    </div>
+  </div>
+</div>
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Toy model: prior \(p(z)=\mathcal{N}(0,1)\), likelihood \(p(x|z)=\mathcal{N}(z,\sigma_x^2)\) with \(\sigma_x=0.6\), observed \(x=1.7\). Because this model is conjugate, the true posterior \(p(z|x)\) is Gaussian and known exactly — letting us compute every number below from real formulas, live, so you can watch the bound tighten with your own eyes.</p>
+
+    <div class="viz-container">
+      <div class="readout-row" id="readoutRow"></div>
+
+      <div class="viz-grid">
+        <div class="viz-canvas-wrap"><canvas id="densityCanvas"></canvas></div>
+        <div class="bar-canvas-wrap"><canvas id="barCanvas"></canvas></div>
+      </div>
+
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">μ_q (mean of q)</div>
+          <input type="range" id="muSlider" min="-3" max="3" step="0.05" value="0">
+          <div class="slider-value" id="muVal">0.00</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">σ_q (std of q)</div>
+          <input type="range" id="sigmaSlider" min="0.15" max="2.2" step="0.02" value="1">
+          <div class="slider-value" id="sigmaVal">1.00</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">β (KL weight)</div>
+          <input type="range" id="betaSlider" min="0" max="3" step="0.05" value="1">
+          <div class="slider-value" id="betaVal">1.00</div>
+        </div>
+        <div class="snap-row">
+          <button class="btn btn-sm" onclick="snapToPrior()">Snap q → prior</button>
+          <button class="btn btn-sm btn-primary" onclick="snapToPosterior()">Snap q → true posterior</button>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Generative Story</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · drag the sliders any time to explore freely</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Prior p(z)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> True posterior p(z|x)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Variational q(z|x)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> ELBO</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> KL gap</div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Where the ELBO shows up:</strong></p>
+    <ul>
+      <li>Variational Autoencoders (VAE) — the negative ELBO, averaged over reparameterized samples, <em>is</em> the training loss</li>
+      <li>Variational Bayes / mean-field inference for any latent-variable model (LDA, Bayesian mixtures, state-space models)</li>
+      <li>β-VAE, VQ-VAE priors, and diffusion model training bounds (which are themselves a chain of ELBOs across timesteps)</li>
+    </ul>
+    <p><strong>When the bound is loose (be careful):</strong></p>
+    <ul>
+      <li>Mismatched variational family — e.g. a unimodal Gaussian \(q\) trying to cover a multimodal true posterior</li>
+      <li>Posterior collapse — a powerful decoder makes the KL term collapse \(q(z|x) \to p(z)\), ignoring \(z\) entirely (common in text VAEs)</li>
+      <li>High-dimensional \(z\) — reconstruction and KL terms can be wildly different scales, needing careful weighting (β) or free-bits tricks</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 One-line summary</div>
+      <p style="font-size:14px;margin:0;">The ELBO trades an intractable integral for two tractable expectations — reconstruction and KL-to-prior — and its distance from the true log-evidence is exactly the KL divergence between your approximate and true posterior.</p>
+    </div>
+  </div>
+</div>
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — ELBO for a Gaussian VAE</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">def elbo_loss(x, x_hat, mu_q, logvar_q, beta=1.0):</div>
+      <div class="code-line" id="cl4">    # -- Reconstruction term: E_q[log p(x|z)] --</div>
+      <div class="code-line" id="cl5">    # Gaussian decoder w/ fixed variance -> negative log-lik = MSE (up to const)</div>
+      <div class="code-line" id="cl6">    recon = -F.mse_loss(x_hat, x, reduction='sum')</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">    # -- KL regularizer: D_KL(q(z|x) || p(z)) for p(z)=N(0,I) --</div>
+      <div class="code-line" id="cl9">    # closed form: 0.5 * sum(sigma^2 + mu^2 - 1 - log sigma^2)</div>
+      <div class="code-line" id="cl10">    kl = 0.5 * torch.sum(logvar_q.exp() + mu_q.pow(2) - 1 - logvar_q)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">    elbo = recon - beta * kl        # beta=1 -> true ELBO</div>
+      <div class="code-line" id="cl13">    return -elbo                     # minimize the negative ELBO</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">def reparameterize(mu_q, logvar_q):</div>
+      <div class="code-line" id="cl16">    # z = mu + sigma * eps, eps ~ N(0, I) -- gradients flow through mu, logvar</div>
+      <div class="code-line" id="cl17">    std = torch.exp(0.5 * logvar_q)</div>
+      <div class="code-line" id="cl18">    eps = torch.randn_like(std)</div>
+      <div class="code-line" id="cl19">    return mu_q + eps * std</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># Training step</div>
+      <div class="code-line" id="cl22">mu_q, logvar_q = encoder(x)</div>
+      <div class="code-line" id="cl23">z = reparameterize(mu_q, logvar_q)</div>
+      <div class="code-line" id="cl24">x_hat = decoder(z)</div>
+      <div class="code-line" id="cl25">loss = elbo_loss(x, x_hat, mu_q, logvar_q, beta=1.0)</div>
+      <div class="code-line" id="cl26">loss.backward()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── TOY MODEL CONSTANTS (all downstream numbers are computed from these) ──
+const muP = 0, varP = 1;                 // prior p(z) = N(0,1)
+const sigmaX = 0.6, varX = sigmaX*sigmaX; // likelihood p(x|z) = N(z, sigmaX^2)
+const xObs = 1.7;                         // observed data point
+
+// True posterior p(z|x) via Gaussian conjugate update (exact, since model is conjugate)
+const precPost = 1/varP + 1/varX;
+const varPost = 1/precPost;
+const muPost = varPost * (xObs/varX);
+const sigmaPost = Math.sqrt(varPost);
+
+function gaussPdf(z, mu, va) {
+  return Math.exp(-((z-mu)*(z-mu))/(2*va)) / Math.sqrt(2*Math.PI*va);
+}
+function gaussLogPdf(x, mu, va) {
+  return -0.5*Math.log(2*Math.PI*va) - ((x-mu)*(x-mu))/(2*va);
+}
+
+// Exact marginal evidence log p(x) = log N(x; muP, varP+varX) -- fixed, independent of q
+const logpx = gaussLogPdf(xObs, muP, varP + varX);
+
+// Given current q(z|x)=N(muQ,sigmaQ^2), compute every ELBO quantity from closed-form Gaussian formulas
+function computeAll(muQ, sigmaQ, beta) {
+  const varQ = sigmaQ*sigmaQ;
+  // Reconstruction: E_q[log p(x|z)], p(x|z)=N(z,varX) -> closed form since E[(x-z)^2]=(x-muQ)^2+varQ
+  const recon = -0.5*Math.log(2*Math.PI*varX) - (((xObs-muQ)*(xObs-muQ)) + varQ)/(2*varX);
+  // KL(q(z)||p(z)) for two univariate Gaussians, p(z)=N(0,1)
+  const klReg = Math.log(1/sigmaQ) + (varQ + muQ*muQ)/2 - 0.5;
+  const elbo = recon - klReg;
+  const elboBeta = recon - beta*klReg;
+  // KL(q||true posterior), computed independently via the Gaussian-KL formula (sanity-checks elbo+gap=logpx)
+  const klGap = Math.log(sigmaPost/sigmaQ) + (varQ + (muQ-muPost)*(muQ-muPost))/(2*varPost) - 0.5;
+  return { varQ, recon, klReg, elbo, elboBeta, klGap };
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Generative Story',
+    desc: `The model generates data as: sample \\(z \\sim p(z) = \\mathcal{N}(0,1)\\), then sample \\(x \\sim p(x|z) = \\mathcal{N}(z, \\sigma_x^2)\\) with \\(\\sigma_x=${sigmaX}\\). We observe \\(x=${xObs}\\). \\(q(z|x)\\) is initialized equal to the prior — a common, deliberately uninformative starting point.`,
+    codeLines: [], preset: { muQ: 0, sigmaQ: 1, beta: 1 }
+  },
+  {
+    phase: 'setup', title: 'The True (Usually Intractable) Posterior',
+    desc: `By Bayes' rule, \\(p(z|x) \\propto p(x|z)p(z)\\). For most models this normalizing integral is intractable — but this toy model is conjugate, so we can compute it exactly: \\(p(z|x) = \\mathcal{N}(${muPost.toFixed(3)}, ${varPost.toFixed(3)})\\). In a real VAE, this purple curve is unknown and unreachable — that's exactly the problem the ELBO sidesteps.`,
+    codeLines: [], preset: null
+  },
+  {
+    phase: 'derive', title: "Jensen's Inequality — Multiply and Divide",
+    desc: `Insert \\(q(z|x)\\) into the integral: \\(\\log p(x) = \\log \\mathbb{E}_{q}\\!\\left[\\frac{p(x,z)}{q(z|x)}\\right]\\). Because \\(\\log\\) is concave, Jensen's inequality gives \\(\\log \\mathbb{E}[Y] \\ge \\mathbb{E}[\\log Y]\\) — swapping the order can only lose value, never gain it.`,
+    codeLines: [], preset: null
+  },
+  {
+    phase: 'derive', title: 'The Bound Appears',
+    desc: `Applying concavity yields \\(\\log p(x) \\ge \\mathbb{E}_q[\\log p(x,z) - \\log q(z|x)] = \\text{ELBO}(x)\\). Watch the right bar: the green segment (ELBO) plus the red segment (gap) always stack exactly to the dashed line at \\(\\log p(x) = ${logpx.toFixed(3)}\\), which never moves — it doesn't depend on \\(q\\) at all.`,
+    codeLines: [], preset: null
+  },
+  {
+    phase: 'decompose', title: 'Splitting into Reconstruction − KL',
+    desc: `Expanding \\(p(x,z)=p(x|z)p(z)\\) instead gives a form we can actually compute: \\(\\text{ELBO}(x) = \\mathbb{E}_q[\\log p(x|z)] - D_{KL}(q(z|x)\\|p(z))\\). Watch the left decomposition bar: the green segment is the reconstruction score, the red segment is the KL penalty pulling \\(q\\) toward the prior.`,
+    codeLines: [3,6,10,12], preset: null
+  },
+  {
+    phase: 'decompose', title: 'β-VAE: Reweighting Reconstruction vs. KL',
+    desc: `\\(\\mathcal{L}_\\beta = \\text{recon} - \\beta \\cdot D_{KL}(q\\|p(z))\\). Try dragging β above 1 — the KL penalty bites harder, dragging \\(\\mathcal{L}_\\beta\\) below the true ELBO and breaking the lower-bound guarantee. We've preset β=2 so you can see the divergence immediately; drag it back to 1 to restore a valid bound.`,
+    codeLines: [12], preset: { beta: 2 }
+  },
+  {
+    phase: 'tighten', title: 'Tightening q Shrinks the Gap',
+    desc: `We just snapped \\(q(z|x)\\) to exactly match the true posterior: \\(\\mu_q=${muPost.toFixed(3)}\\), \\(\\sigma_q=${sigmaPost.toFixed(3)}\\). Watch the KL gap collapse toward zero and the green ELBO segment rise to meet the fixed \\(\\log p(x)\\) line — the bound is now essentially tight.`,
+    codeLines: [], preset: { muQ: muPost, sigmaQ: sigmaPost, beta: 1 }
+  },
+  {
+    phase: 'tighten', title: 'Reparameterization & Free Exploration',
+    desc: `To get gradients through the sampling step, write \\(z = \\mu_q + \\sigma_q \\cdot \\epsilon\\), \\(\\epsilon\\sim\\mathcal{N}(0,1)\\) — randomness is isolated in \\(\\epsilon\\), so \\(\\partial z/\\partial \\mu_q\\) and \\(\\partial z/\\partial \\sigma_q\\) are well-defined and backprop flows normally. Now drag the sliders freely: move \\(q\\) away from the posterior and watch the gap reopen, or hit "Snap q → true posterior" again.`,
+    codeLines: [15,16,17,18,19], preset: null
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+const muSlider = document.getElementById('muSlider');
+const sigmaSlider = document.getElementById('sigmaSlider');
+const betaSlider = document.getElementById('betaSlider');
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+function snapToPrior() {
+  muSlider.value = 0; sigmaSlider.value = 1;
+  updateAll();
+}
+function snapToPosterior() {
+  muSlider.value = muPost.toFixed(3); sigmaSlider.value = sigmaPost.toFixed(3);
+  updateAll();
+}
+
+// ── RENDER (step navigation) ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', derive:'phase-derive', decompose:'phase-decompose', tighten:'phase-tighten'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  if (s.preset) {
+    if (s.preset.muQ !== undefined) muSlider.value = s.preset.muQ;
+    if (s.preset.sigmaQ !== undefined) sigmaSlider.value = s.preset.sigmaQ;
+    if (s.preset.beta !== undefined) betaSlider.value = s.preset.beta;
+  }
+
+  updateDots();
+  updateAll();
+}
+
+// ── LIVE UPDATE (sliders can move independent of step nav) ──
+function updateAll() {
+  const muQ = parseFloat(muSlider.value);
+  const sigmaQ = parseFloat(sigmaSlider.value);
+  const beta = parseFloat(betaSlider.value);
+
+  document.getElementById('muVal').textContent = muQ.toFixed(2);
+  document.getElementById('sigmaVal').textContent = sigmaQ.toFixed(2);
+  document.getElementById('betaVal').textContent = beta.toFixed(2);
+
+  const r = computeAll(muQ, sigmaQ, beta);
+  renderChips(r);
+  drawDensity(muQ, sigmaQ);
+  drawBars(r, beta);
+}
+
+function renderChips(r) {
+  const wrap = document.getElementById('readoutRow');
+  const rows = [
+    ['--blue-mid', 'log p(x)', logpx.toFixed(3) + ' (fixed)'],
+    ['--green-mid', 'ELBO', r.elbo.toFixed(3)],
+    ['--red-mid', 'KL gap (q‖post)', r.klGap.toFixed(3)],
+    ['--cyan-mid', 'recon E[log p(x|z)]', r.recon.toFixed(3)],
+    ['--amber-mid', 'KL(q‖prior)', r.klReg.toFixed(3)],
+    ['--purple-mid', 'ELBO_β', r.elboBeta.toFixed(3)],
+  ];
+  wrap.innerHTML = rows.map(([varName,label,val]) =>
+    `<div class="chip"><span class="swatch" style="background:var(${varName})"></span>${label} = <b>${val}</b></div>`
+  ).join('');
+}
+
+// ── DENSITY CANVAS: prior, true posterior, q(z|x) ──
+function drawDensity(muQ, sigmaQ) {
+  const canvas = document.getElementById('densityCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const varQ = sigmaQ*sigmaQ;
+  const zMin = -4.5, zMax = 4.5;
+  const marginL = 26, marginR = 12, marginT = 26, marginB = 24;
+  const plotW = W - marginL - marginR, plotH = H - marginT - marginB;
+  const zToX = z => marginL + (z-zMin)/(zMax-zMin)*plotW;
+
+  const curves = [
+    { mu: muP, va: varP, color: blueMid, name:'prior' },
+    { mu: muPost, va: varPost, color: purpleMid, name:'posterior' },
+    { mu: muQ, va: varQ, color: amberMid, name:'q' }
+  ];
+  const N = 140;
+  let maxY = 0;
+  const sampled = curves.map(c => {
+    const arr = [];
+    for (let i = 0; i <= N; i++) {
+      const z = zMin + (zMax-zMin)*i/N;
+      const p = gaussPdf(z, c.mu, c.va);
+      arr.push(p);
+      if (p > maxY) maxY = p;
+    }
+    return arr;
+  });
+  maxY *= 1.18;
+  const pToY = p => marginT + plotH - (p/maxY)*plotH;
+
+  // axis
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(marginL, marginT+plotH); ctx.lineTo(marginL+plotW, marginT+plotH); ctx.stroke();
+  ctx.fillStyle = text3; ctx.font = '10px "JetBrains Mono", monospace'; ctx.textAlign = 'center';
+  for (let zi = -4; zi <= 4; zi += 2) {
+    const x = zToX(zi);
+    ctx.beginPath(); ctx.moveTo(x, marginT+plotH); ctx.lineTo(x, marginT+plotH+3); ctx.strokeStyle = borderC; ctx.stroke();
+    ctx.fillText(String(zi), x, marginT+plotH+14);
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText('z', marginL+plotW-6, marginT+plotH+14);
+
+  // curves (filled + stroked)
+  curves.forEach((c, ci) => {
+    ctx.beginPath();
+    sampled[ci].forEach((p, i) => {
+      const z = zMin + (zMax-zMin)*i/N;
+      const x = zToX(z), y = pToY(p);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(zToX(zMax), marginT+plotH);
+    ctx.lineTo(zToX(zMin), marginT+plotH);
+    ctx.closePath();
+    ctx.fillStyle = c.color + '22';
+    ctx.fill();
+    ctx.beginPath();
+    sampled[ci].forEach((p, i) => {
+      const z = zMin + (zMax-zMin)*i/N;
+      const x = zToX(z), y = pToY(p);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = c.color; ctx.lineWidth = 2.5; ctx.stroke();
+  });
+
+  ctx.fillStyle = text2; ctx.font = '11px "JetBrains Mono", monospace'; ctx.textAlign = 'left';
+  ctx.fillText(`μ_q=${muQ.toFixed(2)}  σ_q=${sigmaQ.toFixed(2)}`, marginL+4, marginT-10);
+}
+
+// ── BAR CANVAS: (1) evidence = ELBO + gap   (2) ELBO = recon − β·KL ──
+function drawBars(r, beta) {
+  const canvas = document.getElementById('barCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const mono = '"JetBrains Mono", monospace';
+
+  ctx.clearRect(0, 0, W, H);
+
+  const gap = 14;
+  const panelW = (W - gap - 8) / 2;
+  const p1x = 4, p2x = p1x + panelW + gap;
+  const top = 30, bottom = H - 22;
+  const ph = bottom - top;
+
+  ctx.font = '11px ' + mono;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = text;
+  ctx.fillText('log p(x) = ELBO + gap', p1x + panelW/2, 14);
+  ctx.fillText('ELBO = recon − β·KL', p2x + panelW/2, 14);
+
+  // ── Panel 1: evidence bound ──
+  {
+    const minV = Math.min(r.elbo, logpx) - 0.6;
+    const maxV = Math.max(logpx, 0) + 0.3;
+    const vToY = v => top + (maxV - v)/(maxV - minV) * ph;
+    const barX = p1x + panelW*0.30, barW = panelW*0.4;
+    const yBase = vToY(minV), yElbo = vToY(r.elbo), yLogpx = vToY(logpx);
+
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(barX, yElbo, barW, yBase - yElbo);
+    ctx.fillStyle = redMid;
+    ctx.fillRect(barX, yLogpx, barW, yElbo - yLogpx);
+    ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+    ctx.strokeRect(barX, yLogpx, barW, yBase - yLogpx);
+
+    // fixed log p(x) dashed line across panel
+    ctx.save();
+    ctx.setLineDash([4,3]);
+    ctx.strokeStyle = text3; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p1x, yLogpx); ctx.lineTo(p1x+panelW, yLogpx); ctx.stroke();
+    ctx.restore();
+
+    ctx.textAlign = 'left'; ctx.fillStyle = text2; ctx.font = '10px ' + mono;
+    ctx.fillText('log p(x)=' + logpx.toFixed(2), p1x, Math.max(yLogpx-4, 24));
+    ctx.fillStyle = greenMid;
+    ctx.fillText('ELBO=' + r.elbo.toFixed(2), barX + barW + 4, (yElbo+yBase)/2 + 3);
+    ctx.fillStyle = redMid;
+    ctx.fillText('gap=' + r.klGap.toFixed(2), barX + barW + 4, (yLogpx+yElbo)/2 + 3);
+  }
+
+  // ── Panel 2: ELBO decomposition ──
+  {
+    const betaKL = beta * r.klReg;
+    const minV = Math.min(0, r.recon, r.elboBeta) - 0.4;
+    const maxV = Math.max(0, r.recon) + 0.4;
+    const vToY = v => top + (maxV - v)/(maxV - minV) * ph;
+    const barX = p2x + panelW*0.30, barW = panelW*0.4;
+    const yZero = vToY(0), yRecon = vToY(r.recon), yElboBeta = vToY(r.elboBeta);
+
+    ctx.save();
+    ctx.setLineDash([4,3]);
+    ctx.strokeStyle = text3; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p2x, yZero); ctx.lineTo(p2x+panelW, yZero); ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(barX, Math.min(yZero,yRecon), barW, Math.abs(yZero-yRecon));
+    ctx.fillStyle = redMid;
+    ctx.fillRect(barX, Math.min(yRecon,yElboBeta), barW, Math.abs(yRecon-yElboBeta));
+    ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+    ctx.strokeRect(barX, Math.min(yZero,yElboBeta), barW, Math.abs(yZero-yElboBeta));
+
+    ctx.textAlign = 'left'; ctx.fillStyle = text2; ctx.font = '10px ' + mono;
+    ctx.fillText('0', p2x, yZero - 4);
+    ctx.fillStyle = greenMid;
+    ctx.fillText('recon=' + r.recon.toFixed(2), barX + barW + 4, (yZero+yRecon)/2 + 3);
+    ctx.fillStyle = redMid;
+    ctx.fillText('β·KL=' + betaKL.toFixed(2), barX + barW + 4, (yRecon+yElboBeta)/2 + 3);
+    ctx.fillStyle = text;
+    ctx.fillText('ELBO_β=' + r.elboBeta.toFixed(2), p2x, H - 6);
+  }
+}
+
+// ── EVENTS ──
+[muSlider, sigmaSlider, betaSlider].forEach(sl => sl.addEventListener('input', updateAll));
+window.addEventListener('resize', updateAll);
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+initDots();
+render();
+</script>
+</body>
+</html>

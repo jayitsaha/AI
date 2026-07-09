@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contrastive Loss (SimCLR / NT-Xent) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:0.3rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:1.25rem;align-items:start;}
+@media(max-width:780px){.viz-grid{grid-template-columns:1fr;}}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:1/1;max-width:340px;margin:0 auto;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.viz-panel-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;text-align:center;}
+
+/* Heatmap */
+.heatmap-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;max-width:100%;overflow-x:auto;}
+.heatmap-grid{display:grid;gap:2px;}
+.heatmap-cell{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;border-radius:3px;transition:all 0.35s;position:relative;cursor:default;}
+.heatmap-cell.positive{box-shadow:0 0 0 2px var(--green-mid) inset;font-weight:700;}
+.heatmap-cell.anchor-row{outline:2px solid var(--purple-mid);outline-offset:-2px;}
+.heatmap-axis{font-family:var(--mono);font-size:9px;color:var(--text3);}
+
+/* Softmax bars */
+.softmax-wrap{display:flex;flex-direction:column;gap:5px;margin-top:10px;}
+.softmax-bar-row{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;}
+.softmax-bar-label{width:38px;flex-shrink:0;color:var(--text2);text-align:right;}
+.softmax-bar-track{flex:1;height:16px;background:var(--bg2);border-radius:4px;overflow:hidden;position:relative;}
+.softmax-bar-fill{height:100%;border-radius:4px;transition:width 0.3s ease,background 0.3s ease;background:var(--text3);}
+.softmax-bar-fill.positive{background:var(--green-mid);}
+.softmax-bar-val{width:52px;flex-shrink:0;color:var(--text2);}
+
+/* Slider */
+.slider-panel{background:var(--bg2);border-radius:var(--radius);padding:14px 16px;margin-top:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:12px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:700;min-width:48px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.slider-hint{font-size:11px;color:var(--text3);margin-top:6px;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-sim{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-temp{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-loss{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Contrastive Loss (SimCLR / NT-Xent)</h1>
+  <div class="subtitle">Pulling augmented views of the same image together, pushing everything else apart</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Self-Supervised Learning</span>
+    <span class="tag tag-category">Representation Learning</span>
+    <span class="tag tag-complexity">O(N²) pairwise</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Contrastive Loss</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card1Body">
+    <p><strong>What is it?</strong> SimCLR learns image representations without any labels by teaching a network a single rule: two different crops/augmentations of the <em>same</em> photo should map to nearby points in embedding space, while crops from <em>different</em> photos should map far apart. No human ever says "this is a dog" — the supervision signal comes entirely from data augmentation and the batch itself.</p>
+    <p><strong>Analogy:</strong> Imagine a police lineup where you're shown one "suspect" photo and a room full of people, told that <em>exactly one</em> person in the room is the same person from a different angle. Your job is to pick them out among all the decoys. Contrastive loss trains the network to always win this lineup — the correct match should stand out clearly from every other candidate (the "negatives") in the room (the "batch").</p>
+    <p><strong>Summary:</strong> Two augmented views of one image form a <em>positive pair</em>; every other image in the mini-batch (and its augmentations) become <em>negatives</em>. The NT-Xent (Normalized Temperature-scaled Cross Entropy) loss is InfoNCE applied to cosine similarities of learned embeddings.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Contrastive loss is just softmax classification in disguise — the "correct class" is the positive pair, the "wrong classes" are every other embedding in the batch: $$\mathcal{L}_{i,j} = -\log \frac{\exp(\operatorname{sim}(z_i, z_j)/\tau)}{\sum_{k=1}^{2N} \mathbb{1}_{[k \neq i]} \exp(\operatorname{sim}(z_i, z_k)/\tau)}$$</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How NT-Xent Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card2Body">
+    <h4>The Pipeline</h4>
+    <p>1) Sample a minibatch of \(N\) images. 2) Apply two independent random augmentations (crop, color jitter, blur, flip) to each image, producing \(2N\) views. 3) Pass every view through a shared encoder \(f(\cdot)\) (e.g. a ResNet) to get representations \(h\). 4) Pass \(h\) through a small projection head \(g(\cdot)\) — typically a 2-layer MLP — to get \(z = g(h)\), the vector the loss actually operates on. 5) L2-normalize every \(z\) onto the unit hypersphere. 6) Compute cosine similarity between all \(\binom{2N}{2}\) pairs and apply NT-Xent.</p>
+
+    <h4>Why a Projection Head?</h4>
+    <p>The SimCLR authors found that computing the contrastive loss on \(z = g(h)\) rather than directly on \(h\) significantly improves the quality of \(h\) for downstream tasks. Intuition: the projection head absorbs information that is useful for the augmentation-invariance task but would otherwise <em>distort</em> the encoder's representation (e.g. color/rotation information gets thrown away by \(g\), but the encoder \(h\) is still free to retain it). After pretraining, \(g\) is discarded and only \(f\) is kept for fine-tuning.</p>
+
+    <h4>Why In-Batch Negatives?</h4>
+    <p>SimCLR needs no memory bank or momentum encoder (unlike MoCo) — every other example already in the mini-batch is reused for free as a negative. This is simple but means quality scales with batch size: at \(N{=}4096\), each anchor sees 8190 negatives, making the "lineup" hard and the learned representations very discriminative. Small batches make the lineup too easy, weakening the signal.</p>
+
+    <h4>Design Decision: Cosine Similarity + Temperature, Not Raw Dot Product</h4>
+    <p>Using cosine similarity (dot product of L2-normalized vectors) bounds similarities to \([-1, 1]\), preventing embeddings from "cheating" by inflating their norm to trivially raise dot-product scores. The temperature \(\tau\) then rescales this bounded range before the softmax — without it, all pairs would look nearly equally similar and gradients would be too weak to separate hard negatives.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">NT-Xent is <strong>symmetric</strong>: the loss is computed once with \(z_i\) as anchor and \(z_j\) as positive, and once with the roles reversed, then averaged over all \(2N\) views. Every embedding takes a turn being the anchor in one term and a negative in \(2N-2\) other terms.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card3Body">
+    <h4>Cosine Similarity</h4>
+    <p>For two projected, L2-normalized embeddings \(z_i, z_j \in \mathbb{R}^d\) with \(\|z_i\|=\|z_j\|=1\):</p>
+    <div class="eq">$$\operatorname{sim}(z_i, z_j) = \frac{z_i^\top z_j}{\|z_i\|\|z_j\|} = z_i^\top z_j \in [-1, 1]$$</div>
+
+    <h4>The NT-Xent / InfoNCE Loss</h4>
+    <p>For a positive pair \((i,j)\) drawn from a batch of \(2N\) augmented views, the loss treats "find \(j\) among \(2N-1\) candidates" as a \((2N-1)\)-way classification problem, solved with cross-entropy over a softmax of scaled similarities:</p>
+    <div class="eq">$$\ell(i,j) = -\log \frac{\exp(\operatorname{sim}(z_i,z_j)/\tau)}{\displaystyle\sum_{k=1}^{2N}\mathbb{1}_{[k\neq i]}\exp(\operatorname{sim}(z_i,z_k)/\tau)}$$</div>
+    <p>The full batch loss averages this over both orderings of every pair:</p>
+    <div class="eq">$$\mathcal{L} = \frac{1}{2N}\sum_{k=1}^{N}\big[\ell(2k{-}1, 2k) + \ell(2k, 2k{-}1)\big]$$</div>
+
+    <h4>Gradient Intuition</h4>
+    <p>Let \(p_k = \dfrac{\exp(\operatorname{sim}(z_i,z_k)/\tau)}{\sum_{m\neq i}\exp(\operatorname{sim}(z_i,z_m)/\tau)}\) be the softmax probability assigned to candidate \(k\). Differentiating \(\ell(i,j)\) with respect to \(\operatorname{sim}(z_i,z_k)\) gives \(\frac{1}{\tau}(p_k - \mathbb{1}_{[k=j]})\). For the positive (\(k=j\)) the gradient is negative — it <em>increases</em> the similarity; for every negative it is positive — it <em>decreases</em> similarity. This is exactly "pull the positive in, push everything else out," and the \(1/\tau\) factor amplifies gradients for hard negatives (those with similarity close to the positive's).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">Lower temperature is not simply "better." As \(\tau \to 0\), the softmax approaches a hard argmax and gradients concentrate almost entirely on the single hardest negative — this can destabilize training. As \(\tau \to \infty\), the distribution flattens toward uniform and the gradient signal vanishes. SimCLR uses \(\tau \approx 0.1\)–\(0.5\) as a sweet spot found empirically.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card4Body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">A mini-batch of \(N=4\) images, each with 2 augmented views (\(2N=8\) embeddings, unit-normalized). Watch the similarity matrix, then drag the temperature slider to see its effect on the softmax over negatives.</p>
+
+    <div class="viz-container">
+      <div class="viz-grid">
+        <div>
+          <div class="viz-panel-label">Embeddings on the Unit Circle</div>
+          <div class="viz-canvas-wrap">
+            <canvas id="circleCanvas" width="340" height="340"></canvas>
+          </div>
+        </div>
+        <div>
+          <div class="viz-panel-label">Cosine Similarity Matrix</div>
+          <div class="heatmap-wrap">
+            <div id="heatmapGrid" class="heatmap-grid"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slider-panel">
+        <div class="slider-group">
+          <span class="slider-label">Temperature τ</span>
+          <input type="range" id="tempSlider" min="0.05" max="2.0" step="0.01" value="0.5">
+          <span class="slider-value" id="tempValue">0.50</span>
+        </div>
+        <div class="slider-hint">Softmax over anchor <span id="anchorLabel">z₁ᴬ</span>'s row — positive candidate in green, negatives in gray.</div>
+        <div class="softmax-wrap" id="softmaxBars"></div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 7</div>
+        <div class="info-title" id="infoTitle">The Batch</div>
+        <div class="info-desc" id="infoDesc">—</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset · drag the τ slider anytime</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Pair 1 (anchor)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Pair 2</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Pair 3</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Pair 4</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Negative / repelled</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card5Body">
+    <p><strong>When it shines:</strong></p>
+    <ul>
+      <li>Pretraining visual (or any) encoders when labels are scarce or expensive</li>
+      <li>Large-batch / multi-GPU setups — negatives are "free," but quality scales with batch size</li>
+      <li>Domains with strong, label-preserving augmentations (natural images: crop, jitter, blur)</li>
+    </ul>
+    <p><strong>When to be careful:</strong></p>
+    <ul>
+      <li>Small batches starve the loss of hard negatives — consider MoCo's momentum queue instead</li>
+      <li>Augmentations that change semantics (e.g. aggressive color jitter on medical scans) teach the wrong invariance</li>
+      <li>Poor temperature choice can collapse training — always tune \(\tau\) as a first-class hyperparameter</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Family Tree</div>
+      <p style="font-size:14px;margin:0;">NT-Xent (SimCLR) generalizes the earlier <strong>triplet loss</strong> (1 positive, 1 negative) to <strong>N-pair / InfoNCE</strong> (1 positive, many negatives), and is itself a special case used by CLIP (image-text pairs), MoCo (queue-based negatives), and SupCon (multiple positives per anchor via labels).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;" id="card6Body">
+    <div class="code-panel">
+      <div class="code-line">import torch, torch.nn.functional as F</div>
+      <div class="code-line"></div>
+      <div class="code-line"># z: (2N, d) projected, L2-normalized embeddings.</div>
+      <div class="code-line"># Rows [0..N-1] = view A, rows [N..2N-1] = view B, paired by index.</div>
+      <div class="code-line">def nt_xent(z, tau=0.5):</div>
+      <div class="code-line">    n2 = z.shape[0]                       # 2N</div>
+      <div class="code-line">    z = F.normalize(z, dim=1)             # cosine sim = dot product</div>
+      <div class="code-line">    sim = z @ z.T / tau                   # (2N, 2N) scaled similarities</div>
+      <div class="code-line"></div>
+      <div class="code-line">    mask = torch.eye(n2, dtype=torch.bool)</div>
+      <div class="code-line">    sim.masked_fill_(mask, float('-inf'))  # exclude self-similarity</div>
+      <div class="code-line"></div>
+      <div class="code-line">    n = n2 // 2</div>
+      <div class="code-line">    pos_idx = torch.arange(n2)</div>
+      <div class="code-line">    pos_idx = (pos_idx + n) % n2          # index of each row's positive</div>
+      <div class="code-line"></div>
+      <div class="code-line">    # cross-entropy: "correct class" = the positive's column index</div>
+      <div class="code-line">    loss = F.cross_entropy(sim, pos_idx)</div>
+      <div class="code-line">    return loss</div>
+      <div class="code-line"></div>
+      <div class="code-line"># --- production usage (PyTorch Lightning style) ---</div>
+      <div class="code-line">z_a = projection_head(encoder(view_a))   # (N, d)</div>
+      <div class="code-line">z_b = projection_head(encoder(view_b))   # (N, d)</div>
+      <div class="code-line">loss = nt_xent(torch.cat([z_a, z_b], dim=0), tau=0.1)</div>
+      <div class="code-line">loss.backward()</div>
+      <div class="code-line"># Gotcha: forgetting to mask self-similarity makes the trivial</div>
+      <div class="code-line"># "match yourself" solution always win — loss collapses to ~0</div>
+      <div class="code-line"># while learning nothing useful.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SCRIPT SCAFFOLD ──
+function toggleSection(headerEl){
+  const body = headerEl.parentElement.querySelector('.section-body');
+  const toggle = headerEl.querySelector('.section-toggle');
+  if(body.classList.contains('collapsed')){
+    body.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    toggle.classList.add('open');
+  } else {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(()=>{ body.style.maxHeight = '0'; });
+    body.classList.add('collapsed');
+    toggle.classList.remove('open');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// DATA MODEL — 4 images (pairs), 2 augmented views each = 2N = 8 embeddings.
+// Embeddings are represented as unit vectors on a 2D circle: angle fully
+// determines the vector (cos θ, sin θ). Cosine similarity between any two
+// embeddings is computed for real as the dot product of these unit vectors,
+// i.e. cos(θ_i - θ_j) — exactly what happens in high-dim SimCLR after L2
+// normalization, just visualized in 2D.
+// Pair 1 (purple) and Pair 2 (blue) are placed close in angle on purpose —
+// they represent two *different* photos whose augmented crops still look
+// visually similar (a genuine "hard negative" scenario).
+// ══════════════════════════════════════════════════════════
+const N_PAIRS = 4;
+const anglesDeg = [20, 45, 200, 260, 35, 55, 225, 280]; // idx 0-3 = view A (pair0..3), idx4-7 = view B (pair0..3)
+const pairColorVars = ['--purple-mid','--blue-mid','--green-mid','--amber-mid'];
+const pairNegColorVar = '--red-mid';
+
+function pairIndexOf(i){ return i % N_PAIRS; }
+function viewOf(i){ return i < N_PAIRS ? 'A' : 'B'; }
+function partnerOf(i){ return i < N_PAIRS ? i + N_PAIRS : i - N_PAIRS; }
+function labelOf(i){ return 'z' + (pairIndexOf(i)+1) + (viewOf(i)==='A' ? 'ᴬ' : 'ᴮ'); }
+
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function deg2rad(d){ return d * Math.PI / 180; }
+
+// REAL computation: unit-vector coordinates from angle
+function vecOf(i){
+  const th = deg2rad(anglesDeg[i]);
+  return [Math.cos(th), Math.sin(th)];
+}
+
+// REAL computation: cosine similarity = dot product of unit vectors
+function simRaw(i, j){
+  const [ax, ay] = vecOf(i), [bx, by] = vecOf(j);
+  return ax*bx + ay*by;
+}
+
+// Full 8x8 similarity matrix, computed once from the real dot products above
+const simMatrix = [];
+for(let i=0;i<8;i++){
+  const row = [];
+  for(let j=0;j<8;j++) row.push(i===j ? null : simRaw(i,j));
+  simMatrix.push(row);
+}
+
+const ANCHOR = 0; // z1ᴬ — the running example for the softmax/temperature demo
+
+// REAL computation: softmax over similarities/tau for a given anchor row
+function softmaxRow(anchor, tau){
+  const idxs = [];
+  const exps = [];
+  let sum = 0;
+  for(let k=0;k<8;k++){
+    if(k===anchor) continue;
+    const e = Math.exp(simMatrix[anchor][k] / tau);
+    idxs.push(k); exps.push(e); sum += e;
+  }
+  return idxs.map((k,n) => ({ idx:k, sim: simMatrix[anchor][k], p: exps[n]/sum }));
+}
+
+// REAL computation: full batch NT-Xent loss averaged over all 2N anchors, given tau
+function fullBatchLoss(tau){
+  let total = 0;
+  for(let a=0;a<8;a++){
+    const dist = softmaxRow(a, tau);
+    const pos = dist.find(d => d.idx === partnerOf(a));
+    total += -Math.log(pos.p);
+  }
+  return total / 8;
+}
+
+// ══════════════════════════════════════════════════════════
+// STEPS
+// ══════════════════════════════════════════════════════════
+const steps = [
+  {
+    phase:'setup', phaseLabel:'SETUP', title:'A Batch of Augmented Views',
+    desc:'We sample \\(N=4\\) images and apply 2 random augmentations to each, producing \\(2N=8\\) views. Each is pushed through the encoder + projection head and L2-normalized — shown here as a point on the unit circle. Filled circles = view A, diamonds = view B.',
+    connections:false, anchorRow:false, arrows:false, tau:null
+  },
+  {
+    phase:'setup', phaseLabel:'SETUP', title:'Positive Pairs',
+    desc:'The dashed lines connect each image\'s two views — its <em>positive pair</em>. Notice Pair 1 (purple) and Pair 2 (blue) are two different photos whose crops happen to land close together in angle — a realistic "hard negative" scenario, not a bug.',
+    connections:true, anchorRow:false, arrows:false, tau:null
+  },
+  {
+    phase:'sim', phaseLabel:'SIMILARITY', title:'The Full Similarity Matrix',
+    desc:'Every pairwise cosine similarity \\(\\operatorname{sim}(z_i,z_j)=z_i^\\top z_j\\) is computed and shown as a heatmap. Green cells with a ring are the true positives (each view vs. its partner); the diagonal (self-similarity) is excluded from the loss.',
+    connections:true, anchorRow:false, arrows:false, tau:null
+  },
+  {
+    phase:'sim', phaseLabel:'SIMILARITY', title:'Pick an Anchor: z₁ᴬ',
+    desc:'Fix anchor \\(z_1^A\\) (Pair 1). Its row in the matrix (outlined) holds similarity to all 7 other views. We softmax this row at \\(\\tau=0.5\\): the true positive \\(z_1^B\\) (\\(\\operatorname{sim}{\\approx}0.97\\)) must outscore the hard negative \\(z_2^A\\) (\\(\\operatorname{sim}{\\approx}0.91\\)) — try the τ slider now.',
+    connections:true, anchorRow:true, arrows:false, tau:0.5
+  },
+  {
+    phase:'temp', phaseLabel:'TEMPERATURE', title:'Low τ = 0.07 — Sharpened Softmax',
+    desc:'Dragging \\(\\tau\\) down sharpens the softmax toward argmax. The true positive now dominates the distribution and the loss \\(-\\log p_{pos}\\) shrinks — but watch the hard negative \\(z_2^A\\) still steal meaningful probability mass, because it truly is close in similarity.',
+    connections:false, anchorRow:true, arrows:false, tau:0.07
+  },
+  {
+    phase:'temp', phaseLabel:'TEMPERATURE', title:'High τ = 1.8 — Flattened Softmax',
+    desc:'A large \\(\\tau\\) compresses all similarities toward 0, so every candidate looks almost equally likely (softmax → uniform, \\(p \\to 1/7\\)). The loss climbs toward \\(\\log(2N{-}1) = \\log 7 \\approx 1.95\\) — the model gets almost no gradient signal to learn from.',
+    connections:false, anchorRow:true, arrows:false, tau:1.8
+  },
+  {
+    phase:'loss', phaseLabel:'LOSS', title:'Pull Together, Push Apart',
+    desc:'Averaged over all \\(2N=8\\) anchors (both directions of every pair), this is the batch NT-Xent loss shown in the info panel below. Its gradient does exactly one thing per anchor: increase similarity to its positive (green arrow) and decrease similarity to every negative (red arrows) — the mechanism that sculpts the embedding space.',
+    connections:false, anchorRow:true, arrows:true, tau:null
+  }
+];
+let curStep = 0;
+
+// ══════════════════════════════════════════════════════════
+// CIRCLE CANVAS RENDER
+// ══════════════════════════════════════════════════════════
+const circleCanvas = document.getElementById('circleCanvas');
+const cctx = circleCanvas.getContext('2d');
+
+function drawCircle(){
+  const W = circleCanvas.width, H = circleCanvas.height;
+  const cx = W/2, cy = H/2, R = W*0.36;
+  cctx.clearRect(0,0,W,H);
+
+  // base circle
+  cctx.strokeStyle = cssVar('--border2');
+  cctx.lineWidth = 1.5;
+  cctx.beginPath(); cctx.arc(cx,cy,R,0,2*Math.PI); cctx.stroke();
+
+  const step = steps[curStep];
+  const pos = i => {
+    const th = deg2rad(anglesDeg[i]);
+    return [cx + R*Math.cos(th), cy - R*Math.sin(th)];
+  };
+
+  // connections (positive pair dashed lines)
+  if(step.connections){
+    cctx.setLineDash([4,4]);
+    cctx.lineWidth = 1.5;
+    for(let k=0;k<N_PAIRS;k++){
+      const [x1,y1] = pos(k), [x2,y2] = pos(k+N_PAIRS);
+      cctx.strokeStyle = cssVar(pairColorVars[k]);
+      cctx.globalAlpha = 0.55;
+      cctx.beginPath(); cctx.moveTo(x1,y1); cctx.lineTo(x2,y2); cctx.stroke();
+    }
+    cctx.globalAlpha = 1; cctx.setLineDash([]);
+  }
+
+  // attract/repel arrows from the anchor
+  function arrowHead(x,y,ux,uy,color){
+    const size = 6;
+    const ang = Math.atan2(uy,ux);
+    cctx.fillStyle = color;
+    cctx.beginPath();
+    cctx.moveTo(x,y);
+    cctx.lineTo(x - size*Math.cos(ang-0.4), y - size*Math.sin(ang-0.4));
+    cctx.lineTo(x - size*Math.cos(ang+0.4), y - size*Math.sin(ang+0.4));
+    cctx.closePath(); cctx.fill();
+  }
+  if(step.arrows){
+    const [ax,ay] = pos(ANCHOR);
+    for(let k=0;k<8;k++){
+      if(k===ANCHOR) continue;
+      const [x,y] = pos(k);
+      const isPositive = k === partnerOf(ANCHOR);
+      const dx = x-ax, dy = y-ay;
+      const len = Math.hypot(dx,dy) || 1;
+      const ux = dx/len, uy = dy/len;
+      const color = isPositive ? cssVar('--green-mid') : cssVar('--red-mid');
+      cctx.strokeStyle = color;
+      cctx.globalAlpha = isPositive ? 0.9 : 0.35;
+      cctx.lineWidth = isPositive ? 2.5 : 1.5;
+      if(isPositive){
+        // arrow pointing FROM the positive TOWARD the anchor (attraction)
+        const sx = x - ux*16, sy = y - uy*16;
+        const exx = ax + ux*18, eyy = ay + uy*18;
+        cctx.beginPath(); cctx.moveTo(sx,sy); cctx.lineTo(exx,eyy); cctx.stroke();
+        arrowHead(exx,eyy,ux,uy,color);
+      } else {
+        // short arrow pointing FROM the anchor AWAY toward the negative (repulsion)
+        const sx = ax + ux*16, sy = ay + uy*16;
+        const exx = ax + ux*32, eyy = ay + uy*32;
+        cctx.beginPath(); cctx.moveTo(sx,sy); cctx.lineTo(exx,eyy); cctx.stroke();
+        arrowHead(exx,eyy,ux,uy,color);
+      }
+    }
+    cctx.globalAlpha = 1;
+  }
+
+  // points
+  for(let i=0;i<8;i++){
+    const [x,y] = pos(i);
+    const pc = pairColorVars[pairIndexOf(i)];
+    const color = cssVar(pc);
+    const isAnchor = step.anchorRow && i===ANCHOR;
+    const isAnchorPartner = step.anchorRow && i===partnerOf(ANCHOR);
+
+    cctx.fillStyle = color;
+    cctx.strokeStyle = cssVar('--surface');
+    cctx.lineWidth = 2;
+
+    if(viewOf(i)==='A'){
+      cctx.beginPath(); cctx.arc(x,y, isAnchor?9:7, 0, 2*Math.PI); cctx.fill(); cctx.stroke();
+    } else {
+      const s = isAnchorPartner ? 9 : 7;
+      cctx.save(); cctx.translate(x,y); cctx.rotate(Math.PI/4);
+      cctx.fillRect(-s,-s,s*2,s*2); cctx.strokeRect(-s,-s,s*2,s*2);
+      cctx.restore();
+    }
+    if(isAnchor){
+      cctx.strokeStyle = cssVar('--purple-mid'); cctx.lineWidth = 2;
+      cctx.beginPath(); cctx.arc(x,y,13,0,2*Math.PI); cctx.stroke();
+    }
+
+    // label
+    cctx.fillStyle = cssVar('--text2');
+    cctx.font = '10px monospace';
+    const lx = cx + (R+22)*Math.cos(deg2rad(anglesDeg[i]));
+    const ly = cy - (R+22)*Math.sin(deg2rad(anglesDeg[i]));
+    cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+    cctx.fillText(labelOf(i), lx, ly);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// HEATMAP RENDER
+// ══════════════════════════════════════════════════════════
+function hexToRgb(hex){
+  hex = hex.trim().replace('#','');
+  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
+  const n = parseInt(hex,16);
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(rgbA, rgbB, t){
+  return rgbA.map((v,i)=> Math.round(v + (rgbB[i]-v)*t));
+}
+function simColor(v){
+  const bg2 = hexToRgb(cssVar('--bg2') || '#f0efe9');
+  const target = v >= 0 ? hexToRgb(cssVar('--green-mid')) : hexToRgb(cssVar('--red-mid'));
+  const t = Math.min(Math.abs(v), 1) * 0.75;
+  const [r,g,b] = mix(bg2, target, t);
+  return `rgb(${r},${g},${b})`;
+}
+function textColorFor(v){
+  return Math.abs(v) > 0.55 ? '#ffffff' : cssVar('--text2');
+}
+
+const heatmapGrid = document.getElementById('heatmapGrid');
+function buildHeatmap(){
+  heatmapGrid.style.gridTemplateColumns = `34px repeat(8, 30px)`;
+  heatmapGrid.innerHTML = '';
+  // corner
+  heatmapGrid.appendChild(makeAxisCell(''));
+  for(let j=0;j<8;j++) heatmapGrid.appendChild(makeAxisCell(labelOf(j)));
+  for(let i=0;i<8;i++){
+    heatmapGrid.appendChild(makeAxisCell(labelOf(i)));
+    for(let j=0;j<8;j++){
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      cell.id = `hm_${i}_${j}`;
+      cell.style.width = '30px'; cell.style.height = '30px';
+      if(i===j){
+        cell.style.background = 'transparent';
+        cell.style.color = 'var(--text3)';
+        cell.textContent = '—';
+        cell.title = 'self-similarity — excluded from loss';
+      } else {
+        const v = simMatrix[i][j];
+        cell.style.background = simColor(v);
+        cell.style.color = textColorFor(v);
+        cell.textContent = v.toFixed(2).replace('0.','.');
+        cell.title = `sim(${labelOf(i)}, ${labelOf(j)}) = ${v.toFixed(3)}`;
+        if(j === partnerOf(i)) cell.classList.add('positive');
+      }
+      heatmapGrid.appendChild(cell);
+    }
+  }
+}
+function makeAxisCell(txt){
+  const d = document.createElement('div');
+  d.className = 'heatmap-axis';
+  d.style.display='flex'; d.style.alignItems='center'; d.style.justifyContent='center';
+  d.style.width='30px'; d.style.height='30px';
+  d.textContent = txt;
+  return d;
+}
+function applyAnchorRowHighlight(){
+  const step = steps[curStep];
+  for(let i=0;i<8;i++) for(let j=0;j<8;j++){
+    const cell = document.getElementById(`hm_${i}_${j}`);
+    if(!cell) continue;
+    cell.classList.toggle('anchor-row', step.anchorRow && i===ANCHOR && i!==j);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// SOFTMAX / TEMPERATURE PANEL
+// ══════════════════════════════════════════════════════════
+const tempSlider = document.getElementById('tempSlider');
+const tempValue = document.getElementById('tempValue');
+const softmaxBars = document.getElementById('softmaxBars');
+
+function renderSoftmax(){
+  const tau = parseFloat(tempSlider.value);
+  tempValue.textContent = tau.toFixed(2);
+  const dist = softmaxRow(ANCHOR, tau).sort((a,b)=> b.p - a.p);
+  softmaxBars.innerHTML = '';
+  dist.forEach(d => {
+    const isPos = d.idx === partnerOf(ANCHOR);
+    const row = document.createElement('div');
+    row.className = 'softmax-bar-row';
+    row.innerHTML = `
+      <span class="softmax-bar-label">${labelOf(d.idx)}${isPos?' ★':''}</span>
+      <span class="softmax-bar-track"><span class="softmax-bar-fill ${isPos?'positive':''}" style="width:${(d.p*100).toFixed(1)}%"></span></span>
+      <span class="softmax-bar-val">p=${d.p.toFixed(3)}</span>`;
+    softmaxBars.appendChild(row);
+  });
+  return { tau, dist };
+}
+
+tempSlider.addEventListener('input', renderSoftmax);
+
+// ══════════════════════════════════════════════════════════
+// STEP CONTROLLER
+// ══════════════════════════════════════════════════════════
+const infoPhase = document.getElementById('infoPhase');
+const infoStep = document.getElementById('infoStep');
+const infoTitle = document.getElementById('infoTitle');
+const infoDesc = document.getElementById('infoDesc');
+const progressDots = document.getElementById('progressDots');
+const btnPrev = document.getElementById('btnPrev');
+const btnNext = document.getElementById('btnNext');
+const anchorLabel = document.getElementById('anchorLabel');
+
+function buildDots(){
+  progressDots.innerHTML = '';
+  steps.forEach((s,i) => {
+    const dot = document.createElement('div');
+    dot.className = 'dot';
+    dot.title = s.title;
+    dot.onclick = () => { curStep = i; renderStep(); };
+    progressDots.appendChild(dot);
+  });
+}
+
+function renderStep(){
+  const step = steps[curStep];
+
+  infoPhase.textContent = step.phaseLabel;
+  infoPhase.className = `info-phase phase-${step.phase}`;
+  infoStep.textContent = `Step ${curStep+1} of ${steps.length}`;
+  infoTitle.textContent = step.title;
+  infoDesc.innerHTML = step.desc;
+  anchorLabel.textContent = labelOf(ANCHOR);
+
+  if(step.tau !== null){
+    tempSlider.value = step.tau;
+  }
+
+  drawCircle();
+  applyAnchorRowHighlight();
+  renderSoftmax();
+
+  // append full-batch loss readout on the loss step
+  if(step.phase === 'loss'){
+    const tau = parseFloat(tempSlider.value);
+    const L = fullBatchLoss(tau);
+    infoDesc.innerHTML += ` <strong>Full-batch NT-Xent loss at τ=${tau.toFixed(2)}: ${L.toFixed(3)}</strong>`;
+  }
+
+  btnPrev.disabled = curStep === 0;
+  btnNext.disabled = curStep === steps.length - 1;
+
+  [...progressDots.children].forEach((dot,i) => {
+    dot.classList.toggle('active', i===curStep);
+    dot.classList.toggle('done', i<curStep);
+  });
+
+  if(window.renderMathInElement){
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+}
+
+function go(dir){
+  const next = curStep + dir;
+  if(next < 0 || next >= steps.length) return;
+  curStep = next;
+  renderStep();
+}
+function reset(){
+  curStep = 0;
+  tempSlider.value = 0.5;
+  renderStep();
+}
+
+document.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  if(e.key === 'ArrowRight') go(1);
+  if(e.key === 'ArrowLeft') go(-1);
+  if(e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+buildHeatmap();
+buildDots();
+renderStep();
+</script>
+
+</body>
+</html>

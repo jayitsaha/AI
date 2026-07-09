@@ -31,7 +31,7 @@ def get_floor():
     except Exception:
         return 0
 
-TOKEN = "NOTION_TOKEN_REDACTED"
+TOKEN = os.environ.get("NOTION_API_TOKEN", "")
 DB = "33c93418-809c-81f7-a93d-df0ac011aa09"
 _ctx = ssl.create_default_context(); _ctx.check_hostname = False; _ctx.verify_mode = ssl.CERT_NONE
 

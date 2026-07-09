@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DINO: Denoising Anchor Boxes for DETR — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-sota{background:var(--purple-bg);color:var(--purple-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Readout row */
+.readout-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;font-family:var(--mono);font-size:11px;}
+.readout-chip{padding:6px 10px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);border:1px solid var(--border);}
+.readout-chip.good{background:var(--green-bg);color:var(--green-mid);border-color:var(--green-border);font-weight:600;}
+.readout-chip.bad{background:var(--red-bg);color:var(--red-mid);border-color:var(--red-border);font-weight:600;}
+.readout-chip.query{background:var(--purple-bg);color:var(--purple-mid);border-color:var(--purple-border);font-weight:600;}
+.readout-chip.noisy{background:var(--amber-bg);color:var(--amber-mid);border-color:var(--amber-border);font-weight:600;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-detr{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-dino{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-math{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-explore{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Comparison table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+table.cmp th, table.cmp td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);}
+table.cmp th{color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;}
+table.cmp td strong{color:var(--purple-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>DINO: Denoising Anchor Boxes for DETR</h1>
+  <div class="subtitle">Improved end-to-end object detection with denoising training and mixed queries</div>
+  <div class="tags">
+    <span class="tag tag-sota">State-of-the-Art</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Object Detection</span>
+    <span class="tag tag-complexity">O(N) queries</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding DINO</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> DINO (<strong>D</strong>e-noising training with <strong>I</strong>nteractive queries for <strong>N</strong>ext-generation <strong>O</strong>bject detection) is a powerful, state-of-the-art object detection model built upon the DETR (DEtection TRansformer) architecture. It significantly improves DETR's performance and convergence speed, especially for small objects, by introducing three key mechanisms: <strong>Denoising Training (DN)</strong>, <strong>Mixed Query Selection (MQ)</strong>, and <strong>Look Forward Twice (LFT)</strong>.</p>
+    <p><strong>Analogy:</strong> Imagine a student learning to trace shapes. A basic DETR is like giving them a blank sheet and asking them to draw a perfect circle and square. It's hard to start from scratch. DINO is like giving them slightly smudged, incomplete outlines of circles and squares and asking them to "clean up" the drawing. This forces the student to pay closer attention to the true shape and learn to correct errors, making them much better at drawing perfect shapes from memory later. The "mixed queries" are like giving them better initial guesses for where the shapes might be, so they don't have to search too widely.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">DINO addresses DETR's limitations by adding a self-supervised <strong>denoising task</strong> (reconstructing noisy ground truth boxes) and generating more informative <strong>initial queries</strong> from image features, leading to faster convergence and higher accuracy.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How DINO Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The DETR Foundation & Its Challenges</h4>
+    <p>DETR revolutionized object detection by treating it as a set prediction problem using a Transformer encoder-decoder architecture. It directly predicts a fixed set of bounding boxes and classes, eliminating the need for anchor boxes or NMS. However, DETR suffers from slow convergence and struggles with small objects, partly due to its reliance on fixed, learned positional queries that are agnostic to image content.</p>
+
+    <h4>DINO's Three Pillars of Improvement</h4>
+    <p>DINO enhances DETR with three primary components:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Denoising Training (DN):</strong> Inspired by denoising autoencoders, this technique significantly speeds up convergence. During training, ground truth (GT) bounding boxes are corrupted with random noise (shifting and scaling). These noisy GT boxes are then fed to the Transformer decoder as queries. The decoder's task is to "denoise" them, i.e., predict the original, uncorrupted GT boxes. This forces the model to learn robust query-to-box reconstruction and provides a strong training signal. DINO further refines this with <strong>Contrastive Denoising (CDN)</strong>, which adds both positive (noisy GT) and negative (random) queries to make the denoising task more discriminative.</li>
+      <li><strong>Mixed Query Selection (MQ):</strong> Instead of relying solely on learned positional embeddings, DINO generates initial queries more intelligently. It combines two types of queries derived from the encoder's output features:
+        <ul>
+          <li><strong>Anchor queries:</strong> Similar to Deformable DETR, these queries encode spatial information (reference points) from multi-scale encoder features.</li>
+          <li><strong>Content queries:</strong> These queries encode semantic information, also extracted from encoder features.</li>
+        </ul>
+        By mixing these, DINO ensures its initial queries are more informative and context-aware, improving the starting point for the decoder.</li>
+      <li><strong>Look Forward Twice (LFT):</strong> This is a simple yet effective refinement technique. After the decoder makes an initial set of predictions, these predictions are further refined by feeding them back into the decoder for another round of processing, allowing for more precise localization.</li>
+    </ol>
+    <p>The combination of these techniques allows DINO to achieve superior performance and faster training compared to its predecessors.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Architecture</div>
+      <p style="font-size:14px;margin:0;">DINO's architecture consists of a backbone (e.g., ResNet) and a multi-scale Transformer encoder, followed by a Transformer decoder. The decoder receives two sets of queries: <strong>denoising queries</strong> (noisy GT boxes) and <strong>matching queries</strong> (generated via MQ). Both sets of queries are processed by the decoder to produce final box and class predictions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Denoising Training (DN) Loss</h4>
+    <p>For each ground truth bounding box \(b_{gt} = (c_x, c_y, w, h)\), DINO generates a noisy version \(b'_{gt}\) by adding random Gaussian noise to its center coordinates and logarithmically scaled width/height:</p>
+    <div class="eq">
+      $$b'_{gt} = (c_x + \Delta c_x, c_y + \Delta c_y, w \cdot e^{\Delta w}, h \cdot e^{\Delta h})$$
+      $$\text{where } \Delta c_x, \Delta c_y \sim \mathcal{N}(0, \sigma_c^2), \quad \Delta w, \Delta h \sim \mathcal{N}(0, \sigma_s^2)$$
+    </div>
+    <p>These noisy boxes \(b'_{gt}\) (along with noisy labels \(l'_{gt}\)) serve as queries for the decoder. The decoder then predicts denoised boxes \(\hat{b}_{dn}\) and classes \(\hat{l}_{dn}\). The denoising loss is applied between these predictions and the original ground truth:</p>
+    <div class="eq">
+      $$\mathcal{L}_{DN} = \sum_{k=1}^{N_{DN}} \left( \mathcal{L}_{box}(\hat{b}_{dn,k}, b_{gt,k}) + \mathcal{L}_{cls}(\hat{l}_{dn,k}, l_{gt,k}) \right)$$
+    </div>
+    <p>This loss term is added to the standard DETR matching loss \(\mathcal{L}_{Match}\) (which uses uncorrupted queries) to form the total training objective:</p>
+    <div class="eq">
+      $$\mathcal{L}_{Total} = \mathcal{L}_{Match} + \lambda_{DN} \mathcal{L}_{DN}$$
+    </div>
+    <p>The denoising task essentially provides a "warm-up" for the decoder queries, forcing them to quickly learn to localize objects from slightly perturbed inputs. This makes the queries more robust and speeds up convergence, especially in early training stages.</p>
+
+    <h4>Mixed Query Selection (MQ)</h4>
+    <p>Instead of fixed learned queries, DINO constructs queries \(\mathbf{q}\) by combining positional anchor embeddings \(\mathbf{p}_{anchor}\) (derived from multi-scale encoder features) and content embeddings \(\mathbf{e}_{content}\) (also from encoder features):</p>
+    <div class="eq">
+      $$\mathbf{q} = \text{Concat}(\mathbf{p}_{anchor}, \mathbf{e}_{content})$$
+    </div>
+    <p>These queries are then fed to the decoder. By grounding queries in actual image features, DINO provides the decoder with much more meaningful initial information, reducing the "search space" and making the matching process more efficient. This is crucial for improving performance on small objects and dense scenes where learned queries might struggle to distinguish instances.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Importance of Contrastive Denoising</div>
+      <p style="font-size:14px;margin:0;">Simply feeding noisy GT boxes isn't enough. Without <strong>Contrastive Denoising (CDN)</strong>, the model might learn to map any noisy box to its GT. CDN introduces negative samples (noisy boxes not corresponding to any GT) alongside positive ones, making the task harder and forcing the model to learn to distinguish between relevant and irrelevant queries.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore DINO's denoising training. Adjust the noise level and observe how the model (simulated) attempts to reconstruct the ground truth boxes. See how initial queries are formed.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="readout-row" id="readoutRow"></div>
+
+      <!-- Slider panel -->
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Noise Level (std dev)</div>
+          <input type="range" id="noiseSlider" min="0" max="0.15" step="0.005" value="0.05">
+          <div class="slider-value" id="noiseValue">0.05</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Denoising Confidence</div>
+          <input type="range" id="denoisingSlider" min="0" max="1" step="0.01" value="0.8">
+          <div class="slider-value" id="denoisingValue">0.80</div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Input Image & Ground Truth</div>
+        <div class="info-desc" id="infoDesc">...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Ground Truth Box</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Noisy GT / Denoising Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Denoised Prediction</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Mixed Query Anchor</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Mixed Query Content</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Feature</th><th>DETR</th><th>Deformable DETR</th><th>DINO</th></tr>
+      <tr><td><strong>Query Initialization</strong></td><td>Learned positional embeddings</td><td>Anchor points from encoder features</td><td><strong>Mixed Queries (Anchor + Content)</strong></td></tr>
+      <tr><td><strong>Training Signal</strong></td><td>Bipartite matching loss</td><td>Bipartite matching loss</td><td><strong>Bipartite matching + Denoising Loss</strong></td></tr>
+      <tr><td><strong>Convergence Speed</strong></td><td>Slow</td><td>Faster than DETR</td><td><strong>Much faster (due to DN)</strong></td></tr>
+      <tr><td><strong>Small Object Performance</strong></td><td>Weak</td><td>Improved</td><td><strong>Significantly improved</strong></td></tr>
+      <tr><td><strong>Overall Performance</strong></td><td>Good</td><td>Very Good</td><td><strong>State-of-the-Art</strong></td></tr>
+    </table>
+    <p><strong>When to use DINO-like approaches:</strong></p>
+    <ul>
+      <li>When building high-performance, end-to-end object detection systems.</li>
+      <li>For tasks requiring detection of small objects or objects in dense scenes.</li>
+      <li>If you need faster convergence compared to vanilla DETR or even Deformable DETR.</li>
+      <li>As a strong baseline for further research in Transformer-based detection.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>For extremely simple detection tasks where a lightweight, classic detector (e.g., YOLOv3) might suffice with less computational overhead.</li>
+      <li>In scenarios with very limited computational resources where even a Transformer encoder might be too heavy (though DINO is efficient for its performance tier).</li>
+      <li>If you absolutely need the fastest possible inference for deployment on constrained edge devices (faster, simpler models still exist, albeit with lower accuracy).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 DINO's Synergy</div>
+      <p style="font-size:14px;margin:0;">DINO's strength lies in the synergistic combination of its components. Denoising training makes queries more robust, while mixed query selection provides better initial queries. Together, they create a powerful and efficient detection pipeline.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume a DINO model with backbone, encoder, decoder</div>
+      <div class="code-line" id="cl4">model = DINO()</div>
+      <div class="code-line" id="cl5">criterion = DINOLoss() # Combines matching and denoising losses</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># --- Denoising Training (Conceptual) ---</div>
+      <div class="code-line" id="cl8">def add_noise_to_boxes(gt_boxes, noise_scale_xy=0.05, noise_scale_wh=0.05):</div>
+      <div class="code-line" id="cl9">    # gt_boxes: (N, 4) tensor, cxcywh format, normalized [0,1]</div>
+      <div class="code-line" id="cl10">    cx, cy, w, h = gt_boxes.unbind(-1)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">    # Add noise to center (cx, cy)</div>
+      <div class="code-line" id="cl13">    delta_xy = (torch.rand_like(gt_boxes[:, :2]) * 2 - 1) * noise_scale_xy</div>
+      <div class="code-line" id="cl14">    noisy_cxcy = cxcy + delta_xy</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    # Add noise to width/height (log-scale)</div>
+      <div class="code-line" id="cl17">    delta_wh = (torch.rand_like(gt_boxes[:, 2:]) * 2 - 1) * noise_scale_wh</div>
+      <div class="code-line" id="cl18">    noisy_wh = wh * torch.exp(delta_wh)</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">    noisy_boxes = torch.cat([noisy_cxcy, noisy_wh], dim=-1)</div>
+      <div class="code-line" id="cl21">    return noisy_boxes.clamp(0, 1) # Ensure boxes stay within bounds</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23"># --- Forward pass with Denoising Training ---</div>
+      <div class="code-line" id="cl24">def dino_forward(samples, targets, noise_scale=0.05):</div>
+      <div class="code-line" id="cl25">    # 1. Image features from backbone & encoder</div>
+      <div class="code-line" id="cl26">    memory, spatial_shapes, level_start_index = model.encoder(samples.tensors)</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">    # 2. Mixed Query Selection (MQ) for matching part</div>
+      <div class="code-line" id="cl29">    #    (Simplified: get content and anchor queries from encoder output)</div>
+      <div class="code-line" id="cl30">    matching_queries, matching_ref_points = model.get_mixed_queries(memory, spatial_shapes)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">    # 3. Denoising Queries (DN) for denoising part</div>
+      <div class="code-line" id="cl33">    gt_boxes = torch.cat([t['boxes'] for t in targets]) # all GT boxes in batch</div>
+      <div class="code-line" id="cl34">    noisy_boxes = add_noise_to_boxes(gt_boxes, noise_scale, noise_scale)</div>
+      <div class="code-line" id="cl35">    # Denoising queries are content embeddings + noisy box positional embeddings</div>
+      <div class="code-line" id="cl36">    denoising_queries = model.get_denoising_queries(noisy_boxes)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">    # 4. Concatenate queries and pass to decoder</div>
+      <div class="code-line" id="cl39">    all_queries = torch.cat([denoising_queries, matching_queries])</div>
+      <div class="code-line" id="cl40">    all_ref_points = torch.cat([noisy_boxes, matching_ref_points])</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42">    # Decoder processes all queries</div>
+      <div class="code-line" id="cl43">    outputs = model.decoder(all_queries, all_ref_points, memory, spatial_shapes)</div>
+      <div class="code-line" id="cl44">    return outputs</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46"># --- Training Loop Snippet ---</div>
+      <div class="code-line" id="cl47"># for inputs, targets in dataloader:</div>
+      <div class="code-line" id="cl48">#     optimizer.zero_grad()</div>
+      <div class="code-line" id="cl49">#     outputs = dino_forward(inputs, targets, noise_scale=0.05)</div>
+      <div class="code-line" id="cl50">#     loss_dict = criterion(outputs, targets) # Computes matching and denoising losses</div>
+      <div class="code-line" id="cl51">#     loss = sum(loss_dict.values())</div>
+      <div class="code-line" id="cl52">#     loss.backward()</div>
+      <div class="code-line" id="cl53">#     optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS FOR CANVAS DRAWING AND MATH ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    redBg: g('--red-bg'), greenBg: g('--green-bg'), amberBg: g('--amber-bg'), purpleBg: g('--purple-bg')
+  };
+}
+
+// Bounding box format: [cx, cy, w, h] (normalized 0-1)
+// Convert to canvas coordinates (x, y, width, height)
+function bboxToRect(bbox, W, H) {
+  const [cx, cy, w, h] = bbox;
+  const x = (cx - w / 2) * W;
+  const y = (cy - h / 2) * H;
+  const width = w * W;
+  const height = h * H;
+  return [x, y, width, height];
+}
+
+// IoU (Intersection over Union) calculation
+function calculateIoU(box1, box2) {
+  // box format: [cx, cy, w, h]
+  const [cx1, cy1, w1, h1] = box1;
+  const [cx2, cy2, w2, h2] = box2;
+
+  const x1_min = cx1 - w1 / 2;
+  const y1_min = cy1 - h1 / 2;
+  const x1_max = cx1 + w1 / 2;
+  const y1_max = cy1 + h1 / 2;
+
+  const x2_min = cx2 - w2 / 2;
+  const y2_min = cy2 - h2 / 2;
+  const x2_max = cx2 + w2 / 2;
+  const y2_max = cy2 + h2 / 2;
+
+  const intersection_x_min = Math.max(x1_min, x2_min);
+  const intersection_y_min = Math.max(y1_min, y2_min);
+  const intersection_x_max = Math.min(x1_max, x2_max);
+  const intersection_y_max = Math.min(y1_max, y2_max);
+
+  const intersection_width = Math.max(0, intersection_x_max - intersection_x_min);
+  const intersection_height = Math.max(0, intersection_y_max - intersection_y_min);
+  const intersection_area = intersection_width * intersection_height;
+
+  const area1 = w1 * h1;
+  const area2 = w2 * h2;
+  const union_area = area1 + area2 - intersection_area;
+
+  if (union_area === 0) return 0;
+  return intersection_area / union_area;
+}
+
+// Random number generator with seed for reproducibility
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(1234); // Fixed seed
+function gaussianRandom(mean = 0, stdev = 1) {
+  let u = 0, v = 0;
+  while (u === 0) u = seededRng();
+  while (v === 0) v = seededRng();
+  let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return num * stdev + mean;
+}
+
+// ── DATA ──
+const gtObjects = [
+  { label: 'Square', bbox: [0.3, 0.4, 0.2, 0.2], color: 'red' },
+  { label: 'Circle', bbox: [0.7, 0.6, 0.3, 0.3], color: 'blue' }
+];
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Input Image & Ground Truth',
+    desc: 'We have a simple image with two objects: a red square and a blue circle. Their ground truth bounding boxes are shown in blue. This is what the object detector should ultimately predict.',
+    mode: 'gt'
+  },
+  {
+    phase: 'detr', title: 'DETR\'s Initial Queries',
+    desc: 'Vanilla DETR starts with a fixed set of learned positional queries (shown as purple dots here). These queries are content-agnostic and need to "learn from scratch" where objects are, leading to slow convergence and difficulty with small objects.',
+    mode: 'detr_queries'
+  },
+  {
+    phase: 'dino', title: 'DINO: Denoising Training',
+    desc: 'DINO introduces denoising training to speed up convergence. Instead of starting from scratch, it trains the model to reconstruct ground truth boxes from noisy versions of themselves. This provides a strong, supervised signal.',
+    mode: 'denoising_intro'
+  },
+  {
+    phase: 'dino', title: 'Generating Noisy Ground Truth Boxes',
+    desc: 'For each ground truth box, DINO adds random Gaussian noise to its center (x,y) and logarithmically scaled width/height (w,h). These noisy boxes (amber) are then fed into the decoder as "denoising queries". Adjust the "Noise Level" slider to see the effect.',
+    mode: 'noisy_gt'
+  },
+  {
+    phase: 'dino', title: 'Decoder Denoises the Queries',
+    desc: 'The Transformer decoder receives these noisy boxes as queries. Its task is to "denoise" them, meaning to predict the original, uncorrupted ground truth boxes. The green boxes show the model\'s prediction. Adjust "Denoising Confidence" to simulate how well the model performs.',
+    mode: 'denoising_output'
+  },
+  {
+    phase: 'dino', title: 'Accuracy of Denoised Predictions',
+    desc: 'The denoised predictions (green) are compared against the true ground truth (blue). This provides a rich training signal, teaching the decoder to accurately localize objects even from imperfect initial guesses. High IoU indicates good denoising.',
+    mode: 'denoising_comparison'
+  },
+  {
+    phase: 'dino', title: 'Mixed Query Selection',
+    desc: 'Beyond denoising, DINO also improves initial "matching queries". It generates these queries by combining anchor points (purple dots, spatial info) and content features (red cross, semantic info) derived directly from the encoder\'s image features.',
+    mode: 'mixed_queries'
+  },
+  {
+    phase: 'explore', title: 'Full DINO Pipeline (Simplified)',
+    desc: 'DINO trains with both denoising queries (noisy GT, amber) and matching queries (mixed, purple/red). The model learns from both tasks, leading to robust query handling, faster convergence, and state-of-the-art performance.',
+    mode: 'full_pipeline'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let noiseLevel = 0.05; // std dev for noise, normalized to image size
+let denoisingConfidence = 0.8; // 0 (bad) to 1 (perfect)
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; noiseLevel = 0.05; denoisingConfidence = 0.8; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', detr: 'phase-detr', dino: 'phase-dino', math: 'phase-math', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  const showSliders = ['noisy_gt', 'denoising_output', 'denoising_comparison', 'full_pipeline'].includes(s.mode);
+  document.getElementById('sliderPanel').style.display = showSliders ? 'flex' : 'none';
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── READOUT CHIPS ──
+function renderReadout(items) {
+  const wrap = document.getElementById('readoutRow');
+  wrap.innerHTML = items.map(it =>
+    `<div class="readout-chip ${it.cls || ''}">${it.label}: ${it.value}</div>`
+  ).join('');
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw background grid
+  ctx.strokeStyle = c.border; ctx.lineWidth = 0.5;
+  const gridSize = Math.min(W,H) / 10;
+  for (let i = 0; i < W; i += gridSize) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke(); }
+  for (let i = 0; i < H; i += gridSize) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(W, i); ctx.stroke(); }
+
+  // Draw actual objects (simple shapes)
+  const drawObject = (obj) => {
+    const [cx, cy, w, h] = obj.bbox;
+    ctx.fillStyle = obj.color;
+    if (obj.label === 'Square') {
+      ctx.fillRect((cx - w/2)*W, (cy - h/2)*H, w*W, h*H);
+    } else if (obj.label === 'Circle') {
+      ctx.beginPath();
+      ctx.arc(cx*W, cy*H, w/2*W, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  gtObjects.forEach(drawObject);
+
+  const readoutItems = [];
+
+  // Helper to draw a bbox
+  const drawBBox = (bbox, color, lineWidth, label, dashed=false) => {
+    const [x, y, width, height] = bboxToRect(bbox, W, H);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    if (dashed) ctx.setLineDash([5, 5]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]);
+    if (label) {
+      ctx.fillStyle = color;
+      ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.fillText(label, x + 5, y + 18);
+    }
+  };
+
+  // Helper to add noise to a bbox
+  const addNoise = (bbox, noiseScale) => {
+    const [cx, cy, w, h] = bbox;
+    const noisy_cx = cx + gaussianRandom(0, noiseScale * 0.5); // noiseScale is for cxcy, wh
+    const noisy_cy = cy + gaussianRandom(0, noiseScale * 0.5);
+    const noisy_w = w * Math.exp(gaussianRandom(0, noiseScale * 0.5));
+    const noisy_h = h * Math.exp(gaussianRandom(0, noiseScale * 0.5));
+    return [
+      Math.max(0, Math.min(1, noisy_cx)),
+      Math.max(0, Math.min(1, noisy_cy)),
+      Math.max(0.01, Math.min(1, noisy_w)), // Min width/height to avoid collapse
+      Math.max(0.01, Math.min(1, noisy_h))
+    ];
+  };
+
+  // Helper to simulate denoising
+  const getDenoisedBBox = (noisyBbox, gtBbox, confidence) => {
+    return noisyBbox.map((val, i) => val + (gtBbox[i] - val) * confidence);
+  };
+
+  // Draw GT boxes (always present for reference in relevant steps)
+  if (['gt', 'detr_queries', 'denoising_intro', 'noisy_gt', 'denoising_output', 'denoising_comparison', 'full_pipeline'].includes(mode)) {
+    gtObjects.forEach((obj, i) => drawBBox(obj.bbox, c.blue, 2, `GT ${i+1}`));
+  }
+
+  // Step-specific drawing logic
+  if (mode === 'detr_queries') {
+    // Simulate learned queries for DETR
+    const queries = [
+      [0.2, 0.2], [0.5, 0.5], [0.8, 0.8], [0.2, 0.7], [0.7, 0.3]
+    ];
+    queries.forEach(q => {
+      ctx.beginPath();
+      ctx.arc(q[0]*W, q[1]*H, 8, 0, Math.PI * 2);
+      ctx.fillStyle = c.purple;
+      ctx.fill();
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    readoutItems.push({label: 'Queries', value: 'Learned (content-agnostic)', cls: 'query'});
+  }
+
+  if (['noisy_gt', 'denoising_output', 'denoising_comparison', 'full_pipeline'].includes(mode)) {
+    const noisyBBoxes = gtObjects.map(obj => addNoise(obj.bbox, noiseLevel));
+    noisyBBoxes.forEach((bbox, i) => drawBBox(bbox, c.amber, 2, `Noisy ${i+1}`));
+    readoutItems.push({label: 'Noise Level', value: noiseLevel.toFixed(2), cls: 'noisy'});
+
+    if (['denoising_output', 'denoising_comparison', 'full_pipeline'].includes(mode)) {
+      const denoisedBBoxes = noisyBBoxes.map((n_bbox, i) =>
+        getDenoisedBBox(n_bbox, gtObjects[i].bbox, denoisingConfidence)
+      );
+      denoisedBBoxes.forEach((bbox, i) => drawBBox(bbox, c.green, 2, `Denoised ${i+1}`));
+      readoutItems.push({label: 'Denoising Confidence', value: denoisingConfidence.toFixed(2), cls: 'good'});
+
+      if (mode === 'denoising_comparison' || mode === 'full_pipeline') {
+        denoisedBBoxes.forEach((d_bbox, i) => {
+          const iou = calculateIoU(d_bbox, gtObjects[i].bbox);
+          readoutItems.push({label: `IoU ${i+1}`, value: iou.toFixed(2), cls: iou > 0.7 ? 'good' : 'bad'});
+        });
+      }
+    }
+  }
+
+  if (['mixed_queries', 'full_pipeline'].includes(mode)) {
+    // Simulate Mixed Queries: anchor points + content points
+    const anchorPoints = [
+      [0.3, 0.4], [0.7, 0.6], // Near GT centers
+      [0.1, 0.8], [0.9, 0.1]  // Other potential anchors
+    ];
+    const contentPoints = [
+      [0.32, 0.42], [0.68, 0.58] // Slightly offset from GT centers
+    ];
+
+    anchorPoints.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p[0]*W, p[1]*H, 6, 0, Math.PI * 2);
+      ctx.fillStyle = c.purple;
+      ctx.fill();
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    });
+
+    contentPoints.forEach(p => {
+      ctx.strokeStyle = c.red; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p[0]*W - 8, p[1]*H - 8); ctx.lineTo(p[0]*W + 8, p[1]*H + 8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p[0]*W + 8, p[1]*H - 8); ctx.lineTo(p[0]*W - 8, p[1]*H + 8); ctx.stroke();
+    });
+    readoutItems.push({label: 'MQ Anchors', value: anchorPoints.length, cls: 'query'});
+    readoutItems.push({label: 'MQ Content', value: contentPoints.length, cls: 'query'});
+  }
+
+  renderReadout(readoutItems);
+}
+
+// ── SLIDER WIRING ──
+document.getElementById('noiseSlider').addEventListener('input', e => {
+  noiseLevel = parseFloat(e.target.value);
+  document.getElementById('noiseValue').textContent = noiseLevel.toFixed(2);
+  if (['noisy_gt', 'denoising_output', 'denoising_comparison', 'full_pipeline'].includes(steps[step].mode)) {
+    drawCanvas(steps[step].mode);
+  }
+});
+document.getElementById('denoisingSlider').addEventListener('input', e => {
+  denoisingConfidence = parseFloat(e.target.value);
+  document.getElementById('denoisingValue').textContent = denoisingConfidence.toFixed(2);
+  if (['denoising_output', 'denoising_comparison', 'full_pipeline'].includes(steps[step].mode)) {
+    drawCanvas(steps[step].mode);
+  }
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

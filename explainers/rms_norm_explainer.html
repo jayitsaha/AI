@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RMSNorm (LLaMA) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Comparison table */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+.cmp-table th,.cmp-table td{padding:8px 10px;border:1px solid var(--border);text-align:left;}
+.cmp-table th{background:var(--bg2);font-weight:700;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+.cmp-table td.hl-green{color:var(--green-mid);font-weight:600;}
+.cmp-table td.hl-red{color:var(--red-mid);font-weight:600;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+.stat-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;}
+.stat-chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:20px;background:var(--bg2);color:var(--text2);}
+.stat-chip b{color:var(--text);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-raw{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-layernorm{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-rmsnorm{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>RMSNorm — Root Mean Square Layer Normalization</h1>
+  <div class="subtitle">Scale-only normalization that powers LLaMA, Gemma, and Mistral</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">LLM Architecture</span>
+    <span class="tag tag-complexity">O(n), single reduction</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding RMSNorm</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Every transformer layer needs to keep its activations from exploding or vanishing as they flow through dozens of stacked blocks. Normalization layers do this by rescaling each vector of activations before it hits the next layer. <strong>RMSNorm</strong> is a stripped-down normalization: it rescales a vector by its root-mean-square magnitude and multiplies by a learned gain — full stop. Unlike LayerNorm, it never subtracts the mean first.</p>
+    <p><strong>Analogy:</strong> Imagine adjusting the volume on a group of speakers that are all playing at different, drifting loudness. LayerNorm first re-centers the group ("shift everyone's baseline to zero") and then sets the overall loudness. RMSNorm skips the re-centering step entirely — it just turns the master volume knob so the average "loudness" (root-mean-square energy) lands at a fixed target, keeping each speaker's relative balance intact.</p>
+    <p><strong>Where it's used:</strong> RMSNorm was introduced by Zhang &amp; Sennrich (2019) and adopted by nearly every modern open LLM: LLaMA / LLaMA 2 / LLaMA 3, Gemma, Mistral, Qwen, and Falcon all use RMSNorm instead of LayerNorm in their transformer blocks.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">RMSNorm rescales without re-centering: $$y = \frac{x}{\operatorname{RMS}(x)} \odot g, \qquad \operatorname{RMS}(x) = \sqrt{\frac{1}{n}\sum_{i=1}^n x_i^2 + \epsilon}$$ It drops the mean-subtraction step of LayerNorm and keeps only the rescaling, cutting the normalization cost roughly in half while matching LayerNorm's accuracy in practice.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How RMSNorm Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>What LayerNorm Does (the baseline)</h4>
+    <p>For an activation vector \(x \in \mathbb{R}^n\) at one token position, LayerNorm (Ba et al., 2016) performs two statistics passes: compute the mean \(\mu = \frac{1}{n}\sum_i x_i\), subtract it (<em>re-centering</em>), compute the variance \(\sigma^2 = \frac{1}{n}\sum_i (x_i-\mu)^2\) of the centered vector, divide by \(\sigma\) (<em>re-scaling</em>), then apply a learned affine transform \(\gamma \odot \hat{x} + \beta\).</p>
+
+    <h4>What RMSNorm Removes — and Why It Still Works</h4>
+    <p>RMSNorm's design bet: the <em>re-centering</em> step contributes little to LayerNorm's benefit — what actually stabilizes training is controlling the <em>magnitude</em> (norm) of the vector feeding into the next matmul, so gradients don't blow up or shrink layer over layer. Zhang &amp; Sennrich verified this empirically: replacing LayerNorm with a version that skips mean subtraction gives comparable accuracy at a fraction of the compute, across machine translation and language modeling.</p>
+    <p>So RMSNorm computes a single statistic — the root-mean-square — directly from the raw vector, with no centering pass:</p>
+    <div class="eq">$$\operatorname{RMS}(x) = \sqrt{\frac{1}{n}\sum_{i=1}^n x_i^2 + \epsilon} \qquad y_i = \frac{x_i}{\operatorname{RMS}(x)}\, g_i$$</div>
+    <p>Here \(g \in \mathbb{R}^n\) is a learned per-channel gain (no learned bias \(\beta\) — LLaMA-style blocks drop biases everywhere for simplicity), and \(\epsilon\) (e.g. \(10^{-6}\)) prevents division by zero on near-dead activations.</p>
+
+    <h4>Numerical Trace</h4>
+    <p>Take \(x = [4, -2, 6, 1, -5, 3]\). LayerNorm: \(\mu = 1.167\), centered vector \([2.83,-3.17,4.83,-0.17,-6.17,1.83]\), \(\sigma = 3.716\), output \([0.76,-0.85,1.30,-0.04,-1.66,0.49]\). RMSNorm: skip the mean entirely, \(\operatorname{RMS}(x)=\sqrt{91/6}=3.894\), output \([1.03,-0.51,1.54,0.26,-1.28,0.77]\) — same relative shape as \(x\), just rescaled, whereas LayerNorm's output is shifted so its own mean is exactly 0.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Design Decision: Why Drop Re-centering?</div>
+      <p style="font-size:14px;margin:0;">LayerNorm is invariant to two things: shifting all inputs by a constant (<em>re-centering invariance</em>) and rescaling them (<em>re-scaling invariance</em>). RMSNorm keeps only re-scaling invariance. Empirically, re-scaling invariance is what protects gradient magnitudes as depth grows; re-centering invariance mostly just adds compute (a full extra reduction + subtraction over every element) without a measurable accuracy gain in transformer LLMs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Formal Definition</h4>
+    <p>Given \(x \in \mathbb{R}^n\), define the RMS statistic and normalized output:</p>
+    <div class="eq">$$\operatorname{RMS}(x) = \sqrt{\frac{1}{n}\sum_{i=1}^n x_i^2 + \epsilon}, \qquad \bar{x}_i = \frac{x_i}{\operatorname{RMS}(x)}, \qquad y_i = g_i\,\bar{x}_i$$</div>
+    <p>This is exactly LayerNorm's formula with \(\mu\) replaced by \(0\) — i.e. RMSNorm is LayerNorm applied to \(x\) under the (false, but harmless) assumption that \(x\) is already zero-mean. That reframing is why the implementation is almost a drop-in replacement.</p>
+
+    <h4>Gradient Flow</h4>
+    <p>The Jacobian of RMSNorm (before the gain) with respect to the input is:</p>
+    <div class="eq">$$\frac{\partial \bar{x}_i}{\partial x_j} = \frac{1}{\operatorname{RMS}(x)}\left(\delta_{ij} - \frac{x_i x_j}{n\,\operatorname{RMS}(x)^2}\right)$$</div>
+    <p>Compare to LayerNorm's Jacobian, which has an extra \(-\frac{1}{n}\) term from the mean and uses centered \(x_i - \mu\) everywhere:</p>
+    <div class="eq">$$\frac{\partial \hat{x}_i}{\partial x_j} = \frac{1}{\sigma}\left(\delta_{ij} - \frac{1}{n} - \frac{(x_i-\mu)(x_j-\mu)}{n\sigma^2}\right)$$</div>
+    <p>Both Jacobians project out the direction of growth along \(x\) itself (so the gradient magnitude stays bounded regardless of how large \(\|x\|\) becomes) — that projection is what suppresses exploding/vanishing signals. The \(-\frac{1}{n}\) mean-correction term that RMSNorm drops only removes the component of the gradient along the all-ones direction, which empirically carries little useful signal in transformer activations.</p>
+
+    <h4>Compute Cost</h4>
+    <p>LayerNorm needs two reduction passes over \(x\) (sum for \(\mu\), sum-of-squares for \(\sigma^2\)) plus a per-element subtraction. RMSNorm needs exactly one reduction (sum-of-squares) and no subtraction:</p>
+    <div class="eq">$$\text{LayerNorm: } \underbrace{n}_{\mu} + \underbrace{2n}_{\text{center+sq}} + \underbrace{n}_{\sigma^2\text{ sum}} + O(1) \quad\text{vs}\quad \text{RMSNorm: } \underbrace{n}_{\text{square}} + \underbrace{n}_{\text{sum}} + O(1)$$</div>
+    <p>Roughly half the arithmetic and, critically, one fewer memory-bound reduction pass over the activation tensor — the reason papers report 7–64% wall-clock speedups on the normalization layer depending on hardware and sequence length.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"RMSNorm outputs have zero mean like LayerNorm." <strong>False.</strong> RMSNorm only guarantees \(\frac{1}{n}\sum_i \bar{x}_i^2 \approx 1\) (unit mean-square), not \(\frac{1}{n}\sum_i \bar{x}_i = 0\). The output vector keeps whatever mean/skew the input had — only its overall magnitude is normalized.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Watch the same 6-dimensional activation vector pass through LayerNorm (center + scale) and RMSNorm (scale only) — with real numbers computed live in JS.</p>
+
+    <div class="viz-container">
+      <div class="stat-row" id="statRow"></div>
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-raw" id="infoPhase">RAW</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Raw Activation Vector</div>
+        <div class="info-desc" id="infoDesc">...</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Raw x</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> LayerNorm</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> RMSNorm</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Mean / RMS line</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp-table">
+      <tr><th>Dimension</th><th>LayerNorm</th><th>RMSNorm</th></tr>
+      <tr><td>Statistics computed</td><td>mean \(\mu\) &amp; variance \(\sigma^2\)</td><td class="hl-green">RMS only</td></tr>
+      <tr><td>Re-centering</td><td>Yes (subtracts \(\mu\))</td><td class="hl-red">No</td></tr>
+      <tr><td>Reduction passes</td><td>2</td><td class="hl-green">1</td></tr>
+      <tr><td>Learned params</td><td>\(\gamma\) (scale) + \(\beta\) (bias)</td><td class="hl-green">\(g\) (scale) only</td></tr>
+      <tr><td>Invariances</td><td>Re-centering + re-scaling</td><td>Re-scaling only</td></tr>
+      <tr><td>Used in</td><td>BERT, GPT-2, ViT</td><td>LLaMA, Gemma, Mistral, Qwen</td></tr>
+    </table>
+    <p><strong>When to use RMSNorm:</strong></p>
+    <ul>
+      <li>Large-scale transformer LLMs where every layer's compute/memory bandwidth matters</li>
+      <li>Deep stacks (dozens of blocks) where controlling activation magnitude across depth matters more than mean-zero-ing it</li>
+      <li>Architectures already dropping bias terms (LLaMA-style "simplicity" designs)</li>
+    </ul>
+    <p><strong>When NOT to switch:</strong></p>
+    <ul>
+      <li>Small models / small batch settings where the ~2x compute saving is negligible and you want the extra regularizing effect of re-centering</li>
+      <li>Domains with strong empirical evidence favoring classic LayerNorm/BatchNorm (e.g. some CV backbones still prefer BatchNorm/GroupNorm)</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Mental Model</div>
+      <p style="font-size:14px;margin:0;">RMSNorm = LayerNorm with \(\mu\) hard-coded to 0. Same shape, same learned-gain mechanism, half the statistics — and it works because re-scaling invariance, not re-centering, is what stabilizes deep transformer training.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def layer_norm(x, gamma, beta, eps=1e-6):</div>
+      <div class="code-line" id="cl3">    mu = x.mean(axis=-1, keepdims=True)        # pass 1: mean</div>
+      <div class="code-line" id="cl4">    centered = x - mu                          # re-centering</div>
+      <div class="code-line" id="cl5">    var = (centered ** 2).mean(axis=-1, keepdims=True)  # pass 2: variance</div>
+      <div class="code-line" id="cl6">    x_hat = centered / np.sqrt(var + eps)       # re-scaling</div>
+      <div class="code-line" id="cl7">    return gamma * x_hat + beta                 # learned affine</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">def rms_norm(x, g, eps=1e-6):</div>
+      <div class="code-line" id="cl10">    ms = (x ** 2).mean(axis=-1, keepdims=True)  # single pass: mean-square</div>
+      <div class="code-line" id="cl11">    rms = np.sqrt(ms + eps)</div>
+      <div class="code-line" id="cl12">    x_bar = x / rms                             # rescale only, no centering</div>
+      <div class="code-line" id="cl13">    return g * x_bar                            # learned gain, no bias</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">x = np.array([4.0, -2.0, 6.0, 1.0, -5.0, 3.0])</div>
+      <div class="code-line" id="cl16">gamma = beta = np.ones(6), np.zeros(6)</div>
+      <div class="code-line" id="cl17">g = np.array([1.2, 0.8, 1.0, 1.5, 0.9, 1.1])</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">print("LayerNorm:", layer_norm(x, np.ones(6), np.zeros(6)))</div>
+      <div class="code-line" id="cl20">print("RMSNorm:  ", rms_norm(x, g))</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># Production: torch.nn.RMSNorm(dim) or LlamaRMSNorm — fused CUDA kernel</div>
+      <div class="code-line" id="cl23"># computes sum-of-squares + rsqrt in one kernel launch, no separate mean pass.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA (computed live, not hard-coded fakes) ──
+const labels = ['x₁','x₂','x₃','x₄','x₅','x₆'];
+const x = [4.0, -2.0, 6.0, 1.0, -5.0, 3.0];
+const n = x.length;
+const gain = [1.2, 0.8, 1.0, 1.5, 0.9, 1.1]; // learned per-channel gain g
+
+const mean = x.reduce((a,b)=>a+b,0) / n;
+const centered = x.map(v => v - mean);
+const variance = centered.reduce((a,b)=>a+b*b,0) / n;
+const std = Math.sqrt(variance);
+const lnNorm = centered.map(v => v / std);
+
+const meanSq = x.reduce((a,b)=>a+b*b,0) / n;
+const rms = Math.sqrt(meanSq);
+const rmsNorm = x.map(v => v / rms);
+const rmsGained = rmsNorm.map((v,i) => v * gain[i]);
+
+const lnOps = 4 * n;   // mean(n) + center+square(2n) + var-sum(n)
+const rmsOps = 2 * n;  // square(n) + sum(n)
+
+const fmt = v => (v>=0?'+':'') + v.toFixed(2);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase:'raw', title:'The Raw Activation Vector',
+    desc:`A 6-dim activation vector at one token position: \\(x = [${x.join(', ')}]\\). This is what a transformer sub-layer (attention or FFN output) hands to the normalization layer before it flows into the next block.`,
+    codeLines:[15], canvasMode:'raw',
+    stats:[['x', `[${x.map(v=>v.toFixed(1)).join(', ')}]`]]
+  },
+  {
+    phase:'layernorm', title:'LayerNorm Step 1 — Compute the Mean μ',
+    desc:`LayerNorm's first pass reduces over all \\(n=${n}\\) elements to get \\(\\mu = \\frac{1}{n}\\sum_i x_i = ${mean.toFixed(3)}\\). The amber dashed line marks this mean — LayerNorm is about to shift every bar down by this amount.`,
+    codeLines:[3], canvasMode:'ln_mean',
+    stats:[['μ', mean.toFixed(3)]]
+  },
+  {
+    phase:'layernorm', title:'LayerNorm Step 2 — Re-center (subtract μ)',
+    desc:`Subtract \\(\\mu\\) from every element: \\(x-\\mu = [${centered.map(v=>v.toFixed(2)).join(', ')}]\\). The centered vector now has mean exactly 0 (the amber line has moved to y=0). This costs a full extra pass over the tensor plus \\(n\\) subtractions — the step RMSNorm skips.`,
+    codeLines:[4], canvasMode:'ln_center',
+    stats:[['mean(x-μ)', '0.000']]
+  },
+  {
+    phase:'layernorm', title:'LayerNorm Step 3 — Normalize by σ',
+    desc:`Second reduction pass computes variance \\(\\sigma^2 = \\frac{1}{n}\\sum_i(x_i-\\mu)^2 = ${variance.toFixed(3)}\\), so \\(\\sigma=${std.toFixed(3)}\\). Dividing gives \\(\\hat{x} = (x-\\mu)/\\sigma = [${lnNorm.map(v=>v.toFixed(2)).join(', ')}]\\) — zero mean, unit variance (red bars).`,
+    codeLines:[5,6], canvasMode:'ln_normalize',
+    stats:[['σ', std.toFixed(3)], ['mean', '0.00'], ['var', '1.00']]
+  },
+  {
+    phase:'rmsnorm', title:'RMSNorm Step 1 — Compute RMS(x) Directly',
+    desc:`RMSNorm never computes \\(\\mu\\) at all. It goes straight from the raw vector \\(x\\) to a single statistic: \\(\\operatorname{RMS}(x)=\\sqrt{\\frac{1}{n}\\sum_i x_i^2}=${rms.toFixed(3)}\\). Notice the green dashed RMS line sits on the raw bars — no centering pass, no mean line at all.`,
+    codeLines:[10,11], canvasMode:'rms_compute',
+    stats:[['RMS(x)', rms.toFixed(3)]]
+  },
+  {
+    phase:'rmsnorm', title:'RMSNorm Step 2 — Rescale (no centering)',
+    desc:`Divide the ORIGINAL \\(x\\) (not a centered version) by \\(\\operatorname{RMS}(x)\\): \\(\\bar{x} = x/\\operatorname{RMS}(x) = [${rmsNorm.map(v=>v.toFixed(2)).join(', ')}]\\) (green bars). Compare to LayerNorm's output — the relative shape of the original vector is preserved, just uniformly rescaled; the mean is \\(${(rmsNorm.reduce((a,b)=>a+b,0)/n).toFixed(2)}\\), not 0.`,
+    codeLines:[12], canvasMode:'rms_normalize',
+    stats:[['RMS(x̄)', '1.000'], ['mean(x̄)', (rmsNorm.reduce((a,b)=>a+b,0)/n).toFixed(2)]]
+  },
+  {
+    phase:'compare', title:'LayerNorm vs RMSNorm, Side by Side',
+    desc:`Red = LayerNorm output (centered then scaled), green = RMSNorm output (scaled only). Both compress the vector to roughly unit magnitude, but LayerNorm's bars sit symmetric around 0 while RMSNorm's bars keep the original vector's asymmetric "shape" — it never forgets whether \\(x\\) leaned positive or negative.`,
+    codeLines:[19,20], canvasMode:'compare',
+    stats:[['LN mean', '0.00'], ['RMS mean', (rmsNorm.reduce((a,b)=>a+b,0)/n).toFixed(2)]]
+  },
+  {
+    phase:'compare', title:'Learned Gain + Compute Cost',
+    desc:`Both methods apply a learned per-channel gain before passing the result on: \\(y=g\\odot\\bar{x} = [${rmsGained.map(v=>v.toFixed(2)).join(', ')}]\\) for RMSNorm. But the real payoff is compute: with \\(n=${n}\\), LayerNorm needs \\(4n=${lnOps}\\) element-ops across 2 reduction passes, RMSNorm needs \\(2n=${rmsOps}\\) ops across just 1 — exactly half, which is why fused RMSNorm kernels in LLaMA/Gemma measurably speed up training and inference.`,
+    codeLines:[22,23], canvasMode:'cost_gain',
+    stats:[['LayerNorm ops', lnOps], ['RMSNorm ops', rmsOps], ['speedup', '~2x fewer ops']]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next; render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {raw:'phase-raw', layernorm:'phase-layernorm', rmsnorm:'phase-rmsnorm', compare:'phase-compare'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => { const el = document.getElementById('cl'+i); if(el) el.classList.add('active'); });
+
+  const statRow = document.getElementById('statRow');
+  statRow.innerHTML = (s.stats||[]).map(([k,v]) => `<div class="stat-chip">${k} = <b>${v}</b></div>`).join('');
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const text2 = col('--text2'), text3 = col('--text3'), borderC = col('--border2');
+  const blueMid = col('--blue-mid'), redMid = col('--red-mid'), greenMid = col('--green-mid'), amberMid = col('--amber-mid'), purpleMid = col('--purple-mid');
+
+  ctx.clearRect(0,0,W,H);
+  ctx.font = '11px "DM Sans", system-ui';
+
+  if (mode === 'cost_gain') { drawCostGain(ctx, W, H, {text2,text3,borderC,redMid,greenMid,purpleMid}); return; }
+  if (mode === 'compare') { drawGroupedBars(ctx, W, H, {text2,text3,borderC,redMid,greenMid}); return; }
+
+  // single/dual bar-chart modes
+  const cfg = {
+    raw:          {values:x,        color:blueMid,  line:null,        range:[-7,7]},
+    ln_mean:      {values:x,        color:blueMid,  line:mean,        lineColor:amberMid, range:[-7,7]},
+    ln_center:    {values:centered, color:purpleMid,line:0,           lineColor:amberMid, range:[-7,7]},
+    ln_normalize: {values:lnNorm,   color:redMid,   line:0,           lineColor:amberMid, range:[-2.2,2.2]},
+    rms_compute:  {values:x,        color:blueMid,  line:rms,         lineColor:greenMid, rangeAbs:true, range:[-7,7]},
+    rms_normalize:{values:rmsNorm,  color:greenMid, line:null,        range:[-2.2,2.2]}
+  }[mode];
+
+  drawBars(ctx, W, H, cfg, {text2,text3,borderC});
+}
+
+function drawBars(ctx, W, H, cfg, theme) {
+  const pad = {l:44, r:20, t:20, b:32};
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const [vMin,vMax] = cfg.range;
+  const toY = v => pad.t + (1 - (v - vMin)/(vMax - vMin)) * ph;
+  const zeroY = toY(0);
+  const bw = pw / (n * 1.7);
+  const gap = pw / n;
+
+  // zero axis
+  ctx.strokeStyle = theme.borderC; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(W - pad.r, zeroY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.stroke();
+
+  // reference line (mean or RMS)
+  if (cfg.line !== null && cfg.line !== undefined) {
+    const ly = toY(cfg.line);
+    ctx.strokeStyle = cfg.lineColor; ctx.lineWidth = 1.5; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(pad.l, ly); ctx.lineTo(W - pad.r, ly); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = cfg.lineColor; ctx.font = '600 11px "DM Sans", system-ui';
+    ctx.fillText(cfg.line.toFixed(2), W - pad.r - 34, ly - 5);
+  }
+
+  cfg.values.forEach((v,i) => {
+    const cx = pad.l + gap*i + gap/2;
+    const y1 = toY(v);
+    ctx.fillStyle = cfg.color;
+    const top = Math.min(y1, zeroY), h = Math.abs(y1 - zeroY);
+    ctx.fillRect(cx - bw/2, top, bw, Math.max(h,1.5));
+    ctx.fillStyle = theme.text2; ctx.font = '11px "DM Sans", system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(labels[i], cx, H - pad.b + 16);
+    ctx.fillStyle = theme.text3; ctx.font = '600 10px "JetBrains Mono", monospace';
+    ctx.fillText(v.toFixed(2), cx, y1 < zeroY ? top - 6 : top + h + 14);
+  });
+  ctx.textAlign = 'left';
+}
+
+function drawGroupedBars(ctx, W, H, theme) {
+  const pad = {l:44, r:20, t:20, b:32};
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const vMin=-2.2, vMax=2.2;
+  const toY = v => pad.t + (1 - (v - vMin)/(vMax - vMin)) * ph;
+  const zeroY = toY(0);
+  const gap = pw / n;
+  const bw = gap / 3.2;
+
+  ctx.strokeStyle = theme.borderC; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(W - pad.r, zeroY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.stroke();
+
+  lnNorm.forEach((v,i) => {
+    const cx = pad.l + gap*i + gap/2 - bw*0.6;
+    const y1 = toY(v), top = Math.min(y1,zeroY), h = Math.abs(y1-zeroY);
+    ctx.fillStyle = theme.redMid; ctx.fillRect(cx - bw/2, top, bw, Math.max(h,1.5));
+  });
+  rmsNorm.forEach((v,i) => {
+    const cx = pad.l + gap*i + gap/2 + bw*0.6;
+    const y1 = toY(v), top = Math.min(y1,zeroY), h = Math.abs(y1-zeroY);
+    ctx.fillStyle = theme.greenMid; ctx.fillRect(cx - bw/2, top, bw, Math.max(h,1.5));
+  });
+  for (let i=0;i<n;i++){
+    const cx = pad.l + gap*i + gap/2;
+    ctx.fillStyle = theme.text2; ctx.font = '11px "DM Sans", system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(labels[i], cx, H - pad.b + 16);
+  }
+  ctx.textAlign = 'left';
+}
+
+function drawCostGain(ctx, W, H, theme) {
+  const pad = {l:120, r:60, t:30, b:60};
+  const pw = W - pad.l - pad.r;
+  const maxOps = Math.max(lnOps, rmsOps) * 1.15;
+  const rows = [
+    {label:'LayerNorm', ops:lnOps, color:theme.redMid},
+    {label:'RMSNorm',   ops:rmsOps, color:theme.greenMid}
+  ];
+  const rh = 46, gap = 30;
+  let y = pad.t + 20;
+  rows.forEach(r => {
+    const w = (r.ops / maxOps) * pw;
+    ctx.fillStyle = theme.text2; ctx.font = '600 13px "DM Sans", system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(r.label, pad.l - 12, y + rh/2 + 4);
+    ctx.fillStyle = r.color;
+    ctx.fillRect(pad.l, y, Math.max(w,2), rh);
+    ctx.fillStyle = '#fff'; ctx.font = '700 13px "JetBrains Mono", monospace'; ctx.textAlign = 'left';
+    ctx.fillText(r.ops + ' ops', pad.l + 10, y + rh/2 + 5);
+    y += rh + gap;
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = theme.text3; ctx.font = '11px "DM Sans", system-ui';
+  ctx.fillText(`n = ${n} channels · RMSNorm uses 1 reduction pass vs LayerNorm's 2`, W/2, H - 14);
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

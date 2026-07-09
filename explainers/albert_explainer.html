@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALBERT — Parameter Reduction via Factorization &amp; Layer Sharing</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+  --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+  --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+  --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+  --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+  --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+  --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+}
+:root[data-theme="light"] {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{margin:0.5rem 0 0.75rem 1.25rem;font-size:14px;}
+.section-body li{margin-bottom:0.35rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.eq{text-align:center;padding:14px 20px;margin:0.75rem 0;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);color:var(--cyan-text);overflow-x:auto;}
+
+/* Comparison table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:1rem 0;}
+table.cmp th,table.cmp td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);}
+table.cmp th{color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+table.cmp td.num{font-family:var(--mono);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/10;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Controls panel (sliders) */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 16px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.slider-label{font-size:12px;font-weight:600;min-width:150px;color:var(--text2);}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:600;min-width:70px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;min-width:120px;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.toggle-btn.on{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:90px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-bert{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-embed{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-share{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-sop{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Legend */
+.legend{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:0.75rem;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+footer{text-align:center;font-size:11px;color:var(--text3);margin:2rem 0 1rem;}
+@media (max-width:600px){.header h1{font-size:22px;}.slider-label{min-width:110px;font-size:11px;}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>ALBERT: A Lite BERT</h1>
+  <div class="subtitle">Parameter reduction via factorized embeddings and cross-layer parameter sharing — plus Sentence Order Prediction (SOP) replacing NSP</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Advanced</span>
+    <span class="tag tag-category">NLP / Transformers</span>
+    <span class="tag tag-complexity">O(V·E + E·H + 12H²)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding the Concept -->
+<div class="card" data-card="1">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is this?</strong> ALBERT ("A Lite BERT") is a shrunken-down redesign of BERT that gets similar — sometimes better — language understanding while using dramatically fewer parameters. It does this with two structural tricks: <strong>factorized embedding parameterization</strong> (splitting one big word-embedding matrix into two smaller ones) and <strong>cross-layer parameter sharing</strong> (reusing the exact same transformer block weights at every layer, instead of learning 12 or 24 separate copies). It also swaps BERT's Next Sentence Prediction (NSP) pretraining task for the harder, more useful Sentence Order Prediction (SOP).</p>
+    <p><strong>Real-world analogy.</strong> Imagine BERT is a company that hires a brand-new specialist team for every floor of a 12-story building — 12x the salaries, even though each floor does almost the same job. ALBERT instead hires <em>one</em> elite team and has them ride the elevator up and down, doing the work on every floor. Separately, instead of giving every employee a giant, expensively detailed ID badge (the embedding), ALBERT gives them a compact badge (a small embedding of size E) and only expands it into the "big language" once it reaches the specialist team.</p>
+    <p><strong>One-sentence summary:</strong> ALBERT keeps BERT's transformer architecture but factorizes the embedding matrix and shares one encoder block's weights across all layers, cutting parameters by ~10-18x while training a harder sentence-coherence objective (SOP).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">If you remember one thing</div>
+      <p style="margin:0;">Two matrix tricks — <em>factorize</em> the embedding (V×H → V×E + E×H) and <em>share</em> the same encoder layer weights across depth — turn BERT's "wide everywhere" design into "narrow entry, one reusable brain," slashing parameters without slashing capacity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card" data-card="2">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Factorized embedding parameterization</h4>
+    <p>BERT ties the vocabulary-embedding dimension directly to the hidden dimension: the embedding table is a <code>V × H</code> matrix (V = vocab size, H = hidden size, e.g. 768). To make the model deeper/wider (larger H), BERT is forced to also blow up the embedding table, even though word embeddings are meant to capture <em>context-independent</em> meaning while H is meant to capture <em>context-dependent</em> meaning — conflating two different jobs. ALBERT decouples them: it introduces a small intermediate dimension <code>E ≪ H</code> (e.g. 128) and factorizes the embedding into two matrices, <code>V × E</code> followed by <code>E × H</code>. A one-hot token first gets projected into the small E-dimensional space, then that is projected up into H-dimensional space before entering the transformer stack.</p>
+    <h4>2. Cross-layer parameter sharing</h4>
+    <p>BERT-base stacks 12 transformer encoder blocks, each with its <em>own independently learned</em> attention + feed-forward weights — 12x the parameters of one block. ALBERT instead learns the weights of <strong>one</strong> transformer block and reuses those exact same weights at every one of the L layers (the default is "share-all," sharing both attention and FFN parameters). The activations still flow sequentially through L applications of the block — it's not shallower, it just reuses the same function repeatedly, similar in spirit to a recurrent network unrolled L times.</p>
+    <h4>3. Sentence Order Prediction (SOP) replaces NSP</h4>
+    <p>BERT's NSP task asks the model to distinguish a true next sentence from a <em>random</em> sentence from another document — a task later analyzed (RoBERTa, ALBERT papers) as too easy, since topic mismatch alone solves it. ALBERT's SOP instead takes two <em>consecutive</em> sentences from the same document and asks the model to predict whether they are in the correct order or swapped. Because both sentences share topic and vocabulary, the model must learn genuine discourse-level coherence, not just topic detection.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">Design decision: why not just shrink H?</div>
+      <p style="margin:0;">Simply using a smaller H would cut parameters too, but it also cuts the model's representational capacity in the transformer layers where most of the "reasoning" happens. Factorization removes the embedding bottleneck's parameter cost <em>without</em> touching H, and sharing removes depth's parameter cost <em>without</em> reducing the number of processing steps — both preserve capacity better than naively shrinking the network.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: Why It Works (Math) -->
+<div class="card" data-card="3">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body">
+    <h4>Embedding parameter count</h4>
+    <p>Let \(V\) be vocabulary size, \(H\) the hidden size, \(E\) the factorized embedding size. BERT's embedding table has:</p>
+    <div class="eq">$$P_{\text{embed}}^{\text{BERT}} = V \times H$$</div>
+    <p>ALBERT factorizes this into a small lookup table plus a shared up-projection:</p>
+    <div class="eq">$$P_{\text{embed}}^{\text{ALBERT}} = V \times E \;+\; E \times H$$</div>
+    <p>When \(H \gg E\), the reduction is dramatic. E.g. \(V=30{,}000,\ H=768,\ E=128\):</p>
+    <div class="eq">$$V{\times}H = 23.0\text{M} \quad\text{vs.}\quad V{\times}E + E{\times}H = 3.84\text{M} + 0.098\text{M} \approx 3.94\text{M}$$</div>
+    <p>a ~5.8x reduction in embedding parameters alone, and the saving <em>grows</em> as H grows (E stays fixed), since \(P_{\text{embed}}^{\text{BERT}}\) scales linearly with H while ALBERT's second term grows much more slowly.</p>
+    <h4>Encoder parameter count</h4>
+    <p>Each transformer encoder block has roughly \(12H^2\) parameters (4 projection matrices of size \(H \times H\) for self-attention's Q/K/V/O ≈ \(4H^2\), plus two feed-forward matrices of size \(H \times 4H\) ≈ \(8H^2\); biases are lower order). With \(L\) independently-parameterized layers, BERT's encoder cost is:</p>
+    <div class="eq">$$P_{\text{enc}}^{\text{BERT}} = L \times 12H^2$$</div>
+    <p>ALBERT shares one block's weights across all \(L\) layers, so the parameter count does not scale with depth at all:</p>
+    <div class="eq">$$P_{\text{enc}}^{\text{ALBERT}} = 12H^2 \quad (\text{independent of } L)$$</div>
+    <p>Total parameters and the resulting compression ratio:</p>
+    <div class="eq">$$\text{Total}_{\text{BERT}} \approx VH + 12LH^2 \qquad \text{Total}_{\text{ALBERT}} \approx VE + EH + 12H^2$$</div>
+    <div class="concept-box math">
+      <div class="concept-box-title">Key formula</div>
+      <p style="margin:0;">Compression ratio \(\approx \dfrac{VH + 12LH^2}{VE+EH+12H^2}\). As \(L\) grows (deeper model), BERT's parameter count grows linearly while ALBERT's stays flat — so the compression ratio grows with depth. This is exactly why ALBERT-xxlarge (H=4096, only 12 shared layers) has <em>fewer</em> parameters than BERT-large (H=1024, 24 layers) despite being 4x wider.</p>
+    </div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">Common misconception</div>
+      <p style="margin:0;">"Fewer parameters means ALBERT is faster to train/run." Not necessarily — sharing reduces <em>memory</em> and improves <em>sample efficiency</em> of learning, but activations still flow through L sequential layer applications, so inference/training <em>compute</em> (FLOPs) is roughly the same as an equivalent-depth BERT.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Walkthrough -->
+<div class="card" data-card="4">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body" id="viz-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through how ALBERT reshapes BERT's parameter budget, and drag the sliders any time to see the live parameter math recompute for both architectures.</p>
+
+    <div class="slider-panel">
+      <div class="slider-group">
+        <span class="slider-label">Hidden size H</span>
+        <input type="range" id="sliderH" min="256" max="4096" step="128" value="768">
+        <span class="slider-value" id="valH">768</span>
+      </div>
+      <div class="slider-group">
+        <span class="slider-label">Embedding size E</span>
+        <input type="range" id="sliderE" min="32" max="768" step="16" value="128">
+        <span class="slider-value" id="valE">128</span>
+      </div>
+      <div class="slider-group">
+        <span class="slider-label">Layers L</span>
+        <input type="range" id="sliderL" min="2" max="24" step="2" value="12">
+        <span class="slider-value" id="valL">12</span>
+      </div>
+      <div class="slider-group">
+        <span class="slider-label">Vocab size V (fixed)</span>
+        <span class="slider-value">30,000</span>
+        <button class="toggle-btn on" id="btnShare">Cross-layer sharing: ON</button>
+        <button class="toggle-btn on" id="btnFactor">Factorized embedding: ON</button>
+      </div>
+    </div>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--red-mid);"></span> BERT (unshared)</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--purple-mid);"></span> ALBERT (shared/factorized)</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--blue-mid);"></span> Embedding params</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--green-mid);"></span> Encoder params</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--amber-mid);"></span> SOP / sentence signal</div>
+      </div>
+      <div class="info-card">
+        <span class="info-phase phase-bert" id="infoPhase">Setup</span>
+        <div class="info-step" id="infoStep">Step 1 / 9</div>
+        <div class="info-title" id="infoTitle">Loading…</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="btnPrev">← Prev</button>
+        <button class="btn btn-primary" id="btnNext">Next →</button>
+        <button class="btn" id="btnReset">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate steps, R to reset. Sliders &amp; toggles are live at every step.</div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Comparison & Trade-offs -->
+<div class="card" data-card="5">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Comparison &amp; Trade-offs</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Model</th><th>H</th><th>L</th><th>E</th><th>Params</th><th>Sharing</th><th>Sentence task</th></tr>
+      <tr><td>BERT-base</td><td class="num">768</td><td class="num">12</td><td class="num">768</td><td class="num">~110M</td><td>No</td><td>NSP</td></tr>
+      <tr><td>BERT-large</td><td class="num">1024</td><td class="num">24</td><td class="num">1024</td><td class="num">~340M</td><td>No</td><td>NSP</td></tr>
+      <tr><td>ALBERT-base</td><td class="num">768</td><td class="num">12</td><td class="num">128</td><td class="num">~12M</td><td>Yes</td><td>SOP</td></tr>
+      <tr><td>ALBERT-large</td><td class="num">1024</td><td class="num">24</td><td class="num">128</td><td class="num">~18M</td><td>Yes</td><td>SOP</td></tr>
+      <tr><td>ALBERT-xxlarge</td><td class="num">4096</td><td class="num">12</td><td class="num">128</td><td class="num">~223M</td><td>Yes</td><td>SOP</td></tr>
+      <tr><td>DistilBERT</td><td class="num">768</td><td class="num">6</td><td class="num">768</td><td class="num">~66M</td><td>No (distilled)</td><td>–</td></tr>
+    </table>
+    <h4>When to use ALBERT</h4>
+    <ul>
+      <li>Memory-constrained training/deployment where model <em>disk/RAM footprint</em> matters more than raw FLOPs (e.g. many fine-tuned checkpoints stored per task).</li>
+      <li>Tasks that benefit from a much wider/deeper effective network (ALBERT-xxlarge) without paying BERT's parameter cost for that width.</li>
+      <li>When you want strong sentence-pair coherence understanding (SOP pretraining) for tasks like document ranking or discourse modeling.</li>
+    </ul>
+    <h4>When NOT to use it</h4>
+    <ul>
+      <li>Low-latency inference at the edge — parameter sharing does not reduce FLOPs or wall-clock inference time, so DistilBERT/TinyBERT (which reduce depth, not just parameter count) are often better for speed.</li>
+      <li>When you need very fast fine-tuning iteration — ALBERT can converge more slowly per step despite fewer parameters, since the shared layer must serve every depth simultaneously.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">Decision rule</div>
+      <p style="margin:0;">Optimizing for <strong>model size / memory</strong> → ALBERT. Optimizing for <strong>inference speed</strong> → DistilBERT/TinyBERT (fewer layers, not shared layers). Optimizing for <strong>raw accuracy, cost no object</strong> → RoBERTa / larger BERT variants.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Key Takeaways -->
+<div class="card" data-card="6">
+  <div class="section-header" onclick="toggleCard(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▾</div>
+  </div>
+  <div class="section-body">
+    <ul>
+      <li><strong>Factorized embedding</strong> (\(V{\times}H \to V{\times}E + E{\times}H\)) decouples vocabulary embedding size from hidden size, removing a parameter cost that used to scale with H.</li>
+      <li><strong>Cross-layer parameter sharing</strong> reuses one transformer block's weights at every depth, making encoder parameter count independent of the number of layers L.</li>
+      <li><strong>Sentence Order Prediction (SOP)</strong> replaces NSP with a harder coherence task (correct vs. swapped order of consecutive sentences), removing the "topic shortcut" that made NSP too easy.</li>
+      <li>Net effect: ALBERT-base has ~18x fewer parameters than BERT-large while remaining competitive on GLUE/SQuAD — but it does <em>not</em> reduce inference FLOPs, since the same number of sequential layer computations still happen.</li>
+      <li><strong>Related topics:</strong> BERT, RoBERTa, DistilBERT, Transformer encoder architecture, Weight tying / parameter sharing, Knowledge distillation.</li>
+    </ul>
+  </div>
+</div>
+
+<footer>ALBERT explainer &middot; Lan et al., ICLR 2020 &middot; Use ← → arrow keys to step through the visualization</footer>
+
+<script>
+function toggleCard(header){
+  const body = header.parentElement.querySelector('.section-body');
+  const tog = header.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  tog.classList.toggle('open');
+}
+
+// ── STATE ──
+const V_VOCAB = 30000;
+const state = { step: 0, factorized: true, shared: true };
+const N_STEPS = 9;
+
+function formatNum(n){
+  if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return Math.round(n).toString();
+}
+
+function computeParams(){
+  const H = +document.getElementById('sliderH').value;
+  const E = +document.getElementById('sliderE').value;
+  const L = +document.getElementById('sliderL').value;
+  const encPerLayer = 12 * H * H;
+  const embedBERT = V_VOCAB * H;
+  const encBERT = L * encPerLayer;
+  const totalBERT = embedBERT + encBERT;
+  const embedALBERT = state.factorized ? (V_VOCAB*E + E*H) : (V_VOCAB*H);
+  const encALBERT = state.shared ? encPerLayer : (L * encPerLayer);
+  const totalALBERT = embedALBERT + encALBERT;
+  return {H, E, L, V: V_VOCAB, encPerLayer, embedBERT, encBERT, totalBERT, embedALBERT, encALBERT, totalALBERT};
+}
+
+// ── STEP DEFINITIONS (text is generated live from computeParams()) ──
+function getSteps(){
+  const p = computeParams();
+  const ratio = (p.totalBERT / p.totalALBERT).toFixed(1);
+  const embedReduction = (100 * (1 - p.embedALBERT / p.embedBERT)).toFixed(0);
+  return [
+    {
+      phase: 'Setup', phaseClass: 'phase-bert', mode: 'arch', focus: 'none',
+      title: 'Same transformer math, a very different parameter budget',
+      desc: `BERT and ALBERT both stack transformer encoder blocks on top of a token embedding table, at hidden size H=${p.H}, ${p.L} layers. ALBERT reaches comparable (often better) benchmark scores by changing <em>how</em> parameters are allocated, not the core attention/FFN math. Drag the sliders above at any time — every number below recomputes live.`
+    },
+    {
+      phase: 'BERT · Embedding', phaseClass: 'phase-bert', mode: 'arch', focus: 'bert-embed',
+      title: `BERT's embedding table: V × H = ${formatNum(p.embedBERT)} parameters`,
+      desc: `BERT looks up each of the V=${p.V.toLocaleString()} vocabulary tokens directly as an H=${p.H}-dimensional vector — a single dense V×H matrix. This ties embedding size to hidden size: every time you widen H (for more model capacity), this table grows too, even though word identity doesn't need H dimensions to represent.`
+    },
+    {
+      phase: 'BERT · Encoder', phaseClass: 'phase-bert', mode: 'arch', focus: 'bert-enc',
+      title: `BERT's encoder: ${p.L} independent blocks = ${formatNum(p.encBERT)} parameters`,
+      desc: `Each encoder block has ≈12H² parameters (Q/K/V/O projections ≈4H², feed-forward ≈8H²) — here that's ${formatNum(p.encPerLayer)} per block. BERT learns a <strong>separate copy</strong> of these weights for all ${p.L} layers, so the encoder cost scales linearly with depth: ${p.L} × ${formatNum(p.encPerLayer)} = ${formatNum(p.encBERT)}.`
+    },
+    {
+      phase: 'BERT · Total', phaseClass: 'phase-result', mode: 'arch', focus: 'bert-total',
+      title: `BERT's full parameter budget: ${formatNum(p.totalBERT)}`,
+      desc: `Embedding (${formatNum(p.embedBERT)}) + encoder (${formatNum(p.encBERT)}) = ${formatNum(p.totalBERT)} total. Both terms grow whenever H or L increase — there is no free lunch for going deeper or wider in the original BERT design.`
+    },
+    {
+      phase: 'ALBERT · Factorized Embedding', phaseClass: 'phase-embed', mode: 'arch', focus: 'albert-embed',
+      title: `ALBERT factorizes: V×E + E×H = ${formatNum(p.embedALBERT)} parameters`,
+      desc: `ALBERT first projects each token into a small E=${p.E}-dimensional space (V×E = ${formatNum(p.V*p.E)}), then up-projects <em>once</em> into H-dimensional space (E×H = ${formatNum(p.E*p.H)}) right before the encoder. Total: ${formatNum(p.embedALBERT)} — a ${embedReduction}% cut versus BERT's ${formatNum(p.embedBERT)} at the same H.`
+    },
+    {
+      phase: 'ALBERT · Shared Encoder', phaseClass: 'phase-share', mode: 'arch', focus: 'albert-enc',
+      title: `ALBERT reuses one block's weights ${p.L}× = ${formatNum(p.encALBERT)} parameters`,
+      desc: `Instead of learning ${p.L} separate encoder blocks, ALBERT learns <strong>one</strong> block (${formatNum(p.encPerLayer)} params) and applies those exact same weights at every layer — like a loop, not a stack of distinct layers. Encoder cost is now <strong>independent of depth</strong>: it stays at ${formatNum(p.encALBERT)} even if L grows.`
+    },
+    {
+      phase: 'Live Comparison', phaseClass: 'phase-result', mode: 'arch', focus: 'total-compare',
+      title: `Total parameters: BERT ${formatNum(p.totalBERT)} vs. ALBERT ${formatNum(p.totalALBERT)} (${ratio}× fewer)`,
+      desc: `At H=${p.H}, E=${p.E}, L=${p.L}: BERT ≈ ${formatNum(p.totalBERT)}, ALBERT ≈ ${formatNum(p.totalALBERT)}. Try dragging L or H up — BERT's bar keeps climbing while ALBERT's barely moves, because sharing removed depth from the encoder cost and factorization removed width from the embedding cost.`
+    },
+    {
+      phase: 'Pretraining Signal', phaseClass: 'phase-sop', mode: 'sop', focus: 'sop',
+      title: 'Sentence Order Prediction (SOP) replaces Next Sentence Prediction (NSP)',
+      desc: `BERT's NSP negative examples are a sentence from a <em>different, random document</em> — the model can "cheat" by detecting topic mismatch alone. ALBERT's SOP always uses two <em>consecutive</em> sentences from the <strong>same</strong> document, sometimes with their order swapped, so the only signal left is genuine discourse coherence.`
+    },
+    {
+      phase: 'Wrap-up', phaseClass: 'phase-result', mode: 'summary', focus: 'summary',
+      title: 'Fewer parameters, comparable or better accuracy',
+      desc: `ALBERT-base (~12M params) is roughly ${ratio}× smaller than an equivalent-depth BERT configuration here, yet published results show ALBERT matching or beating BERT-large on GLUE, RACE, and SQuAD. The lesson: parameter <em>allocation</em> (where you spend your budget), not raw parameter <em>count</em>, was BERT's real bottleneck.`
+    }
+  ];
+}
+
+// ── CANVAS DRAWING ──
+function cssv(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawCanvas(){
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const C = {
+    bg2: cssv('--bg2'), text: cssv('--text'), text2: cssv('--text2'), text3: cssv('--text3'),
+    border: cssv('--border2'), surface: cssv('--surface'),
+    blueMid: cssv('--blue-mid'), blueBg: cssv('--blue-bg'), blueBorder: cssv('--blue-border'),
+    greenMid: cssv('--green-mid'), greenBg: cssv('--green-bg'), greenBorder: cssv('--green-border'),
+    redMid: cssv('--red-mid'), redBg: cssv('--red-bg'), redBorder: cssv('--red-border'),
+    amberMid: cssv('--amber-mid'), amberBg: cssv('--amber-bg'), amberBorder: cssv('--amber-border'),
+    purpleMid: cssv('--purple-mid'), purpleBg: cssv('--purple-bg'), purpleBorder: cssv('--purple-border')
+  };
+
+  const steps = getSteps();
+  const s = steps[state.step];
+  const p = computeParams();
+
+  ctx.textBaseline = 'middle';
+
+  if (s.mode === 'arch') drawArch(ctx, W, H, C, s, p);
+  else if (s.mode === 'sop') drawSOP(ctx, W, H, C);
+  else if (s.mode === 'summary') drawSummary(ctx, W, H, C, p);
+}
+
+function dimAlpha(active){ return active ? 1.0 : 0.28; }
+
+function drawArch(ctx, W, H, C, s, p){
+  const colW = (W - 70) / 2;
+  const colBERT = { x: 30, w: colW };
+  const colALBERT = { x: 40 + colW, w: colW };
+  const topY = 46;
+
+  // Column headers
+  ctx.font = '700 15px "DM Sans", system-ui';
+  ctx.fillStyle = C.redMid;
+  ctx.textAlign = 'left';
+  ctx.fillText('BERT', colBERT.x, topY);
+  ctx.fillStyle = C.purpleMid;
+  ctx.fillText('ALBERT', colALBERT.x, topY);
+
+  const embedY = topY + 26;
+  const embedH = 56;
+
+  // ── BERT embedding block ──
+  const bertEmbedActive = ['bert-embed','bert-total','total-compare'].includes(s.focus);
+  ctx.globalAlpha = dimAlpha(bertEmbedActive || s.focus==='none');
+  ctx.fillStyle = C.blueBg; ctx.strokeStyle = C.blueBorder; ctx.lineWidth = 2;
+  roundRect(ctx, colBERT.x, embedY, colBERT.w, embedH, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.blueMid; ctx.font = '600 12px var(--mono),monospace'; ctx.textAlign='center';
+  ctx.fillText(`Embedding  V×H`, colBERT.x + colBERT.w/2, embedY + 20);
+  ctx.font = '700 13px "JetBrains Mono", monospace';
+  ctx.fillText(formatNum(p.embedBERT) + ' params', colBERT.x + colBERT.w/2, embedY + 40);
+  ctx.globalAlpha = 1;
+
+  // ── BERT encoder blocks (independent stack) ──
+  const bertEncActive = ['bert-enc','bert-total','total-compare'].includes(s.focus);
+  ctx.globalAlpha = dimAlpha(bertEncActive || s.focus==='none');
+  const encY0 = embedY + embedH + 16;
+  const nShow = Math.min(6, p.L);
+  const blockH = 26, gap = 5;
+  for (let i=0;i<nShow;i++){
+    const y = encY0 + i*(blockH+gap);
+    ctx.fillStyle = C.greenBg; ctx.strokeStyle = C.greenBorder; ctx.lineWidth = 1.5;
+    roundRect(ctx, colBERT.x, y, colBERT.w, blockH, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.greenMid; ctx.font = '600 10px "JetBrains Mono", monospace'; ctx.textAlign='left';
+    ctx.fillText(`layer ${i+1}: own weights (12H²)`, colBERT.x + 8, y + blockH/2);
+  }
+  if (p.L > nShow){
+    ctx.fillStyle = C.text3; ctx.font='600 11px "DM Sans"'; ctx.textAlign='center';
+    ctx.fillText(`⋮  (+${p.L-nShow} more independent layers)`, colBERT.x + colBERT.w/2, encY0 + nShow*(blockH+gap) + 8);
+  }
+  ctx.textAlign='center'; ctx.fillStyle = C.greenMid; ctx.font='700 12px "JetBrains Mono"';
+  const bertEncLabelY = encY0 + Math.min(nShow, p.L)*(blockH+gap) + (p.L>nShow?22:6);
+  ctx.fillText(`Encoder total: ${p.L} × ${formatNum(p.encPerLayer)} = ${formatNum(p.encBERT)}`, colBERT.x + colBERT.w/2, bertEncLabelY);
+  ctx.globalAlpha = 1;
+
+  // ── ALBERT factorized embedding (two small blocks + arrow) ──
+  const albEmbedActive = ['albert-embed','total-compare'].includes(s.focus);
+  ctx.globalAlpha = dimAlpha(albEmbedActive || s.focus==='none');
+  const smallW = colALBERT.w*0.42;
+  ctx.fillStyle = C.blueBg; ctx.strokeStyle = C.blueBorder; ctx.lineWidth = 2;
+  roundRect(ctx, colALBERT.x, embedY, smallW, embedH, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.blueMid; ctx.font='600 11px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText('V×E', colALBERT.x + smallW/2, embedY+18);
+  ctx.font='700 11px "JetBrains Mono"';
+  ctx.fillText(formatNum(p.V*p.E), colALBERT.x + smallW/2, embedY+38);
+
+  // arrow
+  ctx.strokeStyle = C.text2; ctx.lineWidth = 2;
+  const ax0 = colALBERT.x + smallW + 4, ax1 = colALBERT.x + colALBERT.w - smallW - 4;
+  ctx.beginPath(); ctx.moveTo(ax0, embedY+embedH/2); ctx.lineTo(ax1, embedY+embedH/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax1, embedY+embedH/2); ctx.lineTo(ax1-8, embedY+embedH/2-5); ctx.lineTo(ax1-8, embedY+embedH/2+5); ctx.closePath();
+  ctx.fillStyle = C.text2; ctx.fill();
+
+  ctx.fillStyle = C.blueBg; ctx.strokeStyle = C.blueBorder; ctx.lineWidth = 2;
+  roundRect(ctx, colALBERT.x + colALBERT.w - smallW, embedY, smallW, embedH, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.blueMid; ctx.font='600 11px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText('E×H', colALBERT.x + colALBERT.w - smallW/2, embedY+18);
+  ctx.font='700 11px "JetBrains Mono"';
+  ctx.fillText(formatNum(p.E*p.H), colALBERT.x + colALBERT.w - smallW/2, embedY+38);
+
+  ctx.fillStyle = C.blueMid; ctx.font='700 12px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText(`Embedding total: ${formatNum(p.embedALBERT)}`, colALBERT.x + colALBERT.w/2, embedY + embedH + 14);
+  ctx.globalAlpha = 1;
+
+  // ── ALBERT shared encoder block + loop arrow ──
+  const albEncActive = ['albert-enc','total-compare'].includes(s.focus);
+  ctx.globalAlpha = dimAlpha(albEncActive || s.focus==='none');
+  const sharedY = encY0 + 8;
+  const sharedH = 60;
+  const sharedW = colALBERT.w*0.6;
+  const sharedX = colALBERT.x + (colALBERT.w-sharedW)/2 - 20;
+  ctx.fillStyle = C.purpleBg; ctx.strokeStyle = C.purpleBorder; ctx.lineWidth = 2.5;
+  roundRect(ctx, sharedX, sharedY, sharedW, sharedH, 9); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.purpleMid; ctx.font='700 12px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText('shared block', sharedX+sharedW/2, sharedY+20);
+  ctx.font='600 11px "JetBrains Mono"';
+  ctx.fillText(formatNum(p.encPerLayer)+' params', sharedX+sharedW/2, sharedY+38);
+  ctx.font='600 10px "DM Sans"'; ctx.fillStyle=C.text2;
+  ctx.fillText('(12H², one copy)', sharedX+sharedW/2, sharedY+53);
+
+  // loop arrow (curved) to the right of shared block, labeled ×L
+  const loopCx = sharedX + sharedW + 46, loopCy = sharedY + sharedH/2, loopR = 26;
+  ctx.strokeStyle = C.purpleMid; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(loopCx, loopCy, loopR, 0.35*Math.PI, 1.85*Math.PI); ctx.stroke();
+  // arrowhead on loop
+  const ahAngle = 1.85*Math.PI;
+  const ahx = loopCx + loopR*Math.cos(ahAngle), ahy = loopCy + loopR*Math.sin(ahAngle);
+  ctx.beginPath();
+  ctx.moveTo(ahx, ahy);
+  ctx.lineTo(ahx-9, ahy-3);
+  ctx.lineTo(ahx-4, ahy+8);
+  ctx.closePath();
+  ctx.fillStyle = C.purpleMid; ctx.fill();
+  ctx.fillStyle = C.purpleMid; ctx.font='700 13px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText(`×${p.L}`, loopCx, loopCy);
+
+  ctx.fillStyle = C.purpleMid; ctx.font='700 12px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText(`Encoder total: ${formatNum(p.encALBERT)}  (independent of L)`, colALBERT.x + colALBERT.w/2, sharedY+sharedH+30);
+  ctx.globalAlpha = 1;
+
+  // ── Bottom bar chart: total params comparison ──
+  const barTop = H - 150;
+  const barAreaH = 100;
+  const maxVal = Math.max(p.totalBERT, p.totalALBERT) * 1.15;
+  const barActive = ['bert-total','total-compare'].includes(s.focus);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(30, barTop+barAreaH); ctx.lineTo(W-30, barTop+barAreaH); ctx.stroke();
+
+  const barW = 90;
+  // BERT bar
+  const bertBarH = (p.totalBERT/maxVal) * barAreaH;
+  ctx.globalAlpha = dimAlpha(barActive || s.focus==='none');
+  ctx.fillStyle = C.redMid;
+  roundRect(ctx, colBERT.x + colBERT.w/2 - barW/2, barTop + barAreaH - bertBarH, barW, bertBarH, 4); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText(formatNum(p.totalBERT), colBERT.x + colBERT.w/2, barTop + barAreaH - bertBarH - 12);
+  ctx.fillStyle = C.text2; ctx.font='600 11px "DM Sans"';
+  ctx.fillText('BERT total', colBERT.x + colBERT.w/2, barTop + barAreaH + 18);
+
+  // ALBERT bar
+  const albBarActive = ['total-compare'].includes(s.focus) || s.focus==='none';
+  const albertBarH = (p.totalALBERT/maxVal) * barAreaH;
+  ctx.globalAlpha = dimAlpha(s.focus==='total-compare' || s.focus==='none');
+  ctx.fillStyle = C.purpleMid;
+  roundRect(ctx, colALBERT.x + colALBERT.w/2 - barW/2, barTop + barAreaH - albertBarH, barW, albertBarH, 4); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"'; ctx.textAlign='center';
+  ctx.fillText(formatNum(p.totalALBERT), colALBERT.x + colALBERT.w/2, barTop + barAreaH - albertBarH - 12);
+  ctx.fillStyle = C.text2; ctx.font='600 11px "DM Sans"';
+  ctx.fillText('ALBERT total', colALBERT.x + colALBERT.w/2, barTop + barAreaH + 18);
+  ctx.globalAlpha = 1;
+
+  if (s.focus === 'total-compare'){
+    const ratio = (p.totalBERT/p.totalALBERT).toFixed(1);
+    ctx.fillStyle = C.amberMid; ctx.font='700 15px "DM Sans"'; ctx.textAlign='center';
+    ctx.fillText(`${ratio}× fewer parameters`, W/2, barTop - 14);
+  }
+}
+
+function drawSOP(ctx, W, H, C){
+  ctx.textAlign = 'left';
+  const padX = 40;
+  const rowW = W - padX*2;
+
+  // NSP panel (BERT)
+  ctx.font='700 14px "DM Sans"'; ctx.fillStyle = C.redMid;
+  ctx.fillText('BERT · Next Sentence Prediction (NSP)', padX, 34);
+  const nspY = 54;
+  drawSentenceRow(ctx, padX, nspY, rowW, ['The', 'cat', 'sat', 'on', 'the', 'mat', '.'], C.blueBg, C.blueBorder, C.blueMid, C);
+  ctx.fillStyle = C.text2; ctx.font='600 11px "DM Sans"'; ctx.fillText('Sentence A (from Document 1)', padX, nspY+44);
+
+  const nspY2 = nspY + 70;
+  drawSentenceRow(ctx, padX, nspY2, rowW, ['Stock', 'markets', 'fell', 'sharply', 'today', '.'], C.redBg, C.redBorder, C.redMid, C);
+  ctx.fillStyle = C.redMid; ctx.font='700 11px "DM Sans"';
+  ctx.fillText('Sentence B — random sentence from Document 2  →  label: NotNext', padX, nspY2+44);
+  ctx.fillStyle = C.text3; ctx.font='italic 11px "DM Sans"';
+  ctx.fillText('⚠ Shortcut: different topic/vocabulary alone reveals the answer', padX, nspY2+62);
+
+  // divider
+  const midY = nspY2 + 90;
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padX, midY); ctx.lineTo(W-padX, midY); ctx.stroke();
+
+  // SOP panel (ALBERT)
+  ctx.font='700 14px "DM Sans"'; ctx.fillStyle = C.purpleMid;
+  ctx.fillText('ALBERT · Sentence Order Prediction (SOP)', padX, midY+30);
+  const sopY = midY + 50;
+  drawSentenceRow(ctx, padX, sopY, rowW, ['The', 'model', 'read', 'the', 'report', '.'], C.amberBg, C.amberBorder, C.amberMid, C);
+  ctx.fillStyle = C.text2; ctx.font='600 11px "DM Sans"'; ctx.fillText('Segment 1 (same document)', padX, sopY+44);
+
+  const sopY2 = sopY + 70;
+  drawSentenceRow(ctx, padX, sopY2, rowW, ['Then', 'it', 'summarized', 'the', 'findings', '.'], C.amberBg, C.amberBorder, C.amberMid, C);
+  ctx.fillStyle = C.greenMid; ctx.font='700 11px "DM Sans"';
+  ctx.fillText('Segment 2, same document, order swapped 50% of the time  →  label: Swapped / Right order', padX, sopY2+44);
+  ctx.fillStyle = C.text3; ctx.font='italic 11px "DM Sans"';
+  ctx.fillText('✓ No topic shortcut available — model must judge discourse coherence', padX, sopY2+62);
+}
+
+function drawSentenceRow(ctx, x, y, w, tokens, bg, border, mid, C){
+  let cx = x;
+  const tokH = 28;
+  ctx.font = '600 12px "JetBrains Mono", monospace';
+  tokens.forEach(tok=>{
+    const tw = ctx.measureText(tok).width + 20;
+    ctx.fillStyle = bg; ctx.strokeStyle = border; ctx.lineWidth = 1.5;
+    roundRect(ctx, cx, y, tw, tokH, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = mid; ctx.textAlign='center';
+    ctx.fillText(tok, cx+tw/2, y+tokH/2+1);
+    ctx.textAlign='left';
+    cx += tw + 6;
+  });
+}
+
+function drawSummary(ctx, W, H, C, p){
+  ctx.textAlign='center';
+  ctx.font='700 18px "DM Sans"'; ctx.fillStyle = C.text;
+  ctx.fillText('Parameter efficiency vs. task performance', W/2, 40);
+
+  const ratio = (p.totalBERT/p.totalALBERT).toFixed(1);
+  // Left: params comparison (reuse mini bars)
+  const barTop = 90, barAreaH = 220, barW=110;
+  const maxVal = Math.max(p.totalBERT, p.totalALBERT)*1.15;
+  const cx1 = W*0.28, cx2 = W*0.5;
+  ctx.strokeStyle = C.border; ctx.beginPath(); ctx.moveTo(60,barTop+barAreaH); ctx.lineTo(W*0.62,barTop+barAreaH); ctx.stroke();
+
+  const bH1 = (p.totalBERT/maxVal)*barAreaH;
+  ctx.fillStyle = C.redMid; roundRect(ctx, cx1-barW/2, barTop+barAreaH-bH1, barW, bH1, 5); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"';
+  ctx.fillText(formatNum(p.totalBERT), cx1, barTop+barAreaH-bH1-14);
+  ctx.font='600 12px "DM Sans"'; ctx.fillStyle=C.text2; ctx.fillText('BERT params', cx1, barTop+barAreaH+20);
+
+  const bH2 = (p.totalALBERT/maxVal)*barAreaH;
+  ctx.fillStyle = C.purpleMid; roundRect(ctx, cx2-barW/2, barTop+barAreaH-bH2, barW, bH2, 5); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"';
+  ctx.fillText(formatNum(p.totalALBERT), cx2, barTop+barAreaH-bH2-14);
+  ctx.font='600 12px "DM Sans"'; ctx.fillStyle=C.text2; ctx.fillText('ALBERT params', cx2, barTop+barAreaH+20);
+
+  ctx.fillStyle = C.amberMid; ctx.font='700 15px "DM Sans"';
+  ctx.fillText(`${ratio}× smaller`, (cx1+cx2)/2, barTop-16);
+
+  // Right: illustrative benchmark comparison (approx published GLUE avg scores)
+  const rx = W*0.82;
+  ctx.font='700 13px "DM Sans"'; ctx.fillStyle = C.text;
+  ctx.fillText('GLUE avg. (published, illustrative)', rx, barTop-16);
+  const glueBERT = 82.1, glueALBERT = 82.3; // approx GLUE dev averages, BERT-large vs ALBERT-base per Lan et al. 2020
+  const glueMax = 90;
+  const gH1 = (glueBERT/glueMax)*barAreaH, gH2=(glueALBERT/glueMax)*barAreaH;
+  const gx1 = rx-45, gx2 = rx+45;
+  ctx.fillStyle = C.redMid; roundRect(ctx, gx1-barW/2, barTop+barAreaH-gH1, barW*0.7, gH1, 5); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"';
+  ctx.fillText(glueBERT.toFixed(1), gx1, barTop+barAreaH-gH1-14);
+  ctx.fillStyle = C.purpleMid; roundRect(ctx, gx2-barW/2, barTop+barAreaH-gH2, barW*0.7, gH2, 5); ctx.fill();
+  ctx.fillStyle = C.text; ctx.font='700 13px "JetBrains Mono"';
+  ctx.fillText(glueALBERT.toFixed(1), gx2, barTop+barAreaH-gH2-14);
+  ctx.font='600 11px "DM Sans"'; ctx.fillStyle=C.text2;
+  ctx.fillText('BERT-large', gx1, barTop+barAreaH+20);
+  ctx.fillText('ALBERT-base', gx2, barTop+barAreaH+20);
+
+  ctx.font='500 13px "DM Sans"'; ctx.fillStyle = C.text2;
+  ctx.fillText(`Roughly ${ratio}× fewer parameters, comparable downstream accuracy.`, W/2, barTop+barAreaH+56);
+}
+
+// ── UI WIRING ──
+function render(){
+  const steps = getSteps();
+  const s = steps[state.step];
+
+  document.getElementById('infoPhase').textContent = s.phase;
+  document.getElementById('infoPhase').className = 'info-phase ' + s.phaseClass;
+  document.getElementById('infoStep').textContent = `Step ${state.step+1} / ${N_STEPS}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  document.getElementById('valH').textContent = document.getElementById('sliderH').value;
+  document.getElementById('valE').textContent = document.getElementById('sliderE').value;
+  document.getElementById('valL').textContent = document.getElementById('sliderL').value;
+
+  document.getElementById('btnPrev').disabled = state.step === 0;
+  document.getElementById('btnNext').disabled = state.step === N_STEPS-1;
+
+  const dotsWrap = document.getElementById('progressWrap');
+  dotsWrap.innerHTML = '';
+  for (let i=0;i<N_STEPS;i++){
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===state.step?' active':'') + (i<state.step?' done':'');
+    d.onclick = () => { state.step = i; render(); };
+    dotsWrap.appendChild(d);
+  }
+
+  drawCanvas();
+}
+
+function go(delta){
+  state.step = Math.max(0, Math.min(N_STEPS-1, state.step+delta));
+  render();
+}
+function reset(){ state.step = 0; render(); }
+
+document.getElementById('btnPrev').addEventListener('click', ()=>go(-1));
+document.getElementById('btnNext').addEventListener('click', ()=>go(1));
+document.getElementById('btnReset').addEventListener('click', reset);
+
+['sliderH','sliderE','sliderL'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', render);
+});
+
+document.getElementById('btnShare').addEventListener('click', function(){
+  state.shared = !state.shared;
+  this.textContent = 'Cross-layer sharing: ' + (state.shared ? 'ON' : 'OFF');
+  this.classList.toggle('on', state.shared);
+  render();
+});
+document.getElementById('btnFactor').addEventListener('click', function(){
+  state.factorized = !state.factorized;
+  this.textContent = 'Factorized embedding: ' + (state.factorized ? 'ON' : 'OFF');
+  this.classList.toggle('on', state.factorized);
+  render();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+window.addEventListener('resize', drawCanvas);
+
+render();
+</script>
+</body>
+</html>

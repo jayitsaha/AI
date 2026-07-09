@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RWKV: RNN-Transformer Hybrid — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+  --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+  --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+  --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+  --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+  --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+  --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+}
+:root[data-theme="light"] {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-lanes{display:flex;flex-direction:column;gap:14px;margin-bottom:1rem;}
+.lane{background:var(--bg2);border-radius:var(--radius);padding:12px 14px;}
+.lane-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text2);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+.lane-title .mem-badge{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;}
+.mem-badge.flat{background:var(--green-bg);color:var(--green-mid);}
+.mem-badge.grow{background:var(--red-bg);color:var(--red-mid);}
+.viz-canvas-wrap{position:relative;width:100%;height:150px;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);}
+
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 16px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:12px;font-weight:600;min-width:130px;color:var(--text2);}
+.slider-value{font-family:var(--mono);font-size:13px;font-weight:600;min-width:44px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-recur{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-cache{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Comparison table */
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+table.cmp th,table.cmp td{border:1px solid var(--border);padding:6px 10px;text-align:left;}
+table.cmp th{background:var(--bg2);font-weight:700;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:100px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>RWKV: RNN-Transformer Hybrid</h1>
+  <div class="subtitle">Trains in parallel like a Transformer, generates with O(1) constant memory like an RNN</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Sequence Models</span>
+    <span class="tag tag-category">Efficient Attention</span>
+    <span class="tag tag-complexity">O(1) inference / token</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card" id="card1">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding RWKV</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> RWKV ("Receptance Weighted Key Value") is a language model architecture that gets the best of two worlds. During <em>training</em>, it can be unrolled into a form that processes an entire sequence in parallel, just like a Transformer. During <em>inference</em> (generating text token-by-token), it collapses into a plain recurrent neural network that only needs a small, <strong>fixed-size state</strong> — no matter how long the conversation gets.</p>
+    <p><strong>Analogy:</strong> A Transformer generating text is like a detective who, to solve today's case, re-reads the entire case file from page one every single time a new clue arrives — the file (KV cache) keeps growing, and re-reading it gets slower and more expensive. RWKV is like a detective who keeps a small notebook: each new clue updates a few key notes (with older notes fading in relevance — "time-decay"), and the notebook never grows past a fixed number of pages, no matter how long the case runs.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">RWKV replaces quadratic self-attention with a <strong>linear recurrence (the "WKV" operator)</strong> that has two mathematically equivalent forms: a parallelizable sum for training, and a step-by-step update — $$a_t = e^{-w}a_{t-1} + e^{k_t}v_t,\quad b_t = e^{-w}b_{t-1} + e^{k_t}$$ — for inference, giving \(O(1)\) memory and compute per generated token instead of the Transformer's ever-growing KV cache.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card" id="card2">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How RWKV Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Building Blocks</h4>
+    <p>Each RWKV block has two sub-layers, echoing a Transformer block but replacing self-attention entirely:</p>
+    <ul>
+      <li><strong>Time-Mixing (replaces self-attention):</strong> produces receptance \(r_t\), key \(k_t\), value \(v_t\) from a blend of the current and previous token's hidden state ("token shift"), then runs the <strong>WKV</strong> linear-attention recurrence over them.</li>
+      <li><strong>Channel-Mixing (replaces the FFN):</strong> a position-wise gated MLP, also using token-shift, that mixes information across feature channels.</li>
+    </ul>
+    <h4>Token Shift</h4>
+    <p>Before projecting, RWKV linearly interpolates each token's hidden state \(x_t\) with the previous token's \(x_{t-1}\): \(x_t^{\mu} = \mu \odot x_t + (1-\mu)\odot x_{t-1}\). This gives every projection (R, K, V) a cheap, built-in one-step lookback — a tiny "local attention" for free.</p>
+    <h4>The WKV Recurrence — the Heart of RWKV</h4>
+    <p>Instead of computing an \(n\times n\) attention matrix, RWKV maintains, per channel, a running weighted sum of past values (numerator \(a\)) and past weights (denominator \(b\)). Each channel has a learned <strong>time-decay</strong> \(w>0\) (how fast old information fades) and a learned <strong>bonus</strong> \(u\) (extra emphasis given to the current token so it isn't drowned out by decayed history):</p>
+    <div class="eq">$$\text{wkv}_t = \frac{a_{t-1} + e^{u+k_t}v_t}{b_{t-1} + e^{u+k_t}}, \qquad a_t = e^{-w}a_{t-1} + e^{k_t}v_t,\quad b_t = e^{-w}b_{t-1} + e^{k_t}$$</div>
+    <p>Finally, the <strong>receptance</strong> gate \(r_t\) (passed through a sigmoid) decides how much of this WKV output to let through: \(\text{output}_t = \sigma(r_t)\odot \text{wkv}_t\), then an output projection mixes channels.</p>
+    <h4>Numerical Trace (single channel, \(w=0.5\), \(u=0.3\))</h4>
+    <p>Start \(a_0=0, b_0=0\). Token 1: \(k_1=0.80, v_1=1.20\) → \(\text{wkv}_1 = e^{1.10}\cdot1.20 / e^{1.10} = 1.20\) (only the current token exists). Update state: \(a_1=e^{0.80}\cdot1.20\approx2.67\), \(b_1=e^{0.80}\approx2.23\). Token 2: \(k_2=-0.30, v_2=0.50\) → numerator \(=a_1+e^{u+k_2}v_2 = 2.67 + e^{0.0}\cdot0.5\approx3.17\), denominator \(=b_1+e^{0.0}\approx3.23\) → \(\text{wkv}_2\approx0.98\). Note the state (just two numbers per channel) never grows — the interactive walkthrough below runs this exact recurrence live for 8 tokens.</p>
+    <h4>Design Decision: Why decay + bonus, not raw softmax attention?</h4>
+    <p>Softmax attention needs every past key/value kept around to normalize over. RWKV's trick is that \(\sum e^{k_i}\) and \(\sum e^{k_i}v_i\) can each be accumulated <em>incrementally</em> with an exponential decay — mathematically equivalent to a weighted softmax-like average over the whole past, but computed as a running total. The bonus \(u\) exists because, without it, the current token's key would be decayed by \(w\) exactly like everything else and lose its "recency" edge.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The WKV recurrence has <strong>two equivalent forms</strong>: a closed-form parallel sum over all positions (used during training, like attention) and a two-scalar-per-channel recurrent update (used during inference). This dual form is exactly what makes RWKV "parallelizable like a Transformer, recurrent like an RNN."</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card" id="card3">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Parallel (Training) Form</h4>
+    <p>Written out over all positions \(1,\dots,t\), the WKV output for position \(t\) is a weighted average of all past and present values, where weights decay geometrically the further back in time they are, except the current position gets a special bonus \(u\) instead of decay:</p>
+    <div class="eq">$$\text{wkv}_t = \frac{\displaystyle\sum_{i=1}^{t-1} e^{-(t-1-i)w+k_i}\,v_i \;+\; e^{u+k_t}v_t}{\displaystyle\sum_{i=1}^{t-1} e^{-(t-1-i)w+k_i} \;+\; e^{u+k_t}}$$</div>
+    <p>This looks like a softmax-weighted attention sum (numerator and denominator, exponentiated scores) — but the "attention scores" \(e^{-(t-1-i)w+k_i}\) depend only on relative distance \((t-1-i)\) and the key \(k_i\), never on a query. There is no \(Q\), no pairwise dot product, and no \(n\times n\) matrix.</p>
+    <h4>Deriving the Recurrent (Inference) Form</h4>
+    <p>Define the running numerator and denominator excluding the bonus term as \(a_{t-1}=\sum_{i=1}^{t-1}e^{-(t-1-i)w+k_i}v_i\) and \(b_{t-1}=\sum_{i=1}^{t-1}e^{-(t-1-i)w+k_i}\). Factor out one decay step:</p>
+    <div class="eq">$$a_t = e^{-w}a_{t-1} + e^{k_t}v_t \qquad b_t = e^{-w}b_{t-1} + e^{k_t}$$</div>
+    <p>and the output at time \(t\) simply mixes in the current token with its bonus instead of decay: \(\text{wkv}_t = (a_{t-1}+e^{u+k_t}v_t)/(b_{t-1}+e^{u+k_t})\). Because \((a_t,b_t)\) is a <em>sufficient statistic</em> for the entire past, generation needs only these two numbers per channel — this is the algebraic reason RWKV memory is \(O(1)\) in sequence length, versus the Transformer KV cache's \(O(t)\).</p>
+    <h4>Numerical Stability</h4>
+    <p>In practice \(k_t\) and cumulative decay can make \(e^{k_t}\) overflow. Real implementations track a running max \(p_t = \max(p_{t-1}-w, u+k_t)\) and rewrite the recurrence in log-space (a log-sum-exp trick), exactly as softmax subtracts its max for stability — the math is identical, just shifted.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"RWKV has no attention." It <em>does</em> compute an attention-like weighted average of values — it just never materializes the \(n\times n\) score matrix, and the weights are distance-based decay rather than learned query-key similarity. This trades expressiveness (no content-based query matching) for constant memory and linear-time training.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card" id="card4">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Feed the same 8-token sequence into RWKV's WKV recurrence and a Transformer's self-attention, one token at a time. Watch the RWKV state (2 numbers/channel) stay flat while the Transformer's KV cache grows every step. All values below are computed live from the actual WKV recurrence.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <span class="slider-label">Time-decay w</span>
+          <input type="range" id="wSlider" min="0.1" max="2.0" step="0.1" value="0.5">
+          <span class="slider-value" id="wVal">0.5</span>
+        </div>
+        <div class="slider-group">
+          <span class="slider-label">Bonus u</span>
+          <input type="range" id="uSlider" min="0.0" max="1.5" step="0.1" value="0.3">
+          <span class="slider-value" id="uVal">0.3</span>
+        </div>
+      </div>
+
+      <div class="viz-lanes">
+        <div class="lane">
+          <div class="lane-title"><span>RWKV — recurrent state (per channel)</span><span class="mem-badge flat" id="rwkvMem">memory: O(1)</span></div>
+          <div class="viz-canvas-wrap"><canvas id="rwkvCanvas"></canvas></div>
+        </div>
+        <div class="lane">
+          <div class="lane-title"><span>Transformer — KV cache</span><span class="mem-badge grow" id="tfMem">memory: O(t)</span></div>
+          <div class="viz-canvas-wrap"><canvas id="tfCanvas"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Token 1 arrives</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset · drag sliders to change decay/bonus</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> RWKV state (a, b)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> wkv output (gated)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> new token k,v</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> cached K,V (never discarded)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card" id="card5">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Dimension</th><th>Transformer (self-attention)</th><th>RWKV</th></tr>
+      <tr><td>Training compute</td><td>\(O(n^2)\) per layer</td><td>\(O(n)\) per layer (parallel scan)</td></tr>
+      <tr><td>Inference memory</td><td>\(O(t)\) — KV cache grows every token</td><td>\(O(1)\) — fixed state per channel</td></tr>
+      <tr><td>Inference compute/token</td><td>\(O(t)\) — attends over full cache</td><td>\(O(1)\) — one recurrence update</td></tr>
+      <tr><td>Long-range mixing</td><td>Direct, content-based (query-key)</td><td>Indirect, distance-decay based</td></tr>
+      <tr><td>Extrapolation to long context</td><td>Degrades beyond trained length</td><td>Naturally stable (recurrence, decay)</td></tr>
+    </table>
+    <p><strong>When to use RWKV:</strong></p>
+    <ul>
+      <li>Long-context generation / streaming chat where KV-cache memory would explode</li>
+      <li>Edge or resource-constrained deployment needing constant, predictable memory</li>
+      <li>Very long documents or genomic/audio sequences where \(O(n^2)\) attention is infeasible</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>Tasks needing precise content-based long-range retrieval (e.g., exact copy of a token from far back) — decay-based mixing is weaker than direct attention</li>
+      <li>Small-scale tasks where a standard Transformer already fits comfortably in memory</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Related Topics</div>
+      <p style="font-size:14px;margin:0;">Connects to: <strong>linear attention</strong>, <strong>State Space Models (Mamba, S4)</strong>, <strong>gated linear recurrent units</strong>, and <strong>KV-cache optimization</strong>. Key paper: Peng et al., <em>"RWKV: Reinventing RNNs for the Transformer Era"</em>, EMNLP Findings 2023.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card" id="card6">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — WKV Recurrence from Scratch</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);">The exact recurrence powering the visualization above, in NumPy. This is the O(1)-memory inference path — no cache of past tokens is ever kept.</p>
+    <div class="code-panel">
+<div class="code-line">import numpy as np</div>
+<div class="code-line"></div>
+<div class="code-line">def rwkv_step(a_prev, b_prev, k_t, v_t, w, u):</div>
+<div class="code-line">    """One O(1) recurrent update — no history is stored."""</div>
+<div class="code-line">    bonus = np.exp(u + k_t)                 # current token gets bonus, not decay</div>
+<div class="code-line">    wkv_t = (a_prev + bonus * v_t) / (b_prev + bonus)</div>
+<div class="code-line">    a_t = np.exp(-w) * a_prev + np.exp(k_t) * v_t   # decay old state, add new</div>
+<div class="code-line">    b_t = np.exp(-w) * b_prev + np.exp(k_t)</div>
+<div class="code-line">    return wkv_t, a_t, b_t          # state stays 2 floats/channel forever</div>
+<div class="code-line"></div>
+<div class="code-line">a, b = 0.0, 0.0                     # fixed-size state, init once</div>
+<div class="code-line">for k_t, v_t in token_stream:        # generation loop — sequence length irrelevant</div>
+<div class="code-line">    wkv_t, a, b = rwkv_step(a, b, k_t, v_t, w=0.5, u=0.3)</div>
+<div class="code-line">    r_t = sigmoid(receptance_proj(x_t))</div>
+<div class="code-line">    output_t = r_t * wkv_t          # gate, then project back to hidden dim</div>
+</div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Gotcha</div>
+      <p style="font-size:14px;margin:0;">Naive <code>np.exp(k_t)</code> overflows for large logits after many decay steps. Production RWKV kernels (e.g. the official CUDA WKV kernel) track a running max and compute everything in log-space — same math, numerically safe.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleSection(headerEl){
+  const body = headerEl.nextElementSibling;
+  const toggle = headerEl.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+/* ============ RWKV WKV Recurrence vs Transformer KV Cache — live viz ============ */
+(function(){
+  const N = 8; // number of tokens in the walkthrough
+
+  // Deterministic but non-trivial per-token key/value scalars (single channel demo)
+  function genTokens(){
+    const toks = [];
+    for(let t=1;t<=N;t++){
+      const k = Math.round((Math.sin(t*1.3)*1.5 - 0.2)*100)/100;
+      const v = Math.round((Math.cos(t*0.9)*1.4 + 0.3)*100)/100;
+      toks.push({k, v});
+    }
+    return toks;
+  }
+  const tokens = genTokens();
+
+  // Runs the REAL WKV recurrence: a_t = e^-w a_{t-1} + e^k_t v_t ; b_t = e^-w b_{t-1} + e^k_t
+  // wkv_t = (a_{t-1} + e^(u+k_t) v_t) / (b_{t-1} + e^(u+k_t))
+  function computeRecurrence(w, u){
+    let a = 0, b = 0;
+    const states = [{a:0,b:0}];
+    const wkvs = [];
+    for(let i=0;i<N;i++){
+      const {k,v} = tokens[i];
+      const bonus = Math.exp(u + k);
+      const wkv = (a + bonus*v) / (b + bonus);
+      const newA = Math.exp(-w)*a + Math.exp(k)*v;
+      const newB = Math.exp(-w)*b + Math.exp(k);
+      wkvs.push(wkv);
+      a = newA; b = newB;
+      states.push({a, b});
+    }
+    return {states, wkvs};
+  }
+
+  let w = 0.5, u = 0.3;
+  let rec = computeRecurrence(w, u);
+  let step = 0; // 0..N-1, "token step+1"
+
+  const wSlider = document.getElementById('wSlider');
+  const uSlider = document.getElementById('uSlider');
+  const wVal = document.getElementById('wVal');
+  const uVal = document.getElementById('uVal');
+  const rwkvCanvas = document.getElementById('rwkvCanvas');
+  const tfCanvas = document.getElementById('tfCanvas');
+  const rwkvMem = document.getElementById('rwkvMem');
+  const tfMem = document.getElementById('tfMem');
+  const infoPhase = document.getElementById('infoPhase');
+  const infoStep = document.getElementById('infoStep');
+  const infoTitle = document.getElementById('infoTitle');
+  const infoDesc = document.getElementById('infoDesc');
+  const btnPrev = document.getElementById('btnPrev');
+  const btnNext = document.getElementById('btnNext');
+  const progressDots = document.getElementById('progressDots');
+
+  function fitCanvas(canvas){
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || canvas.parentElement.clientWidth;
+    const cssH = canvas.clientHeight || 150;
+    canvas.width = Math.max(1, Math.round(cssW*dpr));
+    canvas.height = Math.max(1, Math.round(cssH*dpr));
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx, w: cssW, h: cssH};
+  }
+
+  function cssVar(name){
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function roundRect(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  function drawBox(ctx, x, y, bw, bh, label, lines, borderColor, bgColor, textColor){
+    ctx.fillStyle = bgColor;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x, y, bw, bh, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.font = '600 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x+bw/2, y+15);
+    ctx.font = '600 11px "JetBrains Mono", monospace';
+    lines.forEach((line, idx) => {
+      ctx.fillText(line, x+bw/2, y+15+18*(idx+1));
+    });
+  }
+
+  function arrow(ctx, x1, y, x2, color){
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2-7, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y);
+    ctx.lineTo(x2-8, y-4);
+    ctx.lineTo(x2-8, y+4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawRWKV(i){
+    const {ctx, w: cw, h: ch} = fitCanvas(rwkvCanvas);
+    ctx.clearRect(0,0,cw,ch);
+    const prev = rec.states[i];
+    const tok = tokens[i];
+    const wkv = rec.wkvs[i];
+    const next = rec.states[i+1];
+
+    const boxW = Math.min(120, cw*0.21), boxH = 62, gap = (cw - boxW*4 - 24) / 3;
+    const y = ch/2 - boxH/2;
+    let x = 12;
+
+    const purpleBg = cssVar('--purple-bg'), purpleBorder = cssVar('--purple-border'), purpleText = cssVar('--purple-text');
+    const blueBg = cssVar('--blue-bg'), blueBorder = cssVar('--blue-border'), blueText = cssVar('--blue-text');
+    const greenBg = cssVar('--green-bg'), greenBorder = cssVar('--green-border'), greenText = cssVar('--green-text');
+    const text2 = cssVar('--text2');
+
+    drawBox(ctx, x, y, boxW, boxH, `state (t=${i})`, [`a=${prev.a.toFixed(2)}`, `b=${prev.b.toFixed(2)}`], purpleBorder, purpleBg, purpleText);
+    x += boxW + gap;
+    arrow(ctx, x-gap+4, y+boxH/2, x-4, text2);
+
+    drawBox(ctx, x, y, boxW, boxH, `token ${i+1}`, [`k=${tok.k.toFixed(2)}`, `v=${tok.v.toFixed(2)}`], blueBorder, blueBg, blueText);
+    x += boxW + gap;
+    arrow(ctx, x-gap+4, y+boxH/2, x-4, text2);
+
+    drawBox(ctx, x, y, boxW, boxH, 'wkv output', [`${wkv.toFixed(3)}`], greenBorder, greenBg, greenText);
+    x += boxW + gap;
+    arrow(ctx, x-gap+4, y+boxH/2, x-4, text2);
+
+    drawBox(ctx, x, y, boxW, boxH, `state (t=${i+1})`, [`a=${next.a.toFixed(2)}`, `b=${next.b.toFixed(2)}`], purpleBorder, purpleBg, purpleText);
+  }
+
+  function drawTransformer(t){
+    const {ctx, w: cw, h: ch} = fitCanvas(tfCanvas);
+    ctx.clearRect(0,0,cw,ch);
+    const redBg = cssVar('--red-bg'), redBorder = cssVar('--red-border'), redText = cssVar('--red-text');
+    const text3 = cssVar('--text3');
+
+    const maxCells = N;
+    const cellW = Math.min(78, (cw-16) / maxCells - 4);
+    const cellH = 56;
+    const y = 14;
+    let x = 8;
+
+    ctx.font = '600 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = text3;
+    ctx.textAlign = 'left';
+    ctx.fillText(`cache holds ${t} × (K,V) pairs — grows every token, never shrinks`, 8, ch-8);
+
+    for(let i=0;i<t;i++){
+      const tok = tokens[i];
+      const isNew = (i === t-1);
+      drawBox(ctx, x, y, cellW, cellH, `t=${i+1}`, [`K=${tok.k.toFixed(1)}`, `V=${tok.v.toFixed(1)}`], redBorder, isNew ? redBg : redBg, redText);
+      if(isNew){
+        ctx.strokeStyle = redBorder;
+        ctx.lineWidth = 2.5;
+        roundRect(ctx, x-1.5, y-1.5, cellW+3, cellH+3, 9);
+        ctx.stroke();
+      }
+      x += cellW + 4;
+    }
+  }
+
+  function stepNarrative(i){
+    const tok = tokens[i];
+    const wkv = rec.wkvs[i];
+    const next = rec.states[i+1];
+    const cacheFloats = 2*(i+1);
+    if(i === 0){
+      return {
+        phase: 'setup', phaseLabel: 'SETUP',
+        title: `Token 1 arrives — both start from nothing`,
+        desc: `RWKV initializes state a₀=0, b₀=0. Token 1 gives k=${tok.k.toFixed(2)}, v=${tok.v.toFixed(2)}, so wkv₁=${wkv.toFixed(3)} (just the current token). The Transformer also stores its first (K,V) pair — right now both approaches use identical memory: 2 numbers.`
+      };
+    } else if(i < N-1){
+      return {
+        phase: 'recur', phaseLabel: 'RECURRENCE STEP',
+        title: `Token ${i+1} — decay blends old state into new`,
+        desc: `RWKV multiplies the previous state by e^-w=${Math.exp(-w).toFixed(3)} (fading old info) and adds this token's e^k·v contribution, giving new state a=${next.a.toFixed(2)}, b=${next.b.toFixed(2)} — still just 2 numbers. Meanwhile the Transformer's cache has now grown to ${i+1} stored (K,V) pairs (${cacheFloats} floats) and keeps every one of them forever.`
+      };
+    } else {
+      return {
+        phase: 'result', phaseLabel: 'FINAL COMPARISON',
+        title: `Token ${N} — the memory gap is now stark`,
+        desc: `After ${N} tokens, RWKV's state is STILL exactly 2 numbers per channel (a=${next.a.toFixed(2)}, b=${next.b.toFixed(2)}) — O(1), completely independent of sequence length. The Transformer's KV cache now holds ${N} pairs = ${cacheFloats} floats per channel, and keeps growing with every future token — O(t). This is why RWKV can generate arbitrarily long text in constant memory.`
+      };
+    }
+  }
+
+  function updateBadges(t){
+    rwkvMem.textContent = `memory: O(1) = 2 floats/channel`;
+    tfMem.textContent = `memory: O(t) = ${2*t} floats/channel (t=${t})`;
+  }
+
+  function updateDots(){
+    progressDots.innerHTML = '';
+    for(let i=0;i<N;i++){
+      const dot = document.createElement('div');
+      dot.className = 'dot' + (i===step ? ' active' : (i<step ? ' done' : ''));
+      dot.onclick = () => { step = i; render(); };
+      progressDots.appendChild(dot);
+    }
+  }
+
+  function updateButtons(){
+    btnPrev.disabled = step === 0;
+    btnNext.disabled = step === N-1;
+  }
+
+  function render(){
+    drawRWKV(step);
+    drawTransformer(step+1);
+    updateBadges(step+1);
+    const nar = stepNarrative(step);
+    infoPhase.className = 'info-phase phase-' + nar.phase;
+    infoPhase.textContent = nar.phaseLabel;
+    infoStep.textContent = `Step ${step+1} of ${N}`;
+    infoTitle.textContent = nar.title;
+    infoDesc.textContent = nar.desc;
+    updateDots();
+    updateButtons();
+  }
+
+  function go(delta){
+    const ns = step + delta;
+    if(ns < 0 || ns >= N) return;
+    step = ns;
+    render();
+  }
+
+  function reset(){
+    step = 0;
+    render();
+  }
+
+  window.go = go;
+  window.reset = reset;
+
+  wSlider.addEventListener('input', () => {
+    w = parseFloat(wSlider.value);
+    wVal.textContent = w.toFixed(1);
+    rec = computeRecurrence(w, u);
+    render();
+  });
+  uSlider.addEventListener('input', () => {
+    u = parseFloat(uSlider.value);
+    uVal.textContent = u.toFixed(1);
+    rec = computeRecurrence(w, u);
+    render();
+  });
+
+  document.addEventListener('keydown', e => {
+    if(e.key === 'ArrowRight') go(1);
+    if(e.key === 'ArrowLeft') go(-1);
+    if(e.key === 'r' || e.key === 'R') reset();
+  });
+
+  window.addEventListener('resize', render);
+
+  render();
+})();
+</script>
+</body>
+</html>

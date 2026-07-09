@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boundary Losses: Dice, IoU, Focal — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Number readout row */
+.readout-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;font-family:var(--mono);font-size:11px;}
+.readout-chip{padding:6px 10px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);border:1px solid var(--border);}
+.readout-chip.hot{background:var(--red-bg);color:var(--red-mid);border-color:var(--red-border);font-weight:600;}
+.readout-chip.good{background:var(--green-bg);color:var(--green-mid);border-color:var(--green-border);font-weight:600;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-dice{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-iou{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-focal{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Boundary Losses (Dice, IoU, Focal)</h1>
+  <div class="subtitle">Optimizing for overlap and hard examples in segmentation</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-complexity">O(N) pixel-wise</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Boundary Losses</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Boundary losses are a family of loss functions, primarily used in image segmentation, designed to improve the accuracy of object boundaries and handle class imbalance. Unlike standard pixel-wise cross-entropy, which treats every pixel equally, boundary losses focus on the spatial overlap between predicted and ground truth masks, or on the "hardness" of individual pixel classifications, particularly for foreground objects.</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a robot to color a specific shape (the "ground truth") on a canvas. If you grade it with pixel-wise cross-entropy, it's like penalizing every single pixel it gets wrong, whether it's a tiny smudge far from the shape or a major error along the outline. This works fine for large, balanced shapes. But if the shape is very small, or if you care most about how well the robot draws the *outline* itself, cross-entropy can be insufficient. Boundary losses are like grading the robot specifically on how well its colored region *overlaps* the target region (Dice/IoU), or giving it extra credit for correctly coloring the tricky parts near the edges (Focal Loss). This encourages the robot to prioritize getting the shape and boundaries right.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Boundary losses directly optimize for metrics like Dice Coefficient or Jaccard Index (IoU), which measure overlap, or reweight pixel contributions to focus on hard-to-classify examples, often found at object boundaries. This is crucial for segmentation tasks, especially with class imbalance.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Problem with Pixel-wise Cross-Entropy in Segmentation</h4>
+    <p>In semantic segmentation, the output is a pixel-wise classification. For binary segmentation (foreground/background), standard Binary Cross-Entropy (BCE) loss is common. However, BCE can struggle when:</p>
+    <ul>
+      <li><strong>Class Imbalance:</strong> Foreground objects (positive class) often occupy a much smaller area than the background (negative class). BCE gets dominated by the vast number of easily classified background pixels, leading the model to predict mostly background.</li>
+      <li><strong>Boundary Ambiguity:</strong> Pixels near object boundaries are often difficult to classify correctly. Small errors here can significantly impact the perceived quality of the segmentation mask (e.g., IoU score), but BCE doesn't inherently prioritize these pixels.</li>
+    </ul>
+
+    <h4>Dice Loss: Maximizing Overlap</h4>
+    <p>The Dice Coefficient (or F1-score) is a common metric for segmentation, measuring the similarity between two sets. Dice Loss is simply \(1 - \text{Dice Coefficient}\). It directly optimizes for overlap. For binary segmentation with probabilities \(p_i\) and ground truth \(g_i\):</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Numerator:</strong> \(2 \sum p_i g_i\) represents the "true positives" weighted by 2.</li>
+      <li><strong>Denominator:</strong> \(\sum p_i^2 + \sum g_i^2\) represents the sum of predicted and ground truth areas. Squaring \(p_i\) helps penalize over-segmentation.</li>
+      <li><strong>Epsilon (\(\epsilon\)):</strong> A small smoothing term added to both numerator and denominator to prevent division by zero, especially when either the prediction or ground truth is completely empty.</li>
+    </ul>
+    <p>By minimizing \(1 - \text{Dice}\), the model is incentivized to maximize the overlap between its predictions and the ground truth, which implicitly focuses on getting the boundaries right.</p>
+
+    <h4>IoU Loss (Jaccard Loss): Another Overlap Metric</h4>
+    <p>The Jaccard Index, or Intersection over Union (IoU), is another widely used metric for segmentation quality. It measures the size of the intersection divided by the size of the union of two sets. IoU Loss is \(1 - \text{IoU}\). It behaves very similarly to Dice Loss, often yielding comparable results, though Dice tends to give more weight to false negatives, while IoU is more balanced.</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Numerator:</strong> \(\sum p_i g_i\) is the intersection.</li>
+      <li><strong>Denominator:</strong> \(\sum p_i + \sum g_i - \sum p_i g_i\) is the union.</li>
+    </ul>
+
+    <h4>Focal Loss: Focusing on Hard Examples</h4>
+    <p>Focal Loss (Lin et al., 2017) was originally proposed for object detection but is highly effective in segmentation, especially for severe class imbalance. It modifies the standard cross-entropy loss by adding a "modulating factor" \((1 - p_t)^\gamma\).</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>\(p_t\):</strong> The probability of the ground truth class. If the pixel is foreground and predicted as 0.9, \(p_t = 0.9\). If background and predicted as 0.1, \(p_t = 0.9\).</li>
+      <li><strong>\((1 - p_t)^\gamma\):</strong> This factor is small for well-classified examples (large \(p_t\)) and large for misclassified examples (small \(p_t\)). The \(\gamma\) parameter controls the strength of this focusing.</li>
+      <li><strong>\(\alpha_t\):</strong> A weighting factor for class imbalance, typically set to a low value for the majority class (e.g., background) and a higher value for the minority class (e.g., foreground).</li>
+    </ul>
+    <p>By downweighting easy examples, Focal Loss redirects the model's attention to hard-to-classify pixels, which are frequently the minority class (small objects) or pixels at object boundaries.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Dice and IoU losses directly optimize for overlap metrics, making them ideal when these metrics are the primary evaluation criteria. Focal Loss, while still pixel-wise, dynamically adjusts gradients to prioritize hard examples and minority classes, which often translates to better boundary delineation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Binary Cross-Entropy (BCE)</h4>
+    <p>For a single pixel \(i\), with ground truth \(g_i \in \{0,1\}\) and predicted probability \(p_i \in [0,1]\):</p>
+    <div class="eq">$$ L_{BCE}(p_i, g_i) = - [g_i \log(p_i) + (1-g_i) \log(1-p_i)] $$</div>
+    <p>Summing over all \(N\) pixels: \(L_{BCE} = -\frac{1}{N} \sum_{i=1}^N [g_i \log(p_i) + (1-g_i) \log(1-p_i)]\). This loss treats every pixel equally, which can be problematic for imbalanced classes.</p>
+
+    <h4>Smooth Dice Loss</h4>
+    <p>The Dice Coefficient for binary masks \(P\) and \(G\) is defined as \(\text{Dice}(P, G) = \frac{2 |P \cap G|}{|P| + |G|}\). For a differentiable loss, we use predicted probabilities \(p_i\) and ground truth \(g_i\):</p>
+    <div class="eq">$$ L_{Dice}(P, G) = 1 - \frac{2 \sum_{i=1}^N p_i g_i + \epsilon}{\sum_{i=1}^N p_i^2 + \sum_{i=1}^N g_i^2 + \epsilon} $$</div>
+    <p>The squared terms \(\sum p_i^2\) in the denominator help to penalize false positives more strongly than \(\sum p_i\) would, as a high \(p_i\) for a background pixel contributes more to the sum of squares. The gradient of Dice Loss tends to be larger for pixels where \(p_i\) and \(g_i\) disagree, especially when the overall overlap is low. This encourages the model to find more true positives and reduce false positives.</p>
+
+    <h4>Smooth IoU Loss (Jaccard Loss)</h4>
+    <p>The Jaccard Index (IoU) is \(\text{IoU}(P, G) = \frac{|P \cap G|}{|P \cup G|} = \frac{|P \cap G|}{|P| + |G| - |P \cap G|}\). Its differentiable loss form is:</p>
+    <div class="eq">$$ L_{IoU}(P, G) = 1 - \frac{\sum_{i=1}^N p_i g_i + \epsilon}{\sum_{i=1}^N p_i + \sum_{i=1}^N g_i - \sum_{i=1}^N p_i g_i + \epsilon} $$</div>
+    <p>Both Dice and IoU losses are effective for segmentation. Dice Loss is generally more sensitive to small objects and tends to produce smoother boundaries, while IoU Loss might be slightly more robust to noise and varying object sizes. The choice often depends on empirical performance for a specific task.</p>
+
+    <h4>Focal Loss</h4>
+    <p>Focal Loss extends BCE by adding a modulating factor \((1 - p_t)^\gamma\) and an optional class weighting \(\alpha_t\):</p>
+    <div class="eq">$$ L_{Focal}(p_t) = -\alpha_t (1 - p_t)^\gamma \log(p_t) $$</div>
+    <p>Here, \(p_t\) is the probability for the ground truth class (e.g., if \(g_i=1\), \(p_t=p_i\); if \(g_i=0\), \(p_t=1-p_i\)).</p>
+    <ul>
+      <li>When \(p_t \to 1\) (easy example), \((1 - p_t)^\gamma \to 0\), so the loss contribution is heavily downweighted.</li>
+      <li>When \(p_t \to 0\) (hard example), \((1 - p_t)^\gamma \to 1\), so the loss contribution remains high.</li>
+    </ul>
+    <p>The \(\gamma\) parameter (typically 2) controls how aggressively easy examples are downweighted. This forces the model to learn from the "hard" pixels, which are often the minority class pixels or those at object boundaries that are difficult to distinguish from background.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While boundary losses are powerful, they can sometimes lead to unstable training if used alone, especially early on. It's common practice to combine them with standard BCE (e.g., \(0.5 \times L_{BCE} + 0.5 \times L_{Dice}\)) to leverage the strengths of both: BCE for overall learning and boundary losses for fine-tuning boundary details and handling imbalance.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how different loss functions react to varying prediction quality on a simple 16x16 segmentation grid. Manipulate the predicted circle and observe the loss values live.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="readout-row" id="readoutRow"></div>
+
+      <!-- Slider panel -->
+      <div class="slider-panel" id="sliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">Prediction Radius</div>
+          <input type="range" id="predRadiusSlider" min="1" max="12" step="0.1" value="5">
+          <div class="slider-value" id="predRadiusValue">5.0</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Prediction X</div>
+          <input type="range" id="predXSlider" min="0" max="15" step="0.1" value="7.5">
+          <div class="slider-value" id="predXValue">7.5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Prediction Y</div>
+          <input type="range" id="predYSlider" min="0" max="15" step="0.1" value="7.5">
+          <div class="slider-value" id="predYValue">7.5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Focal Loss Gamma (γ)</div>
+          <input type="range" id="focalGammaSlider" min="0" max="5" step="0.1" value="2">
+          <div class="slider-value" id="focalGammaValue">2.0</div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Ground Truth</div>
+        <div class="info-desc" id="infoDesc">...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Ground Truth</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(var(--green-mid-rgb), 0.7)"></div> Prediction (True Positive)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(var(--red-mid-rgb), 0.7)"></div> False Positive</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(var(--amber-mid-rgb), 0.7)"></div> False Negative</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Boundary Losses:</strong></p>
+    <ul>
+      <li><strong>Image Segmentation:</strong> Especially for medical imaging, satellite imagery, or any task where precise object delineation is critical.</li>
+      <li><strong>Class Imbalance:</strong> When foreground objects are small or rare compared to the background, leading to a skewed distribution of positive and negative pixels. Dice/IoU directly address this by focusing on the minority class, while Focal Loss reweights gradients.</li>
+      <li><strong>Evaluation Metrics:</strong> If your primary evaluation metrics are overlap-based (Dice Coefficient, IoU), then optimizing directly for these metrics with their corresponding losses is often beneficial.</li>
+      <li><strong>Boundary Accuracy:</strong> When accurate boundaries are more important than perfectly classifying every background pixel.</li>
+    </ul>
+    <p><strong>When NOT to use (or use with caution):</strong></p>
+    <ul>
+      <li><strong>Simple Classification:</strong> For tasks where pixel-wise classification is sufficient and class imbalance is not severe, standard cross-entropy might be simpler and more stable.</li>
+      <li><strong>Training Stability:</strong> Some boundary losses (especially Dice/IoU) can have less stable gradients than BCE, particularly early in training or with very sparse ground truths. Combining them with BCE (e.g., a weighted sum) is a common strategy.</li>
+      <li><strong>Over-segmentation:</strong> Pure Dice/IoU losses can sometimes lead to models that prefer to predict slightly larger objects (over-segmentation) to maximize overlap.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Combination is Key</div>
+      <p style="font-size:14px;margin:0;">In practice, a hybrid approach often yields the best results. Combining a boundary loss (like Dice or IoU) with a pixel-wise loss (like BCE or Focal Loss) can provide both global stability and fine-grained boundary accuracy. A common mix is \(L = \lambda_1 L_{BCE} + \lambda_2 L_{Dice}\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (NumPy from Scratch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def binary_cross_entropy(y_pred, y_true):</div>
+      <div class="code-line" id="cl3">    epsilon = 1e-7 # to prevent log(0)</div>
+      <div class="code-line" id="cl4">    y_pred = np.clip(y_pred, epsilon, 1. - epsilon)</div>
+      <div class="code-line" id="cl5">    loss = - (y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))</div>
+      <div class="code-line" id="cl6">    return np.mean(loss) # average over all pixels</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">def smooth_dice_loss(y_pred, y_true, epsilon=1e-6):</div>
+      <div class="code-line" id="cl9">    intersection = np.sum(y_pred * y_true)</div>
+      <div class="code-line" id="cl10">    union = np.sum(y_pred**2) + np.sum(y_true**2) # using squared for robustness</div>
+      <div class="code-line" id="cl11">    dice_coeff = (2. * intersection + epsilon) / (union + epsilon)</div>
+      <div class="code-line" id="cl12">    return 1. - dice_coeff</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">def smooth_iou_loss(y_pred, y_true, epsilon=1e-6):</div>
+      <div class="code-line" id="cl15">    intersection = np.sum(y_pred * y_true)</div>
+      <div class="code-line" id="cl16">    union = np.sum(y_pred) + np.sum(y_true) - intersection</div>
+      <div class="code-line" id="cl17">    iou_coeff = (intersection + epsilon) / (union + epsilon)</div>
+      <div class="code-line" id="cl18">    return 1. - iou_coeff</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">def focal_loss(y_pred, y_true, alpha=0.25, gamma=2.0, epsilon=1e-7):</div>
+      <div class="code-line" id="cl21">    y_pred = np.clip(y_pred, epsilon, 1. - epsilon)</div>
+      <div class="code-line" id="cl22">    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)</div>
+      <div class="code-line" id="cl23">    alpha_t = y_true * alpha + (1 - y_true) * (1 - alpha)</div>
+      <div class="code-line" id="cl24">    loss = -alpha_t * np.power(1. - pt, gamma) * np.log(pt)</div>
+      <div class="code-line" id="cl25">    return np.mean(loss)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27"># Example Usage</div>
+      <div class="code-line" id="cl28">y_true_ex = np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]])</div>
+      <div class="code-line" id="cl29">y_pred_ex = np.array([[0.1, 0.2, 0.1], [0.3, 0.8, 0.3], [0.1, 0.2, 0.1]])</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">print(f"BCE Loss:  {binary_cross_entropy(y_pred_ex, y_true_ex):.4f}")</div>
+      <div class="code-line" id="cl32">print(f"Dice Loss: {smooth_dice_loss(y_pred_ex, y_true_ex):.4f}")</div>
+      <div class="code-line" id="cl33">print(f"IoU Loss:  {smooth_iou_loss(y_pred_ex, y_true_ex):.4f}")</div>
+      <div class="code-line" id="cl34">print(f"Focal Loss (gamma=2): {focal_loss(y_pred_ex, y_true_ex, gamma=2):.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── MATH UTILS ──
+function sum(arr) { return arr.reduce((a, b) => a + b, 0); }
+function mean(arr) { return sum(arr) / arr.length; }
+function clip(val, min, max) { return Math.max(min, Math.min(val, max)); }
+const EPSILON = 1e-6; // Small value to prevent division by zero or log(0)
+
+// ── LOSS FUNCTIONS (JS versions) ──
+function binaryCrossEntropy(y_pred, y_true) {
+  let loss = 0;
+  let count = 0;
+  for (let i = 0; i < y_pred.length; i++) {
+    const p = clip(y_pred[i], EPSILON, 1 - EPSILON);
+    const t = y_true[i];
+    loss += - (t * Math.log(p) + (1 - t) * Math.log(1 - p));
+    count++;
+  }
+  return count > 0 ? loss / count : 0;
+}
+
+function smoothDiceLoss(y_pred, y_true) {
+  let intersection = 0;
+  let union_pred_sq = 0;
+  let union_true_sq = 0;
+  for (let i = 0; i < y_pred.length; i++) {
+    intersection += y_pred[i] * y_true[i];
+    union_pred_sq += y_pred[i] * y_pred[i];
+    union_true_sq += y_true[i] * y_true[i];
+  }
+  const dice_coeff = (2. * intersection + EPSILON) / (union_pred_sq + union_true_sq + EPSILON);
+  return 1. - dice_coeff;
+}
+
+function smoothIoULoss(y_pred, y_true) {
+  let intersection = 0;
+  let sum_pred = 0;
+  let sum_true = 0;
+  for (let i = 0; i < y_pred.length; i++) {
+    intersection += y_pred[i] * y_true[i];
+    sum_pred += y_pred[i];
+    sum_true += y_true[i];
+  }
+  const union = sum_pred + sum_true - intersection;
+  const iou_coeff = (intersection + EPSILON) / (union + EPSILON);
+  return 1. - iou_coeff;
+}
+
+function focalLoss(y_pred, y_true, alpha = 0.25, gamma = 2.0) {
+  let loss = 0;
+  let count = 0;
+  for (let i = 0; i < y_pred.length; i++) {
+    const p = clip(y_pred[i], EPSILON, 1 - EPSILON);
+    const t = y_true[i];
+    
+    const pt = t * p + (1 - t) * (1 - p); // probability of the ground truth class
+    const alpha_t = t * alpha + (1 - t) * (1 - alpha); // alpha for the ground truth class
+    
+    loss += -alpha_t * Math.pow(1. - pt, gamma) * Math.log(pt);
+    count++;
+  }
+  return count > 0 ? loss / count : 0;
+}
+
+// ── GRID & DATA ──
+const GRID_SIZE = 16;
+const GT_RADIUS = 5;
+const GT_CENTER_X = 7.5;
+const GT_CENTER_Y = 7.5;
+
+let groundTruth = []; // 1D array of 0s and 1s
+let prediction = []; // 1D array of probabilities
+
+function initGroundTruth() {
+  groundTruth = [];
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      const dist = Math.sqrt(Math.pow(x - GT_CENTER_X, 2) + Math.pow(y - GT_CENTER_Y, 2));
+      groundTruth.push(dist <= GT_RADIUS ? 1 : 0);
+    }
+  }
+}
+
+function updatePrediction(predRadius, predX, predY) {
+  prediction = [];
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      const dist = Math.sqrt(Math.pow(x - predX, 2) + Math.pow(y - predY, 2));
+      // Smooth prediction for visualization and gradients
+      const prob = 1 - clip((dist - predRadius + 1) / 2, 0, 1); // 1 at center, 0 far away
+      prediction.push(prob);
+    }
+  }
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Ground Truth',
+    desc: 'We define a simple 16x16 pixel grid. The ground truth (blue) is a fixed circle. Our goal is for the model to predict this exact shape.',
+    predRadius: 5, predX: 7.5, predY: 7.5,
+    showGT: true, showPred: false, showSliders: false,
+    focalGamma: 2,
+    codeLines: []
+  },
+  {
+    phase: 'setup', title: 'Initial Prediction',
+    desc: 'Here\'s an initial prediction (green opacity). It\'s a probability map, not a hard binary mask. Our model will adjust this map to minimize the loss.',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 2,
+    codeLines: []
+  },
+  {
+    phase: 'problem', title: 'Binary Cross-Entropy (BCE) Loss',
+    desc: 'BCE treats each pixel independently. It penalizes errors for both foreground and background equally. For small objects or imbalanced classes, easy background pixels can dominate the loss, making it less sensitive to boundary errors.',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 2,
+    codeLines: [2,3,4,5,6]
+  },
+  {
+    phase: 'dice', title: 'Dice Loss: Optimizing Overlap',
+    desc: 'Dice Loss (1 - Dice Coefficient) directly measures the overlap between prediction and ground truth. It focuses on true positives and penalizes false positives/negatives. It\'s often more robust to class imbalance than BCE.',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 2,
+    codeLines: [8,9,10,11,12]
+  },
+  {
+    phase: 'iou', title: 'IoU Loss: Intersection Over Union',
+    desc: 'IoU Loss (1 - Jaccard Index) is similar to Dice Loss, also optimizing for overlap. It measures intersection over union. While conceptually similar, they can have slightly different gradient behaviors in practice.',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 2,
+    codeLines: [14,15,16,17,18]
+  },
+  {
+    phase: 'focal', title: 'Focal Loss (γ=0): Like BCE with α',
+    desc: 'Focal Loss adds a modulating factor to BCE. With gamma (γ) = 0, it essentially becomes a weighted BCE, where alpha (α) balances foreground/background. It still treats all errors equally, regardless of their "hardness."',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 0,
+    codeLines: [20,21,22,23,24,25]
+  },
+  {
+    phase: 'focal', title: 'Focal Loss (γ>0): Focusing on Hard Examples',
+    desc: 'Increasing gamma (γ) significantly downweights the loss contribution from easy-to-classify pixels (high confidence). This forces the model to focus its learning on hard examples, often found at object boundaries or for small, minority class objects.',
+    predRadius: 4.5, predX: 7.0, predY: 8.0,
+    showGT: true, showPred: true, showSliders: false,
+    focalGamma: 2,
+    codeLines: [20,21,22,23,24,25]
+  },
+  {
+    phase: 'explore', title: 'Interactive Exploration',
+    desc: 'Now, drag the sliders to change the predicted circle\'s size and position. Observe how each loss function reacts. Notice how Dice/IoU penalize poor overlap, and how Focal Loss (especially with high gamma) emphasizes errors for hard-to-classify pixels.',
+    predRadius: 5, predX: 7.5, predY: 7.5,
+    showGT: true, showPred: true, showSliders: true,
+    focalGamma: 2,
+    codeLines: []
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentPredRadius = 5;
+let currentPredX = 7.5;
+let currentPredY = 7.5;
+let currentFocalGamma = 2;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', problem: 'phase-problem', dice: 'phase-dice',
+    iou: 'phase-iou', focal: 'phase-focal', explore: 'phase-explore'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  document.getElementById('sliderPanel').style.display = s.showSliders ? 'flex' : 'none';
+
+  // Update slider values and internal state for current step
+  currentPredRadius = s.predRadius;
+  currentPredX = s.predX;
+  currentPredY = s.predY;
+  currentFocalGamma = s.focalGamma;
+
+  document.getElementById('predRadiusSlider').value = currentPredRadius;
+  document.getElementById('predRadiusValue').textContent = currentPredRadius.toFixed(1);
+  document.getElementById('predXSlider').value = currentPredX;
+  document.getElementById('predXValue').textContent = currentPredX.toFixed(1);
+  document.getElementById('predYSlider').value = currentPredY;
+  document.getElementById('predYValue').textContent = currentPredY.toFixed(1);
+  document.getElementById('focalGammaSlider').value = currentFocalGamma;
+  document.getElementById('focalGammaValue').textContent = currentFocalGamma.toFixed(1);
+
+  updatePrediction(currentPredRadius, currentPredX, currentPredY);
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── READOUT CHIPS ──
+function renderReadout(items) {
+  const wrap = document.getElementById('readoutRow');
+  wrap.innerHTML = items.map(it =>
+    `<div class="readout-chip ${it.cls || ''}">${it.label}: ${it.value}</div>`
+  ).join('');
+}
+
+// ── CANVAS DRAWING ──
+let cachedColors = null;
+function getColors() {
+  if (cachedColors) return cachedColors;
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  const hexToRgb = hex => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `${r},${g},${b}`;
+  };
+
+  cachedColors = {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), blueMidRgb: hexToRgb(g('--blue-mid')),
+    greenMid: g('--green-mid'), greenMidRgb: hexToRgb(g('--green-mid')),
+    redMid: g('--red-mid'), redMidRgb: hexToRgb(g('--red-mid')),
+    amberMid: g('--amber-mid'), amberMidRgb: hexToRgb(g('--amber-mid')),
+    purpleMid: g('--purple-mid'), purpleMidRgb: hexToRgb(g('--purple-mid')),
+  };
+  return cachedColors;
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const cellSize = Math.min(W, H) / GRID_SIZE;
+
+  // Draw grid cells
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      const idx = y * GRID_SIZE + x;
+      const gt = groundTruth[idx];
+      const pred = prediction[idx];
+
+      let fillColor = c.bg2;
+      let alpha = 1;
+
+      if (s.showGT && gt === 1 && pred >= 0.5) { // True Positive (overlap)
+        fillColor = `rgba(${c.purpleMidRgb}, ${pred * 0.7 + 0.3})`;
+      } else if (s.showPred && gt === 0 && pred >= 0.5) { // False Positive
+        fillColor = `rgba(${c.redMidRgb}, ${pred * 0.7 + 0.3})`;
+      } else if (s.showGT && gt === 1 && pred < 0.5) { // False Negative
+        fillColor = `rgba(${c.amberMidRgb}, ${(1-pred) * 0.7 + 0.3})`;
+      } else if (s.showGT && gt === 1) { // Pure GT (shouldn't happen with pred < 0.5)
+        fillColor = c.blueMid;
+      } else if (s.showPred && pred >= 0.5) { // Pure Prediction (shouldn't happen with gt=0)
+        fillColor = `rgba(${c.greenMidRgb}, ${pred * 0.7 + 0.3})`;
+      } else { // Background
+        fillColor = c.bg2;
+      }
+      
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      
+      // Draw grid lines
+      ctx.strokeStyle = c.border;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+    }
+  }
+
+  // Calculate and display losses
+  const losses = {
+    bce: binaryCrossEntropy(prediction, groundTruth),
+    dice: smoothDiceLoss(prediction, groundTruth),
+    iou: smoothIoULoss(prediction, groundTruth),
+    focal: focalLoss(prediction, groundTruth, 0.25, currentFocalGamma) // alpha fixed for simplicity
+  };
+
+  const readoutItems = [
+    { label: 'BCE Loss', value: losses.bce.toFixed(4) },
+    { label: 'Dice Loss', value: losses.dice.toFixed(4) },
+    { label: 'IoU Loss', value: losses.iou.toFixed(4) },
+    { label: `Focal Loss (γ=${currentFocalGamma.toFixed(1)})`, value: losses.focal.toFixed(4) },
+  ];
+  renderReadout(readoutItems);
+}
+
+// ── SLIDER WIRING ──
+document.getElementById('predRadiusSlider').addEventListener('input', e => {
+  currentPredRadius = parseFloat(e.target.value);
+  document.getElementById('predRadiusValue').textContent = currentPredRadius.toFixed(1);
+  if (steps[step].showSliders) { // Only update if in interactive step
+    updatePrediction(currentPredRadius, currentPredX, currentPredY);
+    drawCanvas(steps[step]);
+  }
+});
+document.getElementById('predXSlider').addEventListener('input', e => {
+  currentPredX = parseFloat(e.target.value);
+  document.getElementById('predXValue').textContent = currentPredX.toFixed(1);
+  if (steps[step].showSliders) {
+    updatePrediction(currentPredRadius, currentPredX, currentPredY);
+    drawCanvas(steps[step]);
+  }
+});
+document.getElementById('predYSlider').addEventListener('input', e => {
+  currentPredY = parseFloat(e.target.value);
+  document.getElementById('predYValue').textContent = currentPredY.toFixed(1);
+  if (steps[step].showSliders) {
+    updatePrediction(currentPredRadius, currentPredX, currentPredY);
+    drawCanvas(steps[step]);
+  }
+});
+document.getElementById('focalGammaSlider').addEventListener('input', e => {
+  currentFocalGamma = parseFloat(e.target.value);
+  document.getElementById('focalGammaValue').textContent = currentFocalGamma.toFixed(1);
+  if (steps[step].showSliders || steps[step].phase === 'focal') { // Update if in interactive or focal step
+    drawCanvas(steps[step]);
+  }
+});
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initGroundTruth();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>
+<!-- Generated by a senior front-end engineer and ML educator. -->

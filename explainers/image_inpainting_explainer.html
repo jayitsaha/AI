@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Inpainting: Contextual Attention & LaMa — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-contextual{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-lama{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Image Inpainting: Contextual Attention &amp; LaMa</h1>
+  <div class="subtitle">Filling in missing image regions with deep learning</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Applied ML</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-category">Generative AI</span>
+    <span class="tag tag-complexity">O(N log N) / O(N²)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Image Inpainting</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Image inpainting is the task of filling in missing or corrupted regions of an image in a semantically plausible and visually coherent way. It's like digital photo restoration, used for removing unwanted objects, repairing damaged photos, or even generating new content.</p>
+    <p><strong>Analogy:</strong> Imagine an art restorer working on a damaged painting. They don't just "blur" the missing parts; they carefully analyze the surrounding brushstrokes, colors, and textures to infer what should be there, often drawing on their knowledge of the artist's style and the subject matter. Modern inpainting models act similarly, leveraging deep neural networks to "understand" image context and synthesize missing pixels.</p>
+    <p>Two prominent approaches for deep learning inpainting are <strong>Contextual Attention (CA)</strong> and <strong>LaMa (Large Mask Inpainting)</strong>:</p>
+    <ul>
+      <li><strong>Contextual Attention (Yu et al., 2018):</strong> This method explicitly searches for relevant features in the known regions of the image to "borrow" and fill the missing parts. It's like a highly skilled puzzle solver, finding the best-matching pieces from the available context.</li>
+      <li><strong>LaMa (Suvorov et al., 2021):</strong> LaMa tackles large missing regions and high-resolution images by employing Fast Fourier Convolutions (FFC) to achieve a massive receptive field, allowing it to synthesize content with a truly global understanding. Think of it as a clairvoyant artist who can imagine the whole picture even with huge chunks missing.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Inpainting is about hallucinating missing content. Contextual Attention does this by explicitly finding and copying similar feature patches from the known regions. LaMa does this by using Fourier Convolutions to gain a global understanding of the image for synthesis.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Contextual Attention (CA)</h4>
+    <p>CA operates within an encoder-decoder architecture. The encoder extracts high-level features from the damaged image. For each patch in the masked region (the "query"), the network performs a search across all known patches (the "keys") in the feature map. This search is essentially a convolutional correlation (dot product similarity). The similarity scores are then normalized via a softmax function to produce attention weights. These weights are used to aggregate (a weighted sum) the corresponding "value" features from the known regions, which are then used to reconstruct the missing patch. This process is repeated for all masked patches, and the decoder upsamples these filled features back to pixel space.</p>
+    <ul>
+      <li><strong>Encoder-Decoder:</strong> Extracts features from known regions, reconstructs pixels.</li>
+      <li><strong>Patch Matching:</strong> For a "query" patch in the hole, find the most similar "key" patches in the valid region.</li>
+      <li><strong>Attention:</strong> Softmax over similarities to get weights, then aggregate "value" features.</li>
+      <li><strong>Challenges:</strong> Can sometimes lead to repetitive textures if the best match is too similar, or blurring if no good match exists.</li>
+    </ul>
+
+    <h4>LaMa (Large Mask Inpainting)</h4>
+    <p>LaMa addresses limitations of earlier methods, especially with large masks and high resolutions. Its core innovation is the use of <strong>Fast Fourier Convolutions (FFC)</strong>. Unlike standard convolutions that have a limited local receptive field, FFCs perform convolutions in the frequency domain. This allows a single convolutional layer to effectively "see" and integrate information from the entire image, regardless of its size, without needing many stacked layers or dilated convolutions. This global receptive field is crucial for understanding context across large missing regions.</p>
+    <ul>
+      <li><strong>Fast Fourier Convolutions (FFC):</strong> Achieves a global receptive field by performing convolutions in the Fourier domain, allowing information to travel across long distances efficiently.</li>
+      <li><strong>High-Resolution Robustness:</strong> Handles large masks and high-resolution images effectively due to the global context.</li>
+      <li><strong>Loss Functions:</strong> Utilizes a strong perceptual loss (e.g., LPIPS) and adversarial training to ensure high-quality, realistic output.</li>
+      <li><strong>Efficiency:</strong> FFCs are computationally efficient, often outperforming dilated convolutions for large receptive fields.</li>
+    </ul>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both Contextual Attention and LaMa aim for semantically coherent and visually consistent image infill. CA achieves this through explicit patch-wise feature matching and aggregation, while LaMa achieves it through a globally aware feature synthesis via Fast Fourier Convolutions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Contextual Attention: Patch Matching & Aggregation</h4>
+    <p>Let \(F \in \mathbb{R}^{C \times H \times W}\) be the feature map extracted by the encoder. We divide \(F\) into overlapping patches. For a query patch \(q_i\) (from a masked region) and a set of key patches \(k_j\) (from known regions), their similarity is typically a dot product:</p>
+    <div class="eq">$$s_{ij} = \langle q_i, k_j \rangle$$</div>
+    <p>These similarities are then normalized using a softmax function to obtain attention weights \(\alpha_{ij}\). A temperature parameter \(\tau\) can be introduced to control the sharpness of the distribution (higher \(\tau\) makes it softer):</p>
+    <div class="eq">$$\alpha_{ij} = \frac{\exp(s_{ij} / \tau)}{\sum_{l \in \text{known}} \exp(s_{il} / \tau)}$$</div>
+    <p>Finally, the reconstructed feature for the query patch \(\hat{f}_i\) is a weighted sum of corresponding value features \(v_j\) from the known regions:</p>
+    <div class="eq">$$\hat{f}_i = \sum_{j \in \text{known}} \alpha_{ij} v_j$$</div>
+    <p>This \(\hat{f}_i\) then replaces the original masked feature at position \(i\), and the decoder converts the complete feature map back to an image.</p>
+
+    <h4>LaMa: Global Context with Fourier Convolutions</h4>
+    <p>LaMa's core, the Fast Fourier Convolution (FFC), replaces standard convolutions with a block that processes features in both spatial and frequency domains. The frequency branch performs convolution using element-wise multiplication in the Fourier domain (after FFT), achieving a global receptive field. The overall objective function for LaMa combines several terms:</p>
+    <div class="eq">$$L = \lambda_{rec} L_{rec} + \lambda_{perc} L_{perc} + \lambda_{adv} L_{adv}$$</div>
+    <p>Where \(L_{rec}\) is a reconstruction loss (e.g., L1) on the pixels, \(L_{perc}\) is a perceptual loss (e.g., LPIPS) comparing high-level features, and \(L_{adv}\) is an adversarial loss from a discriminator to make the inpainted regions indistinguishable from real image content. The FFC module's ability to propagate information globally allows these losses to be optimized effectively even for large masks.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Contextual Attention can struggle with highly semantic or novel content within large masks, as it relies on finding similar existing patches. If no good match exists, it might "hallucinate" repetitive or blurry textures. LaMa mitigates this by synthesizing content with a more holistic, global understanding, but requires careful implementation of FFC and robust training with advanced loss functions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a simplified image inpainting process, focusing on Contextual Attention's patch matching and LaMa's global understanding.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Slider panel -->
+      <div class="slider-panel" id="sliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">Attention Temperature (τ)</div>
+          <input type="range" id="tempSlider" min="0.1" max="5.0" step="0.1" value="1.0">
+          <div class="slider-value" id="tempValue">1.0</div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 11</div>
+        <div class="info-title" id="infoTitle">Original Image Features</div>
+        <div class="info-desc" id="infoDesc">We start with a simple 16x16 grid representing a low-level feature map of an image. Each cell's brightness is its feature value.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Known region</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Masked region</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Query patch</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Key patch (match)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Inpainted / Global context</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Contextual Attention (CA):</strong></p>
+    <ul>
+      <li>For smaller, less complex masks where local texture or pattern matching is highly effective.</li>
+      <li>When computational efficiency for very large images is not the primary concern (relative to LaMa).</li>
+      <li>If you need a more explicit, interpretable "copy-paste" mechanism for infill.</li>
+    </ul>
+    <p><strong>When to use LaMa:</strong></p>
+    <ul>
+      <li>For large, arbitrary masks that cover significant portions of the image, requiring deep semantic understanding.</li>
+      <li>At high image resolutions where a global receptive field is critical for coherent results.</li>
+      <li>When speed and robustness are paramount, especially in real-world applications or production pipelines.</li>
+      <li>When the missing content is more complex and requires synthesis rather than just copying.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>CA for very large masks or complex semantic gaps, as it may struggle to find appropriate matches and produce artifacts.</li>
+      <li>LaMa if the overhead of FFC (though efficient for large scale) is unnecessary for very small images or simple inpainting tasks.</li>
+      <li>Both methods require substantial training data and computational resources.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 One-Line Summary</div>
+      <p style="font-size:14px;margin:0;">Contextual Attention explicitly searches for and aggregates similar features from known regions, while LaMa employs Fast Fourier Convolutions to achieve a global receptive field for synthesizing missing content with holistic image understanding.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">import torch # or tensorflow</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># --- Contextual Attention (Simplified) ---</div>
+      <div class="code-line" id="cl5">def contextual_attention_step(features, mask, patch_size=3, temperature=0.1):</div>
+      <div class="code-line" id="cl6">    # features: (N, C, H, W), mask: (N, 1, H, W) (0 for masked, 1 for known)</div>
+      <div class="code-line" id="cl7">    N, C, H, W = features.shape</div>
+      <div class="code-line" id="cl8">    
+      <div class="code-line" id="cl9">    # 1. Extract query patches from masked region (padded with 0s)</div>
+      <div class="code-line" id="cl10">    queries = F.unfold(features * (1 - mask), kernel_size=patch_size, padding=patch_size//2) # (N, C*k*k, L_query)</div>
+      <div class="code-line" id="cl11">    
+      <div class="code-line" id="cl12">    # 2. Extract key and value patches from known region</div>
+      <div class="code-line" id="cl13">    keys = F.unfold(features * mask, kernel_size=patch_size, padding=patch_size//2)         # (N, C*k*k, L_key)</div>
+      <div class="code-line" id="cl14">    values = keys # For simplicity, values are same as keys (can be separate)</div>
+      <div class="code-line" id="cl15">    </div>
+      <div class="code-line" id="cl16">    # 3. Compute similarity (dot product) and attention weights</div>
+      <div class="code-line" id="cl17">    # queries: (N, C*k*k, L_query), keys: (N, C*k*k, L_key)</div>
+      <div class="code-line" id="cl18">    similarity = torch.einsum('ncl,nck->nlk', queries, keys) / (C * patch_size**2)**0.5 # (N, L_query, L_key)</div>
+      <div class="code-line" id="cl19">    attention_weights = F.softmax(similarity / temperature, dim=-1) # (N, L_query, L_key)</div>
+      <div class="code-line" id="cl20">    </div>
+      <div class="code-line" id="cl21">    # 4. Aggregate value features using attention weights</div>
+      <div class="code-line" id="cl22">    # values: (N, C*k*k, L_key), attention_weights: (N, L_query, L_key)</div>
+      <div class="code-line" id="cl23">    aggregated_features = torch.einsum('nck,nlk->ncl', values, attention_weights) # (N, C*k*k, L_query)</div>
+      <div class="code-line" id="cl24">    </div>
+      <div class="code-line" id="cl25">    # 5. Fold back aggregated features into feature map structure</div>
+      <div class="code-line" id="cl26">    # This is complex; conceptually, it fills the masked regions.</div>
+      <div class="code-line" id="cl27">    # For simplicity, let's assume we average over overlapping patches.</div>
+      <div class="code-line" id="cl28">    # In practice, a proper `fold` operation with mask handling is used.</div>
+      <div class="code-line" id="cl29">    reconstructed_features = F.fold(aggregated_features, output_size=(H,W), kernel_size=patch_size, padding=patch_size//2)</div>
+      <div class="code-line" id="cl30">    
+      <div class="code-line" id="cl31">    # Combine original known features with reconstructed masked features</div>
+      <div class="code-line" id="cl32">    output_features = features * mask + reconstructed_features * (1 - mask)</div>
+      <div class="code-line" id="cl33">    return output_features</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35"># --- LaMa (Conceptual FFC Block) ---</div>
+      <div class="code-line" id="cl36">class FFCBlock(torch.nn.Module):</div>
+      <div class="code-line" id="cl37">    def __init__(self, in_channels, out_channels):</div>
+      <div class="code-line" id="cl38">        super().__init__()</div>
+      <div class="code-line" id="cl39">        # Local branch (standard convolution)</div>
+      <div class="code-line" id="cl40">        self.local_conv = torch.nn.Conv2d(in_channels, out_channels // 2, kernel_size=3, padding=1)</div>
+      <div class="code-line" id="cl41">        # Global branch (Fourier convolution)</div>
+      <div class="code-line" id="cl42">        self.global_conv = torch.nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, padding=0) # Placeholder for FFC logic</div>
+      <div class="code-line" id="cl43">        # In a real FFC, this would involve FFT, element-wise product, IFFT.</div>
+      <div class="code-line" id="cl44">        # The key is that the 'kernel' in frequency domain is global.</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46">    def forward(self, x):</div>
+      <div class="code-line" id="cl47">        local_out = self.local_conv(x)</div>
+      <div class="code-line" id="cl48">        global_out = self.global_conv(x) # This is where global context is infused</div>
+      <div class="code-line" id="cl49">        return torch.cat([local_out, global_out], dim=1) # Combine local and global features</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILITIES ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'),
+    redBg: g('--red-bg'), blueBg: g('--blue-bg'), purpleBg: g('--purple-bg'), greenBg: g('--green-bg'), amberBg: g('--amber-bg'),
+  };
+}
+
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function softmax(arr, temperature = 1.0) {
+  const maxVal = Math.max(...arr); // For numerical stability
+  const expArr = arr.map(v => Math.exp((v - maxVal) / temperature));
+  const sumExp = expArr.reduce((a, b) => a + b, 0);
+  return expArr.map(v => v / sumExp);
+}
+
+// ── IMAGE / FEATURE MAP DATA ──
+const GRID_SIZE = 16;
+const PATCH_SIZE = 4; // for query/key patches
+const MASK_START = 4;
+const MASK_SIZE = 8;
+
+function generateOriginalFeatures() {
+  const features = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0));
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      // Simple pattern: gradient + checkerboard
+      const val = (r / GRID_SIZE) * 0.5 + (c / GRID_SIZE) * 0.5 + ((r + c) % 2) * 0.1;
+      features[r][c] = Math.min(1, val);
+    }
+  }
+  return features;
+}
+
+const originalFeatures = generateOriginalFeatures();
+
+function applyMask(features) {
+  const masked = features.map(row => [...row]);
+  for (let r = MASK_START; r < MASK_START + MASK_SIZE; r++) {
+    for (let c = MASK_START; c < MASK_START + MASK_SIZE; c++) {
+      masked[r][c] = 0; // Set to 0 or some mask indicator
+    }
+  }
+  return masked;
+}
+
+function getPatch(features, r, c, size) {
+  const patch = [];
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      if (r + i < GRID_SIZE && c + j < GRID_SIZE && r + i >= 0 && c + j >= 0) {
+        patch.push(features[r + i][c + j]);
+      } else {
+        patch.push(0); // Padding for out-of-bounds
+      }
+    }
+  }
+  return patch;
+}
+
+function computeSimilarity(patch1, patch2) {
+  let dot = 0;
+  for (let i = 0; i < patch1.length; i++) {
+    dot += patch1[i] * patch2[i];
+  }
+  return dot;
+}
+
+let queryPatchCoords = { r: MASK_START + 2, c: MASK_START + 2 }; // A patch in the center of the mask
+
+// ── STEPS ──
+const steps = [
+  { phase: 'setup', title: 'Original Image Features', mode: 'original',
+    desc: 'We start with a simple 16x16 grid representing a low-level feature map of an image. Each cell\'s brightness is its feature value.' },
+  { phase: 'setup', title: 'Apply Mask', mode: 'masked',
+    desc: 'A mask is applied to a central 8x8 region, simulating missing data. The goal of inpainting is to intelligently fill this region.' },
+  { phase: 'contextual', title: 'Feature Extraction (Encoder)', mode: 'features',
+    desc: 'An encoder network processes the masked image, extracting high-level features. The known regions have meaningful features (blue), while the masked area (red) is initially zeroed out.' },
+  { phase: 'contextual', title: 'Contextual Attention: Query Patch', mode: 'query',
+    desc: 'To fill the masked region, Contextual Attention focuses on a specific "query" patch (purple) within the masked area. We need to find relevant context for this patch.' },
+  { phase: 'contextual', title: 'CA: Search for Key Patches', mode: 'keys',
+    desc: 'The network now searches for "key" patches (amber outline) in the *known* regions of the feature map that are most similar to our query patch. We highlight one such key patch and its similarity score.' },
+  { phase: 'contextual', title: 'CA: Attention Map', mode: 'attention',
+    desc: 'An attention map is computed: for the current query, each known key patch gets a similarity score. These scores are normalized (softmax) to become attention weights, showing how much each known patch contributes to reconstructing the query. Adjust temperature (τ) to sharpen/soften attention.' },
+  { phase: 'contextual', title: 'CA: Feature Aggregation', mode: 'aggregate',
+    desc: 'The "value" features from the high-attention key patches are aggregated (weighted sum) to synthesize the content for our query patch. This is the "copy-paste" mechanism in action.' },
+  { phase: 'contextual', title: 'CA: Inpainted Query Patch', mode: 'inpainted_patch',
+    desc: 'The reconstructed feature for the query patch is now filled in (green). This process is repeated for all masked patches, eventually filling the entire missing region.' },
+  { phase: 'lama', title: 'LaMa: Global Receptive Field', mode: 'lama_concept',
+    desc: 'Unlike CA\'s local patch search, LaMa uses Fast Fourier Convolutions (FFC) to achieve a truly global receptive field. This means every output pixel can "see" and integrate information from the *entire* input image, even distant regions, in a single layer. This is crucial for large masks.' },
+  { phase: 'lama', title: 'LaMa: Full Inpainting Result', mode: 'lama_result',
+    desc: 'LaMa combines FFC\'s global context with advanced loss functions to produce high-quality, semantically coherent results, even for very large and complex masks. The infill (green) is synthesized with a holistic understanding.' },
+  { phase: 'compare', title: 'Comparison: CA vs. LaMa', mode: 'compare',
+    desc: 'Contextual Attention excels at finding and copying existing textures. LaMa, with its global FFCs, is better at synthesizing novel, coherent content over large missing areas, leading to more realistic and diverse outputs.' }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentTemp = 1.0;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; currentTemp = 1.0; document.getElementById('tempSlider').value = 1.0; document.getElementById('tempValue').textContent = "1.0"; render(); }
+
+// ── SLIDER ──
+const tempSlider = document.getElementById('tempSlider');
+tempSlider.addEventListener('input', () => {
+  currentTemp = parseFloat(tempSlider.value);
+  document.getElementById('tempValue').textContent = currentTemp.toFixed(1);
+  if (steps[step].mode === 'attention') render(); // Re-render only if on attention step
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = { setup: 'phase-setup', contextual: 'phase-contextual', lama: 'phase-lama', compare: 'phase-compare' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  if (s.codeLines) {
+    (s.codeLines || []).forEach(i => {
+      const el = document.getElementById('cl' + i);
+      if (el) el.classList.add('active');
+    });
+  } else if (s.phase === 'contextual') {
+    document.getElementById('cl5').classList.add('active');
+    document.getElementById('cl10').classList.add('active');
+    document.getElementById('cl13').classList.add('active');
+    document.getElementById('cl18').classList.add('active');
+    document.getElementById('cl19').classList.add('active');
+    document.getElementById('cl23').classList.add('active');
+  } else if (s.phase === 'lama') {
+    document.getElementById('cl36').classList.add('active');
+    document.getElementById('cl40').classList.add('active');
+    document.getElementById('cl42').classList.add('active');
+  }
+
+  // Slider visibility
+  document.getElementById('sliderPanel').style.display = (s.mode === 'attention') ? 'flex' : 'none';
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawGrid(ctx, features, cellSize, offsetX, offsetY, drawMasked = true, colorOverride = null) {
+  const colors = getColors();
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const isMasked = r >= MASK_START && r < MASK_START + MASK_SIZE && c >= MASK_START && c < MASK_START + MASK_SIZE;
+      let fillColor;
+      if (colorOverride) {
+        fillColor = colorOverride;
+      } else if (isMasked && !drawMasked) {
+        fillColor = colors.red; // Masked region
+      } else {
+        const val = features[r][c];
+        const brightness = Math.floor(val * 200) + 50; // Scale to 50-250 for visibility
+        fillColor = `rgb(${brightness}, ${brightness}, ${brightness})`;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(offsetX + c * cellSize, offsetY + r * cellSize, cellSize, cellSize);
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(offsetX + c * cellSize, offsetY + r * cellSize, cellSize, cellSize);
+
+      if (isMasked && !drawMasked) {
+        ctx.fillStyle = colors.text3;
+        ctx.font = `bold ${cellSize * 0.4}px ${getComputedStyle(document.body).fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('X', offsetX + c * cellSize + cellSize / 2, offsetY + r * cellSize + cellSize / 2);
+      }
+    }
+  }
+}
+
+function drawPatchOutline(ctx, r, c, cellSize, offsetX, offsetY, color, lineWidth = 2) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.strokeRect(offsetX + c * cellSize, offsetY + r * cellSize, PATCH_SIZE * cellSize, PATCH_SIZE * cellSize);
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const cellSize = Math.min(W, H) / (GRID_SIZE + 2); // +2 for padding
+  const offsetX = (W - GRID_SIZE * cellSize) / 2;
+  const offsetY = (H - GRID_SIZE * cellSize) / 2;
+
+  const maskedFeatures = applyMask(originalFeatures);
+
+  if (mode === 'original') {
+    drawGrid(ctx, originalFeatures, cellSize, offsetX, offsetY, true);
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Original Feature Map', W/2, offsetY + GRID_SIZE * cellSize + 20);
+  }
+
+  else if (mode === 'masked') {
+    drawGrid(ctx, originalFeatures, cellSize, offsetX, offsetY, false);
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Masked Feature Map', W/2, offsetY + GRID_SIZE * cellSize + 20);
+  }
+
+  else if (mode === 'features') {
+    drawGrid(ctx, maskedFeatures, cellSize, offsetX, offsetY, false);
+    // Draw known regions with blue tint, masked with red
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const isMasked = r >= MASK_START && r < MASK_START + MASK_SIZE && c >= MASK_START && c < MASK_START + MASK_SIZE;
+        ctx.fillStyle = isMasked ? colors.redBg : colors.blueBg;
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(offsetX + c * cellSize, offsetY + r * cellSize, cellSize, cellSize);
+        ctx.globalAlpha = 1;
+      }
+    }
+    drawGrid(ctx, maskedFeatures, cellSize, offsetX, offsetY, false); // Redraw values on top
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Encoder Output (Features)', W/2, offsetY + GRID_SIZE * cellSize + 20);
+  }
+
+  else if (mode === 'query' || mode === 'keys' || mode === 'attention' || mode === 'aggregate' || mode === 'inpainted_patch') {
+    drawGrid(ctx, maskedFeatures, cellSize, offsetX, offsetY, false);
+    // Draw known regions with blue tint, masked with red
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const isMasked = r >= MASK_START && r < MASK_START + MASK_SIZE && c >= MASK_START && c < MASK_START + MASK_SIZE;
+        ctx.fillStyle = isMasked ? colors.redBg : colors.blueBg;
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(offsetX + c * cellSize, offsetY + r * cellSize, cellSize, cellSize);
+        ctx.globalAlpha = 1;
+      }
+    }
+    drawGrid(ctx, maskedFeatures, cellSize, offsetX, offsetY, false); // Redraw values on top
+
+    // Query patch
+    drawPatchOutline(ctx, queryPatchCoords.r, queryPatchCoords.c, cellSize, offsetX, offsetY, colors.purple, 3);
+
+    const queryPatch = getPatch(originalFeatures, queryPatchCoords.r, queryPatchCoords.c, PATCH_SIZE);
+
+    if (mode === 'keys' || mode === 'attention' || mode === 'aggregate' || mode === 'inpainted_patch') {
+      let maxSimilarity = -Infinity;
+      let bestKeyCoords = { r: 0, c: 0 };
+      const similarities = [];
+      const keyPatchCoords = [];
+
+      for (let r = 0; r <= GRID_SIZE - PATCH_SIZE; r++) {
+        for (let c = 0; c <= GRID_SIZE - PATCH_SIZE; c++) {
+          const isMasked = r >= MASK_START && r < MASK_START + MASK_SIZE && c >= MASK_START && c < MASK_START + MASK_SIZE;
+          if (!isMasked) { // Only consider known patches as keys
+            const keyPatch = getPatch(originalFeatures, r, c, PATCH_SIZE);
+            const sim = computeSimilarity(queryPatch, keyPatch);
+            similarities.push(sim);
+            keyPatchCoords.push({ r, c });
+            if (sim > maxSimilarity) {
+              maxSimilarity = sim;
+              bestKeyCoords = { r, c };
+            }
+          }
+        }
+      }
+
+      const attentionWeights = softmax(similarities, currentTemp);
+
+      if (mode === 'keys') {
+        drawPatchOutline(ctx, bestKeyCoords.r, bestKeyCoords.c, cellSize, offsetX, offsetY, colors.amber, 2);
+        ctx.fillStyle = colors.text; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+        ctx.fillText(`Similarity to Query: ${maxSimilarity.toFixed(2)}`, W/2, H - 20);
+      } else if (mode === 'attention' || mode === 'aggregate' || mode === 'inpainted_patch') {
+        const attentionMapOffsetX = offsetX + GRID_SIZE * cellSize + 20;
+        const attentionMapOffsetY = offsetY;
+        const miniCellSize = cellSize * GRID_SIZE / (keyPatchCoords.length * 0.7); // Scale for attention map
+
+        // Find max attention weight for scaling heatmap colors
+        const maxAttention = Math.max(...attentionWeights);
+
+        // Draw attention map
+        ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'left';
+        ctx.fillText('Attention Map (Keys)', attentionMapOffsetX, attentionMapOffsetY - 10);
+        
+        keyPatchCoords.forEach((coords, idx) => {
+          const weight = attentionWeights[idx];
+          const brightness = Math.floor(weight / maxAttention * 200) + 50;
+          ctx.fillStyle = `rgb(${brightness}, 0, 0)`; // Red heatmap
+          ctx.fillRect(offsetX + coords.c * cellSize, offsetY + coords.r * cellSize, PATCH_SIZE * cellSize, PATCH_SIZE * cellSize);
+        });
+        
+        // Redraw grid lines and query patch after attention map
+        drawGrid(ctx, maskedFeatures, cellSize, offsetX, offsetY, false);
+        drawPatchOutline(ctx, queryPatchCoords.r, queryPatchCoords.c, cellSize, offsetX, offsetY, colors.purple, 3);
+
+        if (mode === 'aggregate' || mode === 'inpainted_patch') {
+          // Simulate aggregation: just take the best matching patch's features
+          const reconstructedPatch = getPatch(originalFeatures, bestKeyCoords.r, bestKeyCoords.c, PATCH_SIZE);
+          
+          if (mode === 'inpainted_patch') {
+            for (let r = 0; r < PATCH_SIZE; r++) {
+              for (let c = 0; c < PATCH_SIZE; c++) {
+                const val = reconstructedPatch[r * PATCH_SIZE + c];
+                const brightness = Math.floor(val * 200) + 50;
+                ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
+                ctx.fillRect(offsetX + (queryPatchCoords.c + c) * cellSize, offsetY + (queryPatchCoords.r + r) * cellSize, cellSize, cellSize);
+                ctx.strokeStyle = colors.green;
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(offsetX + (queryPatchCoords.c + c) * cellSize, offsetY + (queryPatchCoords.r + r) * cellSize, cellSize, cellSize);
+              }
+            }
+            ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+            ctx.fillText('Inpainted Query Patch', W/2, H - 20);
+          } else {
+            ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+            ctx.fillText('Aggregating features from keys...', W/2, H - 20);
+          }
+        } else {
+          ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+          ctx.fillText(`Attention Temp (τ): ${currentTemp.toFixed(1)}`, W/2, H - 20);
+        }
+      }
+    }
+  }
+
+  else if (mode === 'lama_concept') {
+    const halfW = W / 2 - 10;
+    const halfOffsetX = (halfW - GRID_SIZE * cellSize) / 2;
+    const halfOffsetY = (H - GRID_SIZE * cellSize) / 2;
+
+    // Left side: Local Conv
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Standard Local Conv', halfW / 2, halfOffsetY - 10);
+    drawGrid(ctx, originalFeatures, cellSize, halfOffsetX, halfOffsetY, false);
+    ctx.strokeStyle = colors.blue; ctx.lineWidth = 2;
+    ctx.strokeRect(halfOffsetX + MASK_START * cellSize, halfOffsetY + MASK_START * cellSize, MASK_SIZE * cellSize, MASK_SIZE * cellSize);
+    
+    // Simulate local receptive field
+    const localRF_r = MASK_START + MASK_SIZE / 2;
+    const localRF_c = MASK_START + MASK_SIZE / 2;
+    const rfSize = 3;
+    ctx.fillStyle = colors.green;
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(halfOffsetX + (localRF_c - 1) * cellSize, halfOffsetY + (localRF_r - 1) * cellSize, rfSize * cellSize, rfSize * cellSize);
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(halfOffsetX + localRF_c * cellSize + cellSize/2, halfOffsetY + localRF_r * cellSize + cellSize/2, cellSize * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = colors.green;
+    ctx.fill();
+
+    // Right side: FFC Global Conv
+    ctx.fillText('FFC Global Conv (LaMa)', W/2 + halfW / 2, halfOffsetY - 10);
+    drawGrid(ctx, originalFeatures, cellSize, W/2 + halfOffsetX + 20, halfOffsetY, false);
+    ctx.strokeStyle = colors.green; ctx.lineWidth = 2;
+    ctx.strokeRect(W/2 + halfOffsetX + 20 + MASK_START * cellSize, halfOffsetY + MASK_START * cellSize, MASK_SIZE * cellSize, MASK_SIZE * cellSize);
+    
+    // Simulate global receptive field
+    ctx.fillStyle = colors.green;
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(W/2 + halfOffsetX + 20, halfOffsetY, GRID_SIZE * cellSize, GRID_SIZE * cellSize);
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(W/2 + halfOffsetX + 20 + localRF_c * cellSize + cellSize/2, halfOffsetY + localRF_r * cellSize + cellSize/2, cellSize * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = colors.green;
+    ctx.fill();
+
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('FFC: A single output pixel (green dot) is influenced by the entire image (green overlay), unlike local convs.', W/2, H - 20);
+  }
+
+  else if (mode === 'lama_result') {
+    const resultFeatures = originalFeatures.map(row => [...row]);
+    // Simulate a good LaMa infill (e.g., smooth transition)
+    for (let r = MASK_START; r < MASK_START + MASK_SIZE; r++) {
+      for (let c = MASK_START; c < MASK_START + MASK_SIZE; c++) {
+        const origVal = originalFeatures[r][c];
+        const blend = 0.5 + (Math.sin((r - MASK_START) / MASK_SIZE * Math.PI) + Math.sin((c - MASK_START) / MASK_SIZE * Math.PI)) / 4;
+        resultFeatures[r][c] = origVal * blend + 0.5 * (1 - blend); // Simple blend
+      }
+    }
+    drawGrid(ctx, resultFeatures, cellSize, offsetX, offsetY, true, colors.greenBg);
+    drawGrid(ctx, resultFeatures, cellSize, offsetX, offsetY, true); // Redraw values on top
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('LaMa Inpainting Result', W/2, H - 20);
+  }
+
+  else if (mode === 'compare') {
+    const halfW = W / 2 - 10;
+    const halfOffsetX = (halfW - GRID_SIZE * cellSize) / 2;
+    const halfOffsetY = (H - GRID_SIZE * cellSize) / 2;
+
+    // Left side: CA result (simulated)
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('Contextual Attention (CA)', halfW / 2, halfOffsetY - 10);
+    const caResult = applyMask(originalFeatures);
+    for (let r = MASK_START; r < MASK_START + MASK_SIZE; r++) {
+      for (let c = MASK_START; c < MASK_START + MASK_SIZE; c++) {
+        caResult[r][c] = originalFeatures[r][c] * 0.7 + 0.2; // Slightly blurry/repetitive
+      }
+    }
+    drawGrid(ctx, caResult, cellSize, halfOffsetX, halfOffsetY, true, colors.purpleBg);
+    drawGrid(ctx, caResult, cellSize, halfOffsetX, halfOffsetY, true);
+
+    // Right side: LaMa result (simulated)
+    ctx.fillText('LaMa Inpainting', W/2 + halfW / 2, halfOffsetY - 10);
+    const lamaResult = originalFeatures.map(row => [...row]);
+    for (let r = MASK_START; r < MASK_START + MASK_SIZE; r++) {
+      for (let c = MASK_START; c < MASK_START + MASK_SIZE; c++) {
+        lamaResult[r][c] = originalFeatures[r][c] * 0.9 + 0.1; // Sharper, more coherent
+      }
+    }
+    drawGrid(ctx, lamaResult, cellSize, W/2 + halfOffsetX + 20, halfOffsetY, true, colors.greenBg);
+    drawGrid(ctx, lamaResult, cellSize, W/2 + halfOffsetX + 20, halfOffsetY, true);
+
+    ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)'; ctx.textAlign = 'center';
+    ctx.fillText('CA: Good for texture, can be repetitive. LaMa: Better for large masks & semantic coherence.', W/2, H - 20);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

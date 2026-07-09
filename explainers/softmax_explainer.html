@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Softmax: Numerical Stability & Log-Sum-Exp — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Number readout row */
+.readout-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;font-family:var(--mono);font-size:11px;}
+.readout-chip{padding:6px 10px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);border:1px solid var(--border);}
+.readout-chip.hot{background:var(--red-bg);color:var(--red-mid);border-color:var(--red-border);font-weight:600;}
+.readout-chip.good{background:var(--green-bg);color:var(--green-mid);border-color:var(--green-border);font-weight:600;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-break{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-fix{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-math{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-explore{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Softmax: Numerical Stability &amp; the Log-Sum-Exp Trick</h1>
+  <div class="subtitle">Why naive softmax overflows, and how subtracting the max fixes it — exactly</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Numerical Methods</span>
+    <span class="tag tag-complexity">O(n) per row</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Softmax</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Softmax turns a list of arbitrary real numbers ("logits") into a probability distribution — values between 0 and 1 that sum to 1, with larger logits mapped to larger probabilities. It's the standard last layer of a classifier: $$\sigma(z)_i = \frac{e^{z_i}}{\sum_{j=1}^n e^{z_j}}$$</p>
+    <p><strong>Analogy:</strong> Imagine four runners finishing a race with times converted into "confidence scores." Softmax is the judge who converts those raw scores into betting odds that must add up to 100%. The catch: to compute the odds, the naive judge tries to compute <code>e^score</code> for every runner — and if a score is even moderately large (say 1000), that single exponential blows past what a computer's floating-point numbers can represent. The judge's calculator returns <code>Infinity</code>, and the odds become garbage (<code>NaN</code>).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Softmax is <strong>shift-invariant</strong>: \(\sigma(z) = \sigma(z - c)\) for any constant \(c\). So before exponentiating, subtract \(m = \max_j z_j\) from every logit. The math is identical; the floating-point arithmetic no longer overflows.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Naive Softmax Breaks Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The IEEE-754 Ceiling</h4>
+    <p>A standard 64-bit double can represent numbers up to roughly \(1.8 \times 10^{308}\). Since \(e^{709} \approx 8.2\times10^{307}\) but \(e^{710} = \text{Infinity}\) in floating point, ANY logit above ~709 makes <code>exp()</code> overflow. That sounds like an edge case, but unnormalized logits from a large model (before any scaling) routinely land in the hundreds or thousands — especially early in training or with high-magnitude embeddings.</p>
+
+    <h4>What Actually Happens on the Wire</h4>
+    <p>Say the logits are \(z = [712, 705, 698, 690]\). Computed naively:</p>
+    <ul>
+      <li><code>exp(712)</code> → <strong>Infinity</strong> (overflow — the true value ≈ \(2.5\times10^{309}\) can't be stored)</li>
+      <li><code>exp(705)</code>, <code>exp(698)</code>, <code>exp(690)</code> → large but finite numbers</li>
+      <li>Sum → <strong>Infinity</strong> (Infinity + anything finite = Infinity)</li>
+      <li>\(\text{Infinity} / \text{Infinity} = \) <strong>NaN</strong> for the largest logit, and finite/Infinity = <strong>0</strong> for the rest</li>
+    </ul>
+    <p>The output distribution is silently destroyed: one entry is <code>NaN</code> (poisons any downstream sum/loss), the others are hard <code>0</code> — even though the true softmax puts ~99.9% of the mass on the top logit and a tiny but nonzero amount on the others.</p>
+
+    <h4>Design Decision: Why Subtract the Max (and not the mean, or clip)?</h4>
+    <p>Subtracting the max guarantees the largest shifted logit is exactly <code>0</code>, so \(e^0 = 1\) is the biggest term in the sum — every other term is \(e^{\text{negative}} \in (0,1]\), which can never overflow. Subtracting the mean doesn't give this guarantee (outliers can still overflow). Clipping logits changes the actual output distribution — subtracting the max does not, because of shift-invariance.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">After shifting by \(m=\max_j z_j\), every exponent satisfies \(z_i - m \le 0\), so \(e^{z_i-m} \in (0, 1]\). The sum of these terms is bounded below by 1 (the max term) and can never overflow — only underflow to 0 for very small terms, which is harmless.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Proof: Softmax Is Shift-Invariant</h4>
+    <p>For any constant \(c\) (in particular \(c = m = \max_j z_j\)):</p>
+    <div class="eq">$$\sigma(z-c)_i = \frac{e^{z_i-c}}{\sum_j e^{z_j-c}} = \frac{e^{-c}\,e^{z_i}}{e^{-c}\sum_j e^{z_j}} = \frac{e^{z_i}}{\sum_j e^{z_j}} = \sigma(z)_i$$</div>
+    <p>The \(e^{-c}\) factor appears in every term, top and bottom, and cancels exactly. This is why subtracting the max changes nothing mathematically — it only changes the magnitudes the computer has to exponentiate.</p>
+
+    <h4>The Log-Sum-Exp (LSE) Trick</h4>
+    <p>Cross-entropy loss needs \(\log \sigma(z)_i = z_i - \log\sum_j e^{z_j}\). Computing \(\sigma(z)_i\) first (which can underflow to exactly 0 for unlikely classes) and then taking \(\log(0) = -\infty\) is a second numerical trap. Instead, compute the log-normalizer directly and stably:</p>
+    <div class="eq">$$\operatorname{LSE}(z) = \log\sum_{j=1}^n e^{z_j} = m + \log\sum_{j=1}^n e^{z_j - m}, \qquad m = \max_j z_j$$</div>
+    <p>Derivation: factor out \(e^m\) exactly as above, then pull the \(\log\) through:</p>
+    <div class="eq">$$\log\sum_j e^{z_j} = \log\Big(e^m\sum_j e^{z_j-m}\Big) = \log e^m + \log\sum_j e^{z_j-m} = m + \log\sum_j e^{z_j-m}$$</div>
+    <p>Now every term inside the inner sum is \(e^{\le 0} \in (0,1]\), so the sum is well-conditioned and its log is safe. The stable log-probability is then \(\log \sigma(z)_i = z_i - \operatorname{LSE}(z)\) — computed <em>without ever forming</em> \(\sigma(z)_i\) itself.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Misconception</div>
+      <p style="font-size:14px;margin:0;">"Just clip the logits to a safe range" is <strong>not</strong> equivalent to the max-subtraction trick — clipping changes which inputs map to which outputs (it's lossy), while shifting by the max is an <em>exact</em> re-parameterization that leaves \(\sigma(z)\) mathematically unchanged.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through real logits, watch naive softmax overflow, see the max-subtraction fix, then explore temperature live.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="readout-row" id="readoutRow"></div>
+
+      <!-- Slider panel (only visible/active on the interactive step) -->
+      <div class="slider-panel" id="sliderPanel" style="display:none;">
+        <div class="slider-group">
+          <div class="slider-label">Temperature T</div>
+          <input type="range" id="tempSlider" min="0.5" max="30" step="0.1" value="1">
+          <div class="slider-value" id="tempValue">1.0</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="naiveToggle">
+          <label for="naiveToggle">Also compute naive (unstable) softmax on z/T — watch it break as T shrinks</label>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Softmax Function</div>
+        <div class="info-desc" id="infoDesc">…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Logits</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Naive exp (overflow / NaN)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Shifted logits</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Stable probabilities</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Always do this:</strong></p>
+    <ul>
+      <li>Subtract \(m = \max_j z_j\) before exponentiating — every deep learning framework's <code>softmax</code> does this internally</li>
+      <li>Use <code>log_softmax</code> / log-sum-exp directly for cross-entropy loss instead of <code>log(softmax(z))</code> — never round-trip through probabilities you're about to log again</li>
+      <li>Remember temperature scaling (\(z/T\)) happens <em>before</em> the max-subtraction, not after — the stability trick composes with any pre-scaling</li>
+    </ul>
+    <p><strong>When this bites you in practice:</strong></p>
+    <ul>
+      <li>Attention scores in transformers before the \(1/\sqrt{d_k}\) scaling and softmax — unscaled dot products can be large</li>
+      <li>Mixed-precision (fp16) training, where the safe exponent range shrinks to roughly ±11 instead of ±709</li>
+      <li>Reward models / RLHF pipelines computing log-probabilities over long sequences, where per-token errors compound</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 One-Line Summary</div>
+      <p style="font-size:14px;margin:0;">Softmax is shift-invariant, so <code>softmax(z) == softmax(z - max(z))</code> mathematically — but only the right-hand side is safe to actually compute.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># Naive softmax — overflows for large logits</div>
+      <div class="code-line" id="cl3">def softmax_naive(z):</div>
+      <div class="code-line" id="cl4">    exp_z = np.exp(z)              # exp(712) -> inf</div>
+      <div class="code-line" id="cl5">    return exp_z / np.sum(exp_z)   # inf/inf -> nan</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># Numerically stable softmax</div>
+      <div class="code-line" id="cl8">def softmax_stable(z, T=1.0):</div>
+      <div class="code-line" id="cl9">    z = np.asarray(z) / T</div>
+      <div class="code-line" id="cl10">    m = np.max(z, axis=-1, keepdims=True)   # shift constant</div>
+      <div class="code-line" id="cl11">    exp_shifted = np.exp(z - m)             # max term is exp(0)=1</div>
+      <div class="code-line" id="cl12">    return exp_shifted / np.sum(exp_shifted, axis=-1, keepdims=True)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># Log-sum-exp: stable log-normalizer for cross-entropy</div>
+      <div class="code-line" id="cl15">def log_softmax(z):</div>
+      <div class="code-line" id="cl16">    z = np.asarray(z)</div>
+      <div class="code-line" id="cl17">    m = np.max(z, axis=-1, keepdims=True)</div>
+      <div class="code-line" id="cl18">    lse = m + np.log(np.sum(np.exp(z - m), axis=-1, keepdims=True))</div>
+      <div class="code-line" id="cl19">    return z - lse                          # log p_i, never forms p_i first</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">z = np.array([712.0, 705.0, 698.0, 690.0])</div>
+      <div class="code-line" id="cl22">print(softmax_naive(z))   # [nan, 0., 0., 0.]</div>
+      <div class="code-line" id="cl23">print(softmax_stable(z))  # [0.999, 0.00091, 0.00000083, 0.00000000028]</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// REAL MATH — every number below is computed live in JS, not hard-coded
+// ══════════════════════════════════════════════════════════════
+function naiveSoftmax(z) {
+  const exp = z.map(v => Math.exp(v));
+  const sum = exp.reduce((a, b) => a + b, 0);
+  const probs = exp.map(v => v / sum);
+  return { exp, sum, probs };
+}
+function stableSoftmax(z) {
+  const m = Math.max(...z);
+  const shifted = z.map(v => v - m);
+  const exp = shifted.map(v => Math.exp(v));
+  const sum = exp.reduce((a, b) => a + b, 0);
+  const probs = exp.map(v => v / sum);
+  return { m, shifted, exp, sum, probs };
+}
+function logSumExp(z) {
+  const m = Math.max(...z);
+  const s = z.reduce((acc, v) => acc + Math.exp(v - m), 0);
+  return { m, lse: m + Math.log(s), innerSum: s };
+}
+function fmt(v) {
+  if (Number.isNaN(v)) return 'NaN';
+  if (!Number.isFinite(v)) return v > 0 ? '∞' : '-∞';
+  if (v !== 0 && (Math.abs(v) >= 1e5 || Math.abs(v) < 1e-4)) return v.toExponential(2);
+  return v.toFixed(4);
+}
+
+// ── FIXED EXAMPLE DATA ──
+const smallLogits = [2.0, 1.0, 0.1];
+const bigLogits = [712, 705, 698, 690];
+const labels4 = ['z₁', 'z₂', 'z₃', 'z₄'];
+const labels3 = ['z₁', 'z₂', 'z₃'];
+
+const smallResult = stableSoftmax(smallLogits);
+const bigNaive = naiveSoftmax(bigLogits);
+const bigStable = stableSoftmax(bigLogits);
+const bigLSE = logSumExp(bigLogits);
+const logProbs = bigLogits.map(v => v - bigLSE.lse);
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Softmax Function',
+    desc: `Softmax turns logits into a probability distribution: \\(\\sigma(z)_i = e^{z_i} / \\sum_j e^{z_j}\\). For small, well-scaled logits \\(z = [${smallLogits.join(', ')}]\\), the naive formula works fine and gives \\(\\sigma(z) = [${smallResult.probs.map(fmt).join(', ')}]\\).`,
+    codeLines: [],
+    mode: 'intro'
+  },
+  {
+    phase: 'setup', title: 'A Realistic Example — Big Logits',
+    desc: `Unnormalized model outputs aren't always small. Consider \\(z = [${bigLogits.join(', ')}]\\) — plausible pre-activation values from a real network. The true softmax should still put almost all mass on \\(z_1=712\\). Let's compute it the naive way and watch what happens.`,
+    codeLines: [21],
+    mode: 'bignums'
+  },
+  {
+    phase: 'break', title: 'Naive Softmax: exp(z) Overflows',
+    desc: `\\(e^{712}\\) exceeds the largest representable double (\\(\\approx 1.8\\times10^{308}\\)), so JavaScript's own <code>Math.exp(712)</code> returns <strong>Infinity</strong> — computed live, not simulated. The other three terms are still finite: \\(e^{705}\\approx${fmt(bigNaive.exp[1])}\\), \\(e^{698}\\approx${fmt(bigNaive.exp[2])}\\), \\(e^{690}\\approx${fmt(bigNaive.exp[3])}\\).`,
+    codeLines: [2, 3, 4],
+    mode: 'naive_exp'
+  },
+  {
+    phase: 'break', title: 'Naive Result: NaN Everywhere',
+    desc: `Summing gives \\(\\sum_j e^{z_j} = \\) <strong>Infinity</strong> (Infinity + finite = Infinity). Dividing: \\(\\text{Infinity}/\\text{Infinity} = \\) <strong>NaN</strong> for \\(z_1\\), and finite/Infinity = <strong>0</strong> for everything else. The naive output is \\([${bigNaive.probs.map(fmt).join(', ')}]\\) — completely unusable, even though \\(z_1\\) should dominate at ~99.9%.`,
+    codeLines: [4, 5],
+    mode: 'naive_result'
+  },
+  {
+    phase: 'fix', title: 'The Fix: Subtract the Max',
+    desc: `Because softmax is shift-invariant, \\(\\sigma(z) = \\sigma(z-m)\\) for \\(m=\\max_j z_j = ${bigStable.m}\\). Shifting: \\(z - m = [${bigStable.shifted.join(', ')}]\\). The largest entry is now exactly 0, and every other entry is negative — no exponent can overflow.`,
+    codeLines: [9, 10],
+    mode: 'shift'
+  },
+  {
+    phase: 'fix', title: 'Stable Softmax Result',
+    desc: `Now \\(e^{z_i-m} = [${bigStable.exp.map(fmt).join(', ')}]\\), summing to \\(${fmt(bigStable.sum)}\\) (bounded — never overflows). Normalizing gives the <strong>correct</strong> distribution \\(\\sigma(z) = [${bigStable.probs.map(fmt).join(', ')}]\\) — the same result the exact (infinite-precision) formula would give, just computable in floating point.`,
+    codeLines: [8, 9, 10, 11, 12],
+    mode: 'stable_result'
+  },
+  {
+    phase: 'math', title: 'Log-Sum-Exp for Cross-Entropy',
+    desc: `Cross-entropy needs \\(\\log\\sigma(z)_i\\), not \\(\\sigma(z)_i\\) itself. Computing probabilities first then taking \\(\\log\\) risks \\(\\log(0)=-\\infty\\) for tiny probabilities. Instead: \\(\\operatorname{LSE}(z) = m + \\log\\sum_j e^{z_j-m} = ${bigStable.m} + \\log(${fmt(bigLSE.innerSum)}) = ${fmt(bigLSE.lse)}\\). Then \\(\\log\\sigma(z)_i = z_i - \\operatorname{LSE}(z) = [${logProbs.map(fmt).join(', ')}]\\) — computed directly, no intermediate underflow.`,
+    codeLines: [15, 16, 17, 18, 19],
+    mode: 'lse'
+  },
+  {
+    phase: 'explore', title: 'Try It Yourself — Temperature & Stability',
+    desc: `Drag the temperature slider: \\(\\sigma(z/T)\\) sharpens as \\(T\\to0\\) (near-argmax) and flattens as \\(T\\) grows (near-uniform). The stable computation stays correct at every \\(T\\). Tick the checkbox to also run the <em>naive</em> formula alongside it on the same scaled logits — watch it start returning NaN/0 as soon as \\(z/T\\) crosses the overflow threshold.`,
+    codeLines: [8, 9, 10, 11, 12],
+    mode: 'interactive'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let tempT = 1.0;
+let showNaiveOverlay = false;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; tempT = 1.0; showNaiveOverlay = false; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', break: 'phase-break', fix: 'phase-fix', math: 'phase-math', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  document.getElementById('sliderPanel').style.display = (s.mode === 'interactive') ? 'flex' : 'none';
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── READOUT CHIPS ──
+function renderReadout(items) {
+  const wrap = document.getElementById('readoutRow');
+  wrap.innerHTML = items.map(it =>
+    `<div class="readout-chip ${it.cls || ''}">${it.label}: ${it.value}</div>`
+  ).join('');
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'),
+    redBg: g('--red-bg')
+  };
+}
+
+function drawBars(ctx, W, H, bars, opts) {
+  opts = opts || {};
+  const pad = { l: 40, r: 20, t: 24, b: 46 };
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const n = bars.length;
+  const gap = 18;
+  const bw = (pw - gap * (n - 1)) / n;
+  const c = getColors();
+
+  ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+
+  bars.forEach((b, i) => {
+    const x = pad.l + i * (bw + gap);
+    let h = Math.max(b.frac, 0) * ph;
+    if (b.overflow) h = ph; // full-height striped bar
+    if (h < 3 && (b.frac > 0 || b.overflow)) h = 3;
+    const y = H - pad.b - h;
+
+    if (b.overflow) {
+      // striped "overflow" bar
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, bw, h);
+      ctx.clip();
+      ctx.fillStyle = c.redBg; ctx.fillRect(x, y, bw, h);
+      ctx.strokeStyle = b.color; ctx.lineWidth = 3;
+      for (let sx = x - h; sx < x + bw; sx += 10) {
+        ctx.beginPath(); ctx.moveTo(sx, y + h); ctx.lineTo(sx + h, y); ctx.stroke();
+      }
+      ctx.restore();
+      ctx.strokeStyle = b.color; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, bw, h);
+    } else if (b.nan) {
+      ctx.strokeStyle = c.red; ctx.lineWidth = 2.5;
+      const cy = H - pad.b - 18;
+      ctx.beginPath(); ctx.moveTo(x + bw / 2 - 10, cy - 10); ctx.lineTo(x + bw / 2 + 10, cy + 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + bw / 2 + 10, cy - 10); ctx.lineTo(x + bw / 2 - 10, cy + 10); ctx.stroke();
+    } else {
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      const r = Math.min(5, bw / 2, h);
+      ctx.moveTo(x, y + h); ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.lineTo(x + bw - r, y); ctx.arcTo(x + bw, y, x + bw, y + r, r);
+      ctx.lineTo(x + bw, y + h); ctx.closePath(); ctx.fill();
+    }
+
+    // value label
+    ctx.fillStyle = b.nan ? c.red : c.text;
+    ctx.font = '600 11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    const labelY = b.nan ? (H - pad.b + 14) : Math.max(y - 8, pad.t + 12);
+    ctx.fillText(b.valueLabel, x + bw / 2, labelY);
+
+    // axis label
+    ctx.fillStyle = c.text2;
+    ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText(b.label, x + bw / 2, H - pad.b + 30);
+  });
+  ctx.textAlign = 'left';
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  if (mode === 'intro') {
+    const bars = smallLogits.map((z, i) => ({
+      label: labels3[i], valueLabel: `p=${fmt(smallResult.probs[i])}`,
+      frac: smallResult.probs[i], color: c.green
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout(smallLogits.map((z, i) => ({ label: labels3[i], value: fmt(z) })));
+  }
+
+  else if (mode === 'bignums') {
+    const maxAbs = Math.max(...bigLogits);
+    const bars = bigLogits.map((z, i) => ({
+      label: labels4[i], valueLabel: z.toString(),
+      frac: z / maxAbs, color: c.blue
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout(bigLogits.map((z, i) => ({ label: labels4[i], value: z })));
+  }
+
+  else if (mode === 'naive_exp') {
+    // log10-scaled bars since magnitudes span hundreds of orders
+    const finiteLogs = bigNaive.exp.filter(Number.isFinite).map(v => Math.log10(v));
+    const maxLog = Math.max(...finiteLogs, 1);
+    const bars = bigNaive.exp.map((v, i) => {
+      const overflow = !Number.isFinite(v);
+      return {
+        label: labels4[i],
+        valueLabel: overflow ? 'exp(712)=∞' : `≈${v.toExponential(2)}`,
+        frac: overflow ? 1 : Math.log10(v) / maxLog,
+        overflow, color: overflow ? c.red : c.amber
+      };
+    });
+    drawBars(ctx, W, H, bars);
+    renderReadout([
+      { label: 'sum', value: '∞', cls: 'hot' },
+      ...bigNaive.exp.map((v, i) => ({ label: 'exp(' + labels4[i] + ')', value: fmt(v), cls: Number.isFinite(v) ? '' : 'hot' }))
+    ]);
+  }
+
+  else if (mode === 'naive_result') {
+    const bars = bigNaive.probs.map((p, i) => ({
+      label: labels4[i], valueLabel: Number.isNaN(p) ? 'NaN' : fmt(p),
+      frac: Number.isNaN(p) ? 0 : p, nan: Number.isNaN(p), color: c.red
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout(bigNaive.probs.map((p, i) => ({ label: labels4[i], value: fmt(p), cls: 'hot' })));
+  }
+
+  else if (mode === 'shift') {
+    const maxAbsShift = Math.max(...bigStable.shifted.map(v => Math.abs(v)), 1);
+    const bars = bigStable.shifted.map((v, i) => ({
+      label: labels4[i], valueLabel: v.toString(),
+      frac: 1 - Math.abs(v) / (maxAbsShift * 1.15), color: c.amber
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout(bigStable.shifted.map((v, i) => ({ label: labels4[i] + '-m', value: v })));
+  }
+
+  else if (mode === 'stable_result') {
+    const bars = bigStable.probs.map((p, i) => ({
+      label: labels4[i], valueLabel: fmt(p),
+      frac: Math.sqrt(p), color: c.green
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout(bigStable.probs.map((p, i) => ({ label: labels4[i], value: fmt(p), cls: 'good' })));
+  }
+
+  else if (mode === 'lse') {
+    const maxAbs = Math.max(...logProbs.map(v => Math.abs(v)), 1);
+    const bars = logProbs.map((v, i) => ({
+      label: labels4[i], valueLabel: fmt(v),
+      frac: 1 - Math.abs(v) / (maxAbs * 1.15), color: c.purple
+    }));
+    drawBars(ctx, W, H, bars);
+    renderReadout([
+      { label: 'LSE(z)', value: fmt(bigLSE.lse), cls: 'good' },
+      ...logProbs.map((v, i) => ({ label: 'log p(' + labels4[i] + ')', value: fmt(v) }))
+    ]);
+  }
+
+  else if (mode === 'interactive') {
+    const scaled = bigLogits.map(v => v / tempT);
+    const stable = stableSoftmax(scaled);
+    const bars = stable.probs.map((p, i) => ({
+      label: labels4[i], valueLabel: fmt(p),
+      frac: Math.sqrt(p), color: c.green
+    }));
+    drawBars(ctx, W, H, bars);
+
+    const readout = stable.probs.map((p, i) => ({ label: labels4[i], value: fmt(p), cls: 'good' }));
+
+    if (showNaiveOverlay) {
+      const naive = naiveSoftmax(scaled);
+      const broken = naive.probs.some(p => Number.isNaN(p) || !Number.isFinite(p));
+      readout.push({ label: 'naive', value: broken ? 'NaN/0 — OVERFLOWED' : 'matches stable ✓', cls: broken ? 'hot' : 'good' });
+    }
+    renderReadout(readout);
+  }
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+document.getElementById('tempSlider').addEventListener('input', e => {
+  tempT = parseFloat(e.target.value);
+  document.getElementById('tempValue').textContent = tempT.toFixed(1);
+  if (steps[step].mode === 'interactive') drawCanvas('interactive');
+});
+document.getElementById('naiveToggle').addEventListener('change', e => {
+  showNaiveOverlay = e.target.checked;
+  if (steps[step].mode === 'interactive') drawCanvas('interactive');
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

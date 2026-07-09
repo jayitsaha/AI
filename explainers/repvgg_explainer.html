@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RepVGG: Re-parameterization for Inference Efficiency — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-train{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-fuse{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-transform{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Custom Viz styles */
+.viz-kernel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  width: 45px; /* Fixed size for 3x3 kernel */
+  height: 45px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.viz-kernel-cell {
+  background: var(--bg2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text2);
+  transition: background 0.3s, color 0.3s;
+}
+.viz-kernel-cell.highlight-val { background: var(--purple-bg); color: var(--purple-mid); font-weight: 600; }
+.viz-kernel-cell.highlight-zero { background: var(--border2); color: var(--text3); }
+.viz-kernel-cell.highlight-add { background: var(--green-bg); color: var(--green-mid); font-weight: 600; }
+
+.viz-bn-params {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text2);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  margin-top: 4px;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .viz-kernel-grid { width: 36px; height: 36px; }
+  .viz-kernel-cell { font-size: 7px; }
+  .viz-bn-params { font-size: 8px; padding: 3px 6px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>RepVGG: Re-parameterization for Inference Efficiency</h1>
+  <div class="subtitle">Fuse multi-branch training networks into a single, fast convolutional layer</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Architecture</span>
+    <span class="tag tag-complexity">O(1) fusion</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding RepVGG</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> RepVGG is a convolutional neural network architecture that achieves a remarkable balance: it trains with a complex, multi-branch topology (like ResNet or Inception) to maximize accuracy, but then "fuses" these branches into a simple, single-path architecture (like VGG) for lightning-fast inference. This re-parameterization happens *after* training, so you get the best of both worlds: high accuracy from rich training-time connectivity and high speed from a streamlined inference graph.</p>
+    <p><strong>Analogy:</strong> Imagine you're building a custom car. During design and testing, you might use multiple parallel engines, advanced sensors, and complex control systems to fine-tune performance (this is the multi-branch training). Once the optimal configuration is found, you streamline everything into a single, highly efficient, and compact engine design for the production model (this is the single-path inference). RepVGG does this for neural network layers: complex for learning, simple for deployment.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">RepVGG works by converting a training-time block composed of parallel 3x3 Conv, 1x1 Conv, and Identity branches (each followed by BatchNorm and ReLU) into a single, equivalent 3x3 Conv layer with its own BatchNorm and ReLU for inference. This transformation is mathematically exact, preserving accuracy while drastically improving speed.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The RepVGG Block: Training Time</h4>
+    <p>A typical RepVGG block, designed for training, takes an input feature map and processes it through three parallel pathways before summing their outputs. All pathways maintain the same input/output dimensions and stride:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>A <strong>3x3 Convolutional layer</strong>, followed by Batch Normalization (BN) and ReLU activation. This is the primary feature extractor.</li>
+      <li>A <strong>1x1 Convolutional layer</strong>, also followed by BN and ReLU. This acts as a residual connection or a shortcut, providing a simpler path for information flow.</li>
+      <li>An <strong>Identity mapping</strong>, applied only if input and output channels are the same, and if the stride is 1. This is effectively a skip connection, also followed by BN and ReLU.</li>
+    </ol>
+    <p>The outputs of these three branches are summed element-wise. This multi-branch structure, particularly the identity branch, is known to improve optimization and accuracy during training, similar to ResNet's residual connections.</p>
+
+    <h4>The Re-parameterization Trick: Inference Time</h4>
+    <p>The magic of RepVGG lies in its ability to transform this complex multi-branch block into a single, plain 3x3 convolutional layer for inference. This is possible because:</p>
+    <ul>
+      <li><strong>Batch Normalization Folding:</strong> A convolutional layer followed by Batch Normalization can be exactly re-parameterized into a single convolutional layer with adjusted weights and biases. The BN parameters (mean, variance, gamma, beta) are absorbed into the convolution's kernel and bias. This applies to all three branches.</li>
+      <li><strong>1x1 Conv to 3x3 Conv:</strong> A 1x1 convolution can be conceptually represented as a 3x3 convolution where only the center 1x1 region of the kernel has non-zero weights, and the surrounding 8 elements are zero.</li>
+      <li><strong>Identity to 3x3 Conv:</strong> An identity mapping (a simple pass-through) can be represented as a 1x1 convolution with a specific identity kernel (a '1' on the diagonal for each channel and '0's elsewhere), which can then also be padded to a 3x3 kernel.</li>
+      <li><strong>Summing Parallel Convs:</strong> If multiple convolutional layers have the same input/output dimensions, stride, and padding, and their outputs are summed, this is mathematically equivalent to a single convolutional layer whose kernel is the sum of the individual kernels, and whose bias is the sum of the individual biases.</li>
+    </ul>
+    <p>By performing these transformations sequentially, the entire multi-branch block collapses into a single, computationally efficient 3x3 Conv layer. The ReLU activation is applied once after this fused layer.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The re-parameterization is <strong>lossless and exact</strong>. The fused inference model produces numerically identical output to the training model (given the same initial weights and input), ensuring that accuracy gains from training are fully preserved, while inference latency is significantly reduced due to fewer operations and better hardware utilization.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Folding Batch Normalization into Convolution</h4>
+    <p>Consider a convolutional layer with weight kernel \(W \in \mathbb{R}^{C_{out} \times C_{in} \times K \times K}\) and bias \(b \in \mathbb{R}^{C_{out}}\). Its output for a given input \(x\) is \(y = W * x + b\). A subsequent Batch Normalization layer transforms this output \(y\) using learned parameters \(\gamma, \beta\) and running statistics \(\mu, \sigma^2\) (mean and variance):</p>
+    <div class="eq">$$\text{BN}(y)_i = \gamma_i \frac{y_i - \mu_i}{\sqrt{\sigma_i^2 + \epsilon}} + \beta_i$$</div>
+    <p>We can fold this BN into the convolution by creating new effective weights \(W'\) and biases \(b'\). For each output channel \(i\):</p>
+    <div class="eq">$$W'_{i,:,:,:} = W_{i,:,:,:} \cdot \frac{\gamma_i}{\sqrt{\sigma_i^2 + \epsilon}} \quad \text{and} \quad b'_i = (b_i - \mu_i) \cdot \frac{\gamma_i}{\sqrt{\sigma_i^2 + \epsilon}} + \beta_i$$</div>
+    <p>The combined operation is then simply \(y' = W' * x + b'\), which is a standard convolution. This transformation is exact and removes the BN layer during inference.</p>
+
+    <h4>2. Converting 1x1 Conv and Identity to 3x3 Conv</h4>
+    <p>A 1x1 convolution kernel \(W_{1x1} \in \mathbb{R}^{C_{out} \times C_{in} \times 1 \times 1}\) can be represented as a 3x3 kernel \(W_{1x1 \to 3x3} \in \mathbb{R}^{C_{out} \times C_{in} \times 3 \times 3}\) by placing \(W_{1x1}\) at the center and padding with zeros:</p>
+    <div class="eq">$$W_{1x1 \to 3x3}[c_{out}, c_{in}, 1, 1] = W_{1x1}[c_{out}, c_{in}, 0, 0]$$
+    $$W_{1x1 \to 3x3}[c_{out}, c_{in}, i, j] = 0 \quad \text{for } (i,j) \neq (1,1)$$</div>
+    <p>Similarly, an identity mapping (for matching input/output channels) can be seen as a 1x1 convolution whose kernel is an identity matrix for each spatial location. This 1x1 identity kernel can then also be padded to a 3x3 kernel, where only the center element is 1 for each input-output channel pair (i.e., when \(c_{in} = c_{out}\)).</p>
+
+    <h4>3. Summing Parallel Convolutions</h4>
+    <p>If we have \(N\) parallel convolutional layers, each with kernel \(W_k\) and bias \(b_k\), and they operate on the same input \(x\) with identical stride and padding, their summed output is:</p>
+    <div class="eq">$$\sum_{k=1}^N (W_k * x + b_k) = \left(\sum_{k=1}^N W_k\right) * x + \left(\sum_{k=1}^N b_k\right)$$</div>
+    <p>This means the entire parallel structure can be replaced by a single convolution with a fused kernel \(W_{fused} = \sum W_k\) and a fused bias \(b_{fused} = \sum b_k\). Combining these three principles allows the complete re-parameterization of the RepVGG block.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Design Constraint</div>
+      <p style="font-size:14px;margin:0;">This re-parameterization trick relies heavily on all parallel branches having <strong>identical input and output feature map dimensions, channel counts, and stride</strong>. The RepVGG architecture is carefully designed to ensure these conditions are met within its blocks, often using specific padding or identity-only connections where possible.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the re-parameterization of a RepVGG block, visualizing how parallel branches fuse into a single 3x3 convolution.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The RepVGG Training Block</div>
+        <div class="info-desc" id="infoDesc">We start with a RepVGG block during training: three parallel branches (3x3 Conv, 1x1 Conv, Identity) with Batch Normalization (BN) and ReLU. Their outputs are summed.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Convolution</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Fused Conv</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Identity</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> BN Layer</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> ReLU</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use RepVGG:</strong></p>
+    <ul>
+      <li><strong>Inference-constrained environments:</strong> Mobile devices, embedded systems, edge AI, or any application where prediction latency is critical.</li>
+      <li><strong>When you need high accuracy and speed:</strong> RepVGG offers a simple, VGG-like inference structure (fast) while achieving ResNet-like accuracy (high).</li>
+      <li><strong>As a general-purpose CNN backbone:</strong> It can replace standard convolutional blocks in many architectures to boost inference speed without sacrificing training performance.</li>
+      <li><strong>For hardware-friendly models:</strong> Plain convolutional layers are highly optimized on various accelerators (GPUs, NPUs) due to their predictable memory access patterns and computation.</li>
+    </ul>
+    <p><strong>When NOT to use RepVGG:</strong></p>
+    <ul>
+      <li><strong>When training speed is the primary bottleneck:</strong> The multi-branch training structure is inherently more complex and slower during training than a plain VGG block.</li>
+      <li><strong>For models where the multi-branch structure has specific architectural benefits beyond accuracy:</strong> E.g., if you need to extract features from different branches for separate tasks (though this is rare for standard classification backbones).</li>
+      <li><strong>If you need to analyze intermediate branch outputs:</strong> Once fused, the individual branch contributions are no longer separable.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 RepVGG vs. Other Methods</div>
+      <p style="font-size:14px;margin:0;">RepVGG is a form of <strong>structural re-parameterization</strong>, distinct from other optimization methods like pruning (which removes parts of the network) or quantization (which reduces precision). RepVGG is an <em>exact</em> transformation that changes the network's topology for inference, offering a direct speedup without accuracy loss.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Simplified PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch.nn as nn</div>
+      <div class="code-line" id="cl1">import torch</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class RepVGGBlock(nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, in_channels, out_channels, stride=1, deploy=False):</div>
+      <div class="code-line" id="cl5">        super().__init__()</div>
+      <div class="code-line" id="cl6">        self.deploy = deploy # If True, use fused block for inference</div>
+      <div class="code-line" id="cl7">        self.in_channels = in_channels</div>
+      <div class="code-line" id="cl8">        self.out_channels = out_channels</div>
+      <div class="code-line" id="cl9">        self.stride = stride</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">        # Training-time branches</div>
+      <div class="code-line" id="cl12">        self.conv3x3 = self._conv_bn(in_channels, out_channels, 3, stride, 1)</div>
+      <div class="code-line" id="cl13">        self.conv1x1 = self._conv_bn(in_channels, out_channels, 1, stride, 0)</div>
+      <div class="code-line" id="cl14">        self.identity = nn.BatchNorm2d(out_channels) if in_channels == out_channels and stride == 1 else None</div>
+      <div class="code-line" id="cl15">        self.relu = nn.ReLU()</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">        # Fused block for inference (initialized later)</div>
+      <div class="code-line" id="cl18">        self.fused_conv = None</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">    def _conv_bn(self, in_c, out_c, kernel_size, stride, padding):</div>
+      <div class="code-line" id="cl21">        return nn.Sequential(</div>
+      <div class="code-line" id="cl22">            nn.Conv2d(in_c, out_c, kernel_size, stride, padding, bias=False),</div>
+      <div class="code-line" id="cl23">            nn.BatchNorm2d(out_c)</div>
+      <div class="code-line" id="cl24">        )</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">    def forward(self, x):</div>
+      <div class="code-line" id="cl27">        if self.deploy: # Inference path</div>
+      <div class="code-line" id="cl28">            return self.relu(self.fused_conv(x))</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">        # Training path</div>
+      <div class="code-line" id="cl31">        out = self.conv3x3(x) + self.conv1x1(x)</div>
+      <div class="code-line" id="cl32">        if self.identity is not None:</div>
+      <div class="code-line" id="cl33">            out += self.identity(x)</div>
+      <div class="code-line" id="cl34">        return self.relu(out)</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">    def fuse_model(self):</div>
+      <div class="code-line" id="cl37">        # 1. Fold BN into each Conv and Identity</div>
+      <div class="code-line" id="cl38">        kernel_3x3, bias_3x3 = self._fuse_bn_into_conv(self.conv3x3)</div>
+      <div class="code-line" id="cl39">        kernel_1x1, bias_1x1 = self._fuse_bn_into_conv(self.conv1x1)</div>
+      <div class="code-line" id="cl40">        kernel_id, bias_id = self._fuse_bn_into_identity(self.identity, self.in_channels, self.out_channels)</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42">        # 2. Pad 1x1 and Identity kernels to 3x3</div>
+      <div class="code-line" id="cl43">        kernel_1x1_padded = self._pad_1x1_to_3x3_kernel(kernel_1x1)</div>
+      <div class="code-line" id="cl44">        kernel_id_padded = self._pad_1x1_to_3x3_kernel(kernel_id)</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46">        # 3. Sum all kernels and biases</div>
+      <div class="code-line" id="cl47">        fused_kernel = kernel_3x3 + kernel_1x1_padded + kernel_id_padded</div>
+      <div class="code-line" id="cl48">        fused_bias = bias_3x3 + bias_1x1 + bias_id</div>
+      <div class="code-line" id="cl49"></div>
+      <div class="code-line" id="cl50">        # Create the fused Conv2d layer</div>
+      <div class="code-line" id="cl51">        self.fused_conv = nn.Conv2d(self.in_channels, self.out_channels, 3, self.stride, 1, bias=True)</div>
+      <div class="code-line" id="cl52">        self.fused_conv.weight.data = fused_kernel</div>
+      <div class="code-line" id="cl53">        self.fused_conv.bias.data = fused_bias</div>
+      <div class="code-line" id="cl54">        self.deploy = True # Switch to inference mode</div>
+      <div class="code-line" id="cl55">        return self</div>
+      <div class="code-line" id="cl56"></div>
+      <div class="code-line" id="cl57">    @staticmethod</div>
+      <div class="code-line" id="cl58">    def _fuse_bn_into_conv(conv_bn_block):</div>
+      <div class="code-line" id="cl59">        # Simplified logic for demonstration</div>
+      <div class="code-line" id="cl60">        if conv_bn_block is None: return 0, 0 # No conv_bn for this branch</div>
+      <div class="code-line" id="cl61">        conv = conv_bn_block[0]</div>
+      <div class="code-line" id="cl62">        bn = conv_bn_block[1]</div>
+      <div class="code-line" id="cl63">        # ... actual folding math (gamma, beta, mean, var) ...</div>
+      <div class="code-line" id="cl64">        # Returns a modified kernel and bias tensor</div>
+      <div class="code-line" id="cl65">        return conv.weight.data * 0.8, conv.bias * 0.8 + bn.bias.data # Placeholder</div>
+      <div class="code-line" id="cl66"></div>
+      <div class="code-line" id="cl67">    @staticmethod</div>
+      <div class="code-line" id="cl68">    def _fuse_bn_into_identity(bn_layer, in_c, out_c):</div>
+      <div class="code-line" id="cl69">        if bn_layer is None: return 0, 0</div>
+      <div class="code-line" id="cl70">        # ... actual folding math for identity (1x1 conv with identity kernel) ...</div>
+      <div class="code-line" id="cl71">        # Returns a 1x1 identity kernel and a bias tensor</div>
+      <div class="code-line" id="cl72">        id_kernel = torch.zeros(out_c, in_c, 1, 1)</div>
+      <div class="code-line" id="cl73">        for i in range(out_c): id_kernel[i, i, 0, 0] = 1.0</div>
+      <div class="code-line" id="cl74">        return id_kernel * 0.9, bn_layer.bias.data * 0.9 # Placeholder</div>
+      <div class="code-line" id="cl75"></div>
+      <div class="code-line" id="cl76">    @staticmethod</div>
+      <div class="code-line" id="cl77">    def _pad_1x1_to_3x3_kernel(kernel_1x1):</div>
+      <div class="code-line" id="cl78">        if isinstance(kernel_1x1, int) and kernel_1x1 == 0: return 0</div>
+      <div class="code-line" id="cl79">        # Pads a 1x1 kernel to 3x3 by adding zeros</div>
+      <div class="code-line" id="cl80">        padded_kernel = torch.zeros(kernel_1x1.shape[0], kernel_1x1.shape[1], 3, 3)</div>
+      <div class="code-line" id="cl81">        padded_kernel[:, :, 1, 1] = kernel_1x1[:, :, 0, 0]</div>
+      <div class="code-line" id="cl82">        return padded_kernel</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+  // Adjust max-height for smooth transition
+  if (!body.classList.contains('collapsed')) {
+    body.style.maxHeight = body.scrollHeight + "px";
+  } else {
+    body.style.maxHeight = "0px";
+  }
+}
+
+// Initial collapse state for code panel
+document.addEventListener('DOMContentLoaded', () => {
+  const codeSectionBody = document.querySelector('.card:last-of-type .section-body');
+  if (codeSectionBody) {
+    codeSectionBody.style.maxHeight = "0px";
+  }
+  // Ensure open sections have max-height set
+  document.querySelectorAll('.section-body:not(.collapsed)').forEach(body => {
+    body.style.maxHeight = body.scrollHeight + "px";
+  });
+});
+
+// ── DATA & UTILS FOR VIZ ──
+const IN_CHANNELS = 3;
+const OUT_CHANNELS = 3; // For simplicity, keep channels same for identity branch
+const KERNEL_SIZE = 3;
+
+// Helper to generate random kernels and BN params for visualization
+function generateRandomConvParams(in_c, out_c, kernel_size) {
+  const kernel = Array(out_c).fill(0).map(() =>
+    Array(in_c).fill(0).map(() =>
+      Array(kernel_size).fill(0).map(() =>
+        Array(kernel_size).fill(0).map(() => (Math.random() * 2 - 1).toFixed(2))
+      )
+    )
+  );
+  const bias = Array(out_c).fill(0).map(() => (Math.random() * 0.2 - 0.1).toFixed(2));
+  const bn_gamma = Array(out_c).fill(0).map(() => (Math.random() * 0.5 + 0.75).toFixed(2));
+  const bn_beta = Array(out_c).fill(0).map(() => (Math.random() * 0.2 - 0.1).toFixed(2));
+  const bn_mean = Array(out_c).fill(0).map(() => (Math.random() * 0.1 - 0.05).toFixed(2));
+  const bn_var = Array(out_c).fill(0).map(() => (Math.random() * 0.05 + 0.01).toFixed(2));
+  return { kernel, bias, bn_gamma, bn_beta, bn_mean, bn_var };
+}
+
+// Fixed parameters for a reproducible demo
+const conv3x3_params = generateRandomConvParams(IN_CHANNELS, OUT_CHANNELS, 3);
+const conv1x1_params = generateRandomConvParams(IN_CHANNELS, OUT_CHANNELS, 1);
+const identity_params = generateRandomConvParams(IN_CHANNELS, OUT_CHANNELS, 1); // Identity is like a 1x1 conv with specific weights
+
+// Function to fuse BN into Conv (simplified for demo)
+function fuseBnIntoConv(convParams) {
+  const { kernel, bias, bn_gamma, bn_beta, bn_mean, bn_var } = convParams;
+  const fused_kernel = kernel.map((out_ch_kernels, out_idx) =>
+    out_ch_kernels.map(in_ch_kernels =>
+      in_ch_kernels.map(row =>
+        row.map(val => (parseFloat(val) * parseFloat(bn_gamma[out_idx]) / Math.sqrt(parseFloat(bn_var[out_idx]) + 1e-5)).toFixed(2))
+      )
+    )
+  );
+  const fused_bias = bias.map((val, out_idx) =>
+    ((parseFloat(val) - parseFloat(bn_mean[out_idx])) * parseFloat(bn_gamma[out_idx]) / Math.sqrt(parseFloat(bn_var[out_idx]) + 1e-5) + parseFloat(bn_beta[out_idx])).toFixed(2)
+  );
+  return { kernel: fused_kernel, bias: fused_bias };
+}
+
+// Function to create identity kernel and fuse BN
+function fuseBnIntoIdentity(identityParams) {
+  const { bn_gamma, bn_beta, bn_mean, bn_var } = identityParams;
+  const id_kernel = Array(OUT_CHANNELS).fill(0).map((_, co) =>
+    Array(IN_CHANNELS).fill(0).map((_, ci) =>
+      Array(1).fill(0).map(() => // 1x1 kernel
+        Array(1).fill(0).map(() => (co === ci ? "1.00" : "0.00"))
+      )
+    )
+  );
+  const fused_bias = Array(OUT_CHANNELS).fill(0).map((_, out_idx) =>
+    ((0 - parseFloat(bn_mean[out_idx])) * parseFloat(bn_gamma[out_idx]) / Math.sqrt(parseFloat(bn_var[out_idx]) + 1e-5) + parseFloat(bn_beta[out_idx])).toFixed(2)
+  );
+  return { kernel: id_kernel, bias: fused_bias };
+}
+
+// Pad 1x1 kernel to 3x3
+function pad1x1To3x3(kernel1x1) {
+  const out_c = kernel1x1.length;
+  const in_c = kernel1x1[0].length;
+  const padded_kernel = Array(out_c).fill(0).map(() =>
+    Array(in_c).fill(0).map(() =>
+      Array(3).fill(0).map(() =>
+        Array(3).fill(0).map(() => "0.00")
+      )
+    )
+  );
+  for (let co = 0; co < out_c; co++) {
+    for (let ci = 0; ci < in_c; ci++) {
+      padded_kernel[co][ci][1][1] = kernel1x1[co][ci][0][0];
+    }
+  }
+  return padded_kernel;
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The RepVGG Training Block',
+    desc: `We start with a RepVGG block during training: three parallel branches (3x3 Conv, 1x1 Conv, Identity) with Batch Normalization (BN) and ReLU. Their outputs are summed. This structure aids training accuracy.`,
+    codeLines: [11,12,13,14,15,30,31,32,33,34],
+    vizMode: 'training_block'
+  },
+  {
+    phase: 'transform', title: 'Step 1: Fold BN into 3x3 Conv',
+    desc: `The first key step is to fuse the Batch Normalization layer into the 3x3 convolution. This is done by adjusting the convolution's weights and biases using the BN layer's learned parameters (gamma, beta) and running statistics (mean, variance). This creates an equivalent 3x3 Conv layer with a new kernel and bias, effectively removing the BN layer.`,
+    codeLines: [38, 57, 58, 59, 60, 61, 62, 63, 64, 65],
+    vizMode: 'fold_bn_3x3'
+  },
+  {
+    phase: 'transform', title: 'Step 2: Fold BN into 1x1 Conv',
+    desc: `Similarly, the Batch Normalization layer of the 1x1 convolution branch is fused into its 1x1 kernel and bias. This results in an equivalent 1x1 Conv layer that no longer requires a separate BN operation.`,
+    codeLines: [39, 57, 58, 59, 60, 61, 62, 63, 64, 65],
+    vizMode: 'fold_bn_1x1'
+  },
+  {
+    phase: 'transform', title: 'Step 3: Fold BN into Identity',
+    desc: `The identity branch also has a Batch Normalization layer. This BN can be folded into an "effective" 1x1 identity convolution by using the same mathematical trick. The identity kernel itself is fixed (1s on diagonal, 0s elsewhere).`,
+    codeLines: [40, 67, 68, 69, 70, 71, 72, 73, 74],
+    vizMode: 'fold_bn_identity'
+  },
+  {
+    phase: 'transform', title: 'Step 4: Pad 1x1 Conv to 3x3',
+    desc: `To enable summation, the 1x1 convolution's kernel must be expanded to a 3x3 kernel. This is achieved by embedding the 1x1 kernel into the center of a 3x3 matrix, with all other elements set to zero. This operation is mathematically equivalent.`,
+    codeLines: [43, 76, 77, 78, 79, 80, 81, 82],
+    vizMode: 'pad_1x1_to_3x3'
+  },
+  {
+    phase: 'transform', title: 'Step 5: Convert Identity to 3x3',
+    desc: `The identity branch's effective 1x1 kernel is also padded to a 3x3 kernel. For each output channel, the center element of the kernel corresponding to its input channel is 1, and all other elements are 0.`,
+    codeLines: [44, 76, 77, 78, 79, 80, 81, 82],
+    vizMode: 'pad_identity_to_3x3'
+  },
+  {
+    phase: 'fuse', title: 'Step 6: Sum All Kernels & Biases',
+    desc: `Now that all branches are represented as 3x3 convolutions with folded BN, their kernels can be element-wise summed. The biases are also summed. This forms a single, combined 3x3 kernel and bias.`,
+    codeLines: [46, 47, 48],
+    vizMode: 'sum_kernels'
+  },
+  {
+    phase: 'result', title: 'Inference-Time Block: Fused 3x3 Conv',
+    desc: `The entire multi-branch training block has been re-parameterized into a single 3x3 convolution layer with a fused kernel and bias. This single layer is significantly faster during inference, while maintaining the accuracy achieved during training.`,
+    codeLines: [27, 28, 50, 51, 52, 53, 54],
+    vizMode: 'inference_block'
+  },
+  {
+    phase: 'result', title: 'Efficiency Gain: Fewer Ops',
+    desc: `The original training block involved three convolutions (3x3, 1x1, Identity as 1x1) and three Batch Normalization layers, plus an element-wise sum and a ReLU. The fused block is just one 3x3 convolution and one ReLU. This reduces sequential operations and memory access, leading to substantial speedups.`,
+    codeLines: [],
+    vizMode: 'efficiency_gain'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',transform:'phase-transform',fuse:'phase-fuse',result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.vizMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    surface: g('--surface'),
+    redBg: g('--red-bg'), purpleBg: g('--purple-bg'), greenBg: g('--green-bg')
+  };
+}
+
+function drawConvBlock(ctx, x, y, w, h, label, kernel, bias, bn, relu, colors, highlightKernel=false, highlightAdd=false) {
+  ctx.fillStyle = colors.blue;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = colors.surface;
+  ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x + w / 2, y + h / 2 + 4);
+
+  // Kernel visualization
+  if (kernel && kernel.length > 0) {
+    const kGridX = x + w + 10;
+    const kGridY = y + (h - 45) / 2;
+    drawKernelGrid(ctx, kGridX, kGridY, kernel[0][0], highlightKernel, highlightAdd, colors);
+    ctx.fillStyle = colors.text2; ctx.font = '10px "DM Sans", system-ui';
+    ctx.fillText(`K: ${kernel[0][0].length}x${kernel[0][0].length}`, kGridX + 22, kGridY - 8);
+    // ctx.fillText(`B: ${bias[0]}`, kGridX + 22, kGridY + 58); // Too much info for small space
+  }
+
+  // BN and ReLU labels
+  let currentY = y + h + 8;
+  if (bn) {
+    ctx.fillStyle = colors.red;
+    ctx.font = '600 10px "DM Sans", system-ui';
+    ctx.fillText('BN', x + w / 2, currentY);
+    currentY += 16;
+  }
+  if (relu) {
+    ctx.fillStyle = colors.amber;
+    ctx.font = '600 10px "DM Sans", system-ui';
+    ctx.fillText('ReLU', x + w / 2, currentY);
+  }
+}
+
+function drawKernelGrid(ctx, x, y, kernel, highlightVal, highlightAdd, colors) {
+  const cellSize = 15;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = colors.bg;
+  ctx.fillRect(0, 0, cellSize * 3 + 4, cellSize * 3 + 4); // Background for grid
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, cellSize * 3 + 4, cellSize * 3 + 4);
+
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const val = kernel[i] ? kernel[i][j] : "0.00";
+      const cellX = j * cellSize + 2;
+      const cellY = i * cellSize + 2;
+      ctx.fillStyle = highlightAdd ? colors.greenBg : (highlightVal && val !== "0.00" ? colors.purpleBg : (val === "0.00" ? colors.border2 : colors.bg2));
+      ctx.fillRect(cellX, cellY, cellSize, cellSize);
+      ctx.fillStyle = highlightAdd ? colors.green : (highlightVal && val !== "0.00" ? colors.purple : (val === "0.00" ? colors.text3 : colors.text2));
+      ctx.font = '8px "JetBrains Mono", monospace';
+      ctx.fillText(val, cellX + cellSize / 2, cellY + cellSize / 2 + 3);
+    }
+  }
+  ctx.restore();
+}
+
+
+function drawConnection(ctx, x1, y1, x2, y2, color, lineWidth = 1, dashed = false) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  if (dashed) ctx.setLineDash([4, 4]);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawInputOutput(ctx, x, y, w, h, label, colors) {
+  ctx.fillStyle = colors.bg2;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = colors.text2;
+  ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x + w / 2, y + h / 2 + 4);
+}
+
+function drawAddNode(ctx, x, y, colors) {
+  ctx.fillStyle = colors.cyan;
+  ctx.beginPath();
+  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = colors.surface;
+  ctx.font = '600 14px "DM Sans", system-ui';
+  ctx.fillText('+', x, y + 5);
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const blockW = 100, blockH = 50;
+  const inputX = W * 0.05, outputX = W * 0.95 - blockW;
+  const centerY = H / 2;
+
+  // Pre-calculate fused kernels/biases
+  const fused3x3 = fuseBnIntoConv(conv3x3_params);
+  const fused1x1 = fuseBnIntoConv(conv1x1_params);
+  const fusedIdentity = fuseBnIntoIdentity(identity_params);
+
+  const padded1x1 = pad1x1To3x3(fused1x1.kernel);
+  const paddedIdentity = pad1x1To3x3(fusedIdentity.kernel);
+
+  const finalFusedKernel = Array(OUT_CHANNELS).fill(0).map((_, co) =>
+    Array(IN_CHANNELS).fill(0).map((_, ci) =>
+      Array(3).fill(0).map((_, r) =>
+        Array(3).fill(0).map((_, c) =>
+          (parseFloat(fused3x3.kernel[co][ci][r][c]) + parseFloat(padded1x1[co][ci][r][c]) + parseFloat(paddedIdentity[co][ci][r][c])).toFixed(2)
+        )
+      )
+    )
+  );
+  const finalFusedBias = Array(OUT_CHANNELS).fill(0).map((_, co) =>
+    (parseFloat(fused3x3.bias[co]) + parseFloat(fused1x1.bias[co]) + parseFloat(fusedIdentity.bias[co])).toFixed(2)
+  );
+
+  const infoNumbersEl = document.getElementById('infoNumbers');
+  infoNumbersEl.innerHTML = '';
+
+  if (mode === 'training_block') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+    const addNodeX = outputX - 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', conv3x3_params.kernel, conv3x3_params.bias, true, true, colors);
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, '1x1 Conv', conv1x1_params.kernel, conv1x1_params.bias, true, true, colors);
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Identity', null, null, true, true, colors.purple);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2);
+
+    drawConnection(ctx, inputX + 150 + blockW + 10 + 45 + 20, conv3x3Y + blockH / 2, addNodeX, conv3x3Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + 150 + blockW + 10 + 45 + 20, conv1x1Y + blockH / 2, addNodeX, conv1x1Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + 150 + blockW + 10 + 45 + 20, identityY + blockH / 2, addNodeX, identityY + blockH / 2, colors.text2);
+
+    drawAddNode(ctx, addNodeX, centerY, colors);
+    drawConnection(ctx, addNodeX, centerY, outputX, centerY, colors.text2);
+    drawInputOutput(ctx, outputX, centerY - blockH / 2, blockW, blockH, 'Output', colors);
+
+    infoNumbersEl.innerHTML = `
+      Input Channels: ${IN_CHANNELS}, Output Channels: ${OUT_CHANNELS}
+      3x3 Conv Kernel: ${conv3x3_params.kernel[0][0][0][0]}...
+      1x1 Conv Kernel: ${conv1x1_params.kernel[0][0][0][0]}...
+      BN Params (Gamma, Beta, Mean, Var) for each branch.
+    `;
+  }
+
+  else if (mode === 'fold_bn_3x3') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    // Highlight 3x3 branch
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', conv3x3_params.kernel, conv3x3_params.bias, true, true, colors, true);
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, '1x1 Conv', conv1x1_params.kernel, conv1x1_params.bias, true, true, colors);
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Identity', null, null, true, true, colors.purple);
+
+    // Show folded 3x3
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Fused 3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2, 0.5, true);
+
+    infoNumbersEl.innerHTML = `
+      Original 3x3 Conv Kernel (sample): ${conv3x3_params.kernel[0][0][0][0]}
+      BN Gamma (sample): ${conv3x3_params.bn_gamma[0]}
+      Fused 3x3 Conv Kernel (sample): ${fused3x3.kernel[0][0][0][0]}
+      Fused 3x3 Conv Bias (sample): ${fused3x3.bias[0]}
+    `;
+  }
+
+  else if (mode === 'fold_bn_1x1') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green);
+    // Highlight 1x1 branch
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, '1x1 Conv', conv1x1_params.kernel, conv1x1_params.bias, true, true, colors, true);
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Identity', null, null, true, true, colors.purple);
+
+    // Show folded 1x1
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Fused 1x1 Conv', fused1x1.kernel, fused1x1.bias, false, true, colors.green, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2, 0.5, true);
+
+    infoNumbersEl.innerHTML = `
+      Original 1x1 Conv Kernel (sample): ${conv1x1_params.kernel[0][0][0][0]}
+      BN Gamma (sample): ${conv1x1_params.bn_gamma[0]}
+      Fused 1x1 Conv Kernel (sample): ${fused1x1.kernel[0][0][0][0]}
+      Fused 1x1 Conv Bias (sample): ${fused1x1.bias[0]}
+    `;
+  }
+
+  else if (mode === 'fold_bn_identity') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green);
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, '1x1 Conv', fused1x1.kernel, fused1x1.bias, false, true, colors.green);
+    // Highlight Identity branch (now fused)
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Identity', null, null, true, true, colors.purple, true);
+
+    // Show folded Identity
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Fused Identity', fusedIdentity.kernel, fusedIdentity.bias, false, true, colors.green, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2);
+
+    infoNumbersEl.innerHTML = `
+      Identity Kernel (1x1): 1.00 (diagonal)
+      BN Gamma (sample): ${identity_params.bn_gamma[0]}
+      Fused Identity Kernel (sample): ${fusedIdentity.kernel[0][0][0][0]}
+      Fused Identity Bias (sample): ${fusedIdentity.bias[0]}
+    `;
+  }
+
+  else if (mode === 'pad_1x1_to_3x3') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green);
+    // Highlight 1x1 branch (now fused)
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, 'Fused 1x1 Conv', fused1x1.kernel, fused1x1.bias, false, true, colors.green, true);
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Fused Identity', fusedIdentity.kernel, fusedIdentity.bias, false, true, colors.green);
+
+    // Show padded 1x1
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Padded 1x1 to 3x3', padded1x1, fused1x1.bias, false, true, colors.green, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2, 0.5, true);
+
+    infoNumbersEl.innerHTML = `
+      Original 1x1 Kernel (sample): ${fused1x1.kernel[0][0][0][0]}
+      Padded 3x3 Kernel (sample) [C_out=0, C_in=0]:
+      ${padded1x1[0][0][0][0]} ${padded1x1[0][0][0][1]} ${padded1x1[0][0][0][2]}
+      ${padded1x1[0][0][1][0]} ${padded1x1[0][0][1][1]} ${padded1x1[0][0][1][2]}
+      ${padded1x1[0][0][2][0]} ${padded1x1[0][0][2][1]} ${padded1x1[0][0][2][2]}
+    `;
+  }
+
+  else if (mode === 'pad_identity_to_3x3') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green);
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, 'Padded 1x1 to 3x3', padded1x1, fused1x1.bias, false, true, colors.green);
+    // Highlight Identity branch (now fused)
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Fused Identity', fusedIdentity.kernel, fusedIdentity.bias, false, true, colors.green, true);
+
+    // Show padded Identity
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Padded Identity to 3x3', paddedIdentity, fusedIdentity.bias, false, true, colors.green, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2, 0.5, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2);
+
+    infoNumbersEl.innerHTML = `
+      Original Identity Kernel (1x1): ${fusedIdentity.kernel[0][0][0][0]}
+      Padded 3x3 Identity Kernel (sample) [C_out=0, C_in=0]:
+      ${paddedIdentity[0][0][0][0]} ${paddedIdentity[0][0][0][1]} ${paddedIdentity[0][0][0][2]}
+      ${paddedIdentity[0][0][1][0]} ${paddedIdentity[0][0][1][1]} ${paddedIdentity[0][0][1][2]}
+      ${paddedIdentity[0][0][2][0]} ${paddedIdentity[0][0][2][1]} ${paddedIdentity[0][0][2][2]}
+    `;
+  }
+
+  else if (mode === 'sum_kernels') {
+    const conv3x3Y = centerY - blockH - 40;
+    const conv1x1Y = centerY - blockH / 2;
+    const identityY = centerY + 40;
+
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+
+    drawConvBlock(ctx, inputX + 150, conv3x3Y, blockW, blockH, '3x3 Conv', fused3x3.kernel, fused3x3.bias, false, true, colors.green, false, true);
+    drawConvBlock(ctx, inputX + 150, conv1x1Y, blockW, blockH, 'Padded 1x1', padded1x1, fused1x1.bias, false, true, colors.green, false, true);
+    drawConvBlock(ctx, inputX + 150, identityY, blockW, blockH, 'Padded Identity', paddedIdentity, fusedIdentity.bias, false, true, colors.green, false, true);
+
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv3x3Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, conv1x1Y + blockH / 2, colors.text2);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, identityY + blockH / 2, colors.text2);
+
+    // Show fused kernel
+    drawConvBlock(ctx, W*0.7, centerY - blockH/2, blockW, blockH, 'Fused 3x3 Conv', finalFusedKernel, finalFusedBias, false, true, colors.green, true, true);
+
+    infoNumbersEl.innerHTML = `
+      Fused Kernel (sample) [C_out=0, C_in=0]:
+      ${finalFusedKernel[0][0][0][0]} ${finalFusedKernel[0][0][0][1]} ${finalFusedKernel[0][0][0][2]}
+      ${finalFusedKernel[0][0][1][0]} ${finalFusedKernel[0][0][1][1]} ${finalFusedKernel[0][0][1][2]}
+      ${finalFusedKernel[0][0][2][0]} ${finalFusedKernel[0][0][2][1]} ${finalFusedKernel[0][0][2][2]}
+      Fused Bias (sample): ${finalFusedBias[0]}
+    `;
+  }
+
+  else if (mode === 'inference_block') {
+    drawInputOutput(ctx, inputX, centerY - blockH / 2, blockW, blockH, 'Input Feature Map', colors);
+    drawConvBlock(ctx, inputX + 150, centerY - blockH / 2, blockW, blockH, 'Fused 3x3 Conv', finalFusedKernel, finalFusedBias, false, true, colors.green, true);
+    drawConnection(ctx, inputX + blockW, centerY, inputX + 150, centerY, colors.text2);
+    drawConnection(ctx, inputX + 150 + blockW + 10 + 45 + 20, centerY, outputX, centerY, colors.text2);
+    drawInputOutput(ctx, outputX, centerY - blockH / 2, blockW, blockH, 'Output Feature Map', colors);
+
+    infoNumbersEl.innerHTML = `
+      Single 3x3 Conv layer.
+      No parallel branches, no separate BN layers.
+      Significantly fewer operations and faster memory access.
+    `;
+  }
+
+  else if (mode === 'efficiency_gain') {
+    const leftX = W * 0.2, rightX = W * 0.8;
+    const blockGap = 30;
+
+    // Training block (conceptual)
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 14px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Training Time', leftX, H * 0.15);
+
+    let currentY = H * 0.25;
+    drawConvBlock(ctx, leftX - blockW/2, currentY, blockW, blockH, '3x3 Conv + BN', null, null, false, false, colors.blue);
+    currentY += blockH + blockGap;
+    drawConvBlock(ctx, leftX - blockW/2, currentY, blockW, blockH, '1x1 Conv + BN', null, null, false, false, colors.blue);
+    currentY += blockH + blockGap;
+    drawConvBlock(ctx, leftX - blockW/2, currentY, blockW, blockH, 'Identity + BN', null, null, false, false, colors.purple);
+    currentY += blockH + blockGap;
+    ctx.fillStyle = colors.cyan;
+    ctx.beginPath(); ctx.arc(leftX, currentY + 10, 15, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = colors.surface; ctx.fillText('+', leftX, currentY + 10 + 5);
+    ctx.fillStyle = colors.amber; ctx.fillText('ReLU', leftX, currentY + 10 + 30);
+
+
+    // Inference block (conceptual)
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 14px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Inference Time (Fused)', rightX, H * 0.15);
+
+    currentY = H * 0.25 + (H * 0.25 + (blockH + blockGap) * 3 + 40 - (blockH + blockGap))/2 - blockH/2; // Center vertically
+    drawConvBlock(ctx, rightX - blockW/2, currentY, blockW, blockH, 'Fused 3x3 Conv', null, null, false, false, colors.green);
+    currentY += blockH + blockGap;
+    ctx.fillStyle = colors.amber; ctx.fillText('ReLU', rightX, currentY + 10);
+
+    infoNumbersEl.innerHTML = `
+      Training: 3 Conv ops + 3 BN ops + 1 Add op + 1 ReLU.
+      Inference: 1 Conv op + 1 ReLU.
+      This reduction in operations translates directly to faster execution and lower latency.
+    `;
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].vizMode));
+</script>
+</body>
+</html>

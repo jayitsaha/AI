@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlashAttention: IO-aware Exact Attention — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Matrix displays (not used for this explainer, but kept for style consistency) */
+.matrix-row{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-display{display:inline-grid;gap:2px;padding:8px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:12px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);}
+.matrix-cell{width:54px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;border-radius:3px;transition:all 0.4s;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.error{background:var(--red-bg);color:var(--red-mid);font-weight:600;}
+.matrix-cell.omega{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.op-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-pass1{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-pass2{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-summary{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Custom viz controls */
+.viz-controls{margin-top:1rem;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2);}
+.viz-controls label{display:flex;align-items:center;gap:10px;}
+.viz-controls input[type="range"]{flex-grow:1;height:4px;background:var(--border2);border-radius:2px;outline:none;appearance:none;}
+.viz-controls input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.viz-controls input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:2px solid var(--surface);}
+.viz-controls span{font-family:var(--mono);font-weight:600;color:var(--text);}
+
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .matrix-cell{width:40px;height:26px;font-size:10px;}
+  .matrix-row{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>FlashAttention</h1>
+  <div class="subtitle">IO-aware exact attention for Transformers (fused CUDA kernel)</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Performance</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Transformers</span>
+    <span class="tag tag-complexity">O(N²) reduced IO</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding FlashAttention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> FlashAttention is an optimized attention algorithm that significantly speeds up and reduces memory usage for Transformer models, especially on GPUs. It achieves this by being "IO-aware," meaning it minimizes the amount of data transferred between fast (SRAM) and slow (HBM) memory on the GPU.</p>
+    <p><strong>Why is it needed?</strong> Standard attention (like in the original Transformer) involves computing a large attention matrix \\(P = \text{softmax}(QK^\top / \sqrt{d_k})\\) and then \\(O = PV\\). For long sequences of length \\(N\\) and hidden dimension \\(D\\), \\(Q, K, V\\) are \\(N \times D\\) matrices. The attention matrix \\(P\\) is \\(N \times N\\). Storing and moving this \\(N \times N\\) matrix (which can be gigabytes for \\(N=65536\\)) between GPU's High Bandwidth Memory (HBM) and faster but smaller SRAM is a major bottleneck. This is called the <em>memory wall</em> or <em>IO bottleneck</em>.</p>
+    <p><strong>The Core Idea: Fused Kernels & Tiling.</strong> FlashAttention avoids materializing the full \\(N \times N\\) attention matrix in HBM. Instead, it breaks \\(Q, K, V\\) into smaller blocks (tiles), loads these blocks into SRAM, performs the attention computation for those blocks, and accumulates the output, all within SRAM. This "fused kernel" approach drastically reduces HBM reads/writes.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">FlashAttention re-organizes the standard attention computation to keep intermediate results (like the \\(N \times N\\) attention matrix) in fast on-chip memory (SRAM) as much as possible, minimizing costly transfers to/from slower off-chip memory (HBM). This is achieved through <strong>tiling</strong> and <strong>kernel fusion</strong>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How FlashAttention Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How FlashAttention Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Memory Hierarchy Problem</h4>
+    <p>GPUs have a memory hierarchy:
+      <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+        <li><strong>High Bandwidth Memory (HBM):</strong> Large capacity (tens of GBs), but relatively slow access. This is where your model weights and full input/output tensors reside.</li>
+        <li><strong>SRAM (Shared Memory / L1 Cache):</strong> Small capacity (tens to hundreds of KBs), but very fast access (100x faster than HBM). Optimal for intermediate computations.</li>
+      </ul>
+      Standard attention often requires reading \\(Q, K, V\\) from HBM, computing \\(QK^\top\\) (an \\(N \times N\\) matrix), writing it to HBM, reading it back for softmax, writing \\(P\\) to HBM, reading \\(P, V\\) for \\(PV\\), and finally writing \\(O\\) to HBM. Many redundant HBM accesses!</p>
+
+    <h4>The Tiling Strategy</h4>
+    <p>FlashAttention divides the input sequences \\(Q, K, V\\) into smaller blocks (tiles). It then processes these blocks iteratively. For each block of \\(Q\\) (let's call it \\(Q_i\\)), it iterates through all blocks of \\(K\\) (\\(K_j\\)) and \\(V\\) (\\(V_j\\)).</p>
+
+    <h4>The Two Passes</h4>
+    <p>FlashAttention uses a clever two-pass approach to compute the softmax correctly without materializing the full attention matrix:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>First Pass (Forward):</strong>
+        <ul>
+          <li>For each \\(Q_i\\) block:</li>
+          <li>Iterate through all \\(K_j, V_j\\) blocks.</li>
+          <li>Load \\(Q_i, K_j, V_j\\) into SRAM.</li>
+          <li>Compute a partial attention score \\(S_{ij} = Q_i K_j^\top\\) and a partial softmax \\(P_{ij} = \text{softmax}(S_{ij})\).</li>
+          <li>Compute a partial output \\(O_{ij} = P_{ij} V_j\\).</li>
+          <li>Crucially, it also computes and updates running statistics for the softmax (row-wise maximum \\(m_i\\) and sum of exponentials \\(l_i\\)) for each \\(Q_i\\) block.</li>
+          <li>Accumulate \\(O_{ij}\\) into a running \\(O_i\\) output block.</li>
+          <li>These \\(m_i\\) and \\(l_i\\) are saved to HBM. The full \\(P\\) matrix is never written to HBM.</li>
+        </ul>
+      </li>
+      <li><strong>Second Pass (Backward/Refine):</strong>
+        <ul>
+          <li>For each \\(Q_i\\) block:</li>
+          <li>Load \\(Q_i\\) and its final \\(m_i, l_i\\) from HBM into SRAM.</li>
+          <li>Iterate through all \\(K_j, V_j\\) blocks again.</li>
+          <li>Load \\(K_j, V_j\\) into SRAM.</li>
+          <li>Recompute \\(S_{ij} = Q_i K_j^\top\\).</li>
+          <li>Apply the <strong>global softmax scaling</strong> using the final \\(m_i, l_i\\) to get the correct \\(P_{ij}\\).</li>
+          <li>Compute \\(O_{ij} = P_{ij} V_j\\) and accumulate into the final \\(O_i\\).</li>
+          <li>Write the final \\(O_i\\) block to HBM.</li>
+        </ul>
+      </li>
+    </ol>
+    <p>This two-pass strategy ensures mathematical equivalence to standard attention while keeping intermediate \\(N \times N\\) matrices out of HBM.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Innovation</div>
+      <p style="font-size:14px;margin:0;">The core innovation is the <strong>online softmax trick</strong>. This allows computing the softmax function incrementally across blocks without needing the full \\(N \times N\\) attention scores matrix at any single point in time. It updates the maximum \\(m_i\\) and sum of exponentials \\(l_i\\) for each row of \\(Q\\) as new \\(K\\) blocks are processed.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Standard Attention Recap</h4>
+    <p>The self-attention mechanism is defined as:</p>
+    <div class="eq">$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$</div>
+    <p>Let \\(S = QK^\top / \sqrt{d_k}\\) be the raw attention scores. The softmax operation is applied row-wise:</p>
+    <div class="eq}">$$P_{ij} = \frac{\exp(S_{ij})}{\sum_k \exp(S_{ik})}$$</div>
+    <p>The problem is that \\(S\\) (and thus \\(P\\)) is an \\(N \times N\\) matrix, which is too large to fit in SRAM for large \\(N\\). FlashAttention computes \\(P\\) and \\(O\\) in blocks, using an online softmax algorithm.</p>
+
+    <h4>The Online Softmax Trick</h4>
+    <p>Consider computing the \\(i\\)-th row of \\(P\\) and \\(O\\). Let \\(S_i = [S_{i1}, S_{i2}, \dots, S_{iN}]\\) be the \\(i\\)-th row of scores. The softmax for this row is:</p>
+    <div class="eq">$$P_i = \frac{\exp(S_i)}{\sum_k \exp(S_{ik})}$$</div>
+    <p>FlashAttention computes this incrementally. Suppose we have processed blocks \\(K_1, \dots, K_{j-1}\\) and have current maximum \\(m^{(j-1)}_i\\) and sum of exponentials \\(l^{(j-1)}_i\\). When we process \\(K_j\\), we get new scores \\(S_{ij} = Q_i K_j^\top / \sqrt{d_k}\\). We can update \\(m_i\\) and \\(l_i\\) as follows:</p>
+    <p>Let \\(m^{(j)}_i = \max(m^{(j-1)}_i, \max(S_{ij}))\\) and \\(l^{(j)}_i = \exp(m^{(j-1)}_i - m^{(j)}_i) l^{(j-1)}_i + \exp(\max(S_{ij}) - m^{(j)}_i) \sum_k \exp(S_{ijk} - \max(S_{ij}))\\). This is a simplified version; the actual update is more robust.
+    The key is that the new maximum \\(m^{(j)}_i\\) and sum \\(l^{(j)}_i\\) allow us to combine previous partial sums with current partial sums correctly. Specifically, for an output block \\(O_i\\) and a new block \\(S_{ij}\\) and \\(V_j\\):</p>
+    <div class="eq">
+      $$\begin{aligned}
+      m_i^{\text{new}} &= \max(m_i^{\text{old}}, \max(S_{ij})) \\
+      l_i^{\text{new}} &= \exp(m_i^{\text{old}} - m_i^{\text{new}}) l_i^{\text{old}} + \exp(\max(S_{ij}) - m_i^{\text{new}}) \sum_k \exp(S_{ijk} - \max(S_{ij})) \\
+      O_i^{\text{new}} &= \frac{l_i^{\text{old}}}{l_i^{\text{new}}} \exp(m_i^{\text{old}} - m_i^{\text{new}}) O_i^{\text{old}} + \frac{1}{l_i^{\text{new}}} \exp(\max(S_{ij}) - m_i^{\text{new}}) \left( \text{softmax}(S_{ij}) V_j \right)
+      \end{aligned}$$
+    </div>
+    <p>This formulation means that \\(O_i\\) can be updated incrementally without ever forming the full \\(N \times N\\) matrix \\(P\\). The first pass computes the final \\(m_i\\) and \\(l_i\\) for each row of \\(Q\\). The second pass uses these final scaling factors to compute the final \\(O_i\\) blocks accurately.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">➗ Mathematical Equivalence</div>
+      <p style="font-size:14px;margin:0;">The online softmax ensures that the final output \\(O\\) computed by FlashAttention is numerically identical to the output of standard attention, assuming infinite precision. In practice, it's often more numerically stable due to careful handling of large exponents.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how FlashAttention processes blocks of Q, K, V to compute attention, minimizing HBM access.</p>
+
+    <div class="viz-container">
+      <!-- Canvas for memory visualization -->
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Custom viz controls -->
+      <div class="viz-controls">
+        <label>
+          Block Size (B): <input type="range" id="blockSizeSlider" min="16" max="128" value="64" step="16" oninput="updateBlockSize(this.value)">
+          <span id="blockSizeValue">64</span>
+        </label>
+        <div style="text-align:center;font-size:11px;color:var(--text3);">
+          Sequence Length (N): <span id="N_val">256</span>, Head Dimension (D): <span id="D_val">64</span>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Data & Memory Hierarchy</div>
+        <div class="info-desc" id="infoDesc">Our GPU has slow, large HBM and fast, small SRAM. Input matrices Q, K, V are in HBM. Standard attention would move large intermediate matrices (like \\(N \times N\\) attention scores) to/from HBM, creating an IO bottleneck.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Q / Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> K / Key</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> V / Value</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> S / Scores</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> P / Probabilities</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> O / Output</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text2);opacity:0.6;"></div> HBM (High Bandwidth Memory)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--bg2);border:1px solid var(--border2);"></div> SRAM (Shared Memory)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use FlashAttention:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Training or inferencing large Transformer models, especially with long sequence lengths (e.g., \\(N > 1024\\)).</li>
+      <li>When attention computation is a bottleneck, consuming significant GPU memory or time.</li>
+      <li>On NVIDIA GPUs with Tensor Cores, where fused operations can leverage specialized hardware.</li>
+      <li>When using exact attention (not sparse or approximate attention).</li>
+    </ul>
+    <p><strong>Benefits:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Speed:</strong> Up to 2-4x faster than standard attention due to reduced HBM access and better hardware utilization.</li>
+      <li><strong>Memory Efficiency:</strong> Reduces HBM usage from \\(O(N^2)\\) to \\(O(N)\\) for intermediate attention matrices, enabling much longer sequence lengths.</li>
+      <li><strong>Exactness:</strong> Computes the exact standard attention, unlike many sparse or approximate attention methods.</li>
+      <li><strong>Gradient Computation:</strong> The technique also extends efficiently to the backward pass, saving memory and time for gradients.</li>
+    </ul>
+    <p><strong>Limitations:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Requires custom CUDA kernels, meaning it's not a simple Python library call (though frameworks like PyTorch integrate it).</li>
+      <li>Optimal performance depends on careful tuning of block sizes and other parameters, which can be hardware-specific.</li>
+      <li>Primarily benefits NVIDIA GPUs with sufficient SRAM and Tensor Core capabilities.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Impact</div>
+      <p style="font-size:14px;margin:0;">FlashAttention has been a game-changer for large language models, significantly reducing training costs and enabling research into models with much larger context windows. It highlights the importance of <strong>IO-awareness</strong> in optimizing deep learning workloads.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Conceptual)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <p>This pseudocode illustrates the core logic of FlashAttention's first pass. The second pass recomputes \\(P\\) using the final \\(m\\) and \\(l\\) to produce the final \\(O\\).</p>
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0"># Assume Q, K, V are NxD matrices in HBM</div>
+      <div class="code-line" id="cl1"># B is the block size for sequence dimension</div>
+      <div class="code-line" id="cl2"># d_k is the head dimension</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">output_O = zeros(N, D) # Accumulator for output, in HBM</div>
+      <div class="code-line" id="cl5">row_max_m = -infinity(N) # Running max for softmax, in HBM</div>
+      <div class="code-line" id="cl6">row_sum_l = zeros(N) # Running sum for softmax, in HBM</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># First Pass: Compute running O, m, l</div>
+      <div class="code-line" id="cl9">for i_block from 0 to N step B:</div>
+      <div class="code-line" id="cl10">    Q_block = Q[i_block : i_block+B, :] # Load Q_i from HBM to SRAM</div>
+      <div class="code-line" id="cl11">    O_i_partial = zeros(B, D) # Partial output for this Q_block, in SRAM</div>
+      <div class="code-line" id="cl12">    m_i_current = row_max_m[i_block : i_block+B] # Load m_i from HBM to SRAM</div>
+      <div class="code-line" id="cl13">    l_i_current = row_sum_l[i_block : i_block+B] # Load l_i from HBM to SRAM</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    for j_block from 0 to N step B:</div>
+      <div class="code-line" id="cl16">        K_block = K[j_block : j_block+B, :] # Load K_j from HBM to SRAM</div>
+      <div class="code-line" id="cl17">        V_block = V[j_block : j_block+B, :] # Load V_j from HBM to SRAM</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">        S_ij = Q_block @ K_block.T / sqrt(d_k) # Compute attention scores in SRAM</div>
+      <div class="code-line" id="cl20">        </div>
+      <div class="code-line" id="cl21">        # Online Softmax Update (fused kernel)</div>
+      <div class="code-line" id="cl22">        m_ij_new = max(m_i_current, max(S_ij, axis=1)) # New max for rows of Q_block</div>
+      <div class="code-line" id="cl23">        P_ij = exp(S_ij - m_ij_new.unsqueeze(1)) # Scale scores for stability</div>
+      <div class="code-line" id="cl24">        l_ij_new = exp(m_i_current - m_ij_new) * l_i_current + sum(P_ij, axis=1) # Update sum</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">        # Update partial output O_i_partial (fused kernel)</div>
+      <div class="code-line" id="cl27">        O_i_partial = (l_i_current / l_ij_new) * exp(m_i_current - m_ij_new) * O_i_partial + (1 / l_ij_new) * (P_ij @ V_block)</div>
+      <div class="code-line" id="cl28">        </div>
+      <div class="code-line" id="cl29">        m_i_current = m_ij_new # Update running max</div>
+      <div class="code-line" id="cl30">        l_i_current = l_ij_new # Update running sum</div>
+      <div class="code-line" id="cl31">        # K_block, V_block, S_ij, P_ij are discarded from SRAM</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33">    output_O[i_block : i_block+B, :] = O_i_partial # Write final O_i_partial to HBM</div>
+      <div class="code-line" id="cl34">    row_max_m[i_block : i_block+B] = m_i_current # Write final m_i to HBM</div>
+      <div class="code-line" id="cl35">    row_sum_l[i_block : i_block+B] = l_i_current # Write final l_i to HBM</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># (Second Pass, not shown: re-load Q_block, m, l, K_block, V_block, recompute P, O and write final O)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG & DATA ──
+const N_SEQ = 256; // Sequence length
+const D_HEAD = 64; // Head dimension
+let BLOCK_SIZE = 64; // Current block size, adjustable by slider
+
+// Memory sizes (conceptual, in "units")
+const HBM_SIZE_QKV = N_SEQ * D_HEAD * 3; // Q, K, V
+const HBM_SIZE_S = N_SEQ * N_SEQ; // Full attention scores (if materialized)
+const HBM_SIZE_P = N_SEQ * N_SEQ; // Full attention probabilities (if materialized)
+const HBM_SIZE_O = N_SEQ * D_HEAD; // Output O
+const SRAM_SIZE_QKV_BLOCK = BLOCK_SIZE * D_HEAD * 3; // Q_block, K_block, V_block
+const SRAM_SIZE_S_BLOCK = BLOCK_SIZE * BLOCK_SIZE; // S_block
+const SRAM_SIZE_P_BLOCK = BLOCK_SIZE * BLOCK_SIZE; // P_block
+const SRAM_SIZE_O_BLOCK = BLOCK_SIZE * D_HEAD; // O_block
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Data & Memory Hierarchy',
+    desc: 'Our GPU has slow, large HBM and fast, small SRAM. Input matrices Q, K, V (each \\(N \\times D\\)) are in HBM. Standard attention would move large intermediate matrices (like \\(N \\times N\\) attention scores) to/from HBM, creating an IO bottleneck.',
+    codeLines: [0,1,2,3],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O'], sram: [], active_hbm: [], active_sram: [],
+      op: null, q_idx: -1, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O (output)'],
+      sram_labels: []
+    }
+  },
+  {
+    phase: 'setup', title: 'Standard Attention (IO Bottleneck)',
+    desc: 'To compute standard attention, we first load \\(Q\\) and \\(K\\) from HBM to compute \\(S = QK^\\top / \\sqrt{d_k}\\). This \\(N \\times N\\) matrix \\(S\\) is then written back to HBM. This is the first major HBM write for an intermediate matrix.',
+    codeLines: [],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'S'], sram: [], active_hbm: ['Q', 'K'], active_sram: [],
+      op: 'QK_T', q_idx: -1, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O (output)', 'S (scores)'],
+      sram_labels: []
+    }
+  },
+  {
+    phase: 'setup', title: 'Standard Attention (More IO)',
+    desc: 'Next, \\(S\\) is read from HBM, softmax is applied to get \\(P\\), which is written back to HBM. Then \\(P\\) and \\(V\\) are read from HBM to compute \\(O = PV\\), which is written to HBM. Many costly HBM transfers for \\(N \\times N\\) matrices!',
+    codeLines: [],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'S', 'P'], sram: [], active_hbm: ['S', 'V'], active_sram: [],
+      op: 'PV', q_idx: -1, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O (output)', 'S (scores)', 'P (probs)'],
+      sram_labels: []
+    }
+  },
+  {
+    phase: 'pass1', title: 'FlashAttention: First Pass Initialization',
+    desc: 'FlashAttention avoids the \\(N \times N\\) HBM transfers. We initialize the output \\(O\\), running maximum \\(m\\), and running sum \\(l\\) in HBM. These will be updated incrementally. We process \\(Q\\) in blocks, one \\(Q_i\\) block at a time.',
+    codeLines: [4,5,6,8],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: [], active_hbm: ['O', 'm', 'l'], active_sram: [],
+      op: 'init', q_idx: 0, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O (output)', 'm (row max)', 'l (row sum)'],
+      sram_labels: []
+    }
+  },
+  {
+    phase: 'pass1', title: 'Load Q Block & Running Stats to SRAM',
+    desc: 'Load the current \\(Q_i\\) block from HBM into SRAM. Also load its corresponding running \\(m_i\\) and \\(l_i\\) values (initially \\(-\\infty\\) and \\(0\\)) into SRAM. These will be updated as we iterate through \\(K\\) blocks.',
+    codeLines: [9,10,11,12,13],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: ['Q_block', 'O_i_partial', 'm_i_current', 'l_i_current'], active_hbm: ['Q'], active_sram: ['Q_block', 'm_i_current', 'l_i_current'],
+      op: 'load_qi', q_idx: 0, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: ['Q_i', 'O_i_partial', 'm_i', 'l_i']
+    }
+  },
+  {
+    phase: 'pass1', title: 'Iterate K Blocks: Load K, V to SRAM',
+    desc: 'Now, iterate through all \\(K_j\\) and \\(V_j\\) blocks. Load the current \\(K_j\\) and \\(V_j\\) blocks from HBM into SRAM. All subsequent computations for this \\(Q_i, K_j, V_j\\) triplet will happen in fast SRAM.',
+    codeLines: [15,16,17],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: ['Q_block', 'O_i_partial', 'm_i_current', 'l_i_current', 'K_block', 'V_block'], active_hbm: ['K', 'V'], active_sram: ['K_block', 'V_block'],
+      op: 'load_kjvj', q_idx: 0, k_idx: 0,
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: ['Q_i', 'O_i_partial', 'm_i', 'l_i', 'K_j', 'V_j']
+    }
+  },
+  {
+    phase: 'pass1', title: 'Compute Partial S, P, O in SRAM',
+    desc: 'Compute the attention scores \\(S_{ij} = Q_i K_j^\\top / \\sqrt{d_k}\\) in SRAM. Then, apply the online softmax trick to update \\(m_i, l_i\\) and compute a partial \\(P_{ij}\\). Finally, compute a partial output \\(P_{ij} V_j\\) and accumulate it into \\(O_i^{\\text{partial}}\\), all within SRAM.',
+    codeLines: [19,21,22,23,24,26,27],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: ['Q_block', 'O_i_partial', 'm_i_current', 'l_i_current', 'K_block', 'V_block', 'S_block', 'P_block'], active_hbm: [], active_sram: ['S_block', 'P_block', 'O_i_partial', 'm_i_current', 'l_i_current'],
+      op: 'compute_sram', q_idx: 0, k_idx: 0,
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: ['Q_i', 'O_i_partial', 'm_i', 'l_i', 'K_j', 'V_j', 'S_ij', 'P_ij']
+    }
+  },
+  {
+    phase: 'pass1', title: 'Update Running Stats & Discard SRAM Blocks',
+    desc: 'The running \\(m_i\\) and \\(l_i\\) in SRAM are updated. \\(K_j, V_j, S_{ij}, P_{ij}\\) blocks are discarded from SRAM to free space for the next \\(K_{j+1}, V_{j+1}\\) blocks. The accumulated \\(O_i^{\\text{partial}}\\) remains in SRAM. This repeats for all \\(K\\) blocks.',
+    codeLines: [29,30,31],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: ['Q_block', 'O_i_partial', 'm_i_current', 'l_i_current'], active_hbm: [], active_sram: ['O_i_partial', 'm_i_current', 'l_i_current'],
+      op: 'sram_discard', q_idx: 0, k_idx: 1, // Advance k_idx to show iteration
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: ['Q_i', 'O_i_partial', 'm_i', 'l_i']
+    }
+  },
+  {
+    phase: 'pass1', title: 'First Pass Complete: Write m, l to HBM',
+    desc: 'After iterating through all \\(K\\) blocks for the current \\(Q_i\\), the final \\(m_i\\) and \\(l_i\\) for this \\(Q_i\\) are written back to HBM. The \\(O_i^{\\text{partial}}\\) is also written to HBM. This completes the first pass for \\(Q_i\\). The process repeats for all \\(Q\\) blocks.',
+    codeLines: [33,34,35],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: [], active_hbm: ['O', 'm', 'l'], active_sram: [],
+      op: 'write_hbm_ml', q_idx: 1, k_idx: -1, // Advance q_idx to show iteration
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: []
+    }
+  },
+  {
+    phase: 'summary', title: 'FlashAttention Summary: IO Efficiency',
+    desc: 'FlashAttention significantly reduces HBM traffic by keeping intermediate \\(S_{ij}\\) and \\(P_{ij}\\) entirely within SRAM. Only \\(Q, K, V\\) blocks, and the small \\(m, l\\) vectors, are read/written from HBM. The final \\(O\\) is computed in two passes (first pass for \\(m,l\\), second for final \\(O\\)) to ensure mathematical correctness.',
+    codeLines: [37],
+    vizState: {
+      hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], sram: [], active_hbm: ['Q', 'K', 'V', 'O', 'm', 'l'], active_sram: [],
+      op: 'summary', q_idx: -1, k_idx: -1,
+      hbm_labels: ['Q', 'K', 'V', 'O', 'm', 'l'],
+      sram_labels: []
+    }
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  const isCollapsed = body.classList.contains('collapsed');
+
+  if (isCollapsed) {
+    body.classList.remove('collapsed');
+    toggle.classList.add('open');
+    body.style.maxHeight = body.scrollHeight + "px"; // Set to actual height
+  } else {
+    body.style.maxHeight = body.scrollHeight + "px"; // Set current height before collapsing
+    requestAnimationFrame(() => { // Wait for reflow
+      body.classList.add('collapsed');
+      toggle.classList.remove('open');
+      body.style.maxHeight = "0"; // Collapse
+    });
+  }
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',pass1:'phase-pass1',pass2:'phase-pass2',summary:'phase-summary'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(s.vizState);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(vizState) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const surfaceC = cs.getPropertyValue('--surface').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // --- Layout Constants ---
+  const HBM_RECT = { x: 20, y: 20, w: W - 40, h: H - 40 };
+  const SRAM_RECT = { x: HBM_RECT.x + 0.2 * HBM_RECT.w, y: HBM_RECT.y + 0.2 * HBM_RECT.h, w: 0.6 * HBM_RECT.w, h: 0.6 * HBM_RECT.h };
+
+  const MATRIX_PAD = 10;
+  const MATRIX_GAP = 15;
+  const BLOCK_SIZE_RATIO = BLOCK_SIZE / N_SEQ; // How much of N a block takes
+  const D_RATIO = D_HEAD / N_SEQ; // How much of N a D dimension takes (for visual scaling)
+
+  // --- Helper Functions ---
+  function drawRoundedRect(x, y, w, h, radius, fill, stroke, strokeWidth) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = strokeWidth;
+      ctx.stroke();
+    }
+  }
+
+  function drawMatrixBlock(rect, label, color, active = false, isBlock = false, highlightBorder = false) {
+    const fill = color;
+    const stroke = active ? 'white' : borderC;
+    const strokeWidth = active ? 3 : 1;
+    drawRoundedRect(rect.x, rect.y, rect.w, rect.h, 5, fill, stroke, strokeWidth);
+    if (highlightBorder) {
+      ctx.strokeStyle = active ? 'yellow' : 'transparent'; // Use a distinct color for active border
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+    ctx.fillStyle = active ? 'white' : textC;
+    ctx.font = '600 12px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    if (isBlock) {
+      ctx.fillStyle = active ? 'white' : textC;
+      ctx.font = '10px var(--mono)';
+      ctx.fillText(`B=${BLOCK_SIZE}`, rect.x + rect.w / 2, rect.y + rect.h / 2 + 15);
+    }
+  }
+
+  function drawMemoryRegion(rect, label, fill, stroke, strokeWidth) {
+    drawRoundedRect(rect.x, rect.y, rect.w, rect.h, 10, fill, stroke, strokeWidth);
+    ctx.fillStyle = text2;
+    ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(label, rect.x + 15, rect.y + 15);
+  }
+
+  // --- Draw HBM ---
+  drawMemoryRegion(HBM_RECT, 'HBM (High Bandwidth Memory)', text2 + '15', borderC, 1);
+
+  // --- Draw SRAM ---
+  drawMemoryRegion(SRAM_RECT, 'SRAM (Shared Memory)', bg2, borderC, 1);
+
+  // --- Draw Matrices in HBM ---
+  const hbmMatrixWidth = (HBM_RECT.w - MATRIX_PAD * 4 - MATRIX_GAP * 3) / 4;
+  const hbmMatrixHeight = (HBM_RECT.h - MATRIX_PAD * 3) / 2;
+
+  const hbmMatrixPositions = {
+    'Q': { x: HBM_RECT.x + MATRIX_PAD, y: HBM_RECT.y + MATRIX_PAD, w: hbmMatrixWidth, h: hbmMatrixHeight },
+    'K': { x: HBM_RECT.x + MATRIX_PAD * 2 + hbmMatrixWidth, y: HBM_RECT.y + MATRIX_PAD, w: hbmMatrixWidth, h: hbmMatrixHeight },
+    'V': { x: HBM_RECT.x + MATRIX_PAD * 3 + hbmMatrixWidth * 2, y: HBM_RECT.y + MATRIX_PAD, w: hbmMatrixWidth, h: hbmMatrixHeight },
+    'O': { x: HBM_RECT.x + MATRIX_PAD * 4 + hbmMatrixWidth * 3, y: HBM_RECT.y + MATRIX_PAD, w: hbmMatrixWidth, h: hbmMatrixHeight },
+    'S': { x: HBM_RECT.x + MATRIX_PAD, y: HBM_RECT.y + HBM_RECT.h / 2 + MATRIX_PAD, w: hbmMatrixWidth * 2 + MATRIX_GAP, h: hbmMatrixHeight },
+    'P': { x: HBM_RECT.x + MATRIX_PAD * 3 + hbmMatrixWidth * 2 + MATRIX_GAP, y: HBM_RECT.y + HBM_RECT.h / 2 + MATRIX_PAD, w: hbmMatrixWidth * 2 + MATRIX_GAP, h: hbmMatrixHeight },
+    'm': { x: HBM_RECT.x + MATRIX_PAD, y: HBM_RECT.y + HBM_RECT.h / 2 + MATRIX_PAD, w: hbmMatrixWidth / 2, h: hbmMatrixHeight },
+    'l': { x: HBM_RECT.x + MATRIX_PAD * 1.5 + hbmMatrixWidth / 2, y: HBM_RECT.y + HBM_RECT.h / 2 + MATRIX_PAD, w: hbmMatrixWidth / 2, h: hbmMatrixHeight },
+  };
+
+  const hbmMatrixColors = {
+    'Q': blueMid, 'K': redMid, 'V': greenMid, 'O': cyanMid,
+    'S': amberMid, 'P': purpleMid, 'm': purpleMid, 'l': purpleMid
+  };
+
+  vizState.hbm.forEach(matrixName => {
+    const pos = hbmMatrixPositions[matrixName];
+    if (pos) {
+      drawMatrixBlock(pos, matrixName, hbmMatrixColors[matrixName] + '50', vizState.active_hbm.includes(matrixName));
+    }
+  });
+
+  // --- Draw Matrices in SRAM ---
+  const sramMatrixWidth = (SRAM_RECT.w - MATRIX_PAD * 4 - MATRIX_GAP * 3) / 4;
+  const sramMatrixHeight = (SRAM_RECT.h - MATRIX_PAD * 3) / 2;
+
+  const sramMatrixPositions = {
+    'Q_block': { x: SRAM_RECT.x + MATRIX_PAD, y: SRAM_RECT.y + MATRIX_PAD, w: sramMatrixWidth, h: sramMatrixHeight },
+    'K_block': { x: SRAM_RECT.x + MATRIX_PAD * 2 + sramMatrixWidth, y: SRAM_RECT.y + MATRIX_PAD, w: sramMatrixWidth, h: sramMatrixHeight },
+    'V_block': { x: SRAM_RECT.x + MATRIX_PAD * 3 + sramMatrixWidth * 2, y: SRAM_RECT.y + MATRIX_PAD, w: sramMatrixWidth, h: sramMatrixHeight },
+    'O_i_partial': { x: SRAM_RECT.x + MATRIX_PAD * 4 + sramMatrixWidth * 3, y: SRAM_RECT.y + MATRIX_PAD, w: sramMatrixWidth, h: sramMatrixHeight },
+    'S_block': { x: SRAM_RECT.x + MATRIX_PAD, y: SRAM_RECT.y + SRAM_RECT.h / 2 + MATRIX_PAD, w: sramMatrixWidth * 2 + MATRIX_GAP, h: sramMatrixHeight },
+    'P_block': { x: SRAM_RECT.x + MATRIX_PAD * 3 + sramMatrixWidth * 2 + MATRIX_GAP, y: SRAM_RECT.y + SRAM_RECT.h / 2 + MATRIX_PAD, w: sramMatrixWidth * 2 + MATRIX_GAP, h: sramMatrixHeight },
+    'm_i_current': { x: SRAM_RECT.x + MATRIX_PAD, y: SRAM_RECT.y + SRAM_RECT.h / 2 + MATRIX_PAD, w: sramMatrixWidth / 2, h: sramMatrixHeight },
+    'l_i_current': { x: SRAM_RECT.x + MATRIX_PAD * 1.5 + sramMatrixWidth / 2, y: SRAM_RECT.y + SRAM_RECT.h / 2 + MATRIX_PAD, w: sramMatrixWidth / 2, h: sramMatrixHeight },
+  };
+
+  const sramMatrixColors = {
+    'Q_block': blueMid, 'K_block': redMid, 'V_block': greenMid, 'O_i_partial': cyanMid,
+    'S_block': amberMid, 'P_block': purpleMid, 'm_i_current': purpleMid, 'l_i_current': purpleMid
+  };
+
+  vizState.sram.forEach(matrixName => {
+    const pos = sramMatrixPositions[matrixName];
+    if (pos) {
+      drawMatrixBlock(pos, vizState.sram_labels[vizState.sram.indexOf(matrixName)], sramMatrixColors[matrixName], vizState.active_sram.includes(matrixName), true);
+    }
+  });
+
+  // --- Draw Arrows / Operations ---
+  ctx.strokeStyle = text2;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.fillStyle = textC;
+  ctx.font = '12px var(--sans)';
+
+  // HBM to SRAM arrows
+  const arrowHeadSize = 8;
+  const drawArrow = (fromX, fromY, toX, toY, label = '', color = text2) => {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - arrowHeadSize * Math.cos(angle - Math.PI / 6), toY - arrowHeadSize * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - arrowHeadSize * Math.cos(angle + Math.PI / 6), toY - arrowHeadSize * Math.sin(angle + Math.PI / 6));
+    ctx.fill();
+
+    if (label) {
+      ctx.save();
+      ctx.translate((fromX + toX) / 2, (fromY + toY) / 2);
+      ctx.rotate(angle);
+      ctx.fillText(label, 0, -10); // Offset label slightly above arrow
+      ctx.restore();
+    }
+  };
+
+  // HBM to SRAM for Q, K, V
+  if (vizState.op === 'load_qi' || vizState.op === 'load_kjvj') {
+    const qHBM = hbmMatrixPositions['Q'];
+    const qSRAM = sramMatrixPositions['Q_block'];
+    if (qHBM && qSRAM) drawArrow(qHBM.x + qHBM.w / 2, qHBM.y + qHBM.h, qSRAM.x + qSRAM.w / 2, qSRAM.y, 'Load Q_i', blueMid);
+
+    const mHBM = hbmMatrixPositions['m'];
+    const mSRAM = sramMatrixPositions['m_i_current'];
+    if (mHBM && mSRAM) drawArrow(mHBM.x + mHBM.w / 2, mHBM.y + mHBM.h, mSRAM.x + mSRAM.w / 2, mSRAM.y, 'Load m_i', purpleMid);
+
+    const lHBM = hbmMatrixPositions['l'];
+    const lSRAM = sramMatrixPositions['l_i_current'];
+    if (lHBM && lSRAM) drawArrow(lHBM.x + lHBM.w / 2, lHBM.y + lHBM.h, lSRAM.x + lSRAM.w / 2, lSRAM.y, 'Load l_i', purpleMid);
+  }
+
+  if (vizState.op === 'load_kjvj') {
+    const kHBM = hbmMatrixPositions['K'];
+    const kSRAM = sramMatrixPositions['K_block'];
+    if (kHBM && kSRAM) drawArrow(kHBM.x + kHBM.w / 2, kHBM.y + kHBM.h, kSRAM.x + kSRAM.w / 2, kSRAM.y, 'Load K_j', redMid);
+
+    const vHBM = hbmMatrixPositions['V'];
+    const vSRAM = sramMatrixPositions['V_block'];
+    if (vHBM && vSRAM) drawArrow(vHBM.x + vHBM.w / 2, vHBM.y + vHBM.h, vSRAM.x + vSRAM.w / 2, vSRAM.y, 'Load V_j', greenMid);
+  }
+
+  // SRAM internal ops
+  if (vizState.op === 'compute_sram') {
+    const qSRAM = sramMatrixPositions['Q_block'];
+    const kSRAM = sramMatrixPositions['K_block'];
+    const sSRAM = sramMatrixPositions['S_block'];
+    const vSRAM = sramMatrixPositions['V_block'];
+    const pSRAM = sramMatrixPositions['P_block'];
+    const oSRAM = sramMatrixPositions['O_i_partial'];
+
+    if (qSRAM && kSRAM && sSRAM) {
+      drawArrow(qSRAM.x + qSRAM.w, qSRAM.y + qSRAM.h / 2, sSRAM.x, sSRAM.y + sSRAM.h / 2, 'QKᵀ / √d_k', amberMid);
+      drawArrow(kSRAM.x, kSRAM.y + kSRAM.h / 2, sSRAM.x + sSRAM.w, sSRAM.y + sSRAM.h / 2, '', amberMid);
+    }
+    if (sSRAM && pSRAM) drawArrow(sSRAM.x + sSRAM.w / 2, sSRAM.y + sSRAM.h, pSRAM.x + pSRAM.w / 2, pSRAM.y, 'Softmax (online)', purpleMid);
+    if (pSRAM && vSRAM && oSRAM) {
+      drawArrow(pSRAM.x + pSRAM.w, pSRAM.y + pSRAM.h / 2, oSRAM.x, oSRAM.y + oSRAM.h / 2, 'PV', cyanMid);
+      drawArrow(vSRAM.x, vSRAM.y + vSRAM.h / 2, oSRAM.x + oSRAM.w, oSRAM.y + oSRAM.h / 2, '', cyanMid);
+    }
+  }
+
+  // SRAM to HBM arrows
+  if (vizState.op === 'write_hbm_ml') {
+    const oSRAM = sramMatrixPositions['O_i_partial'];
+    const oHBM = hbmMatrixPositions['O'];
+    if (oSRAM && oHBM) drawArrow(oSRAM.x + oSRAM.w / 2, oSRAM.y + oSRAM.h, oHBM.x + oHBM.w / 2, oHBM.y, 'Write O_i', cyanMid);
+
+    const mSRAM = sramMatrixPositions['m_i_current'];
+    const mHBM = hbmMatrixPositions['m'];
+    if (mSRAM && mHBM) drawArrow(mSRAM.x + mSRAM.w / 2, mSRAM.y + mSRAM.h, mHBM.x + mHBM.w / 2, mHBM.y, 'Write m_i', purpleMid);
+
+    const lSRAM = sramMatrixPositions['l_i_current'];
+    const lHBM = hbmMatrixPositions['l'];
+    if (lSRAM && lHBM) drawArrow(lSRAM.x + lSRAM.w / 2, lSRAM.y + lSRAM.h, lHBM.x + lHBM.w / 2, lHBM.y, 'Write l_i', purpleMid);
+  }
+
+  // --- Memory Usage Display ---
+  ctx.fillStyle = text2;
+  ctx.font = '11px var(--mono)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+
+  const hbmUsage = (vizState.hbm.includes('S') || vizState.hbm.includes('P')) ?
+                   (HBM_SIZE_QKV + HBM_SIZE_S + HBM_SIZE_P + HBM_SIZE_O) :
+                   (HBM_SIZE_QKV + HBM_SIZE_O + (vizState.hbm.includes('m') ? N_SEQ*2 : 0));
+  ctx.fillText(`HBM Usage: ${hbmUsage} units`, HBM_RECT.x + 15, HBM_RECT.y + HBM_RECT.h - 15);
+
+  let sramUsage = 0;
+  if (vizState.sram.includes('Q_block')) sramUsage += BLOCK_SIZE * D_HEAD;
+  if (vizState.sram.includes('K_block')) sramUsage += BLOCK_SIZE * D_HEAD;
+  if (vizState.sram.includes('V_block')) sramUsage += BLOCK_SIZE * D_HEAD;
+  if (vizState.sram.includes('O_i_partial')) sramUsage += BLOCK_SIZE * D_HEAD;
+  if (vizState.sram.includes('m_i_current')) sramUsage += BLOCK_SIZE;
+  if (vizState.sram.includes('l_i_current')) sramUsage += BLOCK_SIZE;
+  if (vizState.sram.includes('S_block')) sramUsage += BLOCK_SIZE * BLOCK_SIZE;
+  if (vizState.sram.includes('P_block')) sramUsage += BLOCK_SIZE * BLOCK_SIZE;
+  ctx.fillText(`SRAM Usage: ${sramUsage} units`, SRAM_RECT.x + 15, SRAM_RECT.y + SRAM_RECT.h - 15);
+
+  // --- Iteration blocks for Q and K ---
+  const numQBlocks = N_SEQ / BLOCK_SIZE;
+  const numKBlocks = N_SEQ / BLOCK_SIZE;
+
+  const qBlockRect = hbmMatrixPositions['Q'];
+  const kBlockRect = hbmMatrixPositions['K'];
+
+  if (qBlockRect && kBlockRect && vizState.q_idx !== -1 && vizState.k_idx !== -1) {
+    const qBlockHeight = qBlockRect.h / numQBlocks;
+    const kBlockHeight = kBlockRect.h / numKBlocks;
+
+    ctx.strokeStyle = purpleMid;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(qBlockRect.x, qBlockRect.y + vizState.q_idx * qBlockHeight, qBlockRect.w, qBlockHeight);
+    ctx.strokeRect(kBlockRect.x, kBlockRect.y + vizState.k_idx * kBlockHeight, kBlockRect.w, kBlockHeight);
+  }
+}
+
+function updateBlockSize(value) {
+  BLOCK_SIZE = parseInt(value);
+  document.getElementById('blockSizeValue').textContent = BLOCK_SIZE;
+  document.getElementById('N_val').textContent = N_SEQ;
+  document.getElementById('D_val').textContent = D_HEAD;
+  render(); // Re-render the canvas with new block size
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].vizState));
+document.getElementById('blockSizeSlider').value = BLOCK_SIZE;
+document.getElementById('blockSizeValue').textContent = BLOCK_SIZE;
+document.getElementById('N_val').textContent = N_SEQ;
+document.getElementById('D_val').textContent = D_HEAD;
+
+// Initial collapse for sections 3 and 6
+document.addEventListener('DOMContentLoaded', () => {
+  const sectionsToCollapse = [
+    document.querySelector('.card:nth-of-type(3) .section-body'), // Card 3
+    document.querySelector('.card:nth-of-type(6) .section-body')  // Card 6
+  ];
+  sectionsToCollapse.forEach(body => {
+    if (body && !body.classList.contains('collapsed')) {
+      body.classList.add('collapsed');
+      body.style.maxHeight = "0";
+      const toggle = body.previousElementSibling.querySelector('.section-toggle');
+      if (toggle) toggle.classList.remove('open');
+    }
+  });
+});
+
+</script>
+</body>
+</html>

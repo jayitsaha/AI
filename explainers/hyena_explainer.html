@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyena: Convolution-Based Attention Replacement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --serif: 'Fraunces', Georgia, serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+* { box-sizing: border-box; }
+html,body { margin:0; padding:0; }
+body {
+  background: var(--bg); color: var(--text); font-family: var(--sans);
+  line-height: 1.6; padding: 2.5rem 1.25rem 5rem;
+}
+.wrap { max-width: 880px; margin: 0 auto; }
+
+/* Header */
+header.top { margin-bottom: 2rem; }
+header.top .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--purple-mid); margin-bottom: 6px; }
+header.top h1 { font-family: var(--serif); font-weight: 700; font-size: clamp(2rem, 5vw, 2.9rem); margin: 0 0 0.4rem; letter-spacing: -0.5px; }
+header.top .subtitle { font-size: 16px; color: var(--text2); max-width: 640px; margin: 0 0 0.9rem; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
+.tag-foundational { background: var(--green-bg); color: var(--green-mid); }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-advanced     { background: var(--red-bg);   color: var(--red-mid); }
+.tag-expert       { background: var(--purple-bg); color: var(--purple-mid); }
+.tag-category     { background: var(--blue-bg);   color: var(--blue-mid); }
+.tag-complexity   { background: var(--cyan-bg);   color: var(--cyan-mid); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; cursor: pointer; user-select: none; }
+.section-number { width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink:0; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.chevron { color: var(--text3); transition: transform 0.25s; font-size: 13px; }
+.card.collapsed .chevron { transform: rotate(-90deg); }
+.card-body { overflow: hidden; }
+.card.collapsed .card-body { display: none; }
+.card p { margin: 0.6rem 0; color: var(--text2); font-size: 14.5px; }
+.card strong { color: var(--text); }
+
+/* Concept boxes */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box p { margin: 0; color: var(--text); font-size: 14px; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg); border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+/* Comparison table */
+table.cmp { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 13px; }
+table.cmp th, table.cmp td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+table.cmp th { color: var(--text3); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+table.cmp td { color: var(--text2); }
+table.cmp td strong { color: var(--text); }
+
+/* Code panel */
+.code-panel { margin-top: 1.25rem; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.8; overflow-x: auto; }
+.code-line { padding: 1px 6px; border-radius: 4px; white-space: pre; color: var(--text2); }
+.code-line.active { background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+/* Viz */
+.viz-shell { background: var(--bg2); border-radius: var(--radius-lg); border: 1px solid var(--border); padding: 1.25rem; }
+.viz-topbar { display:flex; justify-content: space-between; align-items:center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 8px; }
+.phase-badge { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 4px 10px; border-radius: 20px; background: var(--purple-bg); color: var(--purple-mid); }
+.step-counter { font-family: var(--mono); font-size: 12px; color: var(--text3); }
+#stage { display: block; width: 100%; height: auto; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); }
+.info-card { margin-top: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
+.info-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.info-desc { font-size: 13.5px; color: var(--text2); margin: 0; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 0.9rem; font-size: 12px; color: var(--text2); }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; }
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; border:none; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+.kbd-hint kbd { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border2); border-radius: 4px; padding: 1px 6px; }
+
+footer.foot { text-align: center; margin-top: 2.5rem; font-size: 12px; color: var(--text3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="kicker">AI / ML Mastery &middot; Sequence Models Beyond Attention</div>
+  <h1>Hyena</h1>
+  <p class="subtitle">A subquadratic drop-in for attention: long implicit convolutions generated by a small MLP over positions, mixed with data-controlled gating, and evaluated in <code>O(n log n)</code> via the FFT.</p>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">Sequence Mixing</span>
+    <span class="tag tag-complexity">O(n log n)</span>
+    <span class="tag tag-category">Implicit Convolutions</span>
+  </div>
+</header>
+
+<!-- CARD 1 -->
+<section class="card" id="card1">
+  <div class="section-header" onclick="toggleCard('card1')">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Concept</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card1-body">
+    <p><strong>What is this?</strong> Transformers understand long text by having every token "look at" every other token &mdash; that's the attention mechanism, and it costs <code>O(n&sup2;)</code> work for a sequence of length <code>n</code>. Hyena is a replacement operator: instead of looking at every pair of tokens, it convolves the whole sequence with a very long filter &mdash; a filter as long as the sequence itself &mdash; and that filter is not stored directly but <em>generated on the fly</em> by a tiny neural network that takes a position index and outputs a filter value. Combined with elementwise gating (multiplying by a data-dependent signal), this recovers attention-like data-dependent mixing at a fraction of the cost.</p>
+    <p><strong>Analogy:</strong> Imagine a huge orchestra (the sequence) and a conductor (attention) who individually cues every single musician in response to every other musician &mdash; that's <code>n&sup2;</code> cues. Hyena instead plays one long, cleverly-shaped echo/reverb effect (the implicit convolution) across the whole hall that blends everyone together, and the "shape" of that echo is composed on the fly by a small synthesizer (the positional MLP) rather than being hand-recorded. A sound engineer can compute the effect on the entire hall in one fast pass using the FFT, instead of manually mixing every pair.</p>
+    <p><strong>One-sentence summary:</strong> Hyena replaces <code>O(n&sup2;)</code> attention with stacked <code>O(n log n)</code> implicit long convolutions (FFT-evaluated, MLP-parameterized filters) interleaved with data-controlled elementwise gating.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">If you remember one thing</div>
+      <p>Hyena never materializes an <code>n&times;n</code> attention matrix. It generates an <code>n</code>-length filter from an MLP, convolves it with the sequence via FFT in <code>O(n log n)</code>, and gates the result with data-dependent projections &mdash; recursively, a few times per layer, to approximate attention's expressivity.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CARD 2 -->
+<section class="card" id="card2">
+  <div class="section-header" onclick="toggleCard('card2')">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card2-body">
+    <p><strong>The problem with attention.</strong> Self-attention computes a full <code>n&times;n</code> similarity matrix (queries &middot; keys), softmaxes it, and mixes values with it. This is what gives transformers their power (direct, data-dependent, any-to-any routing) but it is quadratic in both compute and memory in sequence length &mdash; a serious bottleneck for genomics, high-resolution images-as-sequences, or long documents where <code>n</code> can be in the tens of thousands.</p>
+    <p><strong>The Hyena recipe.</strong> A Hyena operator of order <code>N</code> (the paper's default is <code>N=2</code>) works like this at every layer:</p>
+    <p>1. <strong>Dense input projections.</strong> The input <code>u &isin; &Ropf;<sup>n&times;d</sup></strong> is linearly projected (a short causal convolution + linear map) into <code>N+1</code> parallel projections: <code>x&sup1;, x&sup2;, &hellip;, x&#7497;, v</code>.</p>
+    <p>2. <strong>Implicit long filters.</strong> Instead of learning <code>N</code> explicit filter tensors of length <code>n</code> (which would not generalize across sequence lengths and would be huge), Hyena parameterizes each filter <code>h&#7522;</code> implicitly: a positional encoding <code>t &rarr; (sin, cos features)</code> is fed through a small feed-forward network (FFN) to output <code>h&#7522;(t)</code> for every position <code>t</code>, and the result is multiplied by an exponential decay window so the filter naturally attenuates at long range like a well-behaved convolution kernel.</p>
+    <p>3. <strong>FFT convolution.</strong> Each filter is circularly convolved with the running signal using the Fast Fourier Transform: transform both to the frequency domain, multiply pointwise (convolution theorem), inverse-transform back. This costs <code>O(n log n)</code> instead of the <code>O(n&sup2;)</code> a naive time-domain convolution (or attention) would cost.</p>
+    <p>4. <strong>Data-controlled gating.</strong> After each convolution, the result is multiplied elementwise by the next projection <code>x&#7522;</code>. This elementwise product is what injects <em>data-dependence</em> &mdash; without it, convolution alone would be a fixed linear operator regardless of content, unable to mimic attention's "look at relevant tokens" behavior.</p>
+    <p>5. <strong>Recursion.</strong> Steps 3&ndash;4 repeat <code>N</code> times, each time gating with the next projection, so the final output is a degree-<code>(N+1)</code> polynomial mixing of the input projections &mdash; giving Hyena the same kind of high-order, input-dependent interactions that make attention expressive.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">Design decision: why FFT and not a direct long convolution?</div>
+      <p>A direct (time-domain) convolution with a length-<code>n</code> filter costs <code>O(n&sup2;)</code> per channel &mdash; no better than attention. The convolution theorem says convolution in time equals pointwise multiplication in frequency, and the FFT computes that frequency transform in <code>O(n log n)</code>. That single substitution is what makes "attention-strength mixing" tractable at long sequence lengths.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CARD 3 -->
+<section class="card" id="card3">
+  <div class="section-header" onclick="toggleCard('card3')">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works &mdash; The Math</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card3-body">
+    <p>For order <code>N=2</code>, define projections <code>x&sup1;, x&sup2;, v = P(u)</code> (short causal convs + linear maps of the input). The Hyena operator computes:</p>
+    <div class="eq">$$z^1 = x^1 \odot (h^1 * v), \qquad y = x^2 \odot (h^2 * z^1)$$</div>
+    <p>where <code>&odot;</code> is elementwise (Hadamard) product and <code>*</code> is causal convolution along the sequence dimension. Generalized to order <code>N</code>, this is a recurrence:</p>
+    <div class="eq">$$z^{t+1} = x^{t+1} \odot (h^{t+1} * z^t), \quad z^0 = v, \quad y = z^N$$</div>
+    <p><strong>The implicit filter.</strong> Each <code>h&#7522;</code> is not a free parameter tensor &mdash; it is the output of a shared, tiny FFN applied to a positional embedding, so it generalizes to any sequence length:</p>
+    <div class="eq">$$h(t) = \text{Window}(t)\cdot \text{FFN}(\text{PosEnc}(t)), \qquad \text{Window}(t)=e^{-\alpha t}$$</div>
+    <p><strong>Convolution via FFT (the complexity win).</strong> By the convolution theorem, for signals of length <code>n</code>:</p>
+    <div class="eq">$$h * v = \mathcal{F}^{-1}\big(\mathcal{F}(h)\cdot \mathcal{F}(v)\big)$$</div>
+    <p>Computing <code>&Fscr;</code> and <code>&Fscr;<sup>-1</sup></code> via the Fast Fourier Transform costs <code>O(n log n)</code>; the pointwise multiply in frequency space costs <code>O(n)</code>. Total per filter: <code>O(n log n)</code>, versus <code>O(n&sup2;)</code> for attention's query&middot;key score matrix and its softmax-weighted aggregation.</p>
+    <p><strong>Gradient flow.</strong> Because <code>&odot;</code> and <code>*</code> are both differentiable (the FFT is a linear, invertible, differentiable transform), gradients flow through the whole recurrence via standard backprop; the implicit FFN's parameters receive gradients aggregated across all <code>n</code> positions it was evaluated at, similar to how a weight-shared RNN/CNN is trained.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">Common misconception</div>
+      <p>"Hyena is just a CNN." A vanilla CNN uses a short, fixed, position-independent filter and no gating &mdash; it cannot route information based on content. Hyena's filter spans the <em>entire</em> sequence (global receptive field in one layer) and, crucially, every convolution output is gated by a <em>data-dependent</em> projection, giving it attention-like content-based mixing that a plain CNN lacks.</p>
+    </div>
+    <div class="concept-box math">
+      <div class="concept-box-title">Complexity at a glance</div>
+      <p>Attention: <code>O(n&sup2; d)</code> compute, <code>O(n&sup2;)</code> memory for the score matrix. Hyena: <code>O(N n \log n \, d)</code> compute, <code>O(n d)</code> memory &mdash; no quadratic term in <code>n</code> at all.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CARD 4: VIZ -->
+<section class="card" id="card4">
+  <div class="section-header" onclick="toggleCard('card4')">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough &mdash; Implicit FFT Convolution vs. Attention</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card4-body">
+    <div class="viz-shell">
+      <div class="viz-topbar">
+        <span class="phase-badge" id="phaseBadge">PHASE</span>
+        <span class="step-counter" id="stepCounter">Step 1 / 10</span>
+      </div>
+      <canvas id="stage" width="1600" height="760"></canvas>
+      <div class="info-card">
+        <div class="info-title" id="infoTitle">&mdash;</div>
+        <p class="info-desc" id="infoDesc">&mdash;</p>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="controls">
+        <button class="btn" id="prevBtn">&larr; Prev</button>
+        <button class="btn btn-primary" id="resetBtn">Reset</button>
+        <button class="btn" id="nextBtn">Next &rarr;</button>
+      </div>
+      <div class="progress-wrap" id="dots"></div>
+      <div class="kbd-hint">Use <kbd>&larr;</kbd> <kbd>&rarr;</kbd> to step, <kbd>R</kbd> to reset. Click a dot to jump.</div>
+    </div>
+  </div>
+</section>
+
+<!-- CARD 5 -->
+<section class="card" id="card5">
+  <div class="section-header" onclick="toggleCard('card5')">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card5-body">
+    <table class="cmp">
+      <tr><th>Dimension</th><th>Self-Attention</th><th>Hyena</th></tr>
+      <tr><td>Compute</td><td><strong>O(n&sup2; d)</strong></td><td><strong>O(N n log n &middot; d)</strong></td></tr>
+      <tr><td>Memory</td><td>O(n&sup2;) score matrix</td><td>O(n d), no quadratic term</td></tr>
+      <tr><td>Mixing weights</td><td>Explicit, softmax(QK&#7488;)</td><td>Implicit filter &times; gating (no explicit matrix)</td></tr>
+      <tr><td>Data-dependence</td><td>Full pairwise (Q,K,V)</td><td>Elementwise gates (x&sup1;&hellip;x&#7497;) at each recursion step</td></tr>
+      <tr><td>Length generalization</td><td>Needs positional tricks (RoPE, ALiBi)</td><td>Filter is a continuous function of position &mdash; naturally length-flexible</td></tr>
+      <tr><td>Best regime</td><td>Short/medium sequences, max expressivity per FLOP</td><td>Very long sequences (genomics, long documents, raw audio)</td></tr>
+    </table>
+    <p><strong>Use Hyena when</strong> sequence length is large enough that <code>n&sup2;</code> dominates cost/memory (e.g. <code>n &gt; 8K&ndash;64K</code>), or when you need a subquadratic backbone that still learns rich, data-dependent mixing rather than a fixed local kernel.</p>
+    <p><strong>Be cautious when</strong> sequences are short (attention's constant factors and mature tooling often win), or when you need exact, interpretable pairwise attention weights (e.g. for attribution/explainability use cases).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">Takeaway</div>
+      <p>Hyena shows that the two structural ingredients of attention &mdash; long-range mixing and data-dependence &mdash; can be decomposed and reimplemented with cheaper primitives: an FFT-evaluated implicit convolution supplies the long range, and elementwise gating supplies the data-dependence. Neither ingredient alone matches attention; together, recursively applied, they closed most of the quality gap at a fraction of the asymptotic cost.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CARD 6 -->
+<section class="card" id="card6">
+  <div class="section-header" onclick="toggleCard('card6')">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace &mdash; Hyena Operator (Order 2)</div>
+    <div class="chevron">&#9660;</div>
+  </div>
+  <div class="card-body" id="card6-body">
+    <p>Minimal order-2 Hyena operator (PyTorch-style pseudocode). <code>fft_conv</code> does exactly what the interactive viz below animates: FFT the signal, FFT the implicit filter, multiply pointwise, inverse FFT.</p>
+    <div class="code-panel">
+<span class="code-line">def implicit_filter(t, mlp, alpha):</span>
+<span class="code-line">    pe = positional_encoding(t)        # sin/cos features per position</span>
+<span class="code-line">    h  = mlp(pe)                       # tiny FFN -&gt; filter value h(t)</span>
+<span class="code-line">    return h * exp(-alpha * t)         # exponential decay window</span>
+<span class="code-line"></span>
+<span class="code-line">def fft_conv(signal, filt):</span>
+<span class="code-line">    F_signal = fft(signal)             # O(n log n)</span>
+<span class="code-line">    F_filt   = fft(filt)               # O(n log n)</span>
+<span class="code-line">    return real(ifft(F_signal * F_filt))  # pointwise mult + inverse FFT</span>
+<span class="code-line"></span>
+<span class="code-line">def hyena_operator(u, N=2):</span>
+<span class="code-line">    x1, x2, v = dense_projections(u)   # short causal conv + linear</span>
+<span class="code-line">    h1 = implicit_filter(positions, mlp1, alpha1)</span>
+<span class="code-line">    h2 = implicit_filter(positions, mlp2, alpha2)</span>
+<span class="code-line">    z1 = x1 * fft_conv(v, h1)          # gate 1: elementwise data-control</span>
+<span class="code-line">    y  = x2 * fft_conv(z1, h2)         # gate 2: elementwise data-control</span>
+<span class="code-line">    return y                           # O(N n log n) total, no n x n matrix</span>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">Hyena Hierarchy &middot; Poli et al., ICML 2023 &middot; Interactive explainer</footer>
+</div>
+
+<script>
+function toggleCard(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+</script>
+<script>
+(function(){
+  "use strict";
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const COLORS = {
+    text: cssVar('--text'), text2: cssVar('--text2'), text3: cssVar('--text3'), border: cssVar('--border'),
+    blue: cssVar('--blue-mid'), blueBg: cssVar('--blue-bg'), blueBorder: cssVar('--blue-border'),
+    green: cssVar('--green-mid'), greenBg: cssVar('--green-bg'), greenBorder: cssVar('--green-border'),
+    amber: cssVar('--amber-mid'), amberBg: cssVar('--amber-bg'), amberBorder: cssVar('--amber-border'),
+    red: cssVar('--red-mid'), redBg: cssVar('--red-bg'), redBorder: cssVar('--red-border'),
+    purple: cssVar('--purple-mid'), purpleBg: cssVar('--purple-bg'), purpleBorder: cssVar('--purple-border'),
+    cyan: cssVar('--cyan-mid'), cyanBg: cssVar('--cyan-bg'), cyanBorder: cssVar('--cyan-border'),
+    surface: cssVar('--surface')
+  };
+
+  /* ---------- seeded RNG ---------- */
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = (t + Math.imul(t ^ t >>> 7, 61 | t)) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------- iterative radix-2 complex FFT ---------- */
+  function fft(re, im, invert){
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (2 * Math.PI / len) * (invert ? -1 : 1);
+      const wlr = Math.cos(ang), wli = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cwr = 1, cwi = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const ur = re[i + j], ui = im[i + j];
+          const vr = re[i + j + len / 2] * cwr - im[i + j + len / 2] * cwi;
+          const vi = re[i + j + len / 2] * cwi + im[i + j + len / 2] * cwr;
+          re[i + j] = ur + vr; im[i + j] = ui + vi;
+          re[i + j + len / 2] = ur - vr; im[i + j + len / 2] = ui - vi;
+          const nwr = cwr * wlr - cwi * wli, nwi = cwr * wli + cwi * wlr;
+          cwr = nwr; cwi = nwi;
+        }
+      }
+    }
+    if (invert) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+  }
+  function fftOf(x){ const re = x.slice(), im = new Array(x.length).fill(0); fft(re, im, false); return { re, im }; }
+  function magnitude(F){ return F.re.map((r,i) => Math.hypot(r, F.im[i])); }
+  function fftConv(a, b){
+    const n = a.length;
+    const Fa = fftOf(a), Fb = fftOf(b);
+    const pre = new Array(n), pim = new Array(n);
+    for (let i = 0; i < n; i++) {
+      pre[i] = Fa.re[i]*Fb.re[i] - Fa.im[i]*Fb.im[i];
+      pim[i] = Fa.re[i]*Fb.im[i] + Fa.im[i]*Fb.re[i];
+    }
+    const prodMag = magnitude({re:pre, im:pim});
+    fft(pre, pim, true);
+    return { Fa, Fb, prod: prodMag, out: pre };
+  }
+
+  /* ---------- implicit filter: tiny MLP over positional encoding ---------- */
+  function mlpFilterRaw(t, n, W1, b1, W2, b2){
+    const w = 2 * Math.PI / n;
+    const pe = [Math.sin(w*t), Math.cos(w*t), Math.sin(2*w*t), Math.cos(2*w*t)];
+    const h = W1.map((row,i) => Math.tanh(row.reduce((s,wij,j)=>s+wij*pe[j],0) + b1[i]));
+    return W2.reduce((s,wij,j)=>s+wij*h[j],0) + b2;
+  }
+  const FILT1 = {
+    W1: [[0.8,-0.5,0.3,0.2],[0.4,0.6,-0.3,0.1],[-0.2,0.5,0.7,-0.4],[0.3,-0.3,0.2,0.6]],
+    b1: [0.1,-0.05,0.05,0], W2: [0.5,-0.4,0.3,0.2], b2: 0.05, alpha: 0.15
+  };
+  const FILT2 = {
+    W1: [[-0.6,0.4,0.2,-0.3],[0.5,-0.2,0.4,0.3],[0.3,0.3,-0.5,0.2],[-0.4,0.5,0.1,0.4]],
+    b1: [0,-0.1,0.05,0.1], W2: [-0.3,0.5,0.4,-0.2], b2: -0.05, alpha: 0.12
+  };
+
+  /* ---------- build the full pipeline once, live, in JS ---------- */
+  const n = 16;
+  const rand = mulberry32(42);
+  const P = {};
+  P.u  = Array.from({length:n}, () => rand()*2-1);
+  P.x1 = P.u.map((_,i) => Math.tanh(0.65*P.u[i] + 0.35*P.u[Math.max(i-1,0)]));
+  P.x2 = P.u.map((_,i) => Math.tanh(0.55*P.u[i] - 0.45*P.u[Math.max(i-1,0)]));
+  P.v  = P.u.map((_,i) => Math.tanh(0.70*P.u[i] + 0.30*P.u[Math.max(i-2,0)]));
+  P.mlp1raw = Array.from({length:n}, (_,t) => mlpFilterRaw(t,n,FILT1.W1,FILT1.b1,FILT1.W2,FILT1.b2));
+  P.h1 = P.mlp1raw.map((val,t) => val * Math.exp(-FILT1.alpha*t));
+  P.mlp2raw = Array.from({length:n}, (_,t) => mlpFilterRaw(t,n,FILT2.W1,FILT2.b1,FILT2.W2,FILT2.b2));
+  P.h2 = P.mlp2raw.map((val,t) => val * Math.exp(-FILT2.alpha*t));
+
+  const conv1 = fftConv(P.v, P.h1);
+  P.conv1 = conv1.out;
+  P.magFv  = magnitude(conv1.Fa);
+  P.magFh1 = magnitude(conv1.Fb);
+  P.magProd1 = conv1.prod;
+  P.z1 = P.x1.map((x,i) => x * P.conv1[i]);
+
+  const conv2 = fftConv(P.z1, P.h2);
+  P.conv2 = conv2.out;
+  P.magFz1 = magnitude(conv2.Fa);
+  P.magFh2 = magnitude(conv2.Fb);
+  P.magProd2 = conv2.prod;
+  P.y = P.x2.map((x,i) => x * P.conv2[i]);
+
+  const f2 = x => x.toFixed(2);
+  const f3 = x => x.toFixed(3);
+
+  /* ---------- drawing primitives ---------- */
+  function roundRect(ctx,x,y,w,h,r){
+    r = Math.min(r, Math.abs(w)/2, Math.abs(h)/2 || 0.01);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+  function autoScale(values){ return Math.max(0.08, ...values.map(v=>Math.abs(v))) * 1.2; }
+  function laneLabel(ctx,x,y,w,label,rightText){
+    ctx.save();
+    ctx.font = '600 13px "JetBrains Mono", monospace'; ctx.fillStyle = COLORS.text2; ctx.textAlign='left';
+    ctx.fillText(label, x, y-12);
+    if (rightText){ ctx.font='11px "JetBrains Mono", monospace'; ctx.fillStyle=COLORS.text3; ctx.textAlign='right'; ctx.fillText(rightText, x+w, y-12); }
+    ctx.restore();
+  }
+  function laneBackdrop(ctx,x,y,w,h,bg,border){
+    ctx.save(); ctx.fillStyle=bg; roundRect(ctx,x-16,y-38,w+32,h+58,10); ctx.fill();
+    ctx.strokeStyle=border; ctx.lineWidth=1.5; roundRect(ctx,x-16,y-38,w+32,h+58,10); ctx.stroke(); ctx.restore();
+  }
+  function barLane(ctx,{x,y,w,h,values,color,label,highlight,bg,border}){
+    if (highlight) laneBackdrop(ctx,x,y,w,h,bg||COLORS.greenBg,border||COLORS.greenBorder);
+    const scale = autoScale(values);
+    laneLabel(ctx,x,y,w,label,'±'+scale.toFixed(2));
+    const nn = values.length, gap=5, bw=(w-gap*(nn-1))/nn, zeroY=y+h/2;
+    ctx.save();
+    ctx.strokeStyle=COLORS.border; ctx.beginPath(); ctx.moveTo(x,zeroY); ctx.lineTo(x+w,zeroY); ctx.stroke();
+    for (let i=0;i<nn;i++){
+      const v=values[i], bx=x+i*(bw+gap), bh=(Math.abs(v)/scale)*(h/2), by = v>=0? zeroY-bh : zeroY;
+      ctx.fillStyle=color; roundRect(ctx,bx,by,bw,Math.max(bh,1.5),2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function curveLane(ctx,{x,y,w,h,values,color,label,highlight,bg,border}){
+    if (highlight) laneBackdrop(ctx,x,y,w,h,bg||COLORS.purpleBg,border||COLORS.purpleBorder);
+    const scale = autoScale(values);
+    laneLabel(ctx,x,y,w,label,'±'+scale.toFixed(2));
+    const nn=values.length, stepX=w/(nn-1), zeroY=y+h/2;
+    ctx.save();
+    ctx.strokeStyle=COLORS.border; ctx.beginPath(); ctx.moveTo(x,zeroY); ctx.lineTo(x+w,zeroY); ctx.stroke();
+    ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2.5;
+    for (let i=0;i<nn;i++){ const px=x+i*stepX, py=zeroY-(values[i]/scale)*(h/2); if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+    ctx.stroke();
+    ctx.fillStyle=color;
+    for (let i=0;i<nn;i++){ const px=x+i*stepX, py=zeroY-(values[i]/scale)*(h/2); ctx.beginPath(); ctx.arc(px,py,3.2,0,Math.PI*2); ctx.fill(); }
+    ctx.restore();
+  }
+  function magLane(ctx,{x,y,w,h,values,color,label,highlight,bg,border}){
+    if (highlight) laneBackdrop(ctx,x,y,w,h,bg||COLORS.cyanBg,border||COLORS.cyanBorder);
+    const maxV = Math.max(0.05, ...values);
+    laneLabel(ctx,x,y,w,label,'max '+maxV.toFixed(2));
+    const nn=values.length, gap=5, bw=(w-gap*(nn-1))/nn;
+    ctx.save();
+    ctx.strokeStyle=COLORS.border; ctx.beginPath(); ctx.moveTo(x,y+h); ctx.lineTo(x+w,y+h); ctx.stroke();
+    for (let i=0;i<nn;i++){ const v=values[i], bx=x+i*(bw+gap), bh=(v/maxV)*h; ctx.fillStyle=color; roundRect(ctx,bx,y+h-bh,bw,Math.max(bh,1.5),2); ctx.fill(); }
+    ctx.restore();
+  }
+  function stackLanes(ctx, lanes, startY=150, laneH=112, gap=64, x=80, w=1440){
+    let y = startY;
+    for (const lane of lanes){
+      if (lane.type==='bar') barLane(ctx,{x,y,w,h:laneH,...lane});
+      else if (lane.type==='curve') curveLane(ctx,{x,y,w,h:laneH,...lane});
+      else if (lane.type==='mag') magLane(ctx,{x,y,w,h:laneH,...lane});
+      y += laneH + gap;
+    }
+  }
+  function drawFormula(ctx, text){
+    ctx.save(); ctx.font='600 21px "JetBrains Mono", monospace'; ctx.fillStyle=COLORS.purple;
+    ctx.textAlign='center'; ctx.fillText(text, 800, 46); ctx.restore();
+  }
+  function fmtNum(v){ if (v>=1e6) return (v/1e6).toFixed(v>=1e7?0:2)+'M'; if (v>=1e3) return (v/1e3).toFixed(v>=1e4?0:1)+'K'; return Math.round(v).toString(); }
+
+  function drawComplexity(ctx){
+    drawFormula(ctx, 'O(n²)  vs  O(n log n)');
+    const ns = [16, 1024, 65536];
+    const groupW = 1440/ns.length, baseY=680, maxBarH=440, x0=80;
+    const allVals = ns.flatMap(v=>[v*v, v*Math.log2(v)]);
+    const maxLog = Math.log10(Math.max(...allVals));
+    ctx.save();
+    ns.forEach((nv,gi) => {
+      const gx = x0 + gi*groupW;
+      const attn = nv*nv, hy = nv*Math.log2(nv);
+      [['Attn', attn, COLORS.red], ['Hyena', hy, COLORS.green]].forEach(([lbl,val,color],bi) => {
+        const bh = (Math.log10(val)/maxLog)*maxBarH, bw=110, bx = gx + 50 + bi*(bw+30);
+        ctx.fillStyle=color; roundRect(ctx,bx,baseY-bh,bw,bh,5); ctx.fill();
+        ctx.fillStyle=COLORS.text; ctx.font='700 13px "JetBrains Mono", monospace'; ctx.textAlign='center';
+        ctx.fillText(fmtNum(val), bx+bw/2, baseY-bh-12);
+        ctx.fillStyle=COLORS.text3; ctx.font='11px "JetBrains Mono", monospace';
+        ctx.fillText(lbl, bx+bw/2, baseY+20);
+      });
+      ctx.fillStyle=COLORS.text2; ctx.font='700 14px "JetBrains Mono", monospace'; ctx.textAlign='center';
+      ctx.fillText('n = '+nv.toLocaleString(), gx+groupW/2-15, baseY+48);
+    });
+    ctx.restore();
+  }
+
+  /* ---------- 10-step walkthrough ---------- */
+  const STEPS = [
+    { phase:'1 · INPUT', title:'The raw input sequence',
+      desc:`A length-${n} sequence u (one channel of token embeddings shown). u[0] = ${f2(P.u[0])}, u[8] = ${f2(P.u[8])}. Attention would next build an n×n score matrix from this; Hyena instead projects it into a few parallel streams and convolves.`,
+      legend:[['u — input sequence', COLORS.text2]],
+      draw(ctx){ drawFormula(ctx,'u ∈ ℝⁿ ,  n = '+n); stackLanes(ctx,[{type:'bar',values:P.u,color:COLORS.text2,label:'u — input sequence'}],160); } },
+
+    { phase:'2 · PROJECT', title:'Dense projections: x¹, x², v',
+      desc:`A short causal convolution + linear map turns u into three parallel streams: x¹ (feeds gate 1), x² (feeds gate 2), and v (the value stream to be filtered). x¹[3] = ${f2(P.x1[3])}, v[3] = ${f2(P.v[3])}. No pairwise interaction has happened yet — this is still per-position work.`,
+      legend:[['x¹ — gate 1 signal', COLORS.blue], ['x² — gate 2 signal', COLORS.amber], ['v — value stream', COLORS.green]],
+      draw(ctx){ drawFormula(ctx,'x¹, x², v = Proj(u)'); stackLanes(ctx,[
+        {type:'bar',values:P.x1,color:COLORS.blue,label:'x¹'},
+        {type:'bar',values:P.x2,color:COLORS.amber,label:'x²'},
+        {type:'bar',values:P.v,color:COLORS.green,label:'v'}
+      ]); } },
+
+    { phase:'3 · FILTER GEN', title:'The implicit filter h¹(t)',
+      desc:`Instead of storing a free n-length filter, a tiny MLP maps a positional encoding of t to a raw value; raw MLP(0) = ${f3(P.mlp1raw[0])}. Multiplying by a decay window e^(−αt) tames long-range terms: h¹(0) = ${f3(P.h1[0])} but h¹(12) = ${f3(P.h1[12])} — almost silenced. This filter is a continuous function of t, so it generalizes to any sequence length.`,
+      legend:[['raw MLP(PosEnc(t))', COLORS.cyan], ['h¹(t) after decay window', COLORS.purple]],
+      draw(ctx){ drawFormula(ctx,'h¹(t) = e^(−αt) · MLP(PosEnc(t))'); stackLanes(ctx,[
+        {type:'curve',values:P.mlp1raw,color:COLORS.cyan,label:'MLP(PosEnc(t)) — raw'},
+        {type:'curve',values:P.h1,color:COLORS.purple,label:'h¹(t) — windowed filter',highlight:true}
+      ]); } },
+
+    { phase:'4 · FFT', title:'FFT of v and h¹',
+      desc:`Both streams are transformed to the frequency domain with the FFT: O(n log n) = ${n*Math.log2(n)} operations, vs O(n²) = ${n*n} for a naive direct convolution at this length. |F(v)|[1] = ${f2(P.magFv[1])}, |F(h¹)|[1] = ${f2(P.magFh1[1])}.`,
+      legend:[['|F(v)| — magnitude spectrum', COLORS.green], ['|F(h¹)| — magnitude spectrum', COLORS.purple]],
+      draw(ctx){ drawFormula(ctx,'F(v),  F(h¹)  —  FFT,  O(n log n)'); stackLanes(ctx,[
+        {type:'mag',values:P.magFv,color:COLORS.green,label:'|F(v)|'},
+        {type:'mag',values:P.magFh1,color:COLORS.purple,label:'|F(h¹)|'}
+      ]); } },
+
+    { phase:'5 · FREQ MULT', title:'Pointwise multiply in frequency',
+      desc:`The convolution theorem: circular convolution in time equals pointwise complex multiplication in frequency. |F(v)·F(h¹)|[1] = ${f2(P.magProd1[1])} ≈ |F(v)|[1] × |F(h¹)|[1] = ${f2(P.magFv[1]*P.magFh1[1])}. This single O(n) multiply replaces an O(n²) time-domain convolution.`,
+      legend:[['|F(v) · F(h¹)| — product spectrum', COLORS.cyan]],
+      draw(ctx){ drawFormula(ctx,'F(v) · F(h¹)   (pointwise, O(n))'); stackLanes(ctx,[
+        {type:'mag',values:P.magProd1,color:COLORS.cyan,label:'|F(v)·F(h¹)|',highlight:true}
+      ],200); } },
+
+    { phase:'6 · INVERSE FFT', title:'Back to the time domain: h¹ * v',
+      desc:`An inverse FFT (also O(n log n)) turns the product spectrum back into a time-domain signal — the long convolution h¹ * v, computed without ever forming an n×n matrix. (h¹*v)[5] = ${f2(P.conv1[5])}.`,
+      legend:[['h¹ * v — filtered value stream', COLORS.cyan]],
+      draw(ctx){ drawFormula(ctx,'h¹ * v = IFFT( F(v) · F(h¹) )'); stackLanes(ctx,[
+        {type:'bar',values:P.conv1,color:COLORS.cyan,label:'h¹ * v',highlight:true}
+      ],200); } },
+
+    { phase:'7 · GATE 1', title:'Gate 1: z¹ = x¹ ⊙ (h¹ * v)',
+      desc:`Elementwise multiplication by x¹ is where data-dependence enters — the same filter h¹ produces a different effective output at every position depending on the content of x¹. z¹[5] = x¹[5] × (h¹*v)[5] = ${f2(P.x1[5])} × ${f2(P.conv1[5])} = ${f2(P.z1[5])}.`,
+      legend:[['x¹ — gate', COLORS.blue], ['h¹ * v — filtered stream', COLORS.cyan], ['z¹ — gated output', COLORS.green]],
+      draw(ctx){ drawFormula(ctx,'z¹ = x¹ ⊙ (h¹ * v)'); stackLanes(ctx,[
+        {type:'bar',values:P.x1,color:COLORS.blue,label:'x¹'},
+        {type:'bar',values:P.conv1,color:COLORS.cyan,label:'h¹ * v'},
+        {type:'bar',values:P.z1,color:COLORS.green,label:'z¹ = x¹ ⊙ (h¹ * v)',highlight:true}
+      ]); } },
+
+    { phase:'8 · RECURSE', title:'Second implicit filter + FFT convolution',
+      desc:`Steps 3–6 repeat one recursion deeper: a second, independently-parameterized implicit filter h² is generated and FFT-convolved with z¹. h²(0) = ${f3(P.h2[0])}. (h² * z¹)[5] = ${f2(P.conv2[5])}. This is what makes Hyena "order N=2" — two nested filter+gate rounds.`,
+      legend:[['h²(t) — second implicit filter', COLORS.purple], ['h² * z¹ — filtered z¹', COLORS.cyan]],
+      draw(ctx){ drawFormula(ctx,'h² * z¹  (same FFT trick, one level deeper)'); stackLanes(ctx,[
+        {type:'curve',values:P.h2,color:COLORS.purple,label:'h²(t)'},
+        {type:'bar',values:P.conv2,color:COLORS.cyan,label:'h² * z¹',highlight:true}
+      ]); } },
+
+    { phase:'9 · GATE 2 / OUTPUT', title:'Gate 2: y = x² ⊙ (h² * z¹)',
+      desc:`The final gate produces the Hyena layer's output. y[5] = x²[5] × (h²*z¹)[5] = ${f2(P.x2[5])} × ${f2(P.conv2[5])} = ${f2(P.y[5])}. Every value in y depends on every position of u (global receptive field) yet no n×n attention matrix was ever built.`,
+      legend:[['x² — gate', COLORS.amber], ['h² * z¹ — filtered stream', COLORS.cyan], ['y — final output', COLORS.green]],
+      draw(ctx){ drawFormula(ctx,'y = x² ⊙ (h² * z¹)'); stackLanes(ctx,[
+        {type:'bar',values:P.x2,color:COLORS.amber,label:'x²'},
+        {type:'bar',values:P.conv2,color:COLORS.cyan,label:'h² * z¹'},
+        {type:'bar',values:P.y,color:COLORS.green,label:'y — Hyena output',highlight:true}
+      ]); } },
+
+    { phase:'10 · COMPLEXITY', title:'Why it matters at scale',
+      desc:`At n=16 the gap is modest: n² = 256 vs n·log₂n = 64 (4× fewer ops). At n=1,024: 1,048,576 vs 10,240 (~102×). At n=65,536: ~4.29B vs 1,048,576 (~4096×). This asymptotic gap — not the n=16 toy case — is why Hyena targets genomics, high-resolution pixel sequences, and very long documents.`,
+      legend:[['Attention — O(n²)', COLORS.red], ['Hyena — O(n log n)', COLORS.green]],
+      draw(ctx){ drawComplexity(ctx); } }
+  ];
+
+  /* ---------- render + controls ---------- */
+  const stage = document.getElementById('stage');
+  const ctx2d = stage.getContext('2d');
+  const phaseBadge = document.getElementById('phaseBadge');
+  const stepCounter = document.getElementById('stepCounter');
+  const infoTitle = document.getElementById('infoTitle');
+  const infoDesc = document.getElementById('infoDesc');
+  const legendEl = document.getElementById('legend');
+  const dotsEl = document.getElementById('dots');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  let cur = 0;
+
+  function renderLegend(items){
+    legendEl.innerHTML = '';
+    items.forEach(([label,color]) => {
+      const d = document.createElement('div'); d.className = 'legend-item';
+      d.innerHTML = `<span class="legend-swatch" style="background:${color}"></span><span>${label}</span>`;
+      legendEl.appendChild(d);
+    });
+  }
+  function renderDots(){
+    dotsEl.innerHTML = '';
+    STEPS.forEach((s,i) => {
+      const b = document.createElement('button');
+      b.className = 'dot' + (i===cur ? ' active' : (i<cur ? ' done' : ''));
+      b.setAttribute('aria-label', 'Step '+(i+1));
+      b.addEventListener('click', () => { cur = i; render(); });
+      dotsEl.appendChild(b);
+    });
+  }
+  function render(){
+    ctx2d.clearRect(0,0,1600,760);
+    ctx2d.fillStyle = COLORS.surface; ctx2d.fillRect(0,0,1600,760);
+    const step = STEPS[cur];
+    step.draw(ctx2d);
+    phaseBadge.textContent = step.phase;
+    stepCounter.textContent = `Step ${cur+1} / ${STEPS.length}`;
+    infoTitle.textContent = step.title;
+    infoDesc.textContent = step.desc;
+    renderLegend(step.legend);
+    renderDots();
+    prevBtn.disabled = cur === 0;
+    nextBtn.disabled = cur === STEPS.length - 1;
+  }
+  prevBtn.addEventListener('click', () => { if (cur>0){ cur--; render(); } });
+  nextBtn.addEventListener('click', () => { if (cur<STEPS.length-1){ cur++; render(); } });
+  resetBtn.addEventListener('click', () => { cur = 0; render(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight'){ if (cur<STEPS.length-1){ cur++; render(); } }
+    else if (e.key === 'ArrowLeft'){ if (cur>0){ cur--; render(); } }
+    else if (e.key === 'r' || e.key === 'R'){ cur = 0; render(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

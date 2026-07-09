@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ShuffleNet v1/v2 — Channel Shuffle & Efficient Group Convolution</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,600&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --display: 'Fraunces', Georgia, serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); line-height: 1.6;
+  padding: 2.5rem 1.25rem 5rem;
+}
+.wrap { max-width: 880px; margin: 0 auto; }
+
+/* ---- Header ---- */
+header.page-head { margin-bottom: 2rem; }
+h1.title {
+  font-family: var(--display); font-weight: 700; font-style: italic;
+  font-size: clamp(28px, 5vw, 42px); letter-spacing: -0.01em; margin: 0 0 6px;
+}
+.subtitle { color: var(--text2); font-size: 15px; max-width: 640px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px;
+}
+.tag-foundational { background: var(--green-bg); color: var(--green-mid); }
+.tag-intermediate { background: var(--amber-bg); color: var(--amber-mid); }
+.tag-advanced     { background: var(--red-bg);   color: var(--red-mid); }
+.tag-expert       { background: var(--purple-bg); color: var(--purple-mid); }
+.tag-category     { background: var(--blue-bg);   color: var(--blue-mid); }
+.tag-complexity   { background: var(--cyan-bg);   color: var(--cyan-mid); }
+
+/* ---- Cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+.section-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; cursor: pointer;
+}
+.section-number {
+  width: 28px; height: 28px; background: var(--blue-bg); color: var(--blue-mid);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.chevron { color: var(--text3); transition: transform 0.25s; font-size: 13px; }
+.card.collapsed .chevron { transform: rotate(-90deg); }
+.card-body { overflow: hidden; }
+.card.collapsed .card-body { display: none; }
+.card-body p { color: var(--text2); font-size: 14.5px; }
+.card-body strong { color: var(--text); }
+
+/* ---- concept boxes ---- */
+.concept-box { border-radius: var(--radius); padding: 1rem 1.25rem; margin: 1rem 0; }
+.concept-box-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.concept-box p { margin: 0; font-size: 14px; }
+.concept-box.insight { background: var(--green-bg); border: 1px solid var(--green-border); }
+.concept-box.insight .concept-box-title { color: var(--green-mid); }
+.concept-box.insight p { color: var(--green-text); }
+.concept-box.warning { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.concept-box.warning .concept-box-title { color: var(--amber-mid); }
+.concept-box.warning p { color: var(--amber-text); }
+.concept-box.key-concept { background: var(--blue-bg); border: 1px solid var(--blue-border); }
+.concept-box.key-concept .concept-box-title { color: var(--blue-mid); }
+.concept-box.key-concept p { color: var(--blue-text); }
+.concept-box.danger { background: var(--red-bg); border: 1px solid var(--red-border); }
+.concept-box.danger .concept-box-title { color: var(--red-mid); }
+.concept-box.danger p { color: var(--red-text); }
+.concept-box.math { background: var(--cyan-bg); border: 1px solid var(--cyan-border); }
+.concept-box.math .concept-box-title { color: var(--cyan-mid); }
+.concept-box.math p { color: var(--cyan-text); }
+
+.eq { text-align: center; padding: 14px 20px; margin: 0.75rem 0; background: var(--cyan-bg);
+  border: 1px solid var(--cyan-border); border-radius: var(--radius); color: var(--cyan-text); overflow-x: auto; }
+
+table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; }
+table.cmp th, table.cmp td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+table.cmp th { color: var(--text3); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.4px; }
+table.cmp td { color: var(--text2); }
+table.cmp td.hl { color: var(--text); font-weight: 600; }
+
+/* ---- viz card specific ---- */
+.viz-card { padding: 1.5rem 1.25rem; }
+.stage-label {
+  text-align: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--purple-mid); font-weight: 700; margin-bottom: 10px; min-height: 14px;
+}
+.canvas-wrap {
+  position: relative; width: 100%; min-height: 300px; background: var(--bg2);
+  border-radius: var(--radius-lg); border: 1px solid var(--border);
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.canvas-wrap { overflow-x: auto; padding: 10px; }
+#stage { position: relative; width: 640px; height: 300px; flex-shrink: 0; }
+.cell { z-index: 2; }
+.group-band { z-index: 1; }
+.flow-label { z-index: 1; }
+.cell {
+  position: absolute; width: 46px; height: 46px; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff;
+  transition: left 0.7s cubic-bezier(.65,0,.35,1), top 0.7s cubic-bezier(.65,0,.35,1), background 0.4s, opacity 0.4s, transform 0.4s, box-shadow 0.4s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.cell .sub { font-size: 8px; font-weight: 500; opacity: 0.85; }
+.cell.dim { opacity: 0.25; }
+.cell.pulse { box-shadow: 0 0 0 3px var(--purple-mid), 0 2px 10px rgba(0,0,0,0.25); transform: scale(1.08); }
+.group-band {
+  position: absolute; border-radius: 10px; border: 2px dashed var(--border2);
+  transition: left 0.7s cubic-bezier(.65,0,.35,1), top 0.7s cubic-bezier(.65,0,.35,1), width 0.7s, height 0.7s, opacity 0.4s;
+}
+.svg-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.flow-label {
+  position: absolute; font-family: var(--mono); font-size: 10px; color: var(--text3);
+  transition: left 0.7s, top 0.7s, opacity 0.4s;
+}
+
+/* ---- info card ---- */
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-top: 1rem; }
+.phase-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.phase-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 3px 10px; border-radius: 20px; background: var(--purple-bg); color: var(--purple-mid);
+}
+.step-counter { font-family: var(--mono); font-size: 11px; color: var(--text3); }
+.info-title { font-size: 16.5px; font-weight: 700; margin: 0 0 6px; }
+.info-desc { font-size: 14px; color: var(--text2); margin: 0; }
+.info-desc .hl { color: var(--purple-mid); font-weight: 600; font-family: var(--mono); font-size: 13px; }
+
+/* ---- controls ---- */
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 1rem; }
+.btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 10px 20px;
+  border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text); cursor: pointer; transition: all 0.2s;
+}
+.btn:hover { background: var(--bg2); border-color: var(--purple-border); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple-mid); }
+.btn-primary:hover { background: var(--purple-border); color: white; }
+
+.progress-wrap { display: flex; justify-content: center; gap: 6px; margin-top: 1rem; flex-wrap: wrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border2); transition: all 0.25s; cursor: pointer; border: none; padding: 0; }
+.dot:hover { transform: scale(1.2); }
+.dot.active { background: var(--purple-mid); transform: scale(1.3); }
+.dot.done { background: var(--green-mid); }
+
+.kbd-hint { text-align: center; margin-top: 0.75rem; font-size: 11px; color: var(--text3); }
+kbd { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border2); border-radius: 4px; padding: 1px 5px; }
+
+.legend { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text2); }
+.legend-swatch { width: 13px; height: 13px; border-radius: 4px; flex-shrink: 0; }
+
+footer.credits { text-align: center; color: var(--text3); font-size: 11.5px; margin-top: 3rem; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="page-head">
+    <h1 class="title">ShuffleNet v1 / v2</h1>
+    <p class="subtitle">How grouped 1×1 convolutions get cheap, and how a parameter-free <em>channel shuffle</em> op lets isolated groups talk to each other again.</p>
+    <div class="tags">
+      <span class="tag tag-intermediate">Intermediate</span>
+      <span class="tag tag-category">CNN / Efficient Architectures</span>
+      <span class="tag tag-complexity">O(1) shuffle cost</span>
+    </div>
+  </header>
+
+  <div id="cards">
+
+  <div class="card" data-card="1">
+    <div class="section-header"><div class="section-number">1</div><div class="section-title">Understanding the Concept</div><span class="chevron">▾</span></div>
+    <div class="card-body">
+      <p><strong>What it does:</strong> A standard 1×1 convolution mixes every input channel into every output channel — that's where most of the FLOPs in a compact CNN go. A <strong>grouped 1×1 convolution</strong> slices the channels into <em>g</em> groups and convolves each group independently, cutting compute and parameters by roughly a factor of <em>g</em>. The catch: group A's output only ever sees group A's input. Stack a few grouped layers and the network turns into <em>g</em> parallel sub-networks that never exchange information — accuracy collapses.</p>
+      <p><strong>The fix:</strong> after a grouped convolution, reshape the channel dimension into a (groups × channels-per-group) matrix, <em>transpose</em> it, and flatten it back. This <strong>channel shuffle</strong> reorders channels so that the next grouped convolution's groups each contain a slice from <em>every</em> previous group. No parameters, no FLOPs, just an index permutation — and information flows across groups again.</p>
+      <div class="concept-box insight">
+        <div class="concept-box-title">💡 If you remember one thing</div>
+        <p>Channel shuffle is a free (zero-parameter, zero-FLOP) permutation that turns a stack of isolated grouped convolutions into a network with the same cross-channel connectivity as a full convolution — at a fraction of the cost.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-card="2">
+    <div class="section-header"><div class="section-number">2</div><div class="section-title">Why This Exists — Historical Context</div><span class="chevron">▾</span></div>
+    <div class="card-body">
+      <p><strong>The problem:</strong> by 2017, mobile/embedded vision needed CNNs that ran in real time on &lt;1 GFLOP budgets. MobileNet used depthwise-separable convolutions (depthwise 3×3 + pointwise 1×1) to cut cost, but the pointwise 1×1 layers — which mix all channels — still dominated compute in very small models (up to ~95% of FLOPs at ShuffleNet-scale widths). Naively replacing those 1×1s with grouped convolutions (as in AlexNet's original two-GPU split) is cheap but starves the network of cross-group information.</p>
+      <p><strong>The breakthrough:</strong> Zhang et al. (ShuffleNet v1, CVPR 2018) showed that a parameter-free channel shuffle after each grouped 1×1 restores cross-group flow, letting you push group count much higher than AlexNet-style grouping ever could without hurting accuracy. Ma et al. (ShuffleNet v2, ECCV 2018) then showed that FLOP count alone doesn't predict real device latency — memory access cost (MAC) and fragmentation matter just as much — and derived four practical design guidelines (G1–G4) that led to a simpler, faster block using channel split instead of heavy grouping.</p>
+      <table class="cmp">
+        <tr><th>Dimension</th><th>Grouped conv alone (before)</th><th>+ Channel shuffle (after)</th></tr>
+        <tr><td>Cross-group information</td><td>None — groups fully isolated</td><td>Full mixing after 1 shuffle</td></tr>
+        <tr><td>Extra parameters</td><td>—</td><td class="hl">Zero</td></tr>
+        <tr><td>Extra FLOPs</td><td>—</td><td class="hl">Zero (pure reshape/transpose)</td></tr>
+        <tr><td>Accuracy at high group count</td><td>Degrades sharply</td><td>Matches/exceeds ungrouped baseline</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--text2);"><strong>Key papers:</strong> "ShuffleNet: An Extremely Efficient CNN for Mobile Devices" (Zhang, Zhou, Lin, Sun — CVPR 2018); "ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design" (Ma, Zhang, Zheng, Sun — ECCV 2018).</p>
+    </div>
+  </div>
+
+  <div class="card" data-card="3">
+    <div class="section-header"><div class="section-number">3</div><div class="section-title">How It Works Internally &amp; The Math</div><span class="chevron">▾</span></div>
+    <div class="card-body">
+      <p>Let a grouped convolution split <em>C</em> channels into <em>g</em> groups of <em>n = C/g</em> channels each. Written as a flat index <em>i ∈ {0,…,C−1}</em>, group membership is <code>group(i) = ⌊i / n⌋</code>. The channel-shuffle operator does exactly three tensor ops on the channel axis, with the spatial/batch axes untouched:</p>
+      <ol style="color:var(--text2);font-size:14.5px;">
+        <li><strong>Reshape</strong> the length-<em>C</em> channel axis into a <em>(g, n)</em> matrix — row = original group, column = position within group.</li>
+        <li><strong>Transpose</strong> to <em>(n, g)</em> — rows and columns swap.</li>
+        <li><strong>Flatten</strong> row-major back to length <em>C</em>.</li>
+      </ol>
+      <div class="eq">$$j \;=\; (i \bmod n)\cdot g \;+\; \left\lfloor \frac{i}{n} \right\rfloor \qquad\Longleftrightarrow\qquad \text{new position } j \text{ receives old channel } i$$</div>
+      <p>Equivalently, the new group that channel <em>i</em> lands in after the shuffle is <code>i mod n</code> — i.e. one channel from <em>every</em> original group is interleaved into each new group. A second grouped convolution applied after this permutation therefore has, in its receptive field over channels, contributions from all <em>g</em> original groups: full cross-group connectivity restored with a pure index permutation (identical cost to a no-op on well-optimized hardware).</p>
+      <div class="concept-box key-concept">
+        <div class="concept-box-title">Key invariant</div>
+        <p>The shuffle is a <em>bijection</em> on channel indices — every channel is used exactly once, nothing is dropped or duplicated, and it is its own well-defined inverse operation (un-shuffle = transpose back). This is what makes it "free": it's data movement, not computation.</p>
+      </div>
+      <p><strong>ShuffleNet v2's guidelines (G1–G4)</strong>, derived from measuring real GPU/ARM latency rather than counting FLOPs: (G1) equal channel widths minimize memory access cost (MAC) for a fixed FLOP budget; (G2) excessive grouping increases MAC despite lowering FLOPs; (G3) network fragmentation (too many small ops) hurts parallelism; (G4) element-wise ops (ReLU, add) are cheap in FLOPs but not in MAC/latency. The v2 block acts on this: it replaces the 1×1 group convolutions with regular 1×1 convolutions on half the channels via a <strong>channel split</strong> (one branch identity, one branch transformed), concatenates, and shuffles — giving v1's benefit of cross-group mixing with fewer grouped ops and less fragmentation.</p>
+      <div class="concept-box warning">
+        <div class="concept-box-title">⚠️ Common misconception</div>
+        <p>"Grouped convolution is what makes ShuffleNet fast." Grouping alone is available in AlexNet (2012) and MobileNet's depthwise trick — it isn't novel. The actual contribution is making <em>heavy</em> grouping (g up to 8) usable at all, by neutralizing its information-isolation side effect with a free shuffle.</p>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /#cards -->
+
+  <div class="card viz-card" id="viz-card">
+    <div class="section-header"><div class="section-number">4</div><div class="section-title">Interactive Walkthrough — Channel Shuffle</div></div>
+    <div class="stage-label" id="stageLabel">—</div>
+    <div class="canvas-wrap"><div id="stage"></div></div>
+    <div class="legend" id="legend"></div>
+
+    <div class="info-card">
+      <div class="phase-row">
+        <span class="phase-badge" id="phaseBadge">PHASE</span>
+        <span class="step-counter" id="stepCounter">Step 1 / 8</span>
+      </div>
+      <div class="info-title" id="infoTitle">Title</div>
+      <p class="info-desc" id="infoDesc">Description</p>
+    </div>
+
+    <div class="controls">
+      <button class="btn" id="prevBtn">&larr; Prev</button>
+      <button class="btn btn-primary" id="nextBtn">Next &rarr;</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+    <div class="progress-wrap" id="dots"></div>
+    <div class="kbd-hint">Use <kbd>&larr;</kbd> <kbd>&rarr;</kbd> arrow keys to navigate, <kbd>R</kbd> to reset</div>
+  </div>
+
+  <div class="card" data-card="5">
+    <div class="section-header"><div class="section-number">5</div><div class="section-title">v1 vs v2 &amp; Key Takeaways</div><span class="chevron">▾</span></div>
+    <div class="card-body">
+      <table class="cmp">
+        <tr><th>Dimension</th><th>ShuffleNet v1</th><th>ShuffleNet v2</th></tr>
+        <tr><td>Branch mixing</td><td>Grouped 1×1 → shuffle → depthwise 3×3 → grouped 1×1, added to shortcut</td><td class="hl">Channel split → identity branch + transform branch → concat → shuffle</td></tr>
+        <tr><td>1×1 convolutions</td><td>Grouped (g&gt;1) throughout</td><td class="hl">Regular (ungrouped) 1×1 on half the channels</td></tr>
+        <tr><td>Optimized for</td><td>FLOPs / parameter count</td><td class="hl">Real device latency (MAC-aware)</td></tr>
+        <tr><td>Design guidelines used</td><td>None formalized</td><td class="hl">G1–G4 (equal widths, low grouping, low fragmentation, low elementwise cost)</td></tr>
+        <tr><td>Element-wise add</td><td>Residual add (extra MAC)</td><td class="hl">Concat instead of add (cheaper)</td></tr>
+      </table>
+      <p style="font-size:14px;color:var(--text2);">Both versions rely on the same core trick — channel shuffle — to keep grouped/split computation cheap while preserving full cross-channel information flow. Use ShuffleNet-style blocks when you need a mobile/edge-deployable CNN backbone with a hard compute or latency budget and can tolerate a few points of accuracy versus a full-width network. Prefer v2's block over v1's when actual inference latency (not just FLOPs) is the target metric, since MAC-aware design tends to win on real hardware.</p>
+      <div class="concept-box insight">
+        <div class="concept-box-title">🎯 Takeaway</div>
+        <p>Channel shuffle is the reusable idea: any time you factor a layer into independent groups to save compute (grouped conv, mixture-of-experts routing, multi-head splits), you can add a cheap permutation step afterward to prevent the groups from becoming information silos.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-card="6">
+    <div class="section-header"><div class="section-number">6</div><div class="section-title">Code: Channel Shuffle From Scratch</div><span class="chevron">▾</span></div>
+    <div class="card-body">
+      <p style="font-size:14px;">The entire operation is one reshape, one transpose, and one flatten — no learnable weights:</p>
+      <div class="code-panel" style="margin-top:0.5rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;white-space:pre;color:var(--text2);">import torch
+
+def channel_shuffle(x: torch.Tensor, groups: int) -> torch.Tensor:
+    """x: (batch, channels, H, W) — output of a grouped convolution."""
+    b, c, h, w = x.shape
+    ch_per_group = c // groups
+
+    # 1) reshape channel axis: (C,) -> (groups, ch_per_group)
+    x = x.view(b, groups, ch_per_group, h, w)
+
+    # 2) transpose groups <-> ch_per_group (the actual "shuffle")
+    x = x.transpose(1, 2).contiguous()
+
+    # 3) flatten back to (C,) — new order interleaves all groups
+    x = x.view(b, c, h, w)
+    return x
+
+# Used inside a ShuffleNet unit:
+#   out = grouped_conv1x1(x)      # cheap, but groups are isolated
+#   out = channel_shuffle(out, g) # free — restores cross-group flow
+#   out = depthwise_conv3x3(out)
+#   out = grouped_conv1x1(out)</div>
+      <div class="concept-box warning">
+        <div class="concept-box-title">⚠️ Gotcha</div>
+        <p><code>.contiguous()</code> after <code>transpose</code> is required — PyTorch transposes are views with non-contiguous strides, and the following <code>.view()</code> will error (or silently reinterpret memory incorrectly) without it.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="credits">ShuffleNet v1 (Zhang et al., CVPR 2018) &middot; ShuffleNet v2 (Ma et al., ECCV 2018)</footer>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------- card collapse ---------- */
+  document.querySelectorAll('.card[data-card] .section-header').forEach(h=>{
+    h.addEventListener('click', ()=> h.closest('.card').classList.toggle('collapsed'));
+  });
+
+  /* ---------- constants: g groups x n channels-per-group ---------- */
+  var g = 3, n = 4, C = g * n; // 3 groups of 4 = 12 channels total
+
+  var channels = [];
+  for (var i = 0; i < C; i++) channels.push({ id: i, group: Math.floor(i / n), pos: i % n });
+
+  function groupColor(gi) {
+    return ['var(--blue-mid)', 'var(--green-mid)', 'var(--amber-mid)'][gi];
+  }
+
+  /* ---------- layout functions (return {x,y} for a channel id) ---------- */
+  var CELL = 44, GAP = 8;
+
+  function rowLayout(i) {
+    return { x: 12 + i * (CELL + GAP), y: 128 };
+  }
+  function matrixLayout(i) { // (g rows x n cols) — reshape view
+    var gi = Math.floor(i / n), pos = i % n;
+    var gapX = 14, gapY = 14, colStart = 211, rowStart = 70;
+    return { x: colStart + pos * (CELL + gapX), y: rowStart + gi * (CELL + gapY) };
+  }
+  function transposeLayout(i) { // (n rows x g cols) — transposed view
+    var gi = Math.floor(i / n), pos = i % n;
+    var gapX = 14, gapY = 14, colStart = 240, rowStart = 41;
+    return { x: colStart + gi * (CELL + gapX), y: rowStart + pos * (CELL + gapY) };
+  }
+  function idOfJ(j) { var gi = j % g, pos = Math.floor(j / g); return gi * n + pos; }
+  function jOfId(i) { var gi = Math.floor(i / n), pos = i % n; return pos * g + gi; }
+  function shuffledLayout(i) { // flatten of transpose — new interleaved order
+    var j = jOfId(i);
+    return { x: 12 + j * (CELL + GAP), y: 128 };
+  }
+  function splitLayout(i) { // ShuffleNet v2: two rows of 6
+    var rowStartX = 168, gap2 = 8;
+    if (i < 6) return { x: rowStartX + i * (CELL + gap2), y: 90 };
+    var k = i - 6;
+    return { x: rowStartX + k * (CELL + gap2), y: 196 };
+  }
+
+  var LAYOUTS = { row: rowLayout, matrix: matrixLayout, transpose: transposeLayout, 'row-shuffled': shuffledLayout, split: splitLayout };
+
+  function bandForIds(ids, layoutFn, pad) {
+    pad = pad || 8;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach(function (i) {
+      var p = layoutFn(i);
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + CELL); maxY = Math.max(maxY, p.y + CELL);
+    });
+    return { x: minX - pad, y: minY - pad, w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
+  }
+  function chunkIds(c) { return [0, 1, 2, 3].map(function (k) { return c * n + k; }); }
+  function newChunkIds(c) { return [0, 1, 2, 3].map(function (k) { return idOfJ(c * n + k); }); }
+
+  /* ---------- step data ---------- */
+  var steps = [
+    {
+      phase: 'GROUPED CONV', layout: 'row', bands: 'groups',
+      stageLabel: 'Stage 1 — grouped 1×1 conv output (list view)',
+      title: 'Grouped 1×1 convolution — groups isolated',
+      desc: '<em>C</em>=12 output channels come from <em>g</em>=3 independent 1×1 convs, each reading only its own <em>n</em>=4 input channels. Compute drops by roughly <span class="hl">g×</span> versus a full 1×1 conv — but group 0 (blue) has zero mathematical dependence on group 1 (green) or group 2 (amber).'
+    },
+    {
+      phase: 'THE PROBLEM', layout: 'row', bands: 'groups-silo',
+      stageLabel: 'Stage 1 — grouped 1×1 conv output (list view)',
+      title: 'Stacked grouped convs never mix colors',
+      desc: 'Feed this straight into another grouped conv and blue only ever produces blue. Stack enough grouped layers and the network becomes <span class="hl">g</span> disconnected skinny sub-networks — accuracy degrades sharply as g grows.'
+    },
+    {
+      phase: 'RESHAPE', layout: 'matrix', bands: 'matrix-rows',
+      stageLabel: 'Stage 2 — reshape channel axis to (groups=3, per-group=4)',
+      title: 'View the channel axis as a (g × n) matrix',
+      desc: 'Reshape the flat 12-channel axis into <span class="hl">g=3</span> rows (one per group) × <span class="hl">n=4</span> columns (position within group). Pure metadata — no data actually moves yet.'
+    },
+    {
+      phase: 'TRANSPOSE', layout: 'transpose', bands: 'matrix-cols',
+      stageLabel: 'Stage 3 — transpose to (per-group=4, groups=3)',
+      title: 'Transpose rows ↔ columns',
+      desc: 'Swap the two axes: (g, n) → (n, g). This <em>is</em> the entire "shuffle" — a matrix transpose on the channel dimension, a metadata-only stride swap on real hardware.'
+    },
+    {
+      phase: 'FLATTEN', layout: 'row-shuffled', bands: 'none',
+      stageLabel: 'Stage 4 — flattened, shuffled order',
+      title: 'Flatten back — channels are now interleaved',
+      desc: 'Row-major flatten of the transposed matrix gives new position <span class="hl">j = (i mod n)·g + ⌊i/n⌋</span>. Colors (= original group) now cycle B·G·A·B·G·A… every 3 channels instead of sitting in solid blocks.'
+    },
+    {
+      phase: 'NEXT GROUPED CONV', layout: 'row-shuffled', bands: 'new-groups',
+      stageLabel: 'Stage 4 — flattened, shuffled order',
+      title: 'Cross-group flow, for free',
+      desc: 'Group the shuffled channels into new contiguous chunks of 4 for the next grouped 1×1 conv. Every new chunk now contains channels from <span class="hl">all 3</span> original groups — full cross-group connectivity, at zero extra parameters or FLOPs.'
+    },
+    {
+      phase: 'SHUFFLENET V2', layout: 'split', bands: 'split',
+      stageLabel: 'Stage 5 — ShuffleNet v2 unit (channel split)',
+      title: 'Channel split replaces heavy grouping',
+      desc: 'v2 splits channels in half: one half passes through <span class="hl">untouched</span> (identity), the other goes through cheap regular (ungrouped) 1×1 → depthwise 3×3 → 1×1. Concatenate, then apply the <em>same</em> channel shuffle before the next block — satisfying G1 (equal widths) and G2 (avoid heavy grouping).'
+    }
+  ];
+
+  /* ---------- DOM: build 12 cell elements once ---------- */
+  var stage = document.getElementById('stage');
+  var cellEls = channels.map(function (ch) {
+    var el = document.createElement('div');
+    el.className = 'cell';
+    el.innerHTML = '<span class="idlabel">c' + ch.id + '</span><span class="sub">g' + ch.group + '</span>';
+    stage.appendChild(el);
+    return el;
+  });
+
+  var dynamicEls = []; // bands + flow-labels, rebuilt each render
+
+  function clearDynamic() {
+    dynamicEls.forEach(function (el) { el.remove(); });
+    dynamicEls = [];
+  }
+
+  function addBand(box, color, label, labelPos) {
+    var band = document.createElement('div');
+    band.className = 'group-band';
+    band.style.left = box.x + 'px'; band.style.top = box.y + 'px';
+    band.style.width = box.w + 'px'; band.style.height = box.h + 'px';
+    band.style.borderColor = color;
+    stage.appendChild(band); dynamicEls.push(band);
+
+    var lbl = document.createElement('div');
+    lbl.className = 'flow-label';
+    lbl.style.color = color; lbl.style.fontWeight = '700';
+    lbl.textContent = label;
+    if (labelPos === 'left') {
+      // vertically centered, to the left of the band — avoids colliding with stacked rows above
+      lbl.style.left = (box.x - 62) + 'px';
+      lbl.style.top = (box.y + box.h / 2 - 7) + 'px';
+      lbl.style.textAlign = 'right'; lbl.style.width = '54px';
+    } else {
+      lbl.style.left = box.x + 'px'; lbl.style.top = (box.y - 17) + 'px';
+    }
+    stage.appendChild(lbl); dynamicEls.push(lbl);
+    return box;
+  }
+
+  function addMark(x, y, text, color) {
+    var m = document.createElement('div');
+    m.className = 'flow-label';
+    m.style.left = x + 'px'; m.style.top = y + 'px';
+    m.style.color = color; m.style.fontWeight = '700'; m.style.fontSize = '13px';
+    m.textContent = text;
+    stage.appendChild(m); dynamicEls.push(m);
+  }
+
+  function renderBands(step) {
+    clearDynamic();
+    var layoutFn = LAYOUTS[step.layout];
+    if (step.bands === 'groups' || step.bands === 'matrix-rows' || step.bands === 'matrix-cols') {
+      var labelPos = step.bands === 'matrix-rows' ? 'left' : 'top';
+      var boxes = [];
+      for (var c = 0; c < g; c++) {
+        boxes.push(addBand(bandForIds(chunkIds(c), layoutFn), groupColor(c), 'group ' + c, labelPos));
+      }
+    } else if (step.bands === 'groups-silo') {
+      var boxes2 = [];
+      for (var c2 = 0; c2 < g; c2++) boxes2.push(bandForIds(chunkIds(c2), layoutFn));
+      boxes2.forEach(function (b, idx) { addBand(b, groupColor(idx), 'group ' + idx); });
+      for (var k = 0; k < boxes2.length - 1; k++) {
+        var b1 = boxes2[k], b2 = boxes2[k + 1];
+        var mx = b1.x + b1.w + (b2.x - (b1.x + b1.w)) / 2 - 6;
+        var my = b1.y + b1.h + 10;
+        addMark(mx, my, '✕ no flow', 'var(--red-mid)');
+      }
+    } else if (step.bands === 'new-groups') {
+      for (var c3 = 0; c3 < g; c3++) {
+        addBand(bandForIds(newChunkIds(c3), layoutFn), 'var(--purple-mid)', 'new group ' + c3);
+      }
+    } else if (step.bands === 'split') {
+      addBand(bandForIds([0, 1, 2, 3, 4, 5], layoutFn), 'var(--text3)', 'identity (unchanged)');
+      addBand(bandForIds([6, 7, 8, 9, 10, 11], layoutFn), 'var(--purple-mid)', 'transform: 1×1 → dw3×3 → 1×1');
+    }
+  }
+
+  function renderLegend(step) {
+    var legend = document.getElementById('legend');
+    legend.innerHTML = '';
+    var items;
+    if (step.layout === 'split') {
+      items = [
+        { c: 'var(--text3)', l: 'Identity branch (untouched)' },
+        { c: 'var(--purple-mid)', l: 'Transform branch (1×1 → DW3×3 → 1×1)' }
+      ];
+    } else {
+      items = [
+        { c: groupColor(0), l: 'Group 0 channels' },
+        { c: groupColor(1), l: 'Group 1 channels' },
+        { c: groupColor(2), l: 'Group 2 channels' }
+      ];
+      if (step.bands === 'new-groups') items.push({ c: 'var(--purple-mid)', l: 'New group boundary (post-shuffle)' });
+      if (step.bands === 'groups-silo') items.push({ c: 'var(--red-mid)', l: '✕ = no information flow between groups' });
+    }
+    items.forEach(function (it) {
+      var d = document.createElement('div'); d.className = 'legend-item';
+      d.innerHTML = '<span class="legend-swatch" style="background:' + it.c + '"></span>' + it.l;
+      legend.appendChild(d);
+    });
+  }
+
+  /* ---------- render ---------- */
+  var idx = 0;
+  var stageLabelEl = document.getElementById('stageLabel');
+  var phaseBadge = document.getElementById('phaseBadge');
+  var stepCounter = document.getElementById('stepCounter');
+  var infoTitle = document.getElementById('infoTitle');
+  var infoDesc = document.getElementById('infoDesc');
+  var prevBtn = document.getElementById('prevBtn');
+  var nextBtn = document.getElementById('nextBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var dotsWrap = document.getElementById('dots');
+
+  var dotEls = steps.map(function (_, i) {
+    var d = document.createElement('button');
+    d.className = 'dot'; d.setAttribute('aria-label', 'Go to step ' + (i + 1));
+    d.addEventListener('click', function () { idx = i; render(); });
+    dotsWrap.appendChild(d);
+    return d;
+  });
+
+  function render() {
+    var step = steps[idx];
+    var layoutFn = LAYOUTS[step.layout];
+    stageLabelEl.textContent = step.stageLabel;
+
+    channels.forEach(function (ch) {
+      var el = cellEls[ch.id];
+      var p = layoutFn(ch.id);
+      el.style.left = p.x + 'px';
+      el.style.top = p.y + 'px';
+      if (step.layout === 'split' && ch.id < 6) {
+        el.style.background = 'var(--text3)';
+      } else {
+        el.style.background = groupColor(ch.group);
+      }
+      var subEl = el.querySelector('.sub');
+      subEl.textContent = step.layout === 'split' ? (ch.id < 6 ? 'id' : 'g' + ch.group) : 'g' + ch.group;
+    });
+
+    renderBands(step);
+    renderLegend(step);
+
+    phaseBadge.textContent = step.phase;
+    stepCounter.textContent = 'Step ' + (idx + 1) + ' / ' + steps.length;
+    infoTitle.textContent = step.title;
+    infoDesc.innerHTML = step.desc;
+
+    prevBtn.disabled = idx === 0;
+    nextBtn.textContent = idx === steps.length - 1 ? 'Restart ↺' : 'Next →';
+
+    dotEls.forEach(function (d, i) {
+      d.classList.toggle('active', i === idx);
+      d.classList.toggle('done', i < idx);
+    });
+  }
+
+  function go(delta) {
+    var next = idx + delta;
+    if (next < 0) next = 0;
+    if (next > steps.length - 1) next = steps.length - 1;
+    if (next !== idx) { idx = next; render(); }
+  }
+  function reset() { idx = 0; render(); }
+
+  prevBtn.addEventListener('click', function () { go(-1); });
+  nextBtn.addEventListener('click', function () { if (idx === steps.length - 1) reset(); else go(1); });
+  resetBtn.addEventListener('click', reset);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') go(1);
+    else if (e.key === 'ArrowLeft') go(-1);
+    else if (e.key === 'r' || e.key === 'R') reset();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

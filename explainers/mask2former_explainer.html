@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mask2Former: Unified Architecture for All Segmentation Tasks — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-process{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-attention{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-output{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Mask2Former: Unified Architecture for All Segmentation Tasks</h1>
+  <div class="subtitle">A Transformer-based model for semantic, instance, and panoptic segmentation</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-complexity">O(N_queries * H*W)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Mask2Former</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Mask2Former is a state-of-the-art neural network architecture designed to tackle all image segmentation tasks—semantic, instance, and panoptic—using a single, unified model. Before Mask2Former, different architectures were typically used for each task (e.g., FCN for semantic segmentation, Mask R-CNN for instance segmentation). Mask2Former achieves impressive performance across the board by leveraging a Transformer decoder with a novel "Masked Attention" mechanism.</p>
+    <p><strong>Why unification matters:</strong> Having a single model simplifies development, deployment, and research. It removes the need for task-specific heuristics and allows the model to learn more generalizable representations of objects and regions within an image. This leads to better performance and efficiency compared to maintaining separate pipelines for each segmentation type.</p>
+    <p><strong>Analogy:</strong> Imagine a chef who previously needed three different specialized tools for chopping vegetables, dicing meat, and slicing bread. Each tool was good at its specific job, but switching between them was inefficient. Mask2Former is like a single, highly adaptable multi-tool that not only performs all three tasks with superior precision but also uses a smart mechanism to focus its effort only where it's needed, making it faster and more effective overall.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Mask2Former unifies all segmentation tasks into one architecture. Its core innovation is a <strong>Transformer decoder with learnable object queries</strong> and a crucial <strong>Masked Attention</strong> mechanism that focuses computation on relevant spatial regions, making it both powerful and efficient.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Mask2Former Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>Mask2Former's architecture can be broken down into three main components:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Image Backbone:</strong> A standard convolutional neural network (e.g., ResNet, Swin Transformer) that extracts multi-scale high-level features from the input image.</li>
+      <li><strong>Pixel Decoder:</strong> Enhances the features from the backbone, typically using a Feature Pyramid Network (FPN) structure. This component generates rich, multi-scale pixel-level embeddings that capture fine-grained spatial details.</li>
+      <li><strong>Transformer Decoder:</strong> This is the innovative core of Mask2Former. It processes a set of \(Q\) learnable <strong>object queries</strong> (e.g., 100 queries) to predict masks and classes. Each query is a vector embedding that learns to represent a potential object or segment in the image.</li>
+    </ol>
+
+    <h4>The Transformer Decoder: Layers of Refinement</h4>
+    <p>The Transformer decoder consists of several identical layers, each performing a sequence of operations to refine the object queries:</p>
+    <ul>
+      <li><strong>Self-Attention:</strong> Queries attend to each other, allowing them to communicate and learn global relationships between potential objects.</li>
+      <li><strong>Cross-Attention:</strong> Queries attend to the pixel features generated by the Pixel Decoder. This allows each query to extract relevant visual information from the image.</li>
+      <li><strong>Masked Attention (The Key Innovation):</strong> This is where Mask2Former significantly improves efficiency and performance. Instead of attending to *all* pixel features, each query only attends to pixels within a dynamically predicted mask region. This mask is generated from the query's output in the *previous* decoder layer. This sparse attention mechanism drastically reduces computational cost and helps queries focus on their respective objects.</li>
+    </ul>
+    <p>After several decoder layers, the \(Q\) object queries are highly refined, each encoding information about a specific segment and its class.</p>
+
+    <h4>Prediction Heads</h4>
+    <p>Finally, two simple feed-forward networks (FFNs) act as prediction heads:</p>
+    <ul>
+      <li><strong>Classification Head:</strong> Maps each refined object query embedding to a probability distribution over object classes (using Softmax).</li>
+      <li><strong>Mask Head:</strong> Maps each refined object query embedding to a high-resolution binary mask (using Sigmoid) that outlines the predicted segment.</li>
+    </ul>
+    <p>The "unified" aspect comes from using the same architecture and prediction heads for all segmentation tasks. Different tasks are handled by applying appropriate loss functions (e.g., Dice loss + Focal loss for masks, cross-entropy for classes) and post-processing steps (e.g., panoptic segmentation involves matching and merging predicted masks).</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The <strong>Masked Attention</strong> mechanism is what makes Mask2Former efficient and effective. By restricting cross-attention to a small, dynamically predicted region, it reduces the quadratic complexity of standard Transformer attention to a linear complexity with respect to image resolution, without sacrificing performance.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math Behind Masked Attention</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Standard Self-Attention</h4>
+    <p>Recall the standard scaled dot-product attention formula, where \(Q\) are queries, \(K\) are keys, and \(V\) are values:</p>
+    <div class="eq">$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$</div>
+    <p>In the Transformer decoder's cross-attention, \(Q\) comes from the object queries, and \(K, V\) come from the pixel features. This means each query attends to *every* pixel feature in the image, leading to \(O(H \cdot W \cdot Q)\) complexity, where \(H \cdot W\) is the number of pixels and \(Q\) is the number of queries. For high-resolution images, this is computationally expensive.</p>
+
+    <h4>Introducing Masked Attention</h4>
+    <p>Masked Attention modifies the cross-attention mechanism by incorporating a binary mask \(M_i\) for each object query \(i\). This mask is derived from the predicted mask of query \(i\) from the *previous* decoder layer (or an initial prediction for the first layer). The mask \(M_i\) has the same spatial dimensions as the pixel features, with \(M_{i,hw} = 1\) if pixel \((h,w)\) is inside the predicted region for query \(i\), and \(0\) otherwise.</p>
+    <p>The modified attention score computation becomes:</p>
+    <div class="eq}>$$\text{MaskedAttention}(Q_i, K, V, M_i) = \text{softmax}\left(\frac{Q_i K^\top + \log(M_i)}{\sqrt{d_k}}\right)V$$</div>
+    <p>Here, \(\log(M_i)\) is an element-wise operation. If \(M_{i,hw} = 0\), then \(\log(0) = -\infty\). This effectively sets the attention score for masked-out pixels to \(-\infty\), ensuring that their contribution to the softmax sum (and thus to the output) becomes zero. Only pixels where \(M_{i,hw} = 1\) (i.e., within the predicted region) contribute to the attention calculation.</p>
+    <p>This trick works because \(\log(0)\) is handled gracefully in floating-point arithmetic (often resulting in a very large negative number), which when exponentiated by \(\text{exp}()\) becomes effectively zero. This allows the softmax to correctly normalize only over the unmasked regions.</p>
+    <div class="eq}>$$\text{softmax}\left(\dots + \log(M_i)\right)_{hw} = \frac{\exp(\dots + \log(M_{i,hw}))}{\sum_{h',w'} \exp(\dots + \log(M_{i,h'w'}))} = \frac{M_{i,hw} \exp(\dots)}{\sum_{h',w'} M_{i,h'w'} \exp(\dots)}$$</div>
+    <p>This mathematical equivalence shows that multiplying by the mask \(M_{i,hw}\) after exponentiation is equivalent to adding \(\log(M_{i,hw})\) before exponentiation, provided \(M_{i,hw}\) is 0 or 1. This ensures that the attention mechanism only "sees" and processes features within the dynamically predicted mask, drastically reducing computation for each query.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">📐 Complexity Reduction</div>
+      <p style="font-size:14px;margin:0;">If the predicted mask region is small (e.g., a fraction \(f\) of the total image pixels), the complexity of cross-attention drops from \(O(H \cdot W \cdot Q)\) to \(O(f \cdot H \cdot W \cdot Q)\). This is a critical optimization for handling high-resolution images in Transformer-based vision models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the Mask2Former pipeline on a sample image. Adjust the number of object queries and observe how they evolve to predict masks.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Number of Object Queries (Q)</div>
+          <input type="range" id="querySlider" min="2" max="10" step="1" value="5">
+          <div class="slider-value" id="queryValue">5</div>
+        </div>
+        <div class="slider-hint">More queries allow detecting more objects, but increase computation.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Input Image</div>
+        <div class="info-desc" id="infoDesc">The journey begins with an input image. Mask2Former will process this to identify and segment objects.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Object Query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Pixel Feature</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Masked Attention Region</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Predicted Mask</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Mask2Former:</strong></p>
+    <ul>
+      <li>When you need a single, unified model for all segmentation tasks (semantic, instance, panoptic).</li>
+      <li>For achieving state-of-the-art performance on challenging segmentation benchmarks.</li>
+      <li>When leveraging the power of Transformer architectures for dense prediction tasks in computer vision.</li>
+      <li>In scenarios where computational efficiency is important, as Masked Attention significantly reduces the cost compared to full attention.</li>
+    </ul>
+    <p><strong>When NOT to use Mask2Former:</strong></p>
+    <ul>
+      <li>On very small datasets, as Transformer-based models are typically data-hungry and may overfit without sufficient training data.</li>
+      <li>In extremely resource-constrained edge devices, where even the optimized Masked Attention might still be too heavy compared to highly specialized, simpler CNNs for specific tasks.</li>
+      <li>For very simple segmentation problems where a much lighter, task-specific FCN or U-Net might suffice with less complexity.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Unified, Efficient, Powerful</div>
+      <p style="font-size:14px;margin:0;">Mask2Former's strength lies in its ability to combine the best of both worlds: robust pixel-level features from CNNs/FPNs with the global reasoning and query-based object detection power of Transformers. The Masked Attention mechanism is the critical ingredient that makes this combination efficient enough for high-resolution images, pushing the boundaries of what a single model can achieve in segmentation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Masked Attention Simplified)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class MaskedAttention(torch.nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, embed_dim, num_heads):</div>
+      <div class="code-line" id="cl5">        super().__init__()</div>
+      <div class="code-line" id="cl6">        self.num_heads = num_heads</div>
+      <div class="code-line" id="cl7">        self.head_dim = embed_dim // num_heads</div>
+      <div class="code-line" id="cl8">        self.scale = self.head_dim ** -0.5</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">        self.q_proj = torch.nn.Linear(embed_dim, embed_dim)</div>
+      <div class="code-line" id="cl11">        self.k_proj = torch.nn.Linear(embed_dim, embed_dim)</div>
+      <div class="code-line" id="cl12">        self.v_proj = torch.nn.Linear(embed_dim, embed_dim)</div>
+      <div class="code-line" id="cl13">        self.out_proj = torch.nn.Linear(embed_dim, embed_dim)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    def forward(self, query_embed, pixel_features, mask_logits):</div>
+      <div class="code-line" id="cl16">        # query_embed: (B, Q, C) - object queries</div>
+      <div class="code-line" id="cl17">        # pixel_features: (B, H*W, C) - flattened pixel features</div>
+      <div class="code-line" id="cl18">        # mask_logits: (B, Q, H_lowres, W_lowres) - low-res masks from prev layer</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        B, Q, C = query_embed.shape</div>
+      <div class="code-line" id="cl21">        _B, HW, _C = pixel_features.shape # HW = H_full * W_full</div>
+      <div class="code-line" id="cl22">        H_lr, W_lr = mask_logits.shape[2:] # low-res dimensions</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">        # Project queries, keys, values</div>
+      <div class="code-line" id="cl25">        q = self.q_proj(query_embed).reshape(B, Q, self.num_heads, self.head_dim).permute(0, 2, 1, 3) # (B, H, Q, head_dim)</div>
+      <div class="code-line" id="cl26">        k = self.k_proj(pixel_features).reshape(B, HW, self.num_heads, self.head_dim).permute(0, 2, 3, 1) # (B, H, head_dim, HW)</div>
+      <div class="code-line" id="cl27">        v = self.v_proj(pixel_features).reshape(B, HW, self.num_heads, self.head_dim).permute(0, 2, 1, 3) # (B, H, HW, head_dim)</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">        # Compute raw attention scores (query-pixel affinity)</div>
+      <div class="code-line" id="cl30">        attn_scores = (q @ k) * self.scale # (B, H, Q, HW)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">        # Upsample mask_logits to full pixel_features resolution</div>
+      <div class="code-line" id="cl33">        # F.interpolate expects (B, C, H, W). Here C=Q.</div>
+      <div class="code-line" id="cl34">        # For each query, its mask is upsampled. (B, Q, H_lr, W_lr) -> (B, Q, H_full, W_full)</div>
+      <div class="code-line" id="cl35">        upsampled_mask = F.interpolate(mask_logits, size=(int(HW**0.5), int(HW**0.5)), mode='bilinear', align_corners=False)</div>
+      <div class="code-line" id="cl36">        upsampled_mask = upsampled_mask.flatten(2) # (B, Q, H_full*W_full)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">        # Convert mask logits to binary mask (e.g., threshold at 0)</div>
+      <div class="code-line" id="cl39">        binary_mask = (upsampled_mask > 0).float() # (B, Q, HW)</div>
+      <div class="code-line" id="cl40">        # Add a head dimension (B, 1, Q, HW) for broadcasting with attn_scores</div>
+      <div class="code-line" id="cl41">        # Log of mask: log(0) -> -inf, log(1) -> 0</div>
+      <div class="code-line" id="cl42">        mask_for_attn = torch.log(binary_mask.unsqueeze(1) + 1e-6) # Add small epsilon for stability</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">        # Apply the mask to attention scores: add -inf to masked-out regions</div>
+      <div class="code-line" id="cl45">        attn_scores = attn_scores + mask_for_attn</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">        # Apply softmax to get attention probabilities</div>
+      <div class="code-line" id="cl48">        attn_probs = F.softmax(attn_scores, dim=-1) # (B, H, Q, HW)</div>
+      <div class="code-line" id="cl49"></div>
+      <div class="code-line" id="cl50">        # Weighted sum of values</div>
+      <div class="code-line" id="cl51">        output = (attn_probs @ v).permute(0, 2, 1, 3).flatten(2) # (B, Q, C)</div>
+      <div class="code-line" id="cl52">        return self.out_proj(output)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & CONFIG ──
+const IMG_W = 640, IMG_H = 360; // Base image dimensions
+const FEATURE_MAP_SIZES = [16, 8, 4]; // Example FPN output resolutions
+const COLORS = [
+  '#FF6347', '#4682B4', '#3CB371', '#FFD700', '#BA55D3', '#FF8C00', '#00CED1', '#FF69B4', '#ADFF2F', '#8A2BE2'
+]; // For masks
+
+let numQueries = 5; // Default number of object queries
+let step = 0;
+const totalSteps = 8;
+
+// Seeded RNG for reproducible random positions/colors
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(1234);
+
+// Generate initial random query positions (for illustration)
+function generateQueryPositions(count, width, height) {
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    positions.push({
+      x: seededRng() * width,
+      y: seededRng() * height,
+      color: COLORS[i % COLORS.length]
+    });
+  }
+  return positions;
+}
+
+// Generate simulated mask data (simple circles/ellipses)
+function generateSimulatedMasks(queries, width, height) {
+  const masks = [];
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    const mask = {
+      x: q.x + (seededRng() - 0.5) * 50,
+      y: q.y + (seededRng() - 0.5) * 50,
+      radiusX: 30 + seededRng() * 60,
+      radiusY: 30 + seededRng() * 60,
+      rotation: seededRng() * Math.PI,
+      color: q.color,
+      label: `Object ${i+1}`
+    };
+    masks.push(mask);
+  }
+  return masks;
+}
+
+let queryPositions = [];
+let simulatedMasks = [];
+
+function initializeSimulationData() {
+  queryPositions = generateQueryPositions(numQueries, IMG_W, IMG_H);
+  simulatedMasks = generateSimulatedMasks(queryPositions, IMG_W, IMG_H);
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Input Image',
+    desc: 'The process begins with an input image. Mask2Former aims to identify and segment distinct objects or regions within this image, classifying each pixel.',
+    canvasMode: 'input'
+  },
+  {
+    phase: 'process', title: 'Image Backbone: Feature Extraction',
+    desc: 'A powerful backbone network (e.g., Swin Transformer) processes the input image, extracting rich, multi-scale feature maps. These features encode high-level semantic information about the image content.',
+    canvasMode: 'backbone'
+  },
+  {
+    phase: 'process', title: 'Pixel Decoder: Multi-scale Pixel Features',
+    desc: 'The Pixel Decoder (often an FPN) takes the backbone features and refines them into dense, multi-scale pixel embeddings. These embeddings are crucial for capturing fine-grained spatial details required for accurate segmentation.',
+    canvasMode: 'pixel_features'
+  },
+  {
+    phase: 'process', title: 'Initial Object Queries',
+    desc: `The Transformer Decoder starts with a set of ${numQueries} learnable object queries. Each query is a vector embedding that will iteratively learn to represent a distinct object or segment in the image. Initially, they are generic placeholders.`,
+    canvasMode: 'initial_queries'
+  },
+  {
+    phase: 'attention', title: 'Decoder Layer: Cross-Attention to Pixel Features',
+    desc: 'In each decoder layer, object queries perform cross-attention with the pixel features. This allows queries to "look at" and gather relevant visual information from the entire image to form initial hypotheses about object locations and shapes.',
+    canvasMode: 'cross_attention'
+  },
+  {
+    phase: 'attention', title: 'Decoder Layer: Masked Attention (1st Stage Mask)',
+    desc: 'After cross-attention, each query makes a preliminary, low-resolution mask prediction. Then, in the *next* cross-attention step, it uses this mask to restrict its attention *only* to pixels within that predicted region. This is Masked Attention.',
+    canvasMode: 'masked_attention_stage1'
+  },
+  {
+    phase: 'attention', title: 'Decoder Layer: Masked Attention (Refined)',
+    desc: 'The Masked Attention mechanism iteratively refines both the object queries and their associated masks. Queries become more specialized, and their masks become more accurate and detailed, focusing computation where it matters most.',
+    canvasMode: 'masked_attention_refined'
+  },
+  {
+    phase: 'output', title: 'Prediction Heads: Final Masks & Classes',
+    desc: `After several decoder layers, the refined object queries are passed to prediction heads. A classification head assigns a class to each query, and a mask head generates the final high-resolution binary masks, resulting in ${numQueries} segments.`,
+    canvasMode: 'final_output'
+  }
+];
+
+// ── INIT ──
+function init() {
+  initializeSimulationData();
+  initDots();
+  render();
+}
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) {
+  step = i;
+  render();
+}
+function reset() {
+  step = 0;
+  numQueries = 5;
+  document.getElementById('querySlider').value = numQueries;
+  document.getElementById('queryValue').textContent = numQueries;
+  initializeSimulationData(); // Regenerate query/mask data for new Q
+  render(); // Re-render canvas with new Q
+}
+
+// ── SLIDER ──
+const querySlider = document.getElementById('querySlider');
+querySlider.addEventListener('input', () => {
+  numQueries = parseInt(querySlider.value);
+  document.getElementById('queryValue').textContent = numQueries;
+  initializeSimulationData(); // Regenerate query/mask data for new Q
+  render(); // Re-render canvas with new Q
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Update button states
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Update info card
+  const phaseMap = {
+    setup: 'phase-setup',
+    process: 'phase-process',
+    attention: 'phase-attention',
+    output: 'phase-output'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc.replace('${numQueries}', numQueries);
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  if (step === 5) { // Masked Attention (1st Stage Mask)
+      [15, 18, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45].forEach(i => {
+        const el = document.getElementById('cl' + i); if(el) el.classList.add('active');
+      });
+  } else if (step === 6) { // Masked Attention (Refined)
+      [15, 18, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 47, 48, 50, 51, 52].forEach(i => {
+        const el = document.getElementById('cl' + i); if(el) el.classList.add('active');
+      });
+  }
+
+  // Update slider visibility/state
+  querySlider.disabled = (step < 3 || step > 7);
+  document.getElementById('queryValue').textContent = numQueries;
+
+  // Draw canvas
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const drawScene = () => {
+    // Simple scene: ground, sky, person, car
+    ctx.fillStyle = '#87CEEB'; ctx.fillRect(0, 0, W, H * 0.6); // Sky
+    ctx.fillStyle = '#A0522D'; ctx.fillRect(0, H * 0.6, W, H * 0.4); // Ground
+
+    // Person (simplified)
+    ctx.fillStyle = '#FFDAB9'; ctx.beginPath(); ctx.arc(W * 0.2, H * 0.55, 15, 0, Math.PI * 2); ctx.fill(); // Head
+    ctx.fillStyle = '#4682B4'; ctx.fillRect(W * 0.2 - 15, H * 0.55, 30, 60); // Body
+
+    // Car (simplified)
+    ctx.fillStyle = '#FF4500'; ctx.fillRect(W * 0.7 - 50, H * 0.6 - 30, 100, 30); // Body
+    ctx.fillStyle = '#FF4500'; ctx.beginPath(); ctx.moveTo(W * 0.7 - 30, H * 0.6 - 30); ctx.lineTo(W * 0.7 - 10, H * 0.6 - 50); ctx.lineTo(W * 0.7 + 10, H * 0.6 - 50); ctx.lineTo(W * 0.7 + 30, H * 0.6 - 30); ctx.closePath(); ctx.fill(); // Roof
+    ctx.fillStyle = '#36454F'; ctx.beginPath(); ctx.arc(W * 0.7 - 30, H * 0.6, 15, 0, Math.PI * 2); ctx.fill(); // Wheel 1
+    ctx.beginPath(); ctx.arc(W * 0.7 + 30, H * 0.6, 15, 0, Math.PI * 2); ctx.fill(); // Wheel 2
+
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Input Image', W / 2, H * 0.08);
+  };
+
+  const drawFeatureMap = (x, y, fw, fh, res, color, label) => {
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, fw, fh);
+    const cellW = fw / res, cellH = fh / res;
+    for (let i = 0; i < res; i++) {
+      for (let j = 0; j < res; j++) {
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.2 + seededRng() * 0.6;
+        ctx.fillRect(x + j * cellW, y + i * cellH, cellW, cellH);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.text2; ctx.font = '11px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText(label, x + fw / 2, y + fh + 12);
+  };
+
+  const drawQueries = (queries, highlight = -1) => {
+    queries.forEach((q, i) => {
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = q.color;
+      ctx.fill();
+      ctx.strokeStyle = highlight === i ? c.amber : 'white';
+      ctx.lineWidth = highlight === i ? 3 : 2;
+      ctx.stroke();
+      if (highlight === i) {
+        ctx.fillStyle = c.text; ctx.font = 'bold 12px "DM Sans"';
+        ctx.fillText(`Query ${i+1}`, q.x, q.y - 12);
+      }
+    });
+  };
+
+  const drawMask = (mask, alpha = 0.4, stroke = false, label = '') => {
+    ctx.save();
+    ctx.translate(mask.x, mask.y);
+    ctx.rotate(mask.rotation);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, mask.radiusX, mask.radiusY, 0, 0, Math.PI * 2);
+    ctx.fillStyle = mask.color;
+    ctx.globalAlpha = alpha;
+    ctx.fill();
+    if (stroke) {
+      ctx.strokeStyle = mask.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (label) {
+      ctx.fillStyle = c.text; ctx.font = 'bold 12px "DM Sans"'; ctx.textAlign = 'center';
+      ctx.fillText(label, mask.x, mask.y - mask.radiusY - 10);
+    }
+  };
+
+  if (mode === 'input') {
+    drawScene();
+  }
+
+  else if (mode === 'backbone') {
+    drawScene();
+    ctx.fillStyle = c.bg2; ctx.fillRect(W * 0.05, H * 0.15, W * 0.9, H * 0.7);
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Backbone Features (downsampled, abstract)', W / 2, H * 0.12);
+    // Draw a blurred representation of the scene
+    const imgData = ctx.getImageData(0, 0, W, H);
+    // Simple blur simulation (not real blur, just color average blocks)
+    const blurSize = 10;
+    for (let y = 0; y < H; y += blurSize) {
+      for (let x = 0; x < W; x += blurSize) {
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let dy = 0; dy < blurSize && y + dy < H; dy++) {
+          for (let dx = 0; dx < blurSize && x + dx < W; dx++) {
+            const i = ((y + dy) * W + (x + dx)) * 4;
+            r += imgData.data[i];
+            g += imgData.data[i+1];
+            b += imgData.data[i+2];
+            count++;
+          }
+        }
+        ctx.fillStyle = `rgb(${r/count},${g/count},${b/count})`;
+        ctx.fillRect(x, y, blurSize, blurSize);
+      }
+    }
+    ctx.strokeStyle = c.blue; ctx.lineWidth = 3;
+    ctx.strokeRect(W * 0.05, H * 0.15, W * 0.9, H * 0.7);
+  }
+
+  else if (mode === 'pixel_features') {
+    drawScene();
+    const fmY = H * 0.15;
+    const fmH = H * 0.3;
+    const fmPad = W * 0.05;
+    const fmGap = W * 0.02;
+    const fmW = (W - 2 * fmPad - 2 * fmGap) / 3;
+
+    drawFeatureMap(fmPad, fmY, fmW, fmH, FEATURE_MAP_SIZES[0], c.purple, `FPN P3 (${FEATURE_MAP_SIZES[0]}x${FEATURE_MAP_SIZES[0]})`);
+    drawFeatureMap(fmPad + fmW + fmGap, fmY, fmW, fmH, FEATURE_MAP_SIZES[1], c.purple, `FPN P4 (${FEATURE_MAP_SIZES[1]}x${FEATURE_MAP_SIZES[1]})`);
+    drawFeatureMap(fmPad + 2 * (fmW + fmGap), fmY, fmW, fmH, FEATURE_MAP_SIZES[2], c.purple, `FPN P5 (${FEATURE_MAP_SIZES[2]}x${FEATURE_MAP_SIZES[2]})`);
+
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Multi-scale Pixel Features (from Pixel Decoder)', W / 2, fmY - 12);
+  }
+
+  else if (mode === 'initial_queries') {
+    drawScene();
+    drawQueries(queryPositions);
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Initial Object Queries (learnable embeddings)', W / 2, H * 0.08);
+  }
+
+  else if (mode === 'cross_attention') {
+    drawScene();
+    const pixelFeaturesX = W * 0.8;
+    const pixelFeaturesY = H * 0.5;
+    const pixelFeaturesRadius = H * 0.15;
+    ctx.beginPath();
+    ctx.arc(pixelFeaturesX, pixelFeaturesY, pixelFeaturesRadius, 0, Math.PI * 2);
+    ctx.fillStyle = c.purple; ctx.globalAlpha = 0.2; ctx.fill();
+    ctx.strokeStyle = c.purple; ctx.lineWidth = 2; ctx.globalAlpha = 1; ctx.stroke();
+    ctx.fillStyle = c.text2; ctx.font = '12px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Pixel Features', pixelFeaturesX, pixelFeaturesY + pixelFeaturesRadius + 20);
+
+    queryPositions.forEach((q, i) => {
+      drawQueries([q]);
+      // Draw attention lines from query to pixel features
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      ctx.lineTo(pixelFeaturesX, pixelFeaturesY);
+      ctx.strokeStyle = c.purple; ctx.lineWidth = 1; ctx.globalAlpha = 0.2;
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Cross-Attention (Queries attend to all pixels)', W / 2, H * 0.08);
+  }
+
+  else if (mode === 'masked_attention_stage1') {
+    drawScene();
+    const pixelFeaturesX = W * 0.8;
+    const pixelFeaturesY = H * 0.5;
+    const pixelFeaturesRadius = H * 0.15;
+    ctx.beginPath();
+    ctx.arc(pixelFeaturesX, pixelFeaturesY, pixelFeaturesRadius, 0, Math.PI * 2);
+    ctx.fillStyle = c.purple; ctx.globalAlpha = 0.2; ctx.fill();
+    ctx.strokeStyle = c.purple; ctx.lineWidth = 2; ctx.globalAlpha = 1; ctx.stroke();
+    ctx.fillStyle = c.text2; ctx.font = '12px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Pixel Features', pixelFeaturesX, pixelFeaturesY + pixelFeaturesRadius + 20);
+
+    queryPositions.forEach((q, i) => {
+      drawQueries([q], i); // Highlight current query
+      // Draw initial low-res mask
+      drawMask(simulatedMasks[i], 0.15, true);
+
+      // Draw attention lines restricted to the mask
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      // Simulate attention points within the mask
+      const mask = simulatedMasks[i];
+      const numAttnPoints = 5;
+      for (let k = 0; k < numAttnPoints; k++) {
+        const angle = seededRng() * Math.PI * 2;
+        const dist = seededRng() * Math.min(mask.radiusX, mask.radiusY);
+        const attnX = mask.x + dist * Math.cos(angle);
+        const attnY = mask.y + dist * Math.sin(angle);
+        ctx.lineTo(attnX, attnY);
+      }
+      ctx.strokeStyle = c.amber; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.4;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Masked Attention (Queries focus on predicted mask region)', W / 2, H * 0.08);
+  }
+
+  else if (mode === 'masked_attention_refined') {
+    drawScene();
+    const pixelFeaturesX = W * 0.8;
+    const pixelFeaturesY = H * 0.5;
+    const pixelFeaturesRadius = H * 0.15;
+    ctx.beginPath();
+    ctx.arc(pixelFeaturesX, pixelFeaturesY, pixelFeaturesRadius, 0, Math.PI * 2);
+    ctx.fillStyle = c.purple; ctx.globalAlpha = 0.2; ctx.fill();
+    ctx.strokeStyle = c.purple; ctx.lineWidth = 2; ctx.globalAlpha = 1; ctx.stroke();
+    ctx.fillStyle = c.text2; ctx.font = '12px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Pixel Features', pixelFeaturesX, pixelFeaturesY + pixelFeaturesRadius + 20);
+
+    queryPositions.forEach((q, i) => {
+      drawQueries([q], i);
+      // Draw refined mask
+      const refinedMask = { ...simulatedMasks[i], radiusX: simulatedMasks[i].radiusX * 1.2, radiusY: simulatedMasks[i].radiusY * 1.2 };
+      drawMask(refinedMask, 0.25, true);
+
+      // Draw attention lines restricted to the refined mask
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      const mask = refinedMask;
+      const numAttnPoints = 8;
+      for (let k = 0; k < numAttnPoints; k++) {
+        const angle = seededRng() * Math.PI * 2;
+        const dist = seededRng() * Math.min(mask.radiusX, mask.radiusY);
+        const attnX = mask.x + dist * Math.cos(angle);
+        const attnY = mask.y + dist * Math.sin(angle);
+        ctx.lineTo(attnX, attnY);
+      }
+      ctx.strokeStyle = c.amber; ctx.lineWidth = 1.8; ctx.globalAlpha = 0.6;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Masked Attention (Iterative refinement)', W / 2, H * 0.08);
+  }
+
+  else if (mode === 'final_output') {
+    drawScene();
+    simulatedMasks.forEach(mask => {
+      drawMask(mask, 0.4, true, mask.label);
+    });
+    ctx.fillStyle = c.text2; ctx.font = '14px "DM Sans"'; ctx.textAlign = 'center';
+    ctx.fillText('Final Predicted Masks and Classes', W / 2, H * 0.08);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZE ON LOAD ──
+window.addEventListener('load', init);
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>
