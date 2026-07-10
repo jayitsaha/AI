@@ -344,7 +344,7 @@ input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;b
     <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how LLM inference frameworks manage concurrent requests, KV cache memory, and quantization. Adjust the KV cache precision to see its impact on GPU capacity.</p>
 
     <div class="viz-container">
-      <div class="slider-panel">
+      <div class="slider-panel" id="sliderPanel">
         <div class="slider-group">
           <div class="slider-label">KV Cache Precision</div>
           <input type="range" id="kvPrecisionSlider" min="0" max="2" step="1" value="0">
@@ -851,11 +851,11 @@ function drawCanvas(mode) {
     activeReqs.forEach((req, i) => {
       req.status = 'active';
       req.current_len = req.prompt_len + 10; // Simulate some progress
-      drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors);
+      drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors, kvCacheW);
     });
     // Fill compute slots
     for (let i = 0; i < Math.min(GPU_COMPUTE_UNITS, activeReqs.length); i++) {
-      drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, i, activeReqs[i].color);
+      drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, i, activeReqs[i].color, colors, computeW);
     }
   } else if (mode === 'continuous_batch' || mode === 'kv_cache' || mode === 'paged_attention' || mode === 'quantization' || mode === 'speculative' || mode === 'diverse_optim') {
     // Simulate continuous batching
@@ -885,12 +885,12 @@ function drawCanvas(mode) {
 
     // Draw active requests and their progress
     activeReqs.forEach((req, i) => {
-      drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors);
+      drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors, kvCacheW);
     });
 
     // Fill compute slots
     for (let i = 0; i < Math.min(GPU_COMPUTE_UNITS, activeReqs.length); i++) {
-      drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, i, activeReqs[i].color);
+      drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, i, activeReqs[i].color, colors, computeW);
     }
 
     // Draw KV Cache blocks
@@ -910,12 +910,12 @@ function drawCanvas(mode) {
     if (pagedAttentionEnabled && (mode === 'paged_attention' || mode === 'quantization')) {
       const prefixLengths = {}; // Map prefix to count of requests
       requests.forEach(req => {
-        const prefix = req.prompt.slice(0, Math.min(req.prompt.length, 5)).join('-'); // Example prefix
+        const prefix = req.id <= 3 ? 'shared' : `req-${req.id}`; // Example prefix: first 3 requests share a prefix
         prefixLengths[prefix] = (prefixLengths[prefix] || 0) + 1;
       });
 
       requests.forEach(req => {
-        const prefix = req.prompt.slice(0, Math.min(req.prompt.length, 5)).join('-');
+        const prefix = req.id <= 3 ? 'shared' : `req-${req.id}`;
         if (prefixLengths[prefix] > 1) {
           req.shared_blocks = Math.ceil(Math.min(req.prompt_len, 5) / KV_BLOCK_SIZE); // Example: share first 5 tokens
         } else {
@@ -936,10 +936,10 @@ function drawCanvas(mode) {
   updateStats(); // Update stats after all drawing logic for current step
 }
 
-function drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors) {
+function drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, reqHeight, reqGap, computeYStart, computeSlotH, outputTokenW, colors, kvCacheW) {
   const x = kvCacheX + regionPad + 10;
   const y = computeYStart + (req.id - 1) * (computeSlotH + reqGap); // Position based on ID
-  const progressW = (req.current_len / (req.prompt_len + req.output_len)) * (computeW - regionPad * 2 - 20);
+  const progressW = (req.current_len / (req.prompt_len + req.output_len)) * (kvCacheW - regionPad * 2 - 20);
 
   ctx.fillStyle = req.color;
   ctx.strokeStyle = colors.border2;
@@ -956,7 +956,7 @@ function drawActiveRequest(ctx, req, kvCacheX, computeX, outputX, regionPad, req
   ctx.fillText(`${req.current_len} / ${req.prompt_len + req.output_len}`, x + progressW - 8, y + 19);
 }
 
-function drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, slotIdx, color) {
+function drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeSlotH, reqGap, slotIdx, color, colors, computeW) {
   const x = computeX + regionPad + 10;
   const y = computeYStart + slotIdx * (computeSlotH + reqGap);
   ctx.fillStyle = color;
@@ -974,7 +974,13 @@ function drawComputeSlotActive(ctx, computeX, regionPad, computeYStart, computeS
 
 function drawKvCacheGrid(ctx, startX, startY, gridW, gridH, colors, activeReqs) {
   const numCols = 8;
-  const numRows = Math.ceil(kvCacheCapacityBlocks / numCols);
+  // Cap the number of cells actually drawn: at realistic GPU-memory scale
+  // kvCacheCapacityBlocks can reach tens of thousands, which would mean
+  // rendering tens of thousands of canvas cells per frame (a browser hang).
+  // The stats text elsewhere still shows the true capacity; the grid only
+  // needs a representative sample of cells to visualize allocation.
+  const vizBlockCount = Math.min(kvCacheCapacityBlocks, 128);
+  const numRows = Math.ceil(vizBlockCount / numCols);
   const blockGap = 2;
   const blockSize = Math.min((gridW - (numCols - 1) * blockGap) / numCols, (gridH - (numRows - 1) * blockGap) / numRows);
 
@@ -1012,7 +1018,7 @@ function drawKvCacheGrid(ctx, startX, startY, gridW, gridH, colors, activeReqs) 
     }
   });
 
-  for (let i = 0; i < kvCacheCapacityBlocks; i++) {
+  for (let i = 0; i < vizBlockCount; i++) {
     const col = i % numCols;
     const row = Math.floor(i / numCols);
     const x = startX + col * (blockSize + blockGap);

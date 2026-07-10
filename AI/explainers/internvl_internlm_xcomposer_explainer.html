@@ -431,7 +431,7 @@ const steps = [
   },
   {
     phase: 'align', title: 'Progressive Alignment (Projector / QLLaMA)',
-    desc: 'The compressed visual features are mapped into the LLM\\'s embedding space. Stage 1: contrastive pretraining (CLIP-style) of InternViT-6B. Stage 2: generative alignment via a QLLaMA middleware (96 learned queries). Stage 3: a lightweight MLP projector connects directly to the decoder LLM for end-to-end instruction tuning.',
+    desc: 'The compressed visual features are mapped into the LLM\'s embedding space. Stage 1: contrastive pretraining (CLIP-style) of InternViT-6B. Stage 2: generative alignment via a QLLaMA middleware (96 learned queries). Stage 3: a lightweight MLP projector connects directly to the decoder LLM for end-to-end instruction tuning.',
     codeLines: [19,20], canvasMode: 'align'
   },
   {
@@ -441,7 +441,7 @@ const steps = [
   },
   {
     phase: 'decode', title: 'InternLM2 Causal Decoder Pass',
-    desc: 'The full interleaved sequence enters InternLM2\\'s causal self-attention stack. Text tokens can attend back to earlier image tokens (and vice versa within causal order), letting the model ground its reasoning in specific visual regions across potentially multiple images.',
+    desc: 'The full interleaved sequence enters InternLM2\'s causal self-attention stack. Text tokens can attend back to earlier image tokens (and vice versa within causal order), letting the model ground its reasoning in specific visual regions across potentially multiple images.',
     codeLines: [36,37], canvasMode: 'decode'
   },
   {
@@ -478,6 +478,285 @@ function renderStats() {
   grid.innerHTML = tiles.map(([lbl, val]) =>
     `<div class="stat-tile"><div class="stat-val">${val}</div><div class="stat-lbl">${lbl}</div></div>`
   ).join('');
+}
+
+// ── CANVAS VISUALIZATION ──
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function fitCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width * dpr));
+  const h = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, width: rect.width, height: rect.height };
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawLabel(ctx, text, x, y, color, size, weight) {
+  ctx.fillStyle = color;
+  ctx.font = `${weight || 600} ${size || 12}px 'DM Sans', system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y);
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  if (!canvas) return;
+  const { ctx, width, height } = fitCanvas(canvas);
+  ctx.clearRect(0, 0, width, height);
+
+  const C = {
+    blue: cssVar('--blue-mid'), blueBg: cssVar('--blue-bg'), blueBorder: cssVar('--blue-border'),
+    purple: cssVar('--purple-mid'), purpleBg: cssVar('--purple-bg'), purpleBorder: cssVar('--purple-border'),
+    amber: cssVar('--amber-mid'), amberBg: cssVar('--amber-bg'), amberBorder: cssVar('--amber-border'),
+    cyan: cssVar('--cyan-mid'), cyanBg: cssVar('--cyan-bg'), cyanBorder: cssVar('--cyan-border'),
+    green: cssVar('--green-mid'), greenBg: cssVar('--green-bg'), greenBorder: cssVar('--green-border'),
+    red: cssVar('--red-mid'), redBg: cssVar('--red-bg'), redBorder: cssVar('--red-border'),
+    text: cssVar('--text'), text2: cssVar('--text2'), border: cssVar('--border')
+  };
+
+  const fns = {
+    input: drawInputViz, tiling: drawTilingViz, patches: drawPatchesViz,
+    encoder: drawEncoderViz, pixelshuffle: drawPixelShuffleViz, align: drawAlignViz,
+    interleave: drawInterleaveViz, decode: drawDecodeViz, output: drawOutputViz
+  };
+  (fns[mode] || drawInputViz)(ctx, width, height, C);
+}
+
+function drawInputViz(ctx, w, h, C) {
+  const iw = w * 0.55, ih = h * 0.6, ix = (w - iw) / 2, iy = (h - ih) / 2 - 6;
+  ctx.fillStyle = C.blueBg;
+  ctx.strokeStyle = C.blueBorder;
+  ctx.lineWidth = 2;
+  roundRect(ctx, ix, iy, iw, ih, 8);
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = C.blue;
+  ctx.beginPath();
+  ctx.moveTo(ix + iw * 0.15, iy + ih * 0.65);
+  ctx.lineTo(ix + iw * 0.4, iy + ih * 0.35);
+  ctx.lineTo(ix + iw * 0.6, iy + ih * 0.55);
+  ctx.lineTo(ix + iw * 0.85, iy + ih * 0.25);
+  ctx.stroke();
+  drawLabel(ctx, 'Arbitrary resolution / aspect ratio', w / 2, iy + ih + 22, C.text2, 12, 500);
+}
+
+function drawTilingViz(ctx, w, h, C) {
+  const cols = Math.ceil(Math.sqrt(numTiles));
+  const rows = Math.ceil(numTiles / cols);
+  const pad = 14, gap = 6;
+  const gridW = w * 0.62, gridH = h - pad * 2;
+  const gx = pad, gy = pad;
+  const cw = (gridW - gap * (cols - 1)) / cols;
+  const ch = (gridH - gap * (rows - 1)) / rows;
+  ctx.strokeStyle = C.blueBorder;
+  ctx.fillStyle = C.blueBg;
+  ctx.lineWidth = 1.5;
+  let n = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (n >= numTiles) break;
+      const x = gx + c * (cw + gap), y = gy + r * (ch + gap);
+      roundRect(ctx, x, y, cw, ch, 4);
+      ctx.fill(); ctx.stroke();
+      n++;
+    }
+  }
+  // thumbnail tile
+  const tx = gx + gridW + 24, ty = gy, tw = w - tx - pad, th = Math.min(gridH, tw);
+  ctx.fillStyle = C.cyanBg;
+  ctx.strokeStyle = C.cyanBorder;
+  roundRect(ctx, tx, ty, tw, th, 4);
+  ctx.fill(); ctx.stroke();
+  drawLabel(ctx, `${numTiles} local tiles`, gx + gridW / 2, h - 12, C.blue, 12, 600);
+  drawLabel(ctx, 'thumbnail', tx + tw / 2, ty + th + 14, C.cyan, 11, 600);
+}
+
+function drawPatchesViz(ctx, w, h, C) {
+  const g = 12;
+  const size = Math.min(w, h) - 40;
+  const x0 = (w - size) / 2, y0 = (h - size) / 2 - 6;
+  const cell = size / g;
+  ctx.strokeStyle = C.purpleBorder;
+  ctx.fillStyle = C.purpleBg;
+  ctx.lineWidth = 1;
+  for (let r = 0; r < g; r++) {
+    for (let c = 0; c < g; c++) {
+      ctx.fillRect(x0 + c * cell, y0 + r * cell, cell - 1, cell - 1);
+      ctx.strokeRect(x0 + c * cell, y0 + r * cell, cell - 1, cell - 1);
+    }
+  }
+  drawLabel(ctx, '32×32 = 1024 patches / tile', w / 2, y0 + size + 20, C.purple, 12, 600);
+}
+
+function drawEncoderViz(ctx, w, h, C) {
+  const n = 10;
+  const boxW = Math.min(70, (w - 40) / n - 4);
+  const boxH = h * 0.4;
+  const totalW = n * (boxW + 4) - 4;
+  let x0 = (w - totalW) / 2;
+  const y0 = (h - boxH) / 2 - 10;
+  ctx.strokeStyle = C.purpleBorder;
+  ctx.fillStyle = C.purpleBg;
+  for (let i = 0; i < n; i++) {
+    const x = x0 + i * (boxW + 4);
+    roundRect(ctx, x, y0, boxW, boxH, 4);
+    ctx.fill(); ctx.stroke();
+    if (i < n - 1) {
+      ctx.strokeStyle = C.purple;
+      ctx.beginPath();
+      ctx.moveTo(x + boxW, y0 + boxH / 2);
+      ctx.lineTo(x + boxW + 4, y0 + boxH / 2);
+      ctx.stroke();
+      ctx.strokeStyle = C.purpleBorder;
+    }
+  }
+  drawLabel(ctx, 'InternViT-6B — 48 blocks (≈6.0B params)', w / 2, y0 + boxH + 26, C.purple, 12, 600);
+}
+
+function drawPixelShuffleViz(ctx, w, h, C) {
+  const s = Math.min(w, h) * 0.32;
+  const leftX = w * 0.24, y = h / 2 - s / 2;
+  const cell = s / 2;
+  ctx.strokeStyle = C.amberBorder;
+  ctx.fillStyle = C.amberBg;
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 2; c++) {
+      ctx.fillRect(leftX - s / 2 + c * cell, y + r * cell, cell - 2, cell - 2);
+      ctx.strokeRect(leftX - s / 2 + c * cell, y + r * cell, cell - 2, cell - 2);
+    }
+  }
+  drawLabel(ctx, '32×32×C', leftX, y + s + 20, C.text2, 11, 500);
+
+  ctx.strokeStyle = C.amber;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(leftX + s / 2 + 14, h / 2);
+  ctx.lineTo(w * 0.62 - 14, h / 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(w * 0.62 - 20, h / 2 - 6);
+  ctx.lineTo(w * 0.62 - 14, h / 2);
+  ctx.lineTo(w * 0.62 - 20, h / 2 + 6);
+  ctx.stroke();
+
+  const rightX = w * 0.76, rs = s * 0.65;
+  ctx.fillStyle = C.amberBg;
+  ctx.strokeStyle = C.amberBorder;
+  roundRect(ctx, rightX - rs / 2, h / 2 - rs / 2, rs, rs, 4);
+  ctx.fill(); ctx.stroke();
+  drawLabel(ctx, '16×16×4C', rightX, h / 2 + rs / 2 + 20, C.text2, 11, 500);
+  drawLabel(ctx, '1024 → 256 tokens (4× reduction)', w / 2, h - 14, C.amber, 12, 600);
+}
+
+function drawAlignViz(ctx, w, h, C) {
+  const stages = [
+    { label: 'Stage 1\nContrastive\n(InternViT-6B)', color: C.purple, bg: C.purpleBg, border: C.purpleBorder },
+    { label: 'Stage 2\nGenerative\n(QLLaMA, 96 queries)', color: C.cyan, bg: C.cyanBg, border: C.cyanBorder },
+    { label: 'Stage 3\nMLP Projector\n(instruction-tune)', color: C.amber, bg: C.amberBg, border: C.amberBorder }
+  ];
+  const boxW = w / stages.length - 24, boxH = h * 0.5, y0 = (h - boxH) / 2 - 8;
+  stages.forEach((s, i) => {
+    const x = 12 + i * (boxW + 24);
+    ctx.fillStyle = s.bg; ctx.strokeStyle = s.border; ctx.lineWidth = 1.5;
+    roundRect(ctx, x, y0, boxW, boxH, 6);
+    ctx.fill(); ctx.stroke();
+    const lines = s.label.split('\n');
+    lines.forEach((line, li) => drawLabel(ctx, line, x + boxW / 2, y0 + boxH / 2 + (li - (lines.length - 1) / 2) * 15, s.color, 11, 600));
+    if (i < stages.length - 1) {
+      ctx.strokeStyle = C.text2;
+      ctx.beginPath();
+      ctx.moveTo(x + boxW, y0 + boxH / 2);
+      ctx.lineTo(x + boxW + 20, y0 + boxH / 2);
+      ctx.stroke();
+    }
+  });
+  drawLabel(ctx, 'Progressive alignment into the LLM embedding space', w / 2, h - 14, C.text2, 12, 600);
+}
+
+function drawInterleaveViz(ctx, w, h, C) {
+  const seq = [];
+  for (let i = 0; i < 3; i++) seq.push('t');
+  for (let i = 0; i < Math.min(numTiles + 1, 6); i++) seq.push('i');
+  for (let i = 0; i < 3; i++) seq.push('t');
+  for (let i = 0; i < Math.min(numTiles, 4); i++) seq.push('i');
+  for (let i = 0; i < 3; i++) seq.push('t');
+
+  const gap = 4;
+  const cellW = Math.min(28, (w - 24 - gap * (seq.length - 1)) / seq.length);
+  const totalW = seq.length * cellW + gap * (seq.length - 1);
+  let x = (w - totalW) / 2;
+  const y = h / 2 - 14;
+  seq.forEach(tok => {
+    ctx.fillStyle = tok === 'i' ? C.blueBg : C.greenBg;
+    ctx.strokeStyle = tok === 'i' ? C.blueBorder : C.greenBorder;
+    roundRect(ctx, x, y, cellW, 28, 3);
+    ctx.fill(); ctx.stroke();
+    x += cellW + gap;
+  });
+  drawLabel(ctx, 'Interleaved sequence — image tokens spliced at <IMG> positions', w / 2, y + 28 + 24, C.text2, 12, 600);
+}
+
+function drawDecodeViz(ctx, w, h, C) {
+  const n = 8;
+  const pad = 20;
+  const size = (Math.min(w - pad * 2, (h - 60)) ) / n;
+  const x0 = (w - n * size) / 2, y0 = 20;
+  ctx.lineWidth = 1;
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const active = c <= r;
+      ctx.fillStyle = active ? C.redBg : C.bg2 || C.border;
+      ctx.strokeStyle = C.redBorder;
+      ctx.globalAlpha = active ? 1 : 0.25;
+      ctx.fillRect(x0 + c * size, y0 + r * size, size - 1, size - 1);
+      ctx.globalAlpha = 1;
+    }
+  }
+  drawLabel(ctx, 'Causal self-attention over the interleaved sequence (InternLM2)', w / 2, y0 + n * size + 22, C.red, 12, 600);
+}
+
+function drawOutputViz(ctx, w, h, C) {
+  const y = h / 2;
+  const n = 5;
+  const r = 16;
+  const gap = 44;
+  const x0 = w / 2 - ((n - 1) * gap) / 2;
+  for (let i = 0; i < n; i++) {
+    const x = x0 + i * gap;
+    ctx.fillStyle = i < n - 1 ? C.greenBg : C.redBg;
+    ctx.strokeStyle = i < n - 1 ? C.greenBorder : C.redBorder;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    if (i < n - 1) {
+      ctx.strokeStyle = C.text2;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + gap - r, y);
+      ctx.stroke();
+    }
+  }
+  drawLabel(ctx, 'Autoregressive generation, token by token', w / 2, y + r + 26, C.text2, 12, 600);
+  drawLabel(ctx, 'next token →', x0 + (n - 1) * gap, y - r - 14, C.red, 11, 600);
 }
 
 // ── INIT DOTS ──
@@ -543,6 +822,20 @@ function render() {
   drawCanvas(s.canvasMode);
   updateDots();
 }
+
+// ── KEYBOARD NAV ──
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') { go(1); }
+  else if (e.key === 'ArrowLeft') { go(-1); }
+  else if (e.key === 'r' || e.key === 'R') { reset(); }
+});
+
+// ── RESIZE ──
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+
+// ── INIT ──
+initDots();
+render();
 </script>
 </body>
 </html>
