@@ -220,7 +220,49 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 </div>
 
 <!-- CARD 4: Interactive Visualization -->
-<div class="card" id="card4"></div>
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the exact same sampled \(\lambda\) flowing through both Mixup's pixel blend and CutMix's patch cut-and-paste — watch the input AND the label change together, live-computed at every step.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="label-bars" id="labelBars"></div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Two Source Examples</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#EB8C3C"></div> Image A (cat)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#5096E1"></div> Image B (dog)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Mixup blended pixels</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> CutMix box / patch</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- CARD 5: Key Takeaways -->
 <div class="card">
@@ -292,6 +334,292 @@ function toggleSection(el) {
   body.classList.toggle('collapsed');
   toggle.classList.toggle('open');
 }
+
+// ══════════════════════════════════════════════════════════
+// INTERACTIVE WALKTHROUGH — Mixup λ-blend & CutMix patch/label mixing
+// All numbers below (box size, area, recomputed λ, CE loss) are
+// computed LIVE from the formulas, not hard-coded.
+// ══════════════════════════════════════════════════════════
+
+// -- synthetic "image" resolution (grid cells) --
+const GRID_COLS = 16, GRID_ROWS = 9;
+
+// -- sampled quantities (the one random draw shared by both methods) --
+const LAMBDA0 = 0.70;         // lam ~ Beta(alpha,alpha), example draw
+const BOX_CX = 9, BOX_CY = 5; // sampled box center (grid cells)
+
+// -- derived CutMix box geometry, computed from LAMBDA0 --
+const cutRat = Math.sqrt(1 - LAMBDA0);
+const cutW = Math.round(GRID_COLS * cutRat);
+const cutH = Math.round(GRID_ROWS * cutRat);
+const boxX1 = clamp(BOX_CX - Math.floor(cutW / 2), 0, GRID_COLS);
+const boxX2 = clamp(boxX1 + cutW, 0, GRID_COLS);
+const boxY1 = clamp(BOX_CY - Math.floor(cutH / 2), 0, GRID_ROWS);
+const boxY2 = clamp(boxY1 + cutH, 0, GRID_ROWS);
+const realizedArea = (boxX2 - boxX1) * (boxY2 - boxY1);
+const totalArea = GRID_COLS * GRID_ROWS;
+const LAMBDA_RECOMPUTED = 1 - (realizedArea / totalArea); // area-based label lambda
+
+// -- example prediction used to make the loss numbers concrete --
+const P_CAT = 0.82, P_DOG = 1 - P_CAT;
+const CE_A = -Math.log(P_CAT);   // cross-entropy vs "cat" target
+const CE_B = -Math.log(P_DOG);   // cross-entropy vs "dog" target
+const mixupLoss = LAMBDA0 * CE_A + (1 - LAMBDA0) * CE_B;
+const cutmixLoss = LAMBDA_RECOMPUTED * CE_A + (1 - LAMBDA_RECOMPUTED) * CE_B;
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerpRGB(c1, c2, t) { return [0, 1, 2].map(k => c1[k] + (c2[k] - c1[k]) * t); }
+function rgbStr(c) { return `rgb(${Math.round(clamp(c[0],0,255))},${Math.round(clamp(c[1],0,255))},${Math.round(clamp(c[2],0,255))})`; }
+
+// Image A = "cat": warm blob centered left-of-center
+function colorA(i, j) {
+  const cx = GRID_COLS * 0.35, cy = GRID_ROWS * 0.5;
+  const d = Math.min(1, Math.hypot(i - cx, j - cy) / (Math.max(GRID_COLS, GRID_ROWS) * 0.42));
+  return lerpRGB([150, 68, 18], [235, 140, 60], d);
+}
+// Image B = "dog": cool blob centered right-of-center
+function colorB(i, j) {
+  const cx = GRID_COLS * 0.65, cy = GRID_ROWS * 0.55;
+  const d = Math.min(1, Math.hypot(i - cx, j - cy) / (Math.max(GRID_COLS, GRID_ROWS) * 0.42));
+  return lerpRGB([18, 58, 128], [80, 150, 225], d);
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Two Source Examples',
+    desc: `We start with two real, unmodified training images: \\(x_A\\) (label \\(y_A=\\) "cat", one-hot \\([1,0]\\)) and \\(x_B\\) (label \\(y_B=\\) "dog", one-hot \\([0,1]\\)). Both methods begin from this same pair.`,
+    codeLines: [0, 1], canvasMode: 'sideBySide', catPct: 100, dogPct: 0, showBothPct: true
+  },
+  {
+    phase: 'setup', title: 'Sample λ ~ Beta(α, α)',
+    desc: `Draw \\(\\lambda \\sim \\operatorname{Beta}(\\alpha,\\alpha)\\) once — here \\(\\lambda = ${LAMBDA0.toFixed(2)}\\) (with \\(\\alpha{=}0.2\\), Beta is U-shaped, so \\(\\lambda\\) is usually close to 0 or 1, occasionally near 0.5 as sampled here). This single draw feeds BOTH Mixup and CutMix below.`,
+    codeLines: [3, 4], canvasMode: 'sideBySide', catPct: 100, dogPct: 0, showBothPct: true
+  },
+  {
+    phase: 'mixup', title: 'Mixup: Pixel-Level Alpha Blend',
+    desc: `Every pixel is blended: \\(\\tilde{x} = \\lambda x_A + (1-\\lambda) x_B = ${LAMBDA0.toFixed(2)}\\,x_A + ${(1-LAMBDA0).toFixed(2)}\\,x_B\\). Notice the whole canvas is now translucent — dog's blue is visible everywhere cat's orange used to be alone.`,
+    codeLines: [5], canvasMode: 'mixupBlend', lambda: LAMBDA0, catPct: LAMBDA0 * 100, dogPct: (1 - LAMBDA0) * 100
+  },
+  {
+    phase: 'mixup', title: 'Mixup Label = Same Convex Combination',
+    desc: `The label mixes in the identical ratio: \\(\\tilde{y} = ${LAMBDA0.toFixed(2)}\\,[1,0] + ${(1-LAMBDA0).toFixed(2)}\\,[0,1] = [${LAMBDA0.toFixed(2)}, ${(1-LAMBDA0).toFixed(2)}]\\). The bars below show this exactly — no pixel evidence is unaccounted for by the label.`,
+    codeLines: [6], canvasMode: 'mixupBlend', lambda: LAMBDA0, catPct: LAMBDA0 * 100, dogPct: (1 - LAMBDA0) * 100
+  },
+  {
+    phase: 'mixup', title: 'Mixup Loss — Live Computed',
+    desc: `Given a model prediction \\(p_{cat}=${P_CAT.toFixed(2)}\\), the two cross-entropies are \\(\\mathrm{CE}_A=-\\ln(${P_CAT.toFixed(2)})=${CE_A.toFixed(3)}\\) and \\(\\mathrm{CE}_B=-\\ln(${P_DOG.toFixed(2)})=${CE_B.toFixed(3)}\\). The mixed loss is \\(\\mathcal{L}=${LAMBDA0.toFixed(2)}(${CE_A.toFixed(3)})+${(1-LAMBDA0).toFixed(2)}(${CE_B.toFixed(3)})=${mixupLoss.toFixed(3)}\\) — one forward pass, one weighted sum.`,
+    codeLines: [18, 19, 20, 21], canvasMode: 'mixupBlend', lambda: LAMBDA0, catPct: LAMBDA0 * 100, dogPct: (1 - LAMBDA0) * 100
+  },
+  {
+    phase: 'cutmix', title: 'CutMix: Sample the Cut Box',
+    desc: `Same \\(\\lambda=${LAMBDA0.toFixed(2)}\\), but now it sets a BOX size, not a blend ratio: \\(r_w = W\\sqrt{1-\\lambda}\\approx${cutRat.toFixed(3)}\\cdot${GRID_COLS}\\approx${cutW}\\) cells, \\(r_h\\approx${cutRat.toFixed(3)}\\cdot${GRID_ROWS}\\approx${cutH}\\) cells, centered at a randomly sampled point. Image A is still fully sharp — only the green box marks where B will be pasted.`,
+    codeLines: [9, 10, 11, 12], canvasMode: 'cutmixBox'
+  },
+  {
+    phase: 'cutmix', title: 'CutMix: Patch Cut-and-Paste',
+    desc: `The pixels of B inside the box overwrite A's pixels exactly — no blending, every visible pixel is 100% real: \\(\\tilde{x} = \\mathbf{M}\\odot x_A + (1-\\mathbf{M})\\odot x_B\\). Compare to Mixup: there the WHOLE canvas was translucent; here only a crisp rectangle changed.`,
+    codeLines: [13, 14], canvasMode: 'cutmixPatch', catPct: LAMBDA0 * 100, dogPct: (1 - LAMBDA0) * 100
+  },
+  {
+    phase: 'cutmix', title: 'Recompute λ From Realized Area',
+    desc: `Integer pixel rounding means the box (\\(${boxX2-boxX1}\\times${boxY2-boxY1}=${realizedArea}\\) cells out of ${totalArea}\\)) rarely covers exactly \\((1-\\lambda)\\) of the image. So the LABEL uses the true visible fraction: \\(\\lambda = 1-\\tfrac{${realizedArea}}{${totalArea}} = ${LAMBDA_RECOMPUTED.toFixed(4)}\\) — not the original ${LAMBDA0.toFixed(2)} draw. The bars below just shifted to match.`,
+    codeLines: [15], canvasMode: 'cutmixPatch', catPct: LAMBDA_RECOMPUTED * 100, dogPct: (1 - LAMBDA_RECOMPUTED) * 100
+  },
+  {
+    phase: 'cutmix', title: 'CutMix Loss — Live Computed',
+    desc: `Using the SAME predicted probabilities as before but the recomputed \\(\\lambda=${LAMBDA_RECOMPUTED.toFixed(4)}\\): \\(\\mathcal{L}=${LAMBDA_RECOMPUTED.toFixed(4)}(${CE_A.toFixed(3)})+${(1-LAMBDA_RECOMPUTED).toFixed(4)}(${CE_B.toFixed(3)})=${cutmixLoss.toFixed(3)}\\), slightly different from Mixup's ${mixupLoss.toFixed(3)} purely because the visible-area fraction differs from the sampled \\(\\lambda\\).`,
+    codeLines: [15, 18, 19, 20, 21], canvasMode: 'cutmixPatch', catPct: LAMBDA_RECOMPUTED * 100, dogPct: (1 - LAMBDA_RECOMPUTED) * 100
+  },
+  {
+    phase: 'result', title: 'Mixup vs CutMix, Side by Side',
+    desc: `Same \\(\\lambda\\), two different inputs, two different labels — and both remain internally consistent. Left: Mixup's translucent global blend (\\(${LAMBDA0.toFixed(2)}/${(1-LAMBDA0).toFixed(2)}\\)). Right: CutMix's sharp local patch (\\(${LAMBDA_RECOMPUTED.toFixed(2)}/${(1-LAMBDA_RECOMPUTED).toFixed(2)}\\)). The label always tracks exactly what fraction of each class's evidence is visible.`,
+    codeLines: [], canvasMode: 'compare', catPct: LAMBDA_RECOMPUTED * 100, dogPct: (1 - LAMBDA_RECOMPUTED) * 100
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('#progressDots .dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', mixup: 'phase-mixup', cutmix: 'phase-cutmix', result: 'phase-result' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  renderLabelBars(s);
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── LABEL BARS ──
+function renderLabelBars(s) {
+  const wrap = document.getElementById('labelBars');
+  if (s.catPct === undefined) { wrap.innerHTML = ''; return; }
+  const catPct = s.catPct, dogPct = s.dogPct;
+  wrap.innerHTML = `
+    <div class="label-bar-row">
+      <div class="label-bar-name">cat ỹ</div>
+      <div class="label-bar-track"><div class="label-bar-fill" style="width:${catPct}%;background:#EB8C3C;">${catPct.toFixed(1)}%</div></div>
+    </div>
+    <div class="label-bar-row">
+      <div class="label-bar-name">dog ỹ</div>
+      <div class="label-bar-track"><div class="label-bar-fill" style="width:${dogPct}%;background:#5096E1;">${dogPct.toFixed(1)}%</div></div>
+    </div>`;
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(s) {
+  const mode = s.canvasMode;
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+
+  function drawGrid(x0, y0, w, h, cols, rows, colorFn) {
+    const cw = w / cols, ch = h / rows;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        ctx.fillStyle = rgbStr(colorFn(i, j));
+        ctx.fillRect(x0 + i * cw - 0.4, y0 + j * ch - 0.4, cw + 0.8, ch + 0.8);
+      }
+    }
+  }
+
+  if (mode === 'sideBySide') {
+    const gap = 10, half = (W - gap) / 2;
+    drawGrid(0, 0, half, H, GRID_COLS, GRID_ROWS, colorA);
+    drawGrid(half + gap, 0, half, H, GRID_COLS, GRID_ROWS, colorB);
+    ctx.fillStyle = textC; ctx.font = '600 13px "DM Sans", system-ui';
+    ctx.fillText('xA — cat (yA = [1,0])', 8, 18);
+    ctx.fillText('xB — dog (yB = [0,1])', half + gap + 8, 18);
+  }
+
+  if (mode === 'mixupBlend') {
+    const lam = s.lambda !== undefined ? s.lambda : LAMBDA0;
+    drawGrid(0, 0, W, H, GRID_COLS, GRID_ROWS, (i, j) => lerpRGB(colorB(i, j), colorA(i, j), lam));
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, H - 24, W, 24);
+    ctx.fillStyle = '#fff'; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText(`x̃ = ${lam.toFixed(2)}·xA + ${(1 - lam).toFixed(2)}·xB`, 8, H - 7);
+  }
+
+  if (mode === 'cutmixBox') {
+    drawGrid(0, 0, W, H, GRID_COLS, GRID_ROWS, colorA);
+    const cw = W / GRID_COLS, ch = H / GRID_ROWS;
+    ctx.strokeStyle = greenMid; ctx.lineWidth = 3;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(boxX1 * cw, boxY1 * ch, (boxX2 - boxX1) * cw, (boxY2 - boxY1) * ch);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, H - 24, W, 24);
+    ctx.fillStyle = '#fff'; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText(`box = ${boxX2-boxX1}×${boxY2-boxY1} cells, will paste xB inside`, 8, H - 7);
+  }
+
+  if (mode === 'cutmixPatch' || mode === 'compare') {
+    const cw = (mode === 'compare' ? (W - 10) / 2 : W) / GRID_COLS;
+    const ch = H / GRID_ROWS;
+    const x0 = 0;
+    if (mode === 'cutmixPatch') {
+      drawGrid(0, 0, W, H, GRID_COLS, GRID_ROWS, (i, j) =>
+        (i >= boxX1 && i < boxX2 && j >= boxY1 && j < boxY2) ? colorB(i, j) : colorA(i, j)
+      );
+      ctx.strokeStyle = greenMid; ctx.lineWidth = 2.5;
+      ctx.strokeRect(boxX1 * (W / GRID_COLS), boxY1 * (H / GRID_ROWS), (boxX2 - boxX1) * (W / GRID_COLS), (boxY2 - boxY1) * (H / GRID_ROWS));
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, H - 24, W, 24);
+      ctx.fillStyle = '#fff'; ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.fillText('sharp patch of xB pasted into xA — every pixel 100% real', 8, H - 7);
+    } else {
+      // compare: left = mixup blend, right = cutmix patch
+      const half = (W - 10) / 2;
+      drawGrid(0, 0, half, H, GRID_COLS, GRID_ROWS, (i, j) => lerpRGB(colorB(i, j), colorA(i, j), LAMBDA0));
+      drawGrid(half + 10, 0, half, H, GRID_COLS, GRID_ROWS, (i, j) =>
+        (i >= boxX1 && i < boxX2 && j >= boxY1 && j < boxY2) ? colorB(i, j) : colorA(i, j)
+      );
+      const rcw = half / GRID_COLS, rch = H / GRID_ROWS;
+      ctx.strokeStyle = greenMid; ctx.lineWidth = 2.5;
+      ctx.strokeRect(half + 10 + boxX1 * rcw, boxY1 * rch, (boxX2 - boxX1) * rcw, (boxY2 - boxY1) * rch);
+      ctx.fillStyle = textC; ctx.font = '600 13px "DM Sans", system-ui';
+      ctx.fillText('Mixup (global blend)', 8, 18);
+      ctx.fillText('CutMix (local patch)', half + 10 + 8, 18);
+    }
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
 </script>
 </body>
 </html>

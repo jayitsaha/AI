@@ -331,6 +331,16 @@ table.compare td:first-child{font-weight:600;color:var(--text);}
       <button class="btn" onclick="stopAnim()">■ Stop</button>
     </div>
     <div class="kbd-hint">Drag slider or press Animate to watch the landscape morph</div>
+
+    <h4 style="margin-top:1.5rem;">Guided Walkthrough: Penalty Growth → Barrier Interior → Dual Updates</h4>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:0.75rem;">Step through all three methods in sequence on the same problem, watching the same canvas and info card above update at each step.</p>
+    <div class="controls">
+      <button class="btn" id="wPrevBtn" onclick="wGo(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="wNextBtn" onclick="wGo(1)">Next →</button>
+      <button class="btn" onclick="wReset()">Reset</button>
+    </div>
+    <div class="progress-wrap" id="wProgressDots"></div>
+    <div class="kbd-hint">Use ← → arrow keys to step through the walkthrough (R to reset)</div>
   </div>
 </div>
 
@@ -812,6 +822,112 @@ function stopAnim() {
   if (animTimer) { clearInterval(animTimer); animTimer = null; }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  GUIDED WALKTHROUGH (Prev/Next/Reset, drives the SAME canvas
+//  and info card as the free-explore controls above)
+// ═══════════════════════════════════════════════════════════════
+const wSteps = [
+  { method:'ext', mu:0.5,
+    title:'The Unconstrained Pull',
+    desc:'The bare objective f(x)=x2 wants x=0, but the constraint requires x>=1. With a barely-there penalty mu=0.5, the penalized curve P_mu(x) bends only slightly - minimizer x*_mu = mu/(1+mu) ~ 0.333, still deep inside the infeasible region.' },
+  { method:'ext', mu:5,
+    title:'Penalty Tightens the Leash',
+    desc:'Raising mu to 5 pulls the minimizer to x*_mu ~ 0.833 - closer to feasibility but still short of x=1. Every finite mu leaves a residual violation 1 - x*_mu > 0.' },
+  { method:'ext', mu:100,
+    title:'Large mu: Close but Never Exact - and Ill-Conditioned',
+    desc:'At mu=100 the minimizer x*_mu ~ 0.990 nearly touches the boundary, yet never reaches it for any finite mu. Worse, curvature near the minimum scales with mu, so gradient descent slows and Newton steps become numerically fragile - the classic ill-conditioning failure of pure exterior penalty.' },
+  { method:'bar', t:6,
+    title:'Entering Through the Interior',
+    desc:'Switch to the log-barrier method with t=6. B_t(x) = x2 - t*log(x-1) is +infinity at the boundary x=1 and defined only for x>1. Starting deep inside the feasible region, the minimizer sits at x*(t) ~ 2.303 - always strictly feasible, unlike the penalty method.' },
+  { method:'bar', t:1,
+    title:'Following the Central Path',
+    desc:'Shrinking t to 1 pulls the minimizer along the central path to x*(t) ~ 1.366. The barrier still repels it from the forbidden region (shaded red, x<=1), but the repulsion weakens as t shrinks.' },
+  { method:'bar', t:0.05,
+    title:'Central Path Converges to the Boundary',
+    desc:'At t=0.05 the minimizer x*(t) ~ 1.024 hugs the boundary yet stays feasible - the log-barrier method converges to the exact constrained optimum x*=1 as t approaches 0, without ever crossing the fence. This is the trajectory interior-point solvers track using Newton iterations.' },
+  { method:'aug', lam:0, rho:2,
+    title:'Augmented Lagrangian: First Iterate',
+    desc:'The augmented Lagrangian L_rho(x,lam) = x2 + lam*(x-1) + (rho/2)(x-1)2 uses a fixed rho=2 and multiplier lam0=0. Minimizing gives x1=0.5 - the same starting point as pure penalty, but now a dual variable tracks the constraint violation.' },
+  { method:'aug', lam:-1, rho:2,
+    title:'Dual Update Corrects the Estimate',
+    desc:'The multiplier updates: lam1 = lam0 + rho*(x1-1) = 0 + 2(0.5-1) = -1. Re-minimizing with this improved dual estimate moves the iterate to x2=0.75 - much closer to feasibility than a single fixed-rho=2 penalty step alone would achieve.' },
+  { method:'aug', lam:-2, rho:2,
+    title:'Convergence: Exact Feasibility at Finite rho',
+    desc:'As the multiplier converges to the true dual value lam*=-2, the minimizer reaches x*=1.0 exactly - the true constrained optimum - while rho stayed fixed at 2 throughout. This is the payoff of augmented Lagrangian: no rho -> infinity required, unlike pure exterior penalty.' }
+];
+let wstep = 0;
+
+function initWDots() {
+  const wrap = document.getElementById('wProgressDots');
+  wrap.innerHTML = '';
+  wSteps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => { wstep = i; applyWStep(wstep); };
+    wrap.appendChild(d);
+  });
+}
+
+function updateWDots() {
+  document.querySelectorAll('#wProgressDots .dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < wstep) d.classList.add('done');
+    if (i === wstep) d.classList.add('active');
+  });
+}
+
+function applyWStep(i) {
+  const s = wSteps[i];
+
+  // Drive the EXISTING method-tab / slider / canvas machinery
+  setMethod(s.method);
+  let paramLabel;
+  if (s.method === 'ext') {
+    const el = document.getElementById('sliderMu');
+    el.value = s.mu;
+    document.getElementById('valMu').textContent = s.mu.toFixed(1);
+    paramLabel = `μ = ${s.mu}`;
+  } else if (s.method === 'bar') {
+    const el = document.getElementById('sliderT');
+    el.value = s.t;
+    document.getElementById('valT').textContent = s.t.toFixed(2);
+    paramLabel = `t = ${s.t}`;
+  } else {
+    document.getElementById('sliderLam').value = s.lam;
+    document.getElementById('valLam').textContent = s.lam.toFixed(2);
+    document.getElementById('sliderRho').value = s.rho;
+    document.getElementById('valRho').textContent = s.rho.toFixed(1);
+    paramLabel = `λ = ${s.lam.toFixed(2)}, ρ = ${s.rho}`;
+  }
+  draw(); // recomputes canvas + generic info card off the exact param values
+
+  // Overlay curated walkthrough narrative onto the SAME info card
+  document.getElementById('infoStep').textContent = `Step ${i + 1} of ${wSteps.length} — ${paramLabel}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').textContent = s.desc;
+
+  document.getElementById('wPrevBtn').disabled = (i === 0);
+  document.getElementById('wNextBtn').disabled = (i === wSteps.length - 1);
+  updateWDots();
+}
+
+function wGo(dir) {
+  const next = wstep + dir;
+  if (next < 0 || next >= wSteps.length) return;
+  wstep = next;
+  applyWStep(wstep);
+}
+function wGoTo(i) { wstep = i; applyWStep(wstep); }
+function wReset() { wstep = 0; applyWStep(wstep); }
+
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') wGo(1);
+  else if (e.key === 'ArrowLeft') wGo(-1);
+  else if (e.key === 'r' || e.key === 'R') wReset();
+});
+
 // ── Card toggle ─────────────────────────────────────────────────
 function toggleSection(header) {
   const toggle = header.querySelector('.section-toggle');
@@ -836,6 +952,8 @@ window.addEventListener('load', () => {
   buildSliders();
   updateLegend();
   draw();
+  initWDots();
+  applyWStep(0);
   // Set all section bodies to auto max-height
   document.querySelectorAll('.section-body').forEach(b => {
     b.style.maxHeight = b.scrollHeight + 200 + 'px';

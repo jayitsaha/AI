@@ -275,6 +275,22 @@ input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;
       <div class="viz-canvas-wrap" style="height:320px;">
         <canvas id="growthCanvas" width="900" height="320"></canvas>
       </div>
+
+      <!-- Step-by-step walkthrough: drives the growth canvas above (highlights a curve + sets n) -->
+      <div class="info-card" id="growthStepInfo">
+        <span class="info-phase phase-asymptotic" id="growthStepPhase">Growth Curves</span>
+        <div class="info-step" id="growthStepNum">Step 1 / 9</div>
+        <div class="info-title" id="growthStepTitle">Title</div>
+        <div class="info-desc" id="growthStepDesc">Description</div>
+      </div>
+      <div class="controls" id="growthVizControls">
+        <button class="btn" id="btnGrowthPrev" onclick="goGrowth(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnGrowthNext" onclick="goGrowth(1)">Next →</button>
+        <button class="btn" id="btnGrowthReset" onclick="resetGrowth()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="growthProgressWrap"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate · R to reset</div>
+
       <div class="legend">
         <div class="legend-item"><div class="legend-swatch" style="background:#22c55e;"></div> O(log n)</div>
         <div class="legend-item"><div class="legend-swatch" style="background:#3b82f6;"></div> O(n)</div>
@@ -509,7 +525,9 @@ function initCards(){
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
+let activeTab='growth';
 function showTab(tab){
+  activeTab=tab;
   const isGrowth=tab==='growth';
   document.getElementById('panelGrowth').style.display=isGrowth?'block':'none';
   document.getElementById('panelLandscape').style.display=isGrowth?'none':'block';
@@ -519,10 +537,12 @@ function showTab(tab){
   document.getElementById('tabGrowth').className=isGrowth?'btn btn-primary':'btn';
   document.getElementById('tabLandscape').className=isGrowth?'btn':'btn btn-primary';
   if(!isGrowth){buildProgress();showStep(currentStep);}
+  else{buildGrowthProgress();showGrowthStep(currentGrowthStep);}
 }
 
 // ── Growth curve drawing ──────────────────────────────────────────────────────
 let maxN=20;
+let highlightKey=null; // set by the step walkthrough to spotlight one curve
 function factorial(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r;}
 function getVal(n,type){
   if(type==='log')return n<1?0:Math.log2(n);
@@ -610,11 +630,14 @@ function drawGrowth(){
   ctx.save(); ctx.translate(12, PAD.top+ph/2); ctx.rotate(-Math.PI/2);
   ctx.fillText('operations', 0, 0); ctx.restore();
 
-  // Draw each curve
+  // Draw each curve (dim non-highlighted curves when the walkthrough spotlights one)
   CURVES.forEach(c=>{
+    const isDimmed=highlightKey && c.key!==highlightKey;
+    const isSpot=highlightKey && c.key===highlightKey;
     ctx.save();
+    ctx.globalAlpha=isDimmed?0.18:1;
     ctx.strokeStyle=c.color;
-    ctx.lineWidth=2.5;
+    ctx.lineWidth=isSpot?4.5:2.5;
     ctx.lineJoin='round';
     ctx.beginPath();
     let started=false;
@@ -627,12 +650,21 @@ function drawGrowth(){
     }
     ctx.stroke();
 
+    // Spotlight marker at the current n on the highlighted curve
+    if(isSpot){
+      const mx=PAD.left+pw*(maxN/maxN);
+      const my=PAD.top+ph*(1-Math.min(getVal(maxN,c.key),CAP)/CAP);
+      ctx.beginPath(); ctx.arc(mx,my,5,0,Math.PI*2);
+      ctx.fillStyle=c.color; ctx.fill();
+      ctx.strokeStyle=isDark?'#18181a':'#ffffff'; ctx.lineWidth=2; ctx.stroke();
+    }
+
     // Label at end
     const lastX=maxN, lastV=Math.min(getVal(lastX,c.key),CAP);
     const lpx=PAD.left+pw*(lastX/maxN)+4;
     const lpy=PAD.top+ph*(1-lastV/CAP);
     ctx.fillStyle=c.color;
-    ctx.font='bold 10px '+getComputedStyle(document.body).getPropertyValue('--sans').trim();
+    ctx.font=(isSpot?'bold 12px ':'bold 10px ')+getComputedStyle(document.body).getPropertyValue('--sans').trim();
     ctx.textAlign='left';
     if(lpy>PAD.top+10 && lpy<PAD.top+ph-5){
       ctx.fillText(c.label,lpx,lpy+4);
@@ -643,6 +675,7 @@ function drawGrowth(){
 
 function updateN(v){
   maxN=parseInt(v);
+  highlightKey=null; // manual slider drag exits the spotlighted-curve walkthrough view
   document.getElementById('valN').textContent=maxN;
   drawGrowth();
   updateTable();
@@ -666,6 +699,83 @@ function updateTable(){
   });
   document.getElementById('growthTbody').innerHTML=html;
 }
+
+// ── Growth-curve walkthrough (drives the canvas above via maxN + highlightKey) ─
+const GROWTH_STEPS=[
+  {n:8, hl:null,    phase:'phase-asymptotic', label:'Growth Curves', title:'Six Growth Rates, Same Starting Line',
+   desc:c=>`At n=${c.n} every curve is still close together — this is the trap. All six functions look "small" for tiny inputs. Watch what happens as we spotlight each one and grow n.`},
+  {n:8, hl:'log',   phase:'phase-asymptotic', label:'O(log n)', title:'O(log n) — Logarithmic',
+   desc:c=>`Spotlighted: <strong>O(log n)</strong>. At n=${c.n}, that's only log₂(${c.n}) = ${c.log.toFixed(2)} operations. Doubling n barely moves this curve — binary search is the classic example.`},
+  {n:8, hl:'n',     phase:'phase-asymptotic', label:'O(n)', title:'O(n) — Linear',
+   desc:c=>`Spotlighted: <strong>O(n)</strong>. At n=${c.n}, that's exactly ${c.n} operations — a straight line. This is the baseline every other class is compared against.`},
+  {n:8, hl:'nlogn', phase:'phase-asymptotic', label:'O(n log n)', title:'O(n log n) — Linearithmic',
+   desc:c=>`Spotlighted: <strong>O(n log n)</strong>. At n=${c.n}, that's ${c.n}·log₂(${c.n}) ≈ ${c.nlogn.toFixed(1)} — just above linear. This is the best possible complexity for comparison-based sorting (MergeSort, HeapSort).`},
+  {n:16, hl:'n2',   phase:'phase-classes',    label:'O(n²)', title:'O(n²) — Quadratic',
+   desc:c=>`We bumped n to ${c.n}. Spotlighted: <strong>O(n²)</strong> = ${c.n}² = ${c.n2.toLocaleString()} operations. Nested loops (bubble sort, naive pairwise distance) land here — still usable, but grows fast.`},
+  {n:20, hl:'exp',  phase:'phase-npc',        label:'O(2ⁿ)', title:'O(2ⁿ) — Exponential',
+   desc:c=>`n is now ${c.n}. Spotlighted: <strong>O(2ⁿ)</strong> = 2^${c.n} = ${c.exp.toLocaleString()} operations. Brute-force subset enumeration (e.g. exact solvers for NP-hard problems) hits this wall — it's already off the chart's cap.`},
+  {n:12, hl:'fact', phase:'phase-npc',        label:'O(n!)', title:'O(n!) — Factorial (fastest growth)',
+   desc:c=>`n dropped to ${c.n} on purpose — factorial explodes that fast. Spotlighted: <strong>O(n!)</strong> = ${c.n}! = ${c.fact.toLocaleString()} operations. Brute-force Traveling Salesman (try every permutation) is O(n!).`},
+  {n:50, hl:null,   phase:'phase-classes',    label:'Growth Curves', title:'The Full Picture at n=50',
+   desc:c=>`At n=${c.n}: O(log n)≈${c.log.toFixed(1)}, O(n)=${c.n}, O(n log n)≈${Math.round(c.nlogn).toLocaleString()}, O(n²)=${c.n2.toLocaleString()}. O(2ⁿ) and O(n!) are already astronomically larger than the chart's cap — they're rendered flat against the ceiling. This gap IS why polynomial vs. exponential is the line between tractable and intractable.`},
+  {n:30, hl:'exp',  phase:'phase-ml',         label:'ML Connections', title:'Why NP-Hard Problems Feel "Impossible"',
+   desc:c=>`At n=${c.n}, O(2ⁿ) = 2^${c.n} ≈ ${c.exp.toExponential(2)} operations — longer than a modern CPU could finish in a human lifetime. This is exactly why exact solvers for NP-hard ML problems (exact k-means, optimal architecture search) are abandoned in favor of polynomial-time heuristics like Lloyd's algorithm.`},
+];
+let currentGrowthStep=0;
+
+function growthStepContext(n){
+  return {
+    n, log:Math.log2(n), nlogn:n*Math.log2(n), n2:n*n,
+    exp:Math.pow(2,n), fact: n<=15?factorial(n):Infinity
+  };
+}
+
+function buildGrowthProgress(){
+  const wrap=document.getElementById('growthProgressWrap');
+  if(!wrap)return;
+  wrap.innerHTML='';
+  GROWTH_STEPS.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.onclick=()=>showGrowthStep(i);
+    wrap.appendChild(d);
+  });
+}
+
+function showGrowthStep(i){
+  currentGrowthStep=i;
+  const s=GROWTH_STEPS[i];
+
+  // Drive the existing growth-curve visualization
+  maxN=s.n;
+  highlightKey=s.hl;
+  document.getElementById('sliderN').value=s.n;
+  document.getElementById('valN').textContent=s.n;
+  drawGrowth();
+  updateTable();
+
+  // Step-synced info card (live-computed values, not hard-coded)
+  const ctx=growthStepContext(s.n);
+  document.getElementById('growthStepPhase').className='info-phase '+s.phase;
+  document.getElementById('growthStepPhase').textContent=s.label;
+  document.getElementById('growthStepNum').textContent=`Step ${i+1} / ${GROWTH_STEPS.length}`;
+  document.getElementById('growthStepTitle').textContent=s.title;
+  document.getElementById('growthStepDesc').innerHTML=s.desc(ctx);
+
+  // Dots
+  document.querySelectorAll('#growthProgressWrap .dot').forEach((d,j)=>{
+    d.classList.toggle('active',j===i);
+    d.classList.toggle('done',j<i);
+  });
+  document.getElementById('btnGrowthPrev').disabled=(i===0);
+  document.getElementById('btnGrowthNext').disabled=(i===GROWTH_STEPS.length-1);
+}
+
+function goGrowth(dir){
+  const next=Math.max(0,Math.min(GROWTH_STEPS.length-1,currentGrowthStep+dir));
+  showGrowthStep(next);
+}
+function resetGrowth(){showGrowthStep(0);}
 
 // ── Landscape steps ───────────────────────────────────────────────────────────
 const STEPS=[
@@ -726,11 +836,13 @@ function go(dir){
 }
 function reset(){showStep(0);}
 
-// ── Keyboard nav ──────────────────────────────────────────────────────────────
+// ── Keyboard nav (routes to whichever tab's walkthrough is active) ─────────────
 document.addEventListener('keydown',e=>{
-  if(e.key==='ArrowRight')go(1);
-  if(e.key==='ArrowLeft')go(-1);
-  if(e.key==='r'||e.key==='R')reset();
+  const target=e.target;
+  if(target && (target.tagName==='INPUT'||target.tagName==='TEXTAREA'))return;
+  if(e.key==='ArrowRight'){ activeTab==='growth'?goGrowth(1):go(1); }
+  if(e.key==='ArrowLeft'){ activeTab==='growth'?goGrowth(-1):go(-1); }
+  if(e.key==='r'||e.key==='R'){ activeTab==='growth'?resetGrowth():reset(); }
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -738,13 +850,14 @@ document.addEventListener('DOMContentLoaded',()=>{
   initCards();
   drawGrowth();
   updateTable();
+  buildGrowthProgress();
   // Start on growth tab
   showTab('growth');
   document.getElementById('vizControls').style.display='none';
   document.getElementById('progressWrap').style.display='none';
   document.getElementById('stepInfo').style.display='none';
 });
-window.addEventListener('resize',drawGrowth);
+window.addEventListener('resize',()=>{ activeTab==='growth'?drawGrowth():null; });
 </script>
 </body>
 </html>

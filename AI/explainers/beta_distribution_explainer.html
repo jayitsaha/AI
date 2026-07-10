@@ -272,6 +272,23 @@ input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;b
   <div class="section-body" id="body4" style="max-height:4000px;">
     <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Two modes: (A) Shape Explorer — drag sliders to see how \(\alpha\) and \(\beta\) morph the Beta PDF in real time. (B) Bayesian Update — press "Flip Coin!" to add one coin flip at a time and watch the prior update to the posterior.</p>
 
+    <!-- Guided walkthrough (step-through) -->
+    <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">▶ Guided Walkthrough</div>
+    <div class="info-card" id="wInfoCard" style="margin-top:0;margin-bottom:0.75rem;">
+      <span class="info-phase phase-prior" id="wInfoPhase">Shape Explorer</span>
+      <div class="info-step" id="wInfoStep">Step 1 of 9</div>
+      <div class="info-title" id="wInfoTitle">Beta(1, 1) — Uniform Prior</div>
+      <div class="info-desc" id="wInfoDesc">Loading walkthrough…</div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="wBtnPrev" onclick="wGo(-1)" disabled>← Prev</button>
+      <button class="btn btn-primary" id="wBtnNext" onclick="wGo(1)">Next →</button>
+      <button class="btn" onclick="wReset()">Reset</button>
+    </div>
+    <div class="progress-wrap" id="wProgressDots"></div>
+    <div class="kbd-hint">Guided walkthrough: ← → to step, R to reset. Steps 1–5 sweep the Shape Explorer; steps 6–9 drive the Bayesian Update (both panels below switch automatically).</div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0;">
+
     <!-- Mode toggle -->
     <div style="display:flex;gap:8px;margin-bottom:1rem;">
       <button class="btn btn-primary" id="btnModeShape" onclick="setMode('shape')">A: Shape Explorer</button>
@@ -728,6 +745,157 @@ function flipN(n) {
   for (let i = 0; i < n; i++) flipCoin();
 }
 
+// ─── Guided Walkthrough (Prev/Next stepper driving the panels above) ──────────
+// Fixed, reproducible flip sequence (theta≈0.6) so the walkthrough is deterministic
+// no matter how many times you step back and forth or jump via the dots.
+const demoFlips = ['H','H','T','H','H','T','H','T','H','H','T','H','T','H','H',
+                    'T','H','H','T','H','H','T','H','H','T'];
+
+function wApplyShapeStep(a, b) {
+  setMode('shape');
+  document.getElementById('sliderAlpha').value = a;
+  document.getElementById('sliderBeta').value = b;
+  updateSliders();
+}
+
+function wApplyUpdateStep(n) {
+  setMode('update');
+  document.getElementById('sliderAlpha0').value = 2;
+  document.getElementById('sliderBeta0').value = 3;
+  document.getElementById('sliderTheta').value = 0.6;
+  document.getElementById('valAlpha0').textContent = '2.0';
+  document.getElementById('valBeta0').textContent = '3.0';
+  document.getElementById('valTheta').textContent = '0.60';
+  priorAlpha = 2; priorBeta = 3; uTheta = 0.6;
+  uAlpha = priorAlpha; uBeta = priorBeta; uN = 0; uK = 0; flipHistory = [];
+  for (let i = 0; i < n; i++) {
+    const head = demoFlips[i] === 'H';
+    flipHistory.push(head ? 'H' : 'T');
+    uN++;
+    if (head) { uK++; uAlpha++; } else { uBeta++; }
+  }
+  updateUpdateStats();
+  renderUpdateViz();
+}
+
+const wSteps = [
+  { run: () => wApplyShapeStep(1, 1), phase: 'phase-prior', label: 'Shape Explorer',
+    title: () => 'Beta(1, 1) — Uniform Prior',
+    desc: () => {
+      const a = 1, b = 1, mean = a / (a + b), v = (a * b) / ((a + b) ** 2 * (a + b + 1));
+      return `With α=${a}, β=${b} every value of θ is equally likely — a flat line. Mean = ${mean.toFixed(3)}, variance = ${v.toFixed(4)}. This is the "I have no idea" prior: 0 pseudo-successes and 0 pseudo-failures.`;
+    }
+  },
+  { run: () => wApplyShapeStep(5, 5), phase: 'phase-prior', label: 'Shape Explorer',
+    title: () => 'Beta(5, 5) — Symmetric Bell',
+    desc: () => {
+      const a = 5, b = 5, mean = a / (a + b), v = (a * b) / ((a + b) ** 2 * (a + b + 1)), mode = (a - 1) / (a + b - 2);
+      return `Equal α and β above 1 give a symmetric bell centered at 0.5. Mean = ${mean.toFixed(3)}, mode = ${mode.toFixed(3)}, variance = ${v.toFixed(4)} — much narrower than uniform because α=β=5 encodes 4 pseudo-successes and 4 pseudo-failures of real evidence.`;
+    }
+  },
+  { run: () => wApplyShapeStep(8, 3), phase: 'phase-update', label: 'Shape Explorer',
+    title: () => 'Beta(8, 3) — Skewed Toward Success',
+    desc: () => {
+      const a = 8, b = 3, mean = a / (a + b), mode = (a - 1) / (a + b - 2);
+      return `α > β pulls the mass toward 1. Mean = ${mean.toFixed(3)}, mode = ${mode.toFixed(3)} — the shape you'd expect after mostly successes (7 pseudo-successes vs 2 pseudo-failures).`;
+    }
+  },
+  { run: () => wApplyShapeStep(3, 8), phase: 'phase-update', label: 'Shape Explorer',
+    title: () => 'Beta(3, 8) — Skewed Toward Failure',
+    desc: () => {
+      const a = 3, b = 8, mean = a / (a + b), mode = (a - 1) / (a + b - 2);
+      return `Flip the asymmetry: β > α pulls mass toward 0. Mean = ${mean.toFixed(3)}, mode = ${mode.toFixed(3)}. Same total pseudo-count (9) as the previous step, now dominated by failures.`;
+    }
+  },
+  { run: () => wApplyShapeStep(0.5, 0.5), phase: 'phase-posterior', label: 'Shape Explorer',
+    title: () => 'Beta(0.5, 0.5) — Jeffreys Prior (U-shaped)',
+    desc: () => {
+      const a = 0.5, b = 0.5, mean = a / (a + b);
+      return `When both α and β are below 1, density blows up at the edges instead of the middle — a U-shape. Mean = ${mean.toFixed(3)} (still symmetric), but now the belief is "θ is probably near 0 or near 1, rarely in between." This is the Jeffreys uninformative prior.`;
+    }
+  },
+  { run: () => wApplyUpdateStep(0), phase: 'phase-prior', label: 'Bayesian Update',
+    title: () => 'Switching Modes: Bayesian Updating Begins',
+    desc: () => `Now watch conjugacy in action. Starting prior: Beta(${priorAlpha}, ${priorBeta}), prior mean = ${(priorAlpha / (priorAlpha + priorBeta)).toFixed(3)}. A coin with true bias θ*=${uTheta.toFixed(2)} is about to be flipped. Every head adds 1 to α; every tail adds 1 to β — no integrals required.`
+  },
+  { run: () => wApplyUpdateStep(5), phase: 'phase-update', label: 'Bayesian Update',
+    title: () => `After 5 Flips: Beta(${uAlpha}, ${uBeta})`,
+    desc: () => {
+      const postMean = uAlpha / (uAlpha + uBeta);
+      return `Observed ${uK} heads, ${uN - uK} tails in 5 flips. Posterior = Beta(${uAlpha}, ${uBeta}), posterior mean = ${postMean.toFixed(3)}. With so little data the prior (mean ${(priorAlpha / (priorAlpha + priorBeta)).toFixed(3)}) still dominates — the purple curve has barely moved from the dashed prior.`;
+    }
+  },
+  { run: () => wApplyUpdateStep(15), phase: 'phase-posterior', label: 'Bayesian Update',
+    title: () => `After 15 Flips: Beta(${uAlpha}, ${uBeta})`,
+    desc: () => {
+      const postMean = uAlpha / (uAlpha + uBeta);
+      const mle = (uK / uN).toFixed(3);
+      return `Observed ${uK} heads, ${uN - uK} tails in 15 flips. Posterior mean = ${postMean.toFixed(3)} vs raw MLE = ${mle}. The posterior curve is visibly narrower now — more evidence, less uncertainty — and is closing in on the true θ*=${uTheta.toFixed(2)} marked by the dashed amber line.`;
+    }
+  },
+  { run: () => wApplyUpdateStep(25), phase: 'phase-summary', label: 'Bayesian Update',
+    title: () => `After 25 Flips: Posterior ≈ MLE`,
+    desc: () => {
+      const postMean = uAlpha / (uAlpha + uBeta);
+      const mle = (uK / uN).toFixed(3);
+      return `Final posterior = Beta(${uAlpha}, ${uBeta}), mean = ${postMean.toFixed(3)}, essentially matching the MLE (${mle}) and close to the true θ*=${uTheta.toFixed(2)}. As n→∞ the prior's influence vanishes and the posterior converges to the maximum-likelihood estimate — the full arc from "no idea" (step 1) to a confident, data-driven estimate (step 9).`;
+    }
+  }
+];
+
+let wStep = 0;
+const wTotalSteps = wSteps.length;
+
+function initWDots() {
+  const wrap = document.getElementById('wProgressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < wTotalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => wGoTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateWDots() {
+  const dots = document.querySelectorAll('#wProgressDots .dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < wStep) d.classList.add('done');
+    if (i === wStep) d.classList.add('active');
+  });
+}
+
+function wRender() {
+  const s = wSteps[wStep];
+  s.run();
+  document.getElementById('wBtnPrev').disabled = wStep === 0;
+  document.getElementById('wBtnNext').disabled = wStep === wTotalSteps - 1;
+  document.getElementById('wInfoPhase').className = 'info-phase ' + s.phase;
+  document.getElementById('wInfoPhase').textContent = s.label;
+  document.getElementById('wInfoStep').textContent = `Step ${wStep + 1} of ${wTotalSteps}`;
+  document.getElementById('wInfoTitle').textContent = s.title();
+  document.getElementById('wInfoDesc').textContent = s.desc();
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('wInfoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+  updateWDots();
+}
+
+function wGo(dir) {
+  const next = wStep + dir;
+  if (next < 0 || next >= wTotalSteps) return;
+  wStep = next;
+  wRender();
+}
+function wGoTo(i) { wStep = i; wRender(); }
+function wReset() { wStep = 0; wRender(); }
+
 function updateUpdateStats() {
   document.getElementById('uStatN').textContent = uN;
   document.getElementById('uStatK').textContent = uK;
@@ -778,17 +946,17 @@ function renderUpdateViz() {
   drawTrueTheta(uTheta);
 }
 
-// ─── Keyboard nav (arrow keys) ────────────────────────────────────────────────
+// ─── Keyboard nav (arrow keys drive the Guided Walkthrough stepper) ───────────
 document.addEventListener('keydown', e => {
-  if (currentMode === 'update') {
-    if (e.key === 'ArrowRight') flipCoin();
-    if (e.key === 'r' || e.key === 'R') resetUpdate();
-  }
+  if (e.key === 'ArrowRight') wGo(1);
+  if (e.key === 'ArrowLeft') wGo(-1);
+  if (e.key === 'r' || e.key === 'R') wReset();
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  updateSliders();
+  initWDots();
+  wRender();
 });
 window.addEventListener('resize', () => {
   if (currentMode === 'shape') updateSliders();

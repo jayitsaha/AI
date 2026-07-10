@@ -220,23 +220,469 @@ footer{text-align:center;font-size:11px;color:var(--text3);margin:2rem 0 1rem;}
 </div>
 
 <!-- CARD 3: The Math -->
-<div class="card" id="card3"></div>
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Vector-Jacobian Products (VJPs)</h4>
+    <p>For any op \(z = f(u)\), the exact backward rule is \(\bar{u} = J_f^\top \bar{z}\), where \(J_f = \partial z/\partial u\) is the Jacobian and \(\bar{z} = \partial L/\partial z\) is the upstream gradient. Forming \(J_f\) explicitly would be huge for high-dimensional tensors, so every local rule below is really just a closed-form shortcut for computing \(J_f^\top \bar{z}\) <em>without ever materializing \(J_f\)</em>.</p>
+
+    <h4>Add: Jacobian = Identity</h4>
+    <p>\(z = x + y \Rightarrow J_{zx} = J_{zy} = I\). Since \(I^\top \bar{z} = \bar{z}\), both inputs simply receive \(\bar{z}\) unchanged — the "copy" rule falls straight out of the Jacobian being the identity matrix.</p>
+
+    <h4>Elementwise Multiply: Jacobian = diag(other operand)</h4>
+    <p>\(z = x \odot y \Rightarrow J_{zx} = \operatorname{diag}(y)\). Then \(\bar{x} = \operatorname{diag}(y)^\top \bar{z} = y \odot \bar{z}\) — a diagonal Jacobian collapses the matrix-vector product into an elementwise product, which is the "swap" rule.</p>
+
+    <h4>Matmul: Index Notation Gives Matrix Form</h4>
+    <p>For \(Z = XW\) with \(Z_{ij} = \sum_k X_{ik}W_{kj}\), differentiate directly:</p>
+    <div class="eq">$$\frac{\partial L}{\partial X_{ik}} = \sum_j \bar{Z}_{ij}\,\frac{\partial Z_{ij}}{\partial X_{ik}} = \sum_j \bar{Z}_{ij} W_{kj} = (\bar{Z}W^\top)_{ik} \quad\Longrightarrow\quad \bar{X} = \bar{Z}W^\top,\ \ \bar{W} = X^\top \bar{Z}$$</div>
+    <p>No 4D Jacobian tensor ever needs to exist — the index-notation sum collapses directly into two matrix multiplications, one with \(W\) transposed and one with \(X\) transposed.</p>
+
+    <h4>Max / ReLU: Jacobian = Indicator Diagonal</h4>
+    <p>\(z = \max(x, 0)\) is piecewise-linear: \(\partial z/\partial x = \mathbb{1}[x>0]\). So \(\bar{x} = \bar{z}\cdot\mathbb{1}[x>0]\) — a hard, value-dependent gate. At the kink \(x=0\) the function is non-differentiable; frameworks pick a subgradient convention (usually 0 or the incoming gradient) rather than a true derivative.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Chaining many matmul + nonlinearity layers means the input gradient is a <strong>product of Jacobians</strong>: \(\bar{x}^{(0)} = J_1^\top J_2^\top \cdots J_L^\top \bar{z}\). If each \(J_\ell\) has singular values consistently &lt;1 or &gt;1, this product vanishes or explodes exponentially in depth — the mathematical root of vanishing/exploding gradients, and the reason residual connections (Jacobian of the identity branch is exactly \(I\)) stabilize deep networks.</p>
+    </div>
+  </div>
+</div>
 
 <!-- CARD 4: Interactive Visualization -->
-<div class="card" id="card4"></div>
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a tiny computational graph — <code>Add → Multiply → Matmul → ReLU → Sum</code> — forward, then watch the gradient flow backward through each op's local rule.</p>
+
+    <div class="viz-container">
+      <div class="op-selector" id="opSelector"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-copy" id="infoPhase">COPY</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Forward: Add</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+        <div class="info-formula" id="infoFormula"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Forward value known</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Gradient known</div>
+        <div class="legend-item"><div class="legend-line" style="background:var(--purple-mid)"></div> Active op this step</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- CARD 5: Key Takeaways -->
-<div class="card" id="card5"></div>
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What to remember about each rule:</strong></p>
+    <ul>
+      <li><strong>Add → Copy:</strong> gradient passes through unchanged to every summand — this is why residual connections \(y=x+F(x)\) guarantee at least a coefficient-1 path for gradient back to \(x\).</li>
+      <li><strong>Multiply → Swap:</strong> each input's gradient needs the OTHER input's cached forward value — forgetting to cache both operands is a classic custom-autograd bug.</li>
+      <li><strong>Matmul → Transpose:</strong> \(\bar{X}=\bar{Z}W^\top\), \(\bar{W}=X^\top\bar{Z}\) — backward through a linear layer costs about the same FLOPs as forward, roughly tripling total compute per training step (1 forward + 2 backward matmuls).</li>
+      <li><strong>Max / ReLU → Route:</strong> full gradient to the winner, zero to the loser — a unit stuck with permanently negative input receives zero gradient forever ("dead ReLU").</li>
+      <li><strong>Sum ↔ Broadcast → Reduce/Distribute:</strong> a reduction's backward broadcasts the gradient back out; a broadcast's backward sums the gradient back down the broadcast axes.</li>
+    </ul>
+    <p><strong>When this matters in practice:</strong></p>
+    <ul>
+      <li>Debugging vanishing/exploding gradients — trace which local Jacobians are shrinking or growing the signal.</li>
+      <li>Writing a custom autograd `Function` — you must implement exactly this forward-cache / backward-VJP pair correctly.</li>
+      <li>Reasoning about memory — every op that caches forward values for its backward rule (multiply, matmul, max) holds onto activations until backward runs, which is why activation checkpointing trades recompute for memory.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Big Picture</div>
+      <p style="font-size:14px;margin:0;">Reverse-mode autodiff never needs global knowledge of the network. Every op only needs its own cached forward values and the single upstream gradient handed to it — this <strong>locality</strong> is exactly what makes it possible to compose arbitrarily complex graphs from a small library of local rules, and it's why frameworks like PyTorch/JAX can differentiate almost any Python-expressible computation automatically.</p>
+    </div>
+  </div>
+</div>
 
 <footer>Gradient Flow Through Common Operations — AI/ML Mastery Vault</footer>
 
 <script>
+// ── SECTION TOGGLE ──
 function toggleSection(el) {
   const body = el.nextElementSibling;
   const toggle = el.querySelector('.section-toggle');
   body.classList.toggle('collapsed');
   toggle.classList.toggle('open');
 }
+
+// ── GRAPH DATA (real forward pass, computed live below) ──
+// x,y -> Add -> a   |   a,w -> Multiply -> b   |   b,W -> Matmul -> c   |   c -> ReLU -> g   |   g -> Sum -> L
+const gx = [2, 3], gy = [1, -1];
+const gw = [0.5, 2];
+const gW = [[1, 0.5], [-1, 2]]; // 2x2
+
+function vAdd(u, v) { return u.map((val, i) => val + v[i]); }
+function vMul(u, v) { return u.map((val, i) => val * v[i]); }
+function matVecRow(b, W) { // c_j = sum_i b_i * W[i][j]
+  const cols = W[0].length;
+  const out = new Array(cols).fill(0);
+  for (let j = 0; j < cols; j++) for (let i = 0; i < b.length; i++) out[j] += b[i] * W[i][j];
+  return out;
+}
+function relu(u) { return u.map(v => Math.max(0, v)); }
+
+// live forward pass
+const ga = vAdd(gx, gy);                 // [3, 2]
+const gb = vMul(ga, gw);                 // [1.5, 4]
+const gc = matVecRow(gb, gW);            // [-2.5, 8.75]
+const gg = relu(gc);                     // [0, 8.75]
+const gL = gg.reduce((s, v) => s + v, 0); // 8.75
+
+// live backward pass (VJP for each op, computed from the SAME cached forward values)
+const gBarG = gg.map(() => 1);                                   // dL/dg  (sum backward = broadcast 1s)
+const gBarC = gc.map((v, i) => gBarG[i] * (v > 0 ? 1 : 0));       // ReLU backward = route
+const gBarB = matVecRow(gBarC, gW.map((row, i) => gW.map(r => r[i]))); // b̄ = c̄ @ Wᵀ  (transpose)
+const gBarW = gb.map(bi => gBarC.map(ci => bi * ci));             // W̄ = bᵀ ⊗ c̄  (outer product)
+const gBarA = vMul(gBarB, gw);                                    // ā = b̄ ⊙ w   (swap)
+const gBarW2 = vMul(gBarB, ga);                                   // w̄ = b̄ ⊙ a   (swap)
+const gBarX = gBarA.slice();                                      // x̄ = ā       (copy)
+const gBarY = gBarA.slice();                                      // ȳ = ā       (copy)
+
+function fmt(arr) { return '[' + arr.map(v => (Math.round(v * 100) / 100).toString()).join(', ') + ']'; }
+function fmtM(m) { return m.map(row => '[' + row.map(v => (Math.round(v*100)/100)).join(', ') + ']').join(', '); }
+
+// ── NODES for canvas layout ──
+// slot index 0..5 : x/y | a | b | c | g | L
+const NODE_SLOTS = ['xy', 'a', 'b', 'c', 'g', 'L'];
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'copy', op: 'add', title: 'Forward: Add',
+    desc: `\\(x=${fmt(gx)}\\), \\(y=${fmt(gy)}\\) combine elementwise. The Add op simply sums its inputs — nothing is cached yet except the inputs themselves.`,
+    formula: `$$a = x + y = ${fmt(ga)}$$`,
+    fwdKnown: ['x','y','a'], bwdKnown: [], activeOp: 'add', dir: 'fwd'
+  },
+  {
+    phase: 'swap', op: 'mul', title: 'Forward: Multiply',
+    desc: `\\(a=${fmt(ga)}\\) is scaled elementwise by weights \\(w=${fmt(gw)}\\). Multiply caches BOTH operands \\(a\\) and \\(w\\) — its backward rule will need both.`,
+    formula: `$$b = a \\odot w = ${fmt(gb)}$$`,
+    fwdKnown: ['x','y','a','w','b'], bwdKnown: [], activeOp: 'mul', dir: 'fwd'
+  },
+  {
+    phase: 'transpose', op: 'matmul', title: 'Forward: Matmul',
+    desc: `\\(b=${fmt(gb)}\\) is projected through weight matrix \\(W=${fmtM(gW)}\\). Matmul caches both \\(b\\) and \\(W\\) for backward.`,
+    formula: `$$c = bW = ${fmt(gc)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c'], bwdKnown: [], activeOp: 'matmul', dir: 'fwd'
+  },
+  {
+    phase: 'route', op: 'relu', title: 'Forward: ReLU',
+    desc: `\\(c=${fmt(gc)}\\) passes through ReLU. ReLU caches WHICH entries were positive — here \\(c_0=${gc[0].toFixed(2)}<0\\) is a dead unit, \\(c_1=${gc[1].toFixed(2)}>0\\) survives.`,
+    formula: `$$g = \\max(c, 0) = ${fmt(gg)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g'], bwdKnown: [], activeOp: 'relu', dir: 'fwd'
+  },
+  {
+    phase: 'reduce', op: 'sum', title: 'Loss & Seed Gradient',
+    desc: `The loss is \\(L=\\sum g = ${gL.toFixed(2)}\\). Backward starts by seeding \\(\\bar{L}=1\\); Sum's backward rule BROADCASTS this back to every element, giving \\(\\bar{g}=${fmt(gBarG)}\\).`,
+    formula: `$$\\bar{g} = \\partial L/\\partial g = ${fmt(gBarG)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g'], activeOp: 'sum', dir: 'bwd'
+  },
+  {
+    phase: 'route', op: 'relu', title: 'Backward: ReLU Routes',
+    desc: `Apply the ROUTE rule: \\(\\bar{c} = \\bar{g}\\cdot\\mathbb{1}[c>0]\\). Entry 0 was negative on the forward pass, so it gets ZERO gradient — that unit is permanently dead. Entry 1 was positive, so it passes the gradient through unchanged.`,
+    formula: `$$\\bar{c} = \\bar{g}\\odot\\mathbb{1}[c>0] = ${fmt(gBarC)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g','c'], activeOp: 'relu', dir: 'bwd'
+  },
+  {
+    phase: 'transpose', op: 'matmul', title: 'Backward: Matmul Transposes',
+    desc: `Apply the TRANSPOSE rule: \\(\\bar{b}=\\bar{c}W^\\top\\) sends gradient back through the transposed weight matrix, and \\(\\bar{W}=b^\\top\\otimes\\bar{c}\\) is the outer product of the cached input and upstream gradient.`,
+    formula: `$$\\bar{b} = \\bar{c}W^\\top = ${fmt(gBarB)} \\qquad \\bar{W} = ${fmtM(gBarW)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g','c','b','W'], activeOp: 'matmul', dir: 'bwd'
+  },
+  {
+    phase: 'swap', op: 'mul', title: 'Backward: Multiply Swaps',
+    desc: `Apply the SWAP rule: each input's gradient is scaled by the OTHER input's cached forward value. \\(\\bar{a}=\\bar{b}\\odot w\\) and \\(\\bar{w}=\\bar{b}\\odot a\\) — this is exactly why Multiply had to cache both operands back in step 2.`,
+    formula: `$$\\bar{a} = \\bar{b}\\odot w = ${fmt(gBarA)} \\qquad \\bar{w} = \\bar{b}\\odot a = ${fmt(gBarW2)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g','c','b','W','a','w'], activeOp: 'mul', dir: 'bwd'
+  },
+  {
+    phase: 'copy', op: 'add', title: 'Backward: Add Copies',
+    desc: `Apply the COPY rule: the Jacobian of Add is the identity, so both inputs simply receive \\(\\bar{a}\\) unchanged. \\(\\bar{x}=\\bar{a}\\), \\(\\bar{y}=\\bar{a}\\) — no scaling, no cache needed beyond the gradient itself.`,
+    formula: `$$\\bar{x} = \\bar{y} = \\bar{a} = ${fmt(gBarX)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g','c','b','W','a','w','x','y'], activeOp: 'add', dir: 'bwd'
+  },
+  {
+    phase: 'reduce', op: 'all', title: 'Full Chain Assembled',
+    desc: `Every gradient is now known. Notice \\(\\bar{x}\\) is literally the PRODUCT of five local Jacobian-transposes applied to the seed \\(\\bar{L}=1\\) — copy, then swap, then transpose, then route, then reduce. No single op ever needed to know about any other op; the chain rule composed them automatically.`,
+    formula: `$$\\bar{x} = J_{add}^\\top J_{mul}^\\top J_{matmul}^\\top J_{relu}^\\top J_{sum}^\\top \\cdot 1 = ${fmt(gBarX)}$$`,
+    fwdKnown: ['x','y','a','w','b','W','c','g','L'], bwdKnown: ['L','g','c','b','W','a','w','x','y'], activeOp: 'all', dir: 'bwd'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── OP SELECTOR PILLS ──
+const OP_JUMP = { add: 0, mul: 1, matmul: 2, relu: 3, sum: 4 };
+function initOpSelector() {
+  const wrap = document.getElementById('opSelector');
+  wrap.innerHTML = '';
+  Object.keys(OP_JUMP).forEach(name => {
+    const pill = document.createElement('div');
+    pill.className = 'op-pill';
+    pill.textContent = name;
+    pill.dataset.op = name;
+    pill.onclick = () => goTo(OP_JUMP[name]);
+    wrap.appendChild(pill);
+  });
+}
+function updateOpSelector() {
+  const activeOp = steps[step].activeOp;
+  document.querySelectorAll('.op-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.op === activeOp);
+  });
+}
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { copy:'phase-copy', swap:'phase-swap', transpose:'phase-transpose', route:'phase-route', reduce:'phase-reduce', shape:'phase-shape' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+  document.getElementById('infoFormula').innerHTML = s.formula;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  updateOpSelector();
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS: computational graph ──
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const border = cs.getPropertyValue('--border2').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const surface = cs.getPropertyValue('--surface').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // 6 primary node slots along x-axis
+  const n = 6;
+  const padX = 55, padTop = 34, padBot = 40;
+  const usableW = W - padX * 2;
+  const cy = padTop + (H - padTop - padBot) / 2;
+  const xs = [];
+  for (let i = 0; i < n; i++) xs.push(padX + usableW * (i / (n - 1)));
+
+  const nodeLabels = ['x, y', 'a', 'b', 'c', 'g', 'L'];
+  const nodeKeys = [['x','y'], ['a'], ['b'], ['c'], ['g'], ['L']];
+  const nodeVals = [null, ga, gb, gc, gg, [gL]];
+  const nodeGrads = [null, gBarA, gBarB, gBarC, gBarG, [1]];
+
+  // op markers between nodes, at midpoints
+  const opColors = { add: blueMid, mul: amberMid, matmul: purpleMid, relu: redMid, sum: greenMid };
+  const opLabels = ['+', '×', 'W', 'ReLU', 'Σ'];
+  const opKeys = ['add','mul','matmul','relu','sum'];
+  const opAux = ['', 'w', 'W', '', ''];        // secondary input feeding each op
+  const opAuxVal = ['', fmt(gw), fmtM(gW), '', ''];
+
+  const boxW = 62, boxH = 34, r = 8;
+  function roundRect(x, y, w, h, rad) {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  // draw connecting line
+  ctx.strokeStyle = border; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(xs[0], cy); ctx.lineTo(xs[n-1], cy); ctx.stroke();
+
+  // draw op circles + aux inputs at midpoints between node i and i+1
+  for (let i = 0; i < n - 1; i++) {
+    const mx = (xs[i] + xs[i+1]) / 2;
+    const isActive = (s.activeOp === opKeys[i] || s.activeOp === 'all');
+    const col = opColors[opKeys[i]];
+
+    // aux input dropping from above
+    if (opAux[i]) {
+      ctx.strokeStyle = border; ctx.lineWidth = 1.2; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(mx, padTop - 10); ctx.lineTo(mx, cy - 14); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = text3; ctx.font = '600 11px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(opAux[i] + ' = ' + opAuxVal[i], mx, padTop - 14);
+    }
+
+    // op circle
+    ctx.beginPath();
+    ctx.arc(mx, cy, 16, 0, Math.PI * 2);
+    ctx.fillStyle = isActive ? col : surface;
+    ctx.fill();
+    ctx.lineWidth = isActive ? 2.5 : 1.5;
+    ctx.strokeStyle = col;
+    ctx.stroke();
+    ctx.fillStyle = isActive ? '#fff' : col;
+    ctx.font = '700 12px "DM Sans", system-ui';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(opLabels[i], mx, cy + 1);
+    ctx.textBaseline = 'alphabetic';
+
+    // direction arrowhead: forward = right-pointing above the line, backward = left-pointing below
+    if (s.dir === 'fwd' || s.activeOp === 'all') {
+      ctx.fillStyle = isActive ? col : border;
+      ctx.beginPath();
+      ctx.moveTo(xs[i+1] - 18, cy - 6);
+      ctx.lineTo(xs[i+1] - 10, cy);
+      ctx.lineTo(xs[i+1] - 18, cy + 6);
+      ctx.closePath(); ctx.fill();
+    }
+    if (s.dir === 'bwd' || s.activeOp === 'all') {
+      const gy2 = cy + 22;
+      ctx.strokeStyle = isActive ? redMid : 'rgba(160,60,60,0.25)';
+      ctx.lineWidth = isActive ? 2 : 1.2;
+      ctx.beginPath(); ctx.moveTo(xs[i], gy2); ctx.lineTo(xs[i+1], gy2); ctx.stroke();
+      ctx.fillStyle = isActive ? redMid : 'rgba(160,60,60,0.25)';
+      ctx.beginPath();
+      ctx.moveTo(xs[i] + 18, gy2 - 6);
+      ctx.lineTo(xs[i] + 10, gy2);
+      ctx.lineTo(xs[i] + 18, gy2 + 6);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // draw node boxes
+  for (let i = 0; i < n; i++) {
+    const keys = nodeKeys[i];
+    const hasFwd = keys.every(k => s.fwdKnown.includes(k));
+    const hasBwd = keys.every(k => s.bwdKnown.includes(k));
+
+    roundRect(xs[i] - boxW/2, cy - boxH/2, boxW, boxH, r);
+    ctx.fillStyle = surface;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = hasFwd ? blueMid : border;
+    ctx.stroke();
+
+    ctx.fillStyle = text;
+    ctx.font = '700 12px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(nodeLabels[i], xs[i], cy - (hasFwd ? 5 : 0));
+    ctx.textBaseline = 'alphabetic';
+
+    // forward value above box
+    if (hasFwd && nodeVals[i]) {
+      ctx.fillStyle = blueMid; ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(fmt(nodeVals[i]), xs[i], cy - boxH/2 - 8);
+    }
+    // gradient value below box
+    if (hasBwd && nodeGrads[i]) {
+      ctx.fillStyle = redMid; ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('ḡ ' + fmt(nodeGrads[i]), xs[i], cy + boxH/2 + 34);
+    }
+  }
+
+  ctx.textAlign = 'left';
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initOpSelector();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
 </script>
 </body>
 </html>
