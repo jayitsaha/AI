@@ -461,28 +461,39 @@ class NeuralNetwork {
     this.activationFn = activations[activationName];
 
     // Initialize weights and biases
-    this.W1 = randn(inputSize, h1Size);
-    this.b1 = zeros(1, h1Size);
+    // h1Size can be 0 (e.g. "linear" activation forces 0 hidden units), which
+    // means the network has NO hidden layers at all -- it degenerates into a
+    // direct input -> output linear classifier.
+    this.W1 = h1Size > 0 ? randn(inputSize, h1Size) : null;
+    this.b1 = h1Size > 0 ? zeros(1, h1Size) : null;
 
-    this.W2 = h2Size > 0 ? randn(h1Size, h2Size) : null;
-    this.b2 = h2Size > 0 ? zeros(1, h2Size) : null;
+    this.W2 = (h1Size > 0 && h2Size > 0) ? randn(h1Size, h2Size) : null;
+    this.b2 = (h1Size > 0 && h2Size > 0) ? zeros(1, h2Size) : null;
 
-    this.W_out = randn(h2Size > 0 ? h2Size : h1Size, outputSize);
+    // The output layer connects from the last hidden layer, or directly from
+    // the input when there are no hidden units at all.
+    const lastLayerSize = (h1Size > 0 && h2Size > 0) ? h2Size : (h1Size > 0 ? h1Size : inputSize);
+    this.W_out = randn(lastLayerSize, outputSize);
     this.b_out = zeros(1, outputSize);
   }
 
   forward(X) {
     // Input X should be a 2D array (e.g., [[x1, x2]])
-    let h1_pre = addBias(matMul(X, this.W1), this.b1);
-    let h1_act = h1_pre.map(row => row.map(this.activationFn));
-
     let final_hidden_output;
-    if (this.h2Size > 0 && this.W2) {
-      let h2_pre = addBias(matMul(h1_act, this.W2), this.b2);
-      let h2_act = h2_pre.map(row => row.map(this.activationFn));
-      final_hidden_output = h2_act;
+    if (this.h1Size > 0) {
+      let h1_pre = addBias(matMul(X, this.W1), this.b1);
+      let h1_act = h1_pre.map(row => row.map(this.activationFn));
+
+      if (this.h2Size > 0 && this.W2) {
+        let h2_pre = addBias(matMul(h1_act, this.W2), this.b2);
+        let h2_act = h2_pre.map(row => row.map(this.activationFn));
+        final_hidden_output = h2_act;
+      } else {
+        final_hidden_output = h1_act;
+      }
     } else {
-      final_hidden_output = h1_act;
+      // No hidden layers: feed the raw input straight into the output layer.
+      final_hidden_output = X;
     }
 
     let output_logits = addBias(matMul(final_hidden_output, this.W_out), this.b_out);
@@ -491,8 +502,11 @@ class NeuralNetwork {
   }
 
   getNumParams() {
-    let numParams = this.W1.length * this.W1[0].length + this.b1[0].length;
-    if (this.h2Size > 0) {
+    let numParams = 0;
+    if (this.h1Size > 0) {
+      numParams += this.W1.length * this.W1[0].length + this.b1[0].length;
+    }
+    if (this.h1Size > 0 && this.h2Size > 0) {
       numParams += this.W2.length * this.W2[0].length + this.b2[0].length;
     }
     numParams += this.W_out.length * this.W_out[0].length + this.b_out[0].length;
@@ -510,17 +524,23 @@ class NeuralNetwork {
         const y_true = labels[i];
 
         // Forward pass
-        let h1_pre = addBias(matMul(x, this.W1), this.b1);
-        let h1_act = h1_pre.map(row => row.map(this.activationFn));
-
+        let h1_pre = null, h1_act = null;
         let final_hidden_output;
         let h2_pre = null, h2_act = null;
-        if (this.h2Size > 0 && this.W2) {
-          h2_pre = addBias(matMul(h1_act, this.W2), this.b2);
-          h2_act = h2_pre.map(row => row.map(this.activationFn));
-          final_hidden_output = h2_act;
+        if (this.h1Size > 0) {
+          h1_pre = addBias(matMul(x, this.W1), this.b1);
+          h1_act = h1_pre.map(row => row.map(this.activationFn));
+
+          if (this.h2Size > 0 && this.W2) {
+            h2_pre = addBias(matMul(h1_act, this.W2), this.b2);
+            h2_act = h2_pre.map(row => row.map(this.activationFn));
+            final_hidden_output = h2_act;
+          } else {
+            final_hidden_output = h1_act;
+          }
         } else {
-          final_hidden_output = h1_act;
+          // No hidden layers: the raw input IS the "final hidden output".
+          final_hidden_output = x;
         }
 
         let output_logits = addBias(matMul(final_hidden_output, this.W_out), this.b_out);
@@ -536,6 +556,9 @@ class NeuralNetwork {
           this.W_out[k][0] -= learningRate * delta_output * final_hidden_output[0][k];
         }
         this.b_out[0][0] -= learningRate * delta_output;
+
+        // No hidden layers exist (pure linear model) -- nothing more to update.
+        if (this.h1Size === 0) continue;
 
         // Propagate back to hidden layers
         let delta_hidden_out = zeros(1, final_hidden_output[0].length);
