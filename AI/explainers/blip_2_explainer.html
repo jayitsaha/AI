@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BLIP-2: Q-Former Bridging Frozen Vision & Frozen LLM — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-expert{background:var(--purple-bg);color:var(--purple-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+.matrix-row{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-display{display:inline-grid;gap:2px;padding:8px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:12px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);}
+.matrix-cell{width:54px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;border-radius:3px;transition:all 0.4s;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.error{background:var(--red-bg);color:var(--red-mid);font-weight:600;}
+.matrix-cell.omega{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.op-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;}
+
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-encode{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-stage1{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-bridge{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-stage2{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .matrix-cell{width:40px;height:26px;font-size:10px;}
+  .matrix-row{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>BLIP-2: The Q-Former Bridge</h1>
+  <div class="subtitle">Connecting a frozen vision encoder to a frozen LLM through a lightweight querying transformer</div>
+  <div class="tags">
+    <span class="tag tag-expert">Expert</span>
+    <span class="tag tag-category">Multimodal</span>
+    <span class="tag tag-category">Vision-Language</span>
+    <span class="tag tag-complexity">188M trainable params</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding BLIP-2</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card1body">
+    <p><strong>What is it?</strong> BLIP-2 connects a huge, already-trained image encoder to a huge, already-trained language model — <em>without touching either one</em>. Both stay frozen (weights untouched, no gradients). The only new piece is a small go-between network called the <strong>Q-Former</strong> (Querying Transformer) that learns to translate "what's in this image" into a handful of tokens the LLM can read as if they were words.</p>
+    <p><strong>Analogy:</strong> Imagine a brilliant art critic (the frozen vision encoder) who sees every detail of a painting but only speaks "Visual." And a brilliant novelist (the frozen LLM) who can write anything but has never seen a painting and only speaks "English." BLIP-2 hires a translator (the Q-Former) who learns to look at the painting, distill it into a short briefing of exactly 32 index cards, and hand those cards to the novelist as if they were the opening sentences of a story. The critic and novelist never change how they work — only the translator is trained.</p>
+    <p><strong>One-sentence summary:</strong> A lightweight, doubly-attentive transformer with 32 learnable query vectors is trained in two stages to extract the text-relevant visual information a frozen LLM needs, while both the vision encoder and the LLM remain completely frozen.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The Q-Former is an <strong>information bottleneck by design</strong>: however large the image, it is always compressed into a fixed <em>32 query embeddings</em> before reaching the LLM. Training it (not the giant encoders) is what makes BLIP-2 dramatically cheaper than training a vision-language model from scratch.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Q-Former Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card2body">
+    <h4>The Problem It Solves</h4>
+    <p>Before BLIP-2 (2023), vision-language models like Flamingo either fine-tuned parts of a frozen LLM with adapters, or trained end-to-end multimodal transformers from scratch — both expensive, and both requiring the two modalities to be tightly coupled during training. The modality gap (images live in a continuous pixel/patch space, text lives in a discrete token space) was bridged either by full fine-tuning (costly, risks catastrophic forgetting of the LLM's language ability) or by naively projecting all patch tokens into the LLM (an image can produce 256+ patch tokens — far more expensive per image than a sentence of text, and unstructured).</p>
+    <h4>Architecture: Two Transformers Sharing Self-Attention</h4>
+    <p>The Q-Former consists of two transformer submodules that <em>share the same self-attention layers</em>: an <strong>image transformer</strong> that interacts with the frozen ViT via cross-attention, and a <strong>text transformer</strong> that can act as both a text encoder and text decoder. A set of <strong>32 learnable query embeddings</strong> (each 768-dim) is the only input to the image side — they are not derived from the image at all; they are trained parameters, like a learned "checklist" of questions to ask any image.</p>
+    <p>Each Q-Former block: (1) queries self-attend to each other, (2) queries cross-attend into the frozen ViT's patch-grid features <em>every other block</em>, (3) queries pass through a shared feed-forward layer. Text tokens, when present, share the same self-attention layer as the queries — but a <strong>attention mask</strong> is switched per-objective to control exactly who can see whom.</p>
+    <h4>Design Decision: Why a Fixed 32 Queries and Not All Patch Tokens?</h4>
+    <p>Feeding all ~257 ViT patch tokens (for a 224×224 image with 14×14 patches + CLS) directly into the LLM as a "soft prompt" would be simple, but (a) makes every image cost ~257 LLM context tokens regardless of content, (b) gives the LLM no signal about which visual details matter for the caption/question at hand, and (c) scales poorly to higher resolutions. Forcing the information through 32 trained queries makes the bottleneck the LOCUS of learning: the queries learn to actively extract exactly the visual information that is useful for language, discarding the rest.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The Q-Former is trained in <strong>two stages</strong> against two different frozen partners — first a frozen image encoder (representation learning), then a frozen LLM (generative learning) — while its own weights and the 32 queries are the only thing ever updated by gradient descent.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card3body">
+    <h4>Stage 1 — Vision-Language Representation Learning</h4>
+    <p>Let \(Q \in \mathbb{R}^{32\times d}\) be the query embeddings after passing through the Q-Former, and \(V \in \mathbb{R}^{n\times d}\) the frozen ViT's patch features. Stage 1 jointly optimizes three objectives that all reuse the same shared self-attention stack, distinguished only by the attention mask \(M\):</p>
+    <div class="eq">$$\mathcal{L}_{\text{stage1}} = \mathcal{L}_{\text{ITC}} + \mathcal{L}_{\text{ITM}} + \mathcal{L}_{\text{ITG}}$$</div>
+    <p><strong>1. Image-Text Contrastive (ITC):</strong> queries and text are encoded independently (unimodal mask — queries cannot see text tokens and vice versa). For each of the 32 output query vectors \(q_i\), compute similarity with the text [CLS] embedding \(t\); take the maximum over queries as the image-text similarity, then apply the standard InfoNCE contrastive loss over a batch of size \(N\):</p>
+    <div class="eq">$$s(I,T) = \max_{i \in [1,32]} \; q_i^\top t, \qquad \mathcal{L}_{\text{ITC}} = -\log \frac{\exp(s(I,T)/\tau)}{\sum_{j=1}^N \exp(s(I,T_j)/\tau)}$$</div>
+    <p><strong>2. Image-Text Matching (ITM):</strong> a binary classification — does this image/text pair truly correspond? Uses a <em>bi-directional</em> mask (queries and text tokens freely attend to each other), and each query's output is passed through a 2-class linear head; the 32 per-query logits are averaged:</p>
+    <div class="eq">$$\hat{y} = \sigma\!\left(\frac{1}{32}\sum_{i=1}^{32} w^\top q_i\right), \qquad \mathcal{L}_{\text{ITM}} = -\big[y\log\hat{y} + (1-y)\log(1-\hat{y})\big]$$</div>
+    <p><strong>3. Image-grounded Text Generation (ITG):</strong> generate the caption token-by-token conditioned on the image, using a <em>multimodal causal</em> mask — queries can attend to each other (never to text, so all visual information must be squeezed through the fixed 32 slots) and each text token can attend to all queries plus previous text tokens only:</p>
+    <div class="eq">$$\mathcal{L}_{\text{ITG}} = -\sum_{k=1}^{L}\log p_\theta\big(w_k \mid w_{<k}, \, Q\big)$$</div>
+    <p>Because \(V\) comes from a frozen encoder, gradients from all three losses flow <em>only into the Q-Former's parameters and the 32 query embeddings</em> — never into the vision backbone.</p>
+
+    <h4>Stage 2 — Vision-to-Language Generative Bridging</h4>
+    <p>After stage 1, the 32 query outputs \(Q \in \mathbb{R}^{32\times d}\) (\(d{=}768\)) are known to be text-aligned. Stage 2 discards the ITC/ITM heads and adds a single trainable linear projection \(W_{\text{proj}} \in \mathbb{R}^{d \times d_{\text{LLM}}}\) mapping each query into the frozen LLM's embedding dimension \(d_{\text{LLM}}\) (e.g. 2560–4096):</p>
+    <div class="eq">$$E_{\text{visual}} = Q\,W_{\text{proj}} \in \mathbb{R}^{32 \times d_{\text{LLM}}}$$</div>
+    <p>These 32 vectors are prepended as a fixed-length "soft visual prompt" to the frozen LLM's input embedding sequence. Training minimizes the LLM's ordinary language-modeling loss (decoder-only, e.g. OPT) or prefix-conditioned denoising loss (encoder-decoder, e.g. FlanT5) on the target caption — but <em>backpropagation stops at the LLM's input embeddings</em>; only \(W_{\text{proj}}\) and the Q-Former are updated:</p>
+    <div class="eq">$$\mathcal{L}_{\text{stage2}} = -\sum_{k=1}^{L}\log p_{\text{LLM}}\big(w_k \mid w_{<k}, \, E_{\text{visual}}\big), \qquad \theta_{\text{ViT}}, \theta_{\text{LLM}} \; \text{frozen}$$</div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Because the LLM is frozen and never sees gradient signal about images during pretraining, stage 2 only works if stage 1 already made the query embeddings <em>linearly close</em> to something language-like. Skipping stage 1 and training stage 2 from scratch converges far worse — the representation-learning stage is what makes the bottleneck useful rather than just small.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through both BLIP-2 training stages: representation learning against the frozen ViT, then generative bridging into the frozen LLM.</p>
+
+    <div class="viz-container">
+      <div id="matrixViz"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-encode" id="infoPhase">ENCODE</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Frozen Vision Encoder</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Frozen ViT patches</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Learnable queries</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Text tokens</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Frozen LLM tokens</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Active attention</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body" id="card5body">
+    <p><strong>When BLIP-2's recipe shines:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>You already have a strong pretrained vision encoder (e.g. CLIP ViT-L/g) and a strong pretrained LLM (e.g. OPT, FlanT5) and want to connect them cheaply</li>
+      <li>Compute budget is limited — BLIP-2 trains ~188M parameters vs. billions for end-to-end multimodal pretraining, and needs far fewer image-text pairs</li>
+      <li>You want a fixed, small, resolution-independent visual token budget (32 tokens) regardless of image size — good for long-context LLMs handling many images</li>
+      <li>Zero-shot image captioning / VQA / instruction-following on images is the target use case</li>
+    </ul>
+    <p><strong>Limitations to know:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>The 32-query bottleneck can lose fine-grained spatial/detail information — dense tasks like segmentation or precise counting suffer</li>
+      <li>In-context few-shot learning is weaker than Flamingo-style models, because the frozen LLM never sees interleaved image-text training data</li>
+      <li>Quality is capped by the frozen backbones — the Q-Former cannot fix a weak vision encoder or a weak LLM, only bridge good ones</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Lineage</div>
+      <p style="font-size:14px;margin:0;"><strong>CLIP</strong> (frozen-ready vision encoder) → <strong>BLIP</strong> (unified encoder-decoder with ITC+ITM+captioning, but no frozen-LLM bridging) → <strong>BLIP-2</strong> (adds the Q-Former as a trainable bridge between frozen encoder and frozen LLM) → <strong>InstructBLIP</strong> (instruction-tuned Q-Former, extracts instruction-aware visual features) → <strong>LLaVA / Flamingo</strong> (alternative bridging strategies: simple linear projection of all patch tokens, or gated cross-attention layers inserted into the LLM).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;" id="card6body">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch, torch.nn as nn</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># --- Frozen backbones (never receive gradients) ---</div>
+      <div class="code-line" id="cl3">vit = FrozenViT()              # e.g. CLIP/EVA ViT-g, .requires_grad_(False)</div>
+      <div class="code-line" id="cl4">llm = FrozenLLM()              # e.g. OPT-2.7B / FlanT5-XL, .requires_grad_(False)</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># --- Trainable Q-Former ---</div>
+      <div class="code-line" id="cl7">queries = nn.Parameter(torch.randn(32, 768))   # the only image-side input</div>
+      <div class="code-line" id="cl8">qformer = QFormer(num_layers=12, cross_attn_every=2)</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10"># === STAGE 1: representation learning vs frozen ViT ===</div>
+      <div class="code-line" id="cl11">patch_feats = vit(image)                        # [n_patches, 768], no grad</div>
+      <div class="code-line" id="cl12">q_out = qformer(queries, patch_feats, mask='unimodal')   # ITC branch</div>
+      <div class="code-line" id="cl13">t_out = qformer(text_tokens, mask='unimodal')</div>
+      <div class="code-line" id="cl14">loss_itc = contrastive_loss(q_out.max_sim(t_out.cls))</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">q_out_bi = qformer(queries, patch_feats, text_tokens, mask='bidirectional')</div>
+      <div class="code-line" id="cl17">loss_itm = bce_loss(itm_head(q_out_bi.mean(0)), match_label)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">q_out_causal = qformer(queries, patch_feats, text_tokens, mask='mm_causal')</div>
+      <div class="code-line" id="cl20">loss_itg = cross_entropy(lm_head(q_out_causal.text_part), caption_tokens)</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">loss_stage1 = loss_itc + loss_itm + loss_itg   # backprop -> qformer, queries ONLY</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24"># === STAGE 2: generative bridging into frozen LLM ===</div>
+      <div class="code-line" id="cl25">proj = nn.Linear(768, llm.embed_dim)            # new trainable bridge</div>
+      <div class="code-line" id="cl26">Q = qformer(queries, vit(image), mask='unimodal')   # [32, 768], stage-1 weights</div>
+      <div class="code-line" id="cl27">visual_prompt = proj(Q)                          # [32, d_llm] soft prompt</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">inputs_embeds = torch.cat([visual_prompt, llm.embed(text_prefix)], dim=0)</div>
+      <div class="code-line" id="cl30">logits = llm(inputs_embeds=inputs_embeds)        # frozen forward pass</div>
+      <div class="code-line" id="cl31">loss_stage2 = cross_entropy(logits, target_tokens)</div>
+      <div class="code-line" id="cl32">loss_stage2.backward()   # gradient flows through llm (no update) into proj & qformer</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// BLIP-2 Q-FORMER — INTERACTIVE ENGINE
+// All numbers below (attention weights, similarities, logits, probs,
+// projections, generated tokens) are COMPUTED LIVE from toy embedding
+// vectors using real dot-product attention / softmax / sigmoid math —
+// nothing here is a pre-baked "result", only the raw input vectors are.
+// ══════════════════════════════════════════════════════════════════
+
+// ── MATH HELPERS ──
+function dot(a, b) { return a.reduce((s, v, i) => s + v * b[i], 0); }
+function norm(a) { return Math.sqrt(dot(a, a)); }
+function cosine(a, b) { return dot(a, b) / (norm(a) * norm(b) + 1e-8); }
+function softmax(arr, temp) {
+  temp = temp || 1;
+  const scaled = arr.map(v => v / temp);
+  const m = Math.max(...scaled);
+  const ex = scaled.map(v => Math.exp(v - m));
+  const sum = ex.reduce((a, b) => a + b, 0);
+  return ex.map(v => v / sum);
+}
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function weightedSum(weights, vecs) {
+  const d = vecs[0].length;
+  const out = new Array(d).fill(0);
+  weights.forEach((w, i) => { for (let k = 0; k < d; k++) out[k] += w * vecs[i][k]; });
+  return out;
+}
+function fmt(v) { return v.toFixed(3); }
+function argmax(arr) { let mi = 0; for (let i = 1; i < arr.length; i++) if (arr[i] > arr[mi]) mi = i; return mi; }
+
+// ── TOY DATA (inputs only — every downstream number is derived by JS) ──
+const D = 4; // toy embedding dim for ViT-side / Q-Former-side vectors
+const patchVecs = [
+  [0.80, 0.10, 0.30, -0.20], [0.20, 0.90, -0.10, 0.40],
+  [-0.30, 0.20, 0.80, 0.10], [0.50, -0.40, 0.20, 0.70],
+  [0.10, 0.30, -0.60, 0.50], [-0.20, 0.60, 0.40, -0.30]
+];
+const patchLabels = ['sky', 'grass', 'dog-head', 'dog-body', 'leash', 'tree'];
+
+const NQ = 6; // displayed subset of the real 32 learnable queries
+const queryInit = [
+  [0.10, 0.05, -0.05, 0.02], [0.02, 0.10, 0.03, -0.04],
+  [-0.03, 0.02, 0.09, 0.01], [0.04, -0.02, 0.01, 0.08],
+  [0.01, 0.03, -0.02, 0.06], [-0.02, 0.04, 0.05, -0.01]
+];
+
+const textVecs = [ [0.25, 0.15, 0.35, -0.15], [0.15, 0.85, -0.05, 0.35], [0.30, -0.20, 0.10, 0.50] ];
+const textLabels = ['[a]', '[dog]', '[runs]'];
+const negTextVecs = [ [-0.40, 0.30, 0.60, 0.10], [0.60, -0.30, -0.20, 0.40] ];
+const negTextLabels = ['"a cat sleeps"', '"a bird flies"'];
+
+const wITM = [0.30, -0.20, 0.40, 0.10]; // toy ITM classifier weight
+const vocabITG = { 'a':[0.25,0.15,0.35,-0.15], 'dog':[0.15,0.85,-0.05,0.35], 'runs':[0.30,-0.20,0.10,0.50], 'cat':[-0.40,0.30,0.60,0.10], 'jumps':[0.10,-0.30,0.50,0.20] };
+
+const DLLM = 6; // toy LLM embedding dim
+const Wproj = [ // 4x6 projection matrix (trainable in stage 2)
+  [0.4, -0.1, 0.2, 0.3, -0.2, 0.1], [0.1, 0.5, -0.3, 0.1, 0.2, -0.1],
+  [-0.2, 0.2, 0.4, -0.1, 0.3, 0.2], [0.3, -0.2, 0.1, 0.4, -0.1, 0.3]
+];
+function matvec(v, M) { const out = new Array(M[0].length).fill(0); for (let i = 0; i < v.length; i++) for (let j = 0; j < M[0].length; j++) out[j] += v[i] * M[i][j]; return out; }
+
+const promptText = ['Question:', 'what', 'is', 'the', 'dog', 'doing?'];
+const vocabLLM = { 'a':[0.3,0.1,0.2,-0.1,0.3,0.1], 'dog':[0.2,0.7,-0.1,0.3,0.1,0.2], 'is':[0.1,0.2,0.4,0.1,-0.1,0.2], 'running':[0.5,-0.2,0.3,0.6,-0.1,0.4], 'outside':[0.1,0.3,-0.2,0.2,0.5,0.1], 'today':[-0.1,0.2,0.3,0.1,0.2,-0.2] };
+
+// ── LIVE COMPUTATION STATE (re-derived, not hardcoded) ──
+let selfAttnW = null;      // query-query self-attention weights
+let crossAttnW = null;     // query-patch cross-attention weights
+let queryCtx = null;       // queries AFTER cross-attention (contextualized)
+let itcResult = null;
+let itmResult = null;
+let itgResult = null;
+let projResult = null;
+let llmGenResult = null;
+
+function computeSelfAttention() {
+  // queries attend to each other (scaled dot-product, softmax)
+  const scale = Math.sqrt(D);
+  selfAttnW = queryInit.map(qi => softmax(queryInit.map(qj => dot(qi, qj) / scale)));
+}
+
+function computeCrossAttention() {
+  const scale = Math.sqrt(D);
+  crossAttnW = queryInit.map(q => softmax(patchVecs.map(p => dot(q, p) / scale)));
+  queryCtx = crossAttnW.map(w => weightedSum(w, patchVecs));
+}
+
+function computeITC() {
+  if (!queryCtx) computeCrossAttention();
+  const cls = textVecs[0];
+  const sims = queryCtx.map(q => dot(q, cls));
+  const maxIdx = argmax(sims);
+  const sPos = sims[maxIdx];
+  const sNeg = negTextVecs.map(t => Math.max(...queryCtx.map(q => dot(q, t))));
+  const tau = 0.5;
+  const probs = softmax([sPos, ...sNeg], tau);
+  itcResult = { sims, maxIdx, sPos, sNeg, probs, loss: -Math.log(probs[0] + 1e-9) };
+}
+
+function computeITM() {
+  if (!queryCtx) computeCrossAttention();
+  const perQueryLogit = queryCtx.map(q => dot(q, wITM));
+  const avgLogit = perQueryLogit.reduce((a, b) => a + b, 0) / perQueryLogit.length;
+  const prob = sigmoid(avgLogit);
+  itmResult = { perQueryLogit, avgLogit, prob };
+}
+
+function computeITG() {
+  if (!queryCtx) computeCrossAttention();
+  let hidden = weightedSum(new Array(NQ).fill(1 / NQ), queryCtx); // pooled query state
+  const words = Object.keys(vocabITG);
+  const generated = [];
+  for (let t = 0; t < 3; t++) {
+    const logits = words.map(w => dot(hidden, vocabITG[w]));
+    const probs = softmax(logits, 0.3);
+    const idx = argmax(probs);
+    generated.push({ word: words[idx], prob: probs[idx], probs: probs.slice() });
+    hidden = weightedSum([0.6, 0.4], [hidden, vocabITG[words[idx]]]);
+  }
+  itgResult = { words, generated };
+}
+
+function computeProjection() {
+  if (!queryCtx) computeCrossAttention();
+  projResult = queryCtx.slice(0, 3).map(q => matvec(q, Wproj));
+}
+
+function computeLLMGeneration() {
+  if (!projResult) computeProjection();
+  let hidden = weightedSum(new Array(projResult.length).fill(1 / projResult.length), projResult);
+  const words = Object.keys(vocabLLM);
+  const generated = [];
+  for (let t = 0; t < 3; t++) {
+    const logits = words.map(w => dot(hidden, vocabLLM[w]));
+    const probs = softmax(logits, 0.35);
+    const idx = argmax(probs);
+    generated.push({ word: words[idx], prob: probs[idx] });
+    hidden = weightedSum([0.55, 0.45], [hidden, vocabLLM[words[idx]]]);
+  }
+  llmGenResult = { generated };
+}
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'encode', title: 'The Frozen Vision Encoder',
+    desc: 'An image is split into patches and passed through a large pretrained ViT (e.g. CLIP/EVA ViT-g). It produces patch feature vectors \\(V \\in \\mathbb{R}^{n\\times d}\\). This encoder is <strong>completely frozen</strong> — no gradient ever updates it during any BLIP-2 stage.',
+    codeLines: [3], canvasMode: 'vit_encode'
+  },
+  {
+    phase: 'stage1', title: '32 Learnable Queries Self-Attend',
+    desc: 'The Q-Former\'s only image-side input is a set of 32 <em>trained parameter vectors</em> \\(Q\\) — not derived from the image. First they self-attend to each other via scaled dot-product attention: \\(\\alpha_{ij} = \\operatorname{softmax}_j(q_i^\\top q_j/\\sqrt{d})\\), computed live below for 6 of the 32 queries.',
+    codeLines: [7, 8], canvasMode: 'queries_self_attn'
+  },
+  {
+    phase: 'stage1', title: 'Cross-Attention into Frozen Patches',
+    desc: 'Every other Q-Former block, queries cross-attend into the frozen patch features: \\(\\alpha_{ij}=\\operatorname{softmax}_j(q_i^\\top v_j/\\sqrt d)\\), then \\(q_i \\leftarrow \\sum_j \\alpha_{ij} v_j\\). This is how visual information enters the queries — gradients flow back into the Q-Former, never into \\(V\\).',
+    codeLines: [11], canvasMode: 'cross_attn'
+  },
+  {
+    phase: 'stage1', title: 'Objective 1 — Image-Text Contrastive (ITC)',
+    desc: 'Unimodal mask: queries and text are encoded separately. Similarity \\(s=\\max_i q_i^\\top t_{\\text{CLS}}\\) is contrasted against in-batch negative captions via InfoNCE softmax. This pulls matching image/text representations together in embedding space.',
+    codeLines: [12, 13, 14], canvasMode: 'itc'
+  },
+  {
+    phase: 'stage1', title: 'Objective 2 — Image-Text Matching (ITM)',
+    desc: 'Bidirectional mask: queries and text tokens freely attend to each other. A binary classifier reads the fused query outputs to predict match/no-match — a harder, fine-grained alignment signal that ITC\'s single global similarity misses.',
+    codeLines: [16, 17], canvasMode: 'itm'
+  },
+  {
+    phase: 'stage1', title: 'Objective 3 — Image-Grounded Text Generation (ITG)',
+    desc: 'Multimodal causal mask: queries cannot see text at all (all visual info must already be packed into the 32 slots), and each text token attends to all queries plus earlier text tokens. The Q-Former autoregressively predicts the caption — watch it generate live below.',
+    codeLines: [19, 20], canvasMode: 'itg'
+  },
+  {
+    phase: 'stage1', title: 'Stage 1 Result: Text-Aligned Queries',
+    desc: 'After stage 1, the 32 query outputs are a compact, <strong>text-aligned</strong> summary of the image — trained with zero updates to the ViT. Only the Q-Former\'s ~188M parameters (plus the 32 query vectors) moved. This is the representation-learning half of BLIP-2.',
+    codeLines: [22], canvasMode: 'stage1_result'
+  },
+  {
+    phase: 'bridge', title: 'Stage 2 — Linear Projection to LLM Space',
+    desc: 'A new trainable linear layer \\(W_{\\text{proj}}\\) maps each 768-dim (here toy 4-dim) query output into the frozen LLM\'s embedding dimension: \\(E_{\\text{visual}} = Q\\,W_{\\text{proj}}\\). This is computed live for 3 of the queries below — watch the dimensionality grow.',
+    codeLines: [25, 26, 27], canvasMode: 'projection'
+  },
+  {
+    phase: 'stage2', title: 'Soft Visual Prompt Enters the Frozen LLM',
+    desc: 'The projected query vectors are prepended to the embedded text prompt, forming one input sequence: \\(\\texttt{[visual×32][text tokens]}\\). To the frozen LLM this looks exactly like 32 extra "word" embeddings at the start of the prompt — no architecture change to the LLM is needed.',
+    codeLines: [29, 30], canvasMode: 'prompt_prepend'
+  },
+  {
+    phase: 'stage2', title: 'Frozen LLM Generates Grounded Text',
+    desc: 'The frozen LLM autoregressively generates its answer/caption conditioned on the visual prompt. Gradients from this generation loss flow backward through the (frozen, unchanged) LLM into \\(W_{\\text{proj}}\\) and the Q-Former — teaching the bridge to speak the LLM\'s language, live token probabilities shown below.',
+    codeLines: [31, 32], canvasMode: 'llm_generate'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+const phaseMap = { encode: 'phase-encode', stage1: 'phase-stage1', bridge: 'phase-bridge', stage2: 'phase-stage2' };
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next; render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left: '$$', right: '$$', display: true}, {left: '\\(', right: '\\)', display: false} ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => { const el = document.getElementById('cl' + i); if (el) el.classList.add('active'); });
+
+  renderMatrixPanel(s.canvasMode);
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── LIVE NUMBER PANEL ──
+function vecCell(v, cls) { return `<div class="matrix-cell ${cls || 'highlight'}">${fmt(v)}</div>`; }
+function renderMatrixPanel(mode) {
+  const el = document.getElementById('matrixViz');
+  let html = '<div class="matrix-row">';
+  if (mode === 'vit_encode') {
+    html += '<div><div class="matrix-label">Frozen patch vectors V (toy d=4)</div><div class="matrix-display" style="grid-template-columns:repeat(4,1fr)">';
+    patchVecs.forEach(p => p.forEach(v => html += vecCell(v, 'highlight')));
+    html += '</div></div>';
+  } else if (mode === 'queries_self_attn') {
+    if (!selfAttnW) computeSelfAttention();
+    html += '<div><div class="matrix-label">Self-attention weights α (query i → query j)</div><div class="matrix-display" style="grid-template-columns:repeat(' + NQ + ',1fr)">';
+    selfAttnW.forEach(row => row.forEach(v => html += vecCell(v, 'omega')));
+    html += '</div></div>';
+  } else if (mode === 'cross_attn') {
+    if (!crossAttnW) computeCrossAttention();
+    html += '<div><div class="matrix-label">Cross-attention weights α (query → patch)</div><div class="matrix-display" style="grid-template-columns:repeat(' + patchVecs.length + ',1fr)">';
+    crossAttnW.forEach(row => row.forEach(v => html += vecCell(v, 'omega')));
+    html += '</div></div>';
+  } else if (mode === 'itc') {
+    if (!itcResult) computeITC();
+    html += '<div><div class="matrix-label">s(I,T) similarities [pos, neg1, neg2]</div><div class="matrix-display" style="grid-template-columns:repeat(3,1fr)">';
+    html += vecCell(itcResult.sPos, 'result') + vecCell(itcResult.sNeg[0], 'error') + vecCell(itcResult.sNeg[1], 'error');
+    html += '</div></div><div><div class="matrix-label">softmax probs (InfoNCE)</div><div class="matrix-display" style="grid-template-columns:repeat(3,1fr)">';
+    itcResult.probs.forEach((p, i) => html += vecCell(p, i === 0 ? 'result' : 'error'));
+    html += `</div></div><div style="align-self:center;font-family:var(--mono);font-size:12px;color:var(--text2);">Loss = ${fmt(itcResult.loss)}</div>`;
+  } else if (mode === 'itm') {
+    if (!itmResult) computeITM();
+    html += '<div><div class="matrix-label">Per-query ITM logits</div><div class="matrix-display" style="grid-template-columns:repeat(' + NQ + ',1fr)">';
+    itmResult.perQueryLogit.forEach(v => html += vecCell(v, 'highlight'));
+    html += `</div></div><div style="align-self:center;font-family:var(--mono);font-size:13px;color:var(--green-mid);font-weight:600;">P(match) = σ(${fmt(itmResult.avgLogit)}) = ${fmt(itmResult.prob)}</div>`;
+  } else if (mode === 'itg' || mode === 'stage1_result') {
+    if (!itgResult) computeITG();
+    html += '<div><div class="matrix-label">ITG generated caption (argmax each step)</div><div class="matrix-display" style="grid-template-columns:repeat(3,1fr)">';
+    itgResult.generated.forEach(g => html += `<div class="matrix-cell result">${g.word} (${fmt(g.prob)})</div>`);
+    html += '</div></div>';
+  } else if (mode === 'projection') {
+    if (!projResult) computeProjection();
+    html += '<div><div class="matrix-label">E_visual = Q · W_proj (first query, 4→6 dim)</div><div class="matrix-display" style="grid-template-columns:repeat(6,1fr)">';
+    projResult[0].forEach(v => html += vecCell(v, 'result'));
+    html += '</div></div>';
+  } else if (mode === 'prompt_prepend') {
+    if (!projResult) computeProjection();
+    html += '<div><div class="matrix-label">Sequence fed to frozen LLM</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:11px;">';
+    projResult.forEach((_, i) => html += `<span class="matrix-cell result" style="width:auto;padding:0 10px;">visual_${i}</span>`);
+    promptText.forEach(t => html += `<span class="matrix-cell highlight" style="width:auto;padding:0 10px;">${t}</span>`);
+    html += '</div></div>';
+  } else if (mode === 'llm_generate') {
+    if (!llmGenResult) computeLLMGeneration();
+    html += '<div><div class="matrix-label">Frozen-LLM generated tokens (live softmax argmax)</div><div class="matrix-display" style="grid-template-columns:repeat(3,1fr)">';
+    llmGenResult.generated.forEach(g => html += `<div class="matrix-cell result">${g.word} (${fmt(g.prob)})</div>`);
+    html += '</div></div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    bg2: g('--bg2'), text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    blue: g('--blue-mid'), green: g('--green-mid'), amber: g('--amber-mid'),
+    purple: g('--purple-mid'), red: g('--red-mid'), cyan: g('--cyan-mid'),
+    border: g('--border2')
+  };
+}
+
+function box(ctx, x, y, w, h, fill, stroke, r) {
+  r = r || 6;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+}
+function label(ctx, text, x, y, opts) {
+  opts = opts || {};
+  ctx.fillStyle = opts.color || '#000';
+  ctx.font = (opts.weight || 400) + ' ' + (opts.size || 11) + 'px "DM Sans", system-ui';
+  ctx.textAlign = opts.align || 'left';
+  ctx.fillText(text, x, y);
+  ctx.textAlign = 'left';
+}
+function lockIcon(ctx, x, y, color) {
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y - 4, 4, Math.PI, 0, false); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 5, y - 4, 10, 8);
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // Three-column layout used by most modes: ViT | Q-Former | LLM
+  const colViT = { x: W * 0.04, w: W * 0.24 };
+  const colQF = { x: W * 0.36, w: W * 0.30 };
+  const colLLM = { x: W * 0.74, w: W * 0.22 };
+  const topY = 30, colH = H - 70;
+
+  function drawFrame(highlightViT, highlightQF, highlightLLM) {
+    box(ctx, colViT.x, topY, colViT.w, colH, c.bg2, highlightViT ? c.blue : c.border, 10);
+    label(ctx, '❄ Frozen ViT', colViT.x + colViT.w / 2, topY - 10, { align: 'center', weight: 700, size: 12, color: c.blue });
+    box(ctx, colQF.x, topY, colQF.w, colH, c.bg2, highlightQF ? c.purple : c.border, 10);
+    label(ctx, '🔥 Q-Former (trainable)', colQF.x + colQF.w / 2, topY - 10, { align: 'center', weight: 700, size: 12, color: c.purple });
+    box(ctx, colLLM.x, topY, colLLM.w, colH, c.bg2, highlightLLM ? c.green : c.border, 10);
+    label(ctx, '❄ Frozen LLM', colLLM.x + colLLM.w / 2, topY - 10, { align: 'center', weight: 700, size: 12, color: c.green });
+  }
+
+  function patchGrid() {
+    const n = patchVecs.length, rows = 2, cols = 3;
+    const pw = (colViT.w - 30) / cols, ph = (colH - 30) / rows;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const r = Math.floor(i / cols), cc = i % cols;
+      const x = colViT.x + 15 + cc * pw, y = topY + 15 + r * ph;
+      pts.push({ x: x + pw / 2 - 6, y: y + ph / 2 - 6 });
+    }
+    return { pts, pw, ph };
+  }
+  function drawPatches(activeAlpha) {
+    const g = patchGrid();
+    patchVecs.forEach((p, i) => {
+      const pos = g.pts[i];
+      ctx.globalAlpha = activeAlpha ? activeAlpha[i] : 1;
+      box(ctx, pos.x - 12, pos.y - 12, 24, 24, c.blue, null, 4);
+      ctx.globalAlpha = 1;
+      label(ctx, patchLabels[i], pos.x, pos.y + 22, { align: 'center', size: 8, color: c.text3 });
+    });
+    return g.pts;
+  }
+  function queryDots() {
+    const pts = [];
+    for (let i = 0; i < NQ; i++) {
+      const y = topY + 25 + i * ((colH - 50) / (NQ - 1));
+      pts.push({ x: colQF.x + colQF.w / 2, y });
+    }
+    return pts;
+  }
+  function drawQueries(labelSuffix) {
+    const pts = queryDots();
+    pts.forEach((p, i) => {
+      box(ctx, p.x - 34, p.y - 9, 68, 18, c.purple, null, 9);
+      label(ctx, 'q' + (i + 1) + (labelSuffix || ''), p.x, p.y + 4, { align: 'center', size: 9, color: '#fff', weight: 600 });
+    });
+    label(ctx, '(6 of 32 queries shown)', colQF.x + colQF.w / 2, topY + colH - 6, { align: 'center', size: 9, color: c.text3 });
+    return pts;
+  }
+  function textTokenPts(n, area) {
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push({ x: area.x + area.w / 2, y: topY + colH - 30 - (n - 1 - i) * 22 });
+    return pts;
+  }
+  function llmTokenCol(words) {
+    const pts = [];
+    words.forEach((w, i) => {
+      const y = topY + 20 + i * 26;
+      box(ctx, colLLM.x + 8, y, colLLM.w - 16, 20, c.green, null, 5);
+      label(ctx, w, colLLM.x + colLLM.w / 2, y + 14, { align: 'center', size: 10, color: '#fff', weight: 600 });
+      pts.push({ x: colLLM.x + 8, y: y + 10 });
+    });
+    return pts;
+  }
+
+  if (mode === 'vit_encode') {
+    drawFrame(true, false, false);
+    drawPatches();
+    label(ctx, 'image → patches → frozen ViT → V ∈ ℝ⁶ˣ⁴ (toy dims)', W / 2, H - 12, { align: 'center', size: 11, color: c.text2 });
+    lockIcon(ctx, colViT.x + colViT.w - 16, topY + 16, c.blue);
+  }
+
+  if (mode === 'queries_self_attn') {
+    if (!selfAttnW) computeSelfAttention();
+    drawFrame(false, true, false);
+    const qpts = drawQueries();
+    for (let i = 0; i < NQ; i++) for (let j = 0; j < NQ; j++) {
+      if (i === j) continue;
+      const w = selfAttnW[i][j];
+      if (w < 0.1) continue;
+      ctx.globalAlpha = Math.min(1, w * 2.2);
+      ctx.strokeStyle = c.purple; ctx.lineWidth = 1 + w * 4;
+      ctx.beginPath();
+      const midx = (qpts[i].x + qpts[j].x) / 2 + 50;
+      ctx.moveTo(qpts[i].x + 34, qpts[i].y);
+      ctx.quadraticCurveTo(midx, (qpts[i].y + qpts[j].y) / 2, qpts[j].x + 34, qpts[j].y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    label(ctx, 'queries self-attend: α_ij = softmax(qᵢᵀqⱼ/√d)', W / 2, H - 12, { align: 'center', size: 11, color: c.text2 });
+  }
+
+  if (mode === 'cross_attn') {
+    if (!crossAttnW) computeCrossAttention();
+    drawFrame(true, true, false);
+    const ppts = drawPatches();
+    const qpts = drawQueries();
+    for (let i = 0; i < NQ; i++) for (let j = 0; j < patchVecs.length; j++) {
+      const w = crossAttnW[i][j];
+      if (w < 0.12) continue;
+      ctx.globalAlpha = Math.min(1, w * 2);
+      ctx.strokeStyle = c.red; ctx.lineWidth = 0.6 + w * 3.5;
+      ctx.beginPath(); ctx.moveTo(ppts[j].x + 12, ppts[j].y); ctx.lineTo(qpts[i].x - 34, qpts[i].y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    label(ctx, 'cross-attention: queries pull from frozen patch features', W / 2, H - 12, { align: 'center', size: 11, color: c.text2 });
+  }
+
+  if (mode === 'itc') {
+    if (!itcResult) computeITC();
+    drawFrame(false, true, false);
+    const qpts = drawQueries();
+    const tpts = textTokenPts(textLabels.length, colQF);
+    textLabels.forEach((t, i) => {
+      box(ctx, tpts[i].x - 30, tpts[i].y - 9, 60, 18, c.amber, null, 9);
+      label(ctx, t, tpts[i].x, tpts[i].y + 4, { align: 'center', size: 9, color: '#fff', weight: 600 });
+    });
+    // highlight the winning query -> CLS text token
+    const mi = itcResult.maxIdx;
+    ctx.strokeStyle = c.green; ctx.lineWidth = 2.5; ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(qpts[mi].x, qpts[mi].y); ctx.lineTo(tpts[0].x, tpts[0].y); ctx.stroke();
+    ctx.setLineDash([]);
+    label(ctx, 'unimodal mask: image ⊥ text (no cross-view attention)', colQF.x + colQF.w / 2, topY - 22, { align: 'center', size: 9, color: c.text3 });
+    label(ctx, `max sim q${mi+1}↔[a]  s=${fmt(itcResult.sPos)}  P(match)=${fmt(itcResult.probs[0])}`, W / 2, H - 12, { align: 'center', size: 11, color: c.green, weight: 600 });
+  }
+
+  if (mode === 'itm') {
+    if (!itmResult) computeITM();
+    drawFrame(false, true, false);
+    const qpts = drawQueries();
+    const tpts = textTokenPts(textLabels.length, colQF);
+    textLabels.forEach((t, i) => {
+      box(ctx, tpts[i].x - 30, tpts[i].y - 9, 60, 18, c.amber, null, 9);
+      label(ctx, t, tpts[i].x, tpts[i].y + 4, { align: 'center', size: 9, color: '#fff', weight: 600 });
+    });
+    qpts.forEach(q => tpts.forEach(t => {
+      ctx.globalAlpha = 0.35; ctx.strokeStyle = c.red; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+    }));
+    ctx.globalAlpha = 1;
+    label(ctx, 'bidirectional mask: full query ↔ text attention', colQF.x + colQF.w / 2, topY - 22, { align: 'center', size: 9, color: c.text3 });
+    label(ctx, `avg logit=${fmt(itmResult.avgLogit)} → σ = P(match) = ${fmt(itmResult.prob)}`, W / 2, H - 12, { align: 'center', size: 11, color: c.green, weight: 600 });
+  }
+
+  if (mode === 'itg') {
+    if (!itgResult) computeITG();
+    drawFrame(false, true, false);
+    drawQueries();
+    const words = itgResult.generated.map(g => g.word);
+    const caption = ['[a]'].concat(words.map(w => '[' + w + ']'));
+    caption.forEach((w, i) => {
+      const x = colQF.x + colQF.w / 2, y = topY + colH - 20 - (caption.length - 1 - i) * 20;
+      box(ctx, x - 32, y - 9, 64, 18, i === 0 ? c.amber : c.green, null, 9);
+      label(ctx, w, x, y + 4, { align: 'center', size: 9, color: '#fff', weight: 600 });
+    });
+    label(ctx, 'causal mask: queries blind to text; text sees queries + past text', colQF.x + colQF.w / 2, topY - 22, { align: 'center', size: 9, color: c.text3 });
+    label(ctx, 'generated: ' + words.join(' → ') + `  (p=${itgResult.generated.map(g=>fmt(g.prob)).join(', ')})`, W / 2, H - 12, { align: 'center', size: 10, color: c.green, weight: 600 });
+  }
+
+  if (mode === 'stage1_result') {
+    drawFrame(true, true, false);
+    lockIcon(ctx, colViT.x + colViT.w - 16, topY + 16, c.blue);
+    drawPatches();
+    drawQueries(' ✓');
+    label(ctx, 'ViT: 0 grads', colViT.x + colViT.w / 2, topY + colH + 18, { align: 'center', size: 10, color: c.text3 });
+    label(ctx, 'Q-Former: ~188M params trained (this is ALL of stage 1)', W / 2, H - 12, { align: 'center', size: 11, color: c.purple, weight: 700 });
+  }
+
+  if (mode === 'projection') {
+    if (!projResult) computeProjection();
+    drawFrame(false, true, true);
+    const qpts = drawQueries();
+    const llmSlots = [];
+    for (let i = 0; i < 3; i++) llmSlots.push({ x: colLLM.x + colLLM.w / 2, y: topY + 30 + i * 30 });
+    llmSlots.forEach((p, i) => {
+      box(ctx, p.x - 42, p.y - 10, 84, 20, c.green, null, 5);
+      label(ctx, 'vis_' + i, p.x, p.y + 5, { align: 'center', size: 10, color: '#fff', weight: 600 });
+      ctx.strokeStyle = c.amber; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(qpts[i].x + 34, qpts[i].y); ctx.lineTo(p.x - 42, p.y); ctx.stroke();
+      label(ctx, 'W_proj', (qpts[i].x + p.x) / 2, (qpts[i].y + p.y) / 2 - 6, { align: 'center', size: 9, color: c.amber });
+    });
+    label(ctx, 'E_visual = Q · W_proj : 4-dim → 6-dim (toy LLM width)', W / 2, H - 12, { align: 'center', size: 11, color: c.amber, weight: 600 });
+  }
+
+  if (mode === 'prompt_prepend') {
+    if (!projResult) computeProjection();
+    drawFrame(false, false, true);
+    const seqLen = projResult.length + promptText.length;
+    const items = projResult.map((_, i) => ({ w: 'v' + i, kind: 'visual' })).concat(promptText.map(t => ({ w: t, kind: 'text' })));
+    const perRow = 3;
+    items.forEach((it, i) => {
+      const row = Math.floor(i / perRow), colI = i % perRow;
+      const x = colViT.x + colI * ((W * 0.65) / perRow) + 10;
+      const y = topY + 20 + row * 26;
+      box(ctx, x, y, (W * 0.65) / perRow - 14, 20, it.kind === 'visual' ? c.amber : c.blue, null, 5);
+      label(ctx, it.w, x + ((W * 0.65) / perRow - 14) / 2, y + 14, { align: 'center', size: 9, color: '#fff', weight: 600 });
+    });
+    ctx.strokeStyle = c.green; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(colViT.x + W * 0.5, topY + 60); ctx.lineTo(colLLM.x, topY + 40); ctx.stroke();
+    label(ctx, '[visual×32][text tokens] → single sequence into frozen LLM', W / 2, H - 12, { align: 'center', size: 11, color: c.blue, weight: 600 });
+  }
+
+  if (mode === 'llm_generate') {
+    if (!llmGenResult) computeLLMGeneration();
+    drawFrame(false, false, true);
+    lockIcon(ctx, colLLM.x + colLLM.w - 16, topY + 16, c.green);
+    const words = llmGenResult.generated.map(g => g.word);
+    const pts = llmTokenCol(['prompt...'].concat(words));
+    label(ctx, 'autoregressive generation, conditioned on visual prompt', colLLM.x + colLLM.w / 2, topY - 10, { align: 'center', size: 9, color: c.text3 });
+    label(ctx, 'output: "' + words.join(' ') + '"  (p=' + llmGenResult.generated.map(g=>fmt(g.prob)).join(', ') + ')', W / 2, H - 12, { align: 'center', size: 10, color: c.green, weight: 700 });
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

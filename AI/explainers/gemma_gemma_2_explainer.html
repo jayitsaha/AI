@@ -165,6 +165,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       <div class="concept-box-title">Key Insight</div>
       <p style="font-size:14px;margin:0;">Gemma 2 achieves performance competitive with models 2-3x its size by combining <strong>Grouped-Query Attention</strong> (GQA), <strong>sliding window + global attention alternation</strong>, <strong>RMSNorm</strong> applied both pre- and post-layer (dual normalization), and <strong>soft-capping of logits</strong> for training stability. These are surgical architectural changes -- no fundamental paradigm shift, yet they yield outsized gains.</p>
     </div>
+    <p><strong>Trained by distillation, not from scratch:</strong> every Gemma 2 checkpoint (2B, 9B, even the 27B "teacher-less" model trained on raw tokens) is trained with <strong>knowledge distillation</strong> from a much larger, unreleased Gemini-class teacher model. Instead of only fitting the one-hot next-token target, the student minimizes the KL divergence between its own output distribution and the teacher's full probability distribution over the vocabulary at every position. This exposes the small student to a far richer training signal per token (the teacher's "dark knowledge" about which wrong tokens are almost-right) than one-hot cross-entropy alone, which is a major reason Gemma 2 9B can match or beat models with 2-3x its parameter count on many benchmarks despite seeing roughly the same token budget.</p>
   </div>
 </div>
 
@@ -231,6 +232,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       <strong>MQA:</strong> \(2 \cdot n \cdot L \cdot d_k\) (factor \(h\) reduction)<br>
       <strong>GQA (g groups):</strong> \(2 \cdot n \cdot L \cdot g \cdot d_k\) (factor \(h/g\) reduction)</p>
     </div>
+
+    <h4>Distillation Objective</h4>
+    <p>Gemma 2 students are trained to match a frozen teacher's next-token distribution \(p_T\) rather than only the one-hot label \(y\). The loss blends a distillation term with ordinary language-model cross-entropy:</p>
+    <div class="eq">$$\mathcal{L} = \alpha \cdot \text{CE}(y, p_S) + (1-\alpha) \cdot T^2 \cdot D_{\text{KL}}\!\left(p_T^{(1/T)} \,\|\, p_S^{(1/T)}\right)$$</div>
+    <p>where \(p_S\) is the student's predicted distribution, \(T\) is a softmax temperature that softens both distributions so probability mass on "almost-correct" tokens becomes visible (raising \(T\) flattens the distribution), and \(\alpha\) balances the hard-label loss against the distillation loss. Because \(p_T\) carries information about the full vocabulary's relative plausibility at every position -- not just which single token was correct -- the student receives a substantially denser gradient signal per training example than pretraining from scratch on raw text alone.</p>
   </div>
 </div>
 
@@ -242,7 +248,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     <div class="section-toggle open">&#9660;</div>
   </div>
   <div class="section-body">
-    <p>Each Gemma variant is fully specified by its hidden dimension \(d\), number of layers \(L\), query heads \(h\), KV heads \(h_{\text{kv}}}\), and FFN intermediate dimension \(d_{\text{ff}}}\). The parameter budget is dominated by: embeddings (\(V \times d\)), attention projections (\(L \times (d \times d + 2 \times d \times d_k \times h_{\text{kv}})\)), and FFN weights (\(L \times 2 \times d \times d_{\text{ff}}}\) for GeGLU's dual projection, plus the output projection).</p>
+    <p>Each Gemma variant is fully specified by its hidden dimension \(d\), number of layers \(L\), query heads \(h\), KV heads \(h_{\text{kv}}\), and FFN intermediate dimension \(d_{\text{ff}}\). The parameter budget is dominated by: embeddings (\(V \times d\)), attention projections (\(L \times (d \times d + 2 \times d \times d_k \times h_{\text{kv}})\)), and FFN weights (\(L \times 2 \times d \times d_{\text{ff}}\) for GeGLU's dual projection, plus the output projection).</p>
 
     <table class="compare-table">
       <tr><th>Variant</th><th>d_model</th><th>Layers</th><th>Q Heads</th><th>KV Heads</th><th>d_ff</th><th>Params</th></tr>
@@ -271,9 +277,10 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     <p><strong>When to choose Gemma 2 over Gemma 1:</strong> Always, if your hardware supports it. Gemma 2 strictly dominates Gemma 1 on quality benchmarks at similar parameter counts while maintaining comparable inference throughput thanks to GQA's KV cache efficiency.</p>
     <p><strong>GQA vs MQA:</strong> MQA is maximally aggressive on cache compression but sacrifices representational capacity. GQA recovers most of MHA's quality while keeping 50-75% of MQA's speed advantage. The sweet spot for production serving is GQA with a 2:1 query-to-KV ratio.</p>
     <p><strong>Sliding window attention:</strong> By alternating local (4096-token) and global layers, Gemma 2 ensures every token can reach any other token within 2 layers, while individual layers only pay quadratic cost over the window size. This is similar to Mistral's approach.</p>
+    <p><strong>Distillation as a force multiplier:</strong> architecture alone does not explain Gemma 2's benchmark scores -- the training recipe matters just as much. By distilling from a large Gemini-class teacher's soft output distribution instead of training purely on next-token cross-entropy, Google effectively transfers some of the teacher's learned world knowledge into a model with a fraction of the parameters, at no extra inference-time cost to the student.</p>
     <div class="concept-box key-concept">
       <div class="concept-box-title">Key Concept</div>
-      <p style="font-size:14px;margin:0;">Gemma 2's improvements are <em>composable engineering</em>: each change (GQA, dual-norm, soft-capping, sliding window) is individually well-understood, but their combination yields a model family that punches far above its weight class, proving that architecture refinement matters as much as scale.</p>
+      <p style="font-size:14px;margin:0;">Gemma 2's improvements are <em>composable engineering</em>: each change (GQA, dual-norm, soft-capping, sliding window, teacher distillation) is individually well-understood, but their combination yields a model family that punches far above its weight class, proving that architecture refinement and training methodology matter as much as raw scale.</p>
     </div>
   </div>
 </div>
