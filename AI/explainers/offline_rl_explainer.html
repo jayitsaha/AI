@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline RL: CQL, IQL, Decision Transformer — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-problem{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-cql{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-iql{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-dt{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-summary{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Offline RL: CQL, IQL, Decision Transformer</h1>
+  <div class="subtitle">Learning from fixed datasets without environment interaction: the OOD action problem and its solutions</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N) data, O(1) interaction</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Offline Reinforcement Learning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Traditional Reinforcement Learning (RL) agents learn by actively interacting with an environment, collecting new data as they go. Offline RL (also known as Batch RL) breaks this paradigm: the agent must learn an optimal policy *solely* from a pre-collected, fixed dataset of past interactions, without any further online exploration. This is crucial for real-world applications where exploration is costly or dangerous (e.g., robotics, healthcare, autonomous driving).</p>
+    <p><strong>Analogy:</strong> Imagine a junior surgeon learning from a massive archive of past surgical videos. An online RL agent would learn by performing live surgeries (exploring). An offline RL agent has to learn only from the videos. The challenge: if the agent watches a procedure and thinks, "What if I tried this slightly different, never-before-seen move?", it has no way to see the outcome. It can only infer from what *was* done. If it acts on an unobserved "what if," it could be catastrophic.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The core challenge in Offline RL is the <strong>Out-Of-Distribution (OOD) action problem</strong>. When an agent learns from fixed data, its estimated Q-values for actions not seen in the dataset can be arbitrarily (and optimistically) wrong. If the learned policy then suggests such an OOD action, the agent will likely fail, as it has no real-world feedback to correct its mistake.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">The OOD Problem & Core Approaches</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Distributional Shift Problem</h4>
+    <p>In online RL, the learned policy \(\pi(a|s)\) dictates which data is collected. In offline RL, the data is fixed, collected by some (often unknown) behavior policy \(\beta(a|s)\). If the learned policy \(\pi\) deviates significantly from \(\beta\), it will query Q-values for \((s,a)\) pairs not present in the dataset. This is a <em>covariate shift</em> problem. Standard Q-learning algorithms (like DQN or SAC) often extrapolate optimistically for these OOD actions, leading to poor performance when deployed.</p>
+
+    <h4>Three Solution Paradigms</h4>
+    <p>Offline RL algorithms primarily tackle the OOD problem by ensuring the learned policy doesn't venture too far from the data distribution. Three main strategies have emerged:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Conservative Regularization (e.g., CQL):</strong> Explicitly adds a penalty to the Q-function loss, forcing Q-values for OOD actions to be low. This makes the agent pessimistic about unseen actions, encouraging it to stick to actions seen in the dataset.</li>
+      <li><strong>Implicit Regularization (e.g., IQL):</strong> Modifies the Bellman update or policy learning to implicitly be pessimistic about OOD actions, often by avoiding explicit maximization over actions or using quantile regression to estimate lower bounds on Q-values.</li>
+      <li><strong>Behavior Cloning / Sequence Modeling (e.g., Decision Transformer):</strong> Frames the problem as a sequence modeling task. Instead of learning Q-functions or policies, the agent learns to predict actions given a desired return, current state, and past trajectory information. This intrinsically limits the agent to actions similar to those in the dataset.</li>
+    </ol>
+    <p>Each approach has its strengths and weaknesses, often trading off sample efficiency, computational complexity, and robustness to different types of datasets (e.g., expert-only vs. mixed-quality data).</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">All successful offline RL methods implicitly or explicitly constrain the learned policy to stay "close" to the behavior policy that generated the dataset. The definition of "close" and the mechanism for enforcing it varies, but the goal is always to avoid querying unreliable Q-values.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — Core Algorithms</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Conservative Q-Learning (CQL)</h4>
+    <p>CQL (Kumar et al., 2020) adds a penalty term to the standard Bellman error minimization. The objective for the Q-function is:</p>
+    <div class="eq">$$\min_Q \mathbb{E}_{(s,a)\sim \mathcal{D}} \left[ (Q(s,a) - y(s,a))^2 \right] + \alpha \mathbb{E}_{s\sim \mathcal{D}} \left[ \log \sum_{a'} \exp(Q(s,a')) - \mathbb{E}_{a\sim \mathcal{D}(s)}[Q(s,a)] \right]$$</div>
+    <p>Here, \(y(s,a)\) is the target Q-value (from Bellman equation). The penalty term (scaled by \(\alpha\)) contains two parts: \(\log \sum_{a'} \exp(Q(s,a'))\) (which is related to \(\mathbb{E}_{a'\sim \pi}[Q(s,a')]\) for a soft-max policy) encourages Q-values to be high for all actions, while \(\mathbb{E}_{a\sim \mathcal{D}(s)}[Q(s,a)]\) encourages Q-values to be high for *data actions*. The net effect is to push down Q-values for OOD actions relative to data actions, making the policy conservative.</p>
+
+    <h4>2. Implicit Q-Learning (IQL)</h4>
+    <p>IQL (Kostrikov et al., 2021) avoids explicit policy extraction and the problematic \(\max_a Q(s,a)\) operator. It learns a Q-function and a value function \(V(s)\) separately. The Q-loss uses an "expectile" regression (a form of quantile regression) to be pessimistic:</p>
+    <div class="eq}>$$\min_Q \mathbb{E}_{(s,a,r,s')\sim \mathcal{D}} \left[ \mathcal{L}_2^\tau(Q(s,a) - (r + \gamma V(s'))) \right]$$</div>
+    <p>where \(\mathcal{L}_2^\tau(u)\) is the expectile loss, which is asymmetric and penalizes underestimates more than overestimates (for \(\tau > 0.5\)). The policy is then learned via Advantage-Weighted Regression (AWR):</p>
+    <div class="eq}>$$\min_\pi \mathbb{E}_{(s,a)\sim \mathcal{D}} \left[ \exp\left(\frac{Q(s,a) - V(s)}{ \beta}\right) \log \pi(a|s) \right]$$</div>
+    <p>This formulation directly encourages the policy to favor actions with high Q-values relative to the state value, but importantly, it only trains on actions *present in the dataset* (via \((s,a)\sim \mathcal{D}\)), preventing OOD extrapolation.</p>
+
+    <h4>3. Decision Transformer (DT)</h4>
+    <p>Decision Transformer (Chen et al., 2021) reframes RL as a sequence modeling problem. It uses a Transformer architecture to predict actions given a desired future return, the current state, and a history of previous states and actions. The input sequence is typically \((\text{return-to-go}_1, s_1, a_1, \text{return-to-go}_2, s_2, a_2, \dots)\). The model is trained to predict \(a_t\) given \((R_t, s_t, a_{t-1}, s_{t-1}, \dots)\):</p>
+    <div class="eq}>$$\min_\theta \mathbb{E}_{(R,s,a)\sim \mathcal{D}} \left[ -\log P_\theta(a_t | R_t, s_t, a_{t-1}, s_{t-1}, \dots) \right]$$</div>
+    <p>At inference time, the agent specifies a desired return (\(R_t\)), observes \(s_t\), and the Transformer predicts \(a_t\). Because it's essentially a sophisticated form of behavior cloning, it naturally sticks to the data distribution and avoids OOD actions, as it can only predict actions that are "similar" to what it has seen in the dataset given a certain context and desired return.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The effectiveness of offline RL methods heavily depends on the <strong>quality and diversity of the dataset</strong>. A dataset with only suboptimal behavior or very limited coverage of the state-action space will severely limit what any offline RL algorithm can learn, regardless of its sophistication. "Garbage in, garbage out" applies strongly here.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how different offline RL algorithms learn Q-values and policies from a fixed dataset for a specific state. We visualize a continuous action space (e.g., steering angle) from -1 to 1.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Current State (s)</div>
+          <input type="range" id="stateSlider" min="-1" max="1" step="0.05" value="0">
+          <div class="slider-value" id="stateValue">0.00</div>
+        </div>
+        <div class="slider-group" id="cqlAlphaGroup" style="display:none;">
+          <div class="slider-label">CQL α (Conservatism)</div>
+          <input type="range" id="cqlAlphaSlider" min="0" max="10" step="0.1" value="2">
+          <div class="slider-value" id="cqlAlphaValue">2.0</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="showOODToggle">
+          <label for="showOODToggle">Highlight Out-Of-Distribution (OOD) Actions</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Fixed Dataset & True Q-values</div>
+        <div class="info-desc" id="infoDesc">We're in a specific state \(s\). The grey bars show actions observed in our fixed dataset for this state. The dashed green line is the true optimal Q-function, \(Q^*(s,a)\), which the agent doesn't know.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Data Actions (Observed)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> OOD Actions (Unobserved)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> True Q-function (Q*)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Learned Q-function</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Learned Policy (π)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Offline RL:</strong></p>
+    <ul>
+      <li>When online interaction is unsafe, costly, or impractical (e.g., real-world robotics, medical treatments, large-scale simulations).</li>
+      <li>To leverage large pre-existing datasets (e.g., logs from human operators, prior policy rollouts).</li>
+      <li>For benchmarking and research when comparing algorithms on a fixed set of data.</li>
+    </ul>
+    <p><strong>Challenges and Considerations:</strong></p>
+    <ul>
+      <li><strong>Dataset Quality:</strong> Offline RL is fundamentally limited by the data. A sparse, low-quality, or narrow dataset will yield poor results.</li>
+      <li><strong>Hyperparameter Tuning:</strong> Algorithms like CQL have critical hyperparameters (\(\alpha\)) that need careful tuning, which can be difficult without online validation.</li>
+      <li><strong>Generalization:</strong> It's hard to generalize to new states or unseen dynamics if the dataset doesn't cover them.</li>
+      <li><strong>Computational Cost:</strong> While avoiding online interaction, some offline methods can be computationally intensive during training.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Future is Hybrid</div>
+      <p style="font-size:14px;margin:0;">Many cutting-edge applications combine offline and online RL. An agent might first learn a robust baseline policy from a large offline dataset, then fine-tune it with limited, safe online interaction to adapt to the current environment and explore cautiously. This hybrid approach often achieves the best of both worlds.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Simplified PyTorch Examples)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.optim as optim</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># Assume Q_net(state, action) and Policy_net(state) -> action_dist</div>
+      <div class="code-line" id="cl5"># And a dataset D = [(s, a, r, s', done), ...]</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># 1. Conservative Q-Learning (CQL) - Q-function update</div>
+      <div class="code-line" id="cl8">def cql_q_loss(q_net, target_q_net, states, actions, rewards, next_states, dones, alpha=2.0, gamma=0.99):</div>
+      <div class="code-line" id="cl9">    current_q = q_net(states, actions)</div>
+      <div class="code-line" id="cl10">    with torch.no_grad():</div>
+      <div class="code-line" id="cl11">        # Example: SAC-style target. Policy_net samples actions for target Q.</div>
+      <div class="code-line" id="cl12">        next_q_values = target_q_net(next_states, policy_net.sample_actions(next_states))</div>
+      <div class="code-line" id="cl13">        target_q = rewards + gamma * (1 - dones) * next_q_values</div>
+      <div class="code-line" id="cl14">    bellman_loss = nn.MSELoss()(current_q, target_q)</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    # CQL penalty term: E[logsumexp(Q)] - E_data[Q]</div>
+      <div class="code-line" id="cl17">    # This is a simplified sampling of OOD actions for the penalty</div>
+      <div class="code-line" id="cl18">    random_actions = torch.randn_like(actions) # Sample OOD actions for penalty</div>
+      <div class="code-line" id="cl19">    ood_q_values = q_net(states, random_actions) # Q-values for OOD actions</div>
+      <div class="code-line" id="cl20">    logsumexp_q = torch.logsumexp(ood_q_values, dim=-1).mean() # Approximates E_pi[Q]</div>
+      <div class="code-line" id="cl21">    data_q_values = q_net(states, actions).mean() # E_data[Q]</div>
+      <div class="code-line" id="cl22">    cql_penalty = logsumexp_q - data_q_values</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">    return bellman_loss + alpha * cql_penalty</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># 2. Implicit Q-Learning (IQL) - Q-function update (simplified expectile)</div>
+      <div class="code-line" id="cl27">def iql_q_loss(q_net, v_net, states, actions, rewards, next_states, dones, gamma=0.99, tau=0.7):</div>
+      <div class="code-line" id="cl28">    current_q = q_net(states, actions)</div>
+      <div class="code-line" id="cl29">    with torch.no_grad():</div>
+      <div class="code-line" id="cl30">        # V_net estimates V(s) without max_a Q(s,a)</div>
+      <div class="code-line" id="cl31">        next_v = v_net(next_states)</div>
+      <div class="code-line" id="cl32">        target_q = rewards + gamma * (1 - dones) * next_v</div>
+      <div class="code-line" id="cl33">    </div>
+      <div class="code-line" id="cl34">    # Expectile loss: L2_tau(u) = |tau - I(u<0)| * u^2</div>
+      <div class="code-line" id="cl35">    diff = current_q - target_q</div>
+      <div class="code-line" id="cl36">    weight = torch.where(diff < 0, tau, 1 - tau)</div>
+      <div class="code-line" id="cl37">    return (weight * diff**2).mean()</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39"># 3. Decision Transformer - Action prediction loss</div>
+      <div class="code-line" id="cl40">def dt_loss(model, states, actions, returns_to_go, timesteps):</div>
+      <div class="code-line" id="cl41">    # model takes (returns_to_go, states, actions, timesteps) sequence</div>
+      <div class="code-line" id="cl42">    predicted_actions = model(returns_to_go, states, actions, timesteps)</div>
+      <div class="code-line" id="cl43">    # Compute MSE or Cross-Entropy loss on actions</div>
+      <div class="code-line" id="cl44">    return nn.MSELoss()(predicted_actions, actions) # For continuous actions</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & MATH FUNCTIONS ──
+// Seeded PRNG for reproducible dataset noise
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+// True Q-function: Q*(s, a) = - (a - (s + 0.5))^2 * 5 + 10
+// s in [-1, 1], a in [-1, 1]
+function trueQ(s, a) {
+  const optimalAction = s + 0.5; // Optimal action shifts with state
+  return -Math.pow(a - optimalAction, 2) * 8 + 10;
+}
+
+// Dataset distribution D(a|s) - sparse Gaussian around optimalAction with some noise
+function generateDatasetActions(s, numActions = 15) {
+  const optimalAction = s + 0.5;
+  const actions = [];
+  for (let i = 0; i < numActions; i++) {
+    // Generate actions around the optimal one, with some noise and bias
+    let a = optimalAction + (seededRng() * 2 - 1) * 0.3; // Gaussian-ish around optimal
+    if (seededRng() < 0.2) { // 20% suboptimal actions
+      a = (seededRng() * 2 - 1); // Random action for suboptimal
+    }
+    actions.push(Math.max(-1, Math.min(1, a))); // Clamp to [-1, 1]
+  }
+  return actions.sort((x, y) => x - y);
+}
+
+// Naive Q-function (overestimates OOD actions)
+function naiveQ(s, a) {
+  const optimalAction = s + 0.5;
+  // Naive Q-function is optimistic for OOD actions
+  // It might learn Q values that are slightly higher than trueQ, and flatter for OOD
+  return -Math.pow(a - optimalAction, 2) * 6 + 11; // Higher peak, slightly wider
+}
+
+// CQL Q-function
+function cqlQ(s, a, alpha, datasetActions) {
+  const optimalAction = s + 0.5;
+
+  // Simulate the penalty:
+  // The penalty pushes down Q-values for OOD actions relative to data actions.
+  // We'll model this by taking the naive Q and applying a penalty.
+  let q_cql = naiveQ(s, a);
+
+  // Approximate the logsumexp(Q) term: sum over many actions
+  let logsumexp_Q = -Infinity;
+  for (let test_a = -1; test_a <= 1; test_a += 0.05) {
+    logsumexp_Q = Math.max(logsumexp_Q, naiveQ(s, test_a)); // Max is proxy for logsumexp for sharp Q
+  }
+  logsumexp_Q += Math.log(40); // crude adjustment
+
+  // Approximate E_data[Q]
+  let sum_data_Q = 0;
+  if (datasetActions.length > 0) {
+    sum_data_Q = datasetActions.reduce((acc, da) => acc + naiveQ(s, da), 0) / datasetActions.length;
+  }
+
+  const penalty = logsumexp_Q - sum_data_Q;
+  return q_cql - alpha * penalty * 0.1; // Scale penalty down for visualization
+}
+
+// IQL Q-function (uses expectile regression, generally pessimistic but not explicitly penalizing)
+function iqlQ(s, a) {
+  const optimalAction = s + 0.5;
+  // IQL's Q-function is generally more pessimistic than naive, especially for OOD
+  // but not as aggressively penalized as CQL
+  return -Math.pow(a - optimalAction, 2) * 7 + 9.5; // Lower peak than naive, slightly tighter
+}
+
+// Policy distribution (Gaussian for simplicity)
+function policy(q_func, s, a, temperature = 0.1) {
+  const q_val = q_func(s, a);
+  // Softmax-like policy: exp(Q/T) / sum(exp(Q/T))
+  // For visualization, we'll just show the relative magnitude
+  return Math.exp(q_val / temperature);
+}
+
+// Normalize policy for plotting
+function normalizePolicy(q_func, s, temperature = 0.1) {
+  const actions = [];
+  for (let a = -1; a <= 1; a += 0.01) actions.push(a);
+  const policyValues = actions.map(a => policy(q_func, s, a, temperature));
+  const maxVal = Math.max(...policyValues);
+  return actions.map((a, i) => policyValues[i] / maxVal); // Normalize to max 1 for plotting
+}
+
+const steps = [
+  {
+    phase: 'setup', title: 'The Fixed Dataset & True Q-values',
+    desc: 'We\'re in a specific state \\(s\\). The grey bars show actions observed in our fixed dataset for this state. The dashed green line is the true optimal Q-function, \\(Q^*(s,a)\\), which the agent doesn\'t know. Notice the dataset is sparse and might not cover all optimal actions.',
+    mode: 'intro', showOOD: false, cqlAlphaVisible: false
+  },
+  {
+    phase: 'problem', title: 'The Out-Of-Distribution (OOD) Action Problem',
+    desc: 'The agent must learn from the fixed dataset only. For actions not present in the dataset (red shaded areas), the agent has no direct evidence of their value. If a naive algorithm extrapolates optimistically, it might assign high Q-values to these dangerous OOD actions.',
+    mode: 'ood_problem', showOOD: true, cqlAlphaVisible: false
+  },
+  {
+    phase: 'problem', title: 'Naive Offline RL: Overestimation & Failure',
+    desc: 'A naive offline RL algorithm (e.g., standard Q-learning on fixed data) often overestimates Q-values for OOD actions (blue line). If a policy is derived from this Q-function (purple line), it might choose OOD actions, leading to poor performance in the real environment.',
+    mode: 'naive_overestimation', showOOD: true, cqlAlphaVisible: false
+  },
+  {
+    phase: 'cql', title: 'CQL: Conservative Penalty on OOD Actions',
+    desc: 'Conservative Q-Learning (CQL) addresses this by adding a penalty to the Q-function loss. This penalty forces Q-values for OOD actions to be lower than Q-values for actions seen in the dataset. Adjust the \\(\\alpha\\) slider to see how increasing conservatism pushes down Q-values.',
+    mode: 'cql_penalty', showOOD: true, cqlAlphaVisible: true
+  },
+  {
+    phase: 'cql', title: 'CQL: Min-Value Principle',
+    desc: 'The CQL penalty term \\(\\alpha \\left[ \\log \sum_{a\'} \exp(Q(s,a\')) - \\mathbb{E}_{a\\sim \\mathcal{D}(s)}[Q(s,a)] \\right]\\) effectively enforces a "min-value" principle: the Q-value for any action should not be too much larger than the Q-values of actions in the dataset. This keeps the policy (purple) close to the data distribution.',
+    mode: 'cql_final', showOOD: true, cqlAlphaVisible: true
+  },
+  {
+    phase: 'iql', title: 'IQL: Implicit Pessimism via Expectile Regression',
+    desc: 'Implicit Q-Learning (IQL) avoids explicit penalties. It learns Q-values using an asymmetric "expectile" regression (blue line) that is naturally pessimistic, especially for actions not well-supported by data. This means it implicitly learns lower Q-values for OOD actions without adding an explicit regularization term.',
+    mode: 'iql_q_func', showOOD: true, cqlAlphaVisible: false
+  },
+  {
+    phase: 'iql', title: 'IQL: Advantage-Weighted Policy Learning',
+    desc: 'IQL then learns a policy (purple line) using Advantage-Weighted Regression (AWR). This policy is trained to favor actions that have a high Q-value relative to the state-value, but crucially, it only considers actions seen in the dataset. This ensures the policy remains within the data distribution.',
+    mode: 'iql_policy', showOOD: true, cqlAlphaVisible: false
+  },
+  {
+    phase: 'dt', title: 'Decision Transformer: Trajectory as Sequence',
+    desc: 'Decision Transformer (DT) takes a different approach. It frames RL as a sequence modeling problem, where the agent predicts actions based on a desired future return, current state, and past trajectory. The visualization shows a sequence of (Return, State, Action) tokens, where DT predicts the next action.',
+    mode: 'dt_sequence', showOOD: false, cqlAlphaVisible: false
+  },
+  {
+    phase: 'summary', title: 'Summary: Staying on-distribution',
+    desc: 'All offline RL methods converge on the same principle: constrain the learned policy to stay close to the data distribution. CQL achieves this with explicit penalties, IQL with implicit pessimism in value learning, and Decision Transformer by modeling trajectories as sequences, inherently limiting action prediction to observed patterns.',
+    mode: 'summary', showOOD: true, cqlAlphaVisible: false
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let stateS = 0.0;
+let cqlAlpha = 2.0;
+let showOOD = false;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; stateS = 0.0; cqlAlpha = 2.0; showOOD = false; render(); }
+
+// ── SLIDER / TOGGLE WIRING ──
+const stateSlider = document.getElementById('stateSlider');
+const cqlAlphaSlider = document.getElementById('cqlAlphaSlider');
+const showOODToggle = document.getElementById('showOODToggle');
+
+stateSlider.addEventListener('input', () => {
+  stateS = parseFloat(stateSlider.value);
+  document.getElementById('stateValue').textContent = stateS.toFixed(2);
+  render();
+});
+cqlAlphaSlider.addEventListener('input', () => {
+  cqlAlpha = parseFloat(cqlAlphaSlider.value);
+  document.getElementById('cqlAlphaValue').textContent = cqlAlpha.toFixed(1);
+  render();
+});
+showOODToggle.addEventListener('change', () => {
+  showOOD = showOODToggle.checked;
+  render();
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', problem: 'phase-problem', cql: 'phase-cql',
+    iql: 'phase-iql', dt: 'phase-dt', summary: 'phase-summary'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Update slider/toggle visibility and values
+  document.getElementById('cqlAlphaGroup').style.display = s.cqlAlphaVisible ? 'flex' : 'none';
+  stateSlider.value = stateS;
+  document.getElementById('stateValue').textContent = stateS.toFixed(2);
+  cqlAlphaSlider.value = cqlAlpha;
+  document.getElementById('cqlAlphaValue').textContent = cqlAlpha.toFixed(1);
+  showOODToggle.checked = s.showOOD || showOOD; // Step-specific override for showOOD, otherwise user control
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  const codeLines = (s.mode === 'cql_penalty' || s.mode === 'cql_final') ? [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24] :
+                    (s.mode === 'iql_q_func' || s.mode === 'iql_policy') ? [26,27,28,29,30,31,32,33,34,35,36,37,38] :
+                    (s.mode === 'dt_sequence') ? [39,40,41,42,43,44] : [];
+  codeLines.forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = { top: 30, right: 30, bottom: 40, left: 40 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
+
+  const actionMin = -1, actionMax = 1;
+  const qMin = -5, qMax = 12; // Adjusted Q-value range for visualization
+
+  const toCanvasX = (a) => padding.left + (a - actionMin) / (actionMax - actionMin) * plotW;
+  const toCanvasY = (q) => padding.top + (qMax - q) / (qMax - qMin) * plotH;
+  const toCanvasPolicyY = (p) => padding.top + (1 - p) * plotH; // Policy goes from 0 to 1
+
+  // --- Draw Axes ---
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, padding.top);
+  ctx.lineTo(padding.left, H - padding.bottom);
+  ctx.lineTo(W - padding.right, H - padding.bottom);
+  ctx.stroke();
+
+  // X-axis (Action) ticks and labels
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px ' + colors.sans;
+  ctx.textAlign = 'center';
+  for (let a = -1; a <= 1; a += 0.5) {
+    const x = toCanvasX(a);
+    ctx.beginPath();
+    ctx.moveTo(x, H - padding.bottom);
+    ctx.lineTo(x, H - padding.bottom + 5);
+    ctx.stroke();
+    ctx.fillText(a.toFixed(1), x, H - padding.bottom + 20);
+  }
+  ctx.fillText('Action (a)', W / 2, H - 5);
+
+  // Y-axis (Q-value) ticks and labels
+  ctx.textAlign = 'right';
+  for (let q = qMin; q <= qMax; q += 5) {
+    const y = toCanvasY(q);
+    ctx.beginPath();
+    ctx.moveTo(padding.left - 5, y);
+    ctx.lineTo(padding.left, y);
+    ctx.stroke();
+    ctx.fillText(q.toFixed(0), padding.left - 10, y + 4);
+  }
+  ctx.save();
+  ctx.translate(15, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Q-value / Policy', 0, 0);
+  ctx.restore();
+
+  // --- Draw Dataset Actions ---
+  const datasetActions = generateDatasetActions(stateS);
+  ctx.fillStyle = colors.text3;
+  datasetActions.forEach(a => {
+    const x = toCanvasX(a);
+    ctx.fillRect(x - 1, H - padding.bottom - 10, 2, 10);
+  });
+
+  // --- Highlight OOD Actions ---
+  if (showOODToggle.checked || steps[step].showOOD) {
+    const actionRange = actionMax - actionMin;
+    const dataDensityThreshold = 0.05; // Actions within this range of a data point are "in-distribution"
+    const numOODSegments = 40; // Number of segments to check for OOD
+    const segmentWidth = actionRange / numOODSegments;
+
+    for (let i = 0; i < numOODSegments; i++) {
+      const segmentStart = actionMin + i * segmentWidth;
+      const segmentEnd = segmentStart + segmentWidth;
+      const segmentMid = (segmentStart + segmentEnd) / 2;
+
+      let isOOD = true;
+      for (const da of datasetActions) {
+        if (Math.abs(segmentMid - da) < dataDensityThreshold) {
+          isOOD = false;
+          break;
+        }
+      }
+
+      if (isOOD) {
+        ctx.fillStyle = colors.red + '33'; // Semi-transparent red
+        ctx.fillRect(toCanvasX(segmentStart), padding.top, toCanvasX(segmentEnd) - toCanvasX(segmentStart), plotH);
+      }
+    }
+  }
+
+  // --- Draw True Q-function (Q*) ---
+  ctx.strokeStyle = colors.green;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath();
+  for (let a = actionMin; a <= actionMax; a += 0.01) {
+    const x = toCanvasX(a);
+    const y = toCanvasY(trueQ(stateS, a));
+    if (a === actionMin) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]); // Reset line dash
+
+  // --- Draw Learned Q-function and Policy ---
+  let qFuncToDraw = null;
+  let policyFuncToDraw = null;
+
+  if (mode === 'naive_overestimation' || mode === 'summary') {
+    qFuncToDraw = naiveQ;
+    policyFuncToDraw = naiveQ;
+  } else if (mode === 'cql_penalty' || mode === 'cql_final') {
+    qFuncToDraw = (s, a) => cqlQ(s, a, cqlAlpha, datasetActions);
+    policyFuncToDraw = (s, a) => cqlQ(s, a, cqlAlpha, datasetActions);
+  } else if (mode === 'iql_q_func' || mode === 'iql_policy') {
+    qFuncToDraw = iqlQ;
+    policyFuncToDraw = iqlQ;
+  }
+
+  if (qFuncToDraw) {
+    ctx.strokeStyle = colors.blue;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let a = actionMin; a <= actionMax; a += 0.01) {
+      const x = toCanvasX(a);
+      const y = toCanvasY(qFuncToDraw(stateS, a));
+      if (a === actionMin) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  if ((mode === 'naive_overestimation' || mode === 'cql_final' || mode === 'iql_policy' || mode === 'summary') && policyFuncToDraw) {
+    ctx.strokeStyle = colors.purple;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const normalizedPolicy = normalizePolicy(policyFuncToDraw, stateS);
+    for (let i = 0; i < normalizedPolicy.length; i++) {
+      const a = actionMin + i * 0.01;
+      const x = toCanvasX(a);
+      const y = toCanvasPolicyY(normalizedPolicy[i]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // --- Decision Transformer visualization ---
+  if (mode === 'dt_sequence') {
+    const tokenHeight = 40;
+    const tokenWidth = plotW / 3.5;
+    const gap = 15;
+    const startY = padding.top + plotH / 2 - tokenHeight * 1.5;
+
+    const tokens = [
+      { label: 'R_t', color: colors.amber, val: '200' },
+      { label: 's_t', color: colors.blue, val: stateS.toFixed(2) },
+      { label: 'a_{t-1}', color: colors.purple, val: '0.4' },
+      { label: 's_{t-1}', color: colors.blue, val: (stateS - 0.1).toFixed(2) },
+      { label: 'a_t', color: colors.purple, val: '?' }
+    ];
+
+    ctx.textAlign = 'center';
+    ctx.font = '12px ' + colors.sans;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      const x = padding.left + i * (tokenWidth + gap) + tokenWidth / 2;
+      const y = startY + (i % 2 === 0 ? 0 : tokenHeight + 10); // Stagger tokens
+
+      // Draw token box
+      ctx.fillStyle = token.color + '33';
+      ctx.strokeStyle = token.color;
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(x - tokenWidth / 2, y, tokenWidth, tokenHeight);
+      ctx.strokeRect(x - tokenWidth / 2, y, tokenWidth, tokenHeight);
+
+      // Draw label
+      ctx.fillStyle = colors.text;
+      ctx.fillText(token.label, x, y + tokenHeight / 2 - 8);
+      ctx.font = '10px ' + colors.mono;
+      ctx.fillText(token.val, x, y + tokenHeight / 2 + 10);
+
+      // Draw arrow if not the last token
+      if (i < tokens.length - 1) {
+        const nextX = padding.left + (i + 1) * (tokenWidth + gap) + tokenWidth / 2;
+        const nextY = startY + ((i + 1) % 2 === 0 ? 0 : tokenHeight + 10);
+        ctx.strokeStyle = colors.text2;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + tokenWidth / 2, y + tokenHeight / 2);
+        ctx.lineTo(nextX - tokenWidth / 2, nextY + tokenHeight / 2);
+        ctx.stroke();
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(nextX - tokenWidth / 2, nextY + tokenHeight / 2);
+        ctx.lineTo(nextX - tokenWidth / 2 - 8, nextY + tokenHeight / 2 - 4);
+        ctx.moveTo(nextX - tokenWidth / 2, nextY + tokenHeight / 2);
+        ctx.lineTo(nextX - tokenWidth / 2 - 8, nextY + tokenHeight / 2 + 4);
+        ctx.fillStyle = colors.text2;
+        ctx.fill();
+      }
+    }
+    ctx.textAlign = 'left';
+    document.getElementById('infoNumbers').textContent = `Input: (R_t, s_t, a_{t-1}, s_{t-1}, ...) \nOutput: Predicted a_t = ${Math.max(-1, Math.min(1, stateS + 0.5 + seededRng()*0.1 - 0.05)).toFixed(2)}`;
+  } else {
+    document.getElementById('infoNumbers').textContent = '';
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LambdaMART: Gradient Boosting for Ranking — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+.viz-stats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:1rem;}
+.stat-chip{font-family:var(--mono);font-size:12px;background:var(--bg2);border-radius:20px;padding:5px 14px;color:var(--text2);}
+.stat-chip b{color:var(--purple-mid);}
+.stat-chip.highlight{background:var(--green-bg);color:var(--green-mid);border:1px solid var(--green-border);font-weight:600;}
+
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-eval{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-grad{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-boost{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-update{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.arrow{width:12px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LambdaMART: Gradient Boosting for Ranking</h1>
+  <div class="subtitle">Combining gradient boosting with a ranking-specific loss function</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Classical ML</span>
+    <span class="tag tag-category">Ranking</span>
+    <span class="tag tag-complexity">O(N log N) per query</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding LambdaMART</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> LambdaMART is a powerful machine learning model used for ranking documents or items in response to a query. It's a key algorithm in "Learning to Rank" (LTR) systems, widely used in search engines and recommendation systems. It combines two core ideas:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>MART (Multiple Additive Regression Trees):</strong> Also known as Gradient Boosting Decision Trees (GBDT), which builds an ensemble of weak prediction models (decision trees) sequentially, where each new tree corrects the errors of the previous ones by fitting to the "gradients" of a loss function.</li>
+      <li><strong>LambdaRank's "Lambda Gradients":</strong> Instead of optimizing a traditional point-wise loss (like Mean Squared Error), LambdaMART optimizes directly for ranking metrics (like NDCG or MRR) by using specially constructed "lambda gradients." These gradients represent the "force" needed to swap misordered document pairs to improve the overall ranking quality.</li>
+    </ol>
+    <p><strong>Analogy:</strong> Imagine a panel of judges ranking contestants based on their performances. A traditional GBDT might have each judge give an absolute score, trying to minimize the difference from some "true" score. LambdaMART is different: the judges don't care about absolute scores as much as *relative order*. If two contestants are swapped in rank, how much does that hurt (or help) the overall quality of the ranking? LambdaMART learns to adjust scores specifically to fix these "pairwise swaps" that matter most for the final ranking metric, effectively learning to nudge scores to achieve the best possible ranked list.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LambdaMART isn't a traditional loss-minimizer. It *fakes* gradients (called lambda gradients) that, when plugged into a Gradient Boosting Decision Tree (GBDT) framework, effectively optimize non-differentiable and list-wise ranking metrics. It's a clever heuristic that works exceptionally well in practice for complex ranking tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Mechanism: Gradient Boosting with Ranking-Aware Gradients</h4>
+    <p>LambdaMART's power comes from its ability to adapt the generic gradient boosting framework to the specific challenges of ranking. Here's the breakdown:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Initial Scores:</strong> Start with an initial set of predicted scores for all documents related to a query (e.g., all zeros, or from a simple baseline model).</li>
+      <li><strong>Calculate "Lambda Gradients":</strong> For the current set of predicted scores, for each document, calculate a "lambda value." This lambda value is essentially a pseudo-gradient that indicates how much and in what direction that document's score should be adjusted to improve the overall ranking metric (like NDCG). This involves considering all possible pairwise swaps involving that document and how each swap would impact the ranking metric.</li>
+      <li><strong>Train a New Decision Tree:</strong> A new decision tree (the "weak learner" in GBDT) is trained. Its goal is to predict these calculated lambda values based on the documents' features. In essence, the tree learns to identify which documents need their scores pushed up or down, and by how much, to fix ranking errors.</li>
+      <li><strong>Update Scores:</strong> The predictions from this new tree (scaled by a learning rate) are added to the existing predicted scores for each document. This incrementally refines the ranking.</li>
+      <li><strong>Repeat:</strong> Steps 2-4 are repeated for a fixed number of iterations, building an ensemble of trees. Each new tree focuses on correcting the remaining ranking errors from the previous ensemble.</li>
+    </ol>
+
+    <h4>Design Decision: Why Not Just Use a Standard Loss?</h4>
+    <p>Traditional machine learning models often optimize point-wise losses (e.g., Mean Squared Error for regression, cross-entropy for classification). These losses treat each data point independently. However, ranking is inherently a *list-wise* or *pairwise* problem: the quality of a ranking depends on the *relative order* of items, not just their individual scores. A small error in a highly relevant document's score might be more detrimental if it causes it to drop below a less relevant document, than a large error in an irrelevant document's score that doesn't affect its low rank.</p>
+    <p>Ranking metrics like NDCG are discontinuous and non-differentiable with respect to individual scores, making them unsuitable for direct gradient-based optimization. LambdaMART cleverly sidesteps this by constructing "gradients" that directly reflect the impact on these complex ranking metrics, without needing them to be differentiable.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Lambda gradients are not true mathematical gradients of a scalar loss function. They are specifically crafted "forces" that guide the Gradient Boosting Decision Tree to improve a non-differentiable ranking metric. The "loss" is implicit in the calculation of these lambda values, making it a highly effective heuristic for ranking tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math Behind Lambda Gradients</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Challenge of Ranking Metrics</h4>
+    <p>Let's consider a query \(q\) with a set of documents \(D_q\). Each document \(d_i \in D_q\) has a true relevance label \(y_i\) and a predicted score \(s_i\). The goal is to learn a scoring function \(f(x_i) = s_i\) such that the sorted list of documents by \(s_i\) is "good" according to a ranking metric like Normalized Discounted Cumulative Gain (NDCG). NDCG is defined as:</p>
+    <div class="eq">$$\text{NDCG}_k = \frac{\text{DCG}_k}{\text{IDCG}_k} \quad \text{where} \quad \text{DCG}_k = \sum_{i=1}^k \frac{2^{y_i} - 1}{\log_2(i+1)}$$</div>
+    <p>Here, \(i\) is the rank position, \(y_i\) is the relevance of the document at rank \(i\), and \(\text{IDCG}_k\) is the maximum possible DCG for the query. The crucial observation is that NDCG (and similar metrics) are discontinuous and non-differentiable with respect to \(s_i\). We cannot directly compute \(\partial \text{NDCG} / \partial s_i\).</p>
+
+    <h4>LambdaRank's Insight: Pairwise Swaps and Pseudo-Gradients</h4>
+    <p>LambdaRank (Burges et al., 2006) introduced the idea of "lambda gradients" to approximate this derivative. For each document \(d_i\), its lambda gradient \(\lambda_i\) is a sum over all other documents \(d_j\), considering the impact of swapping \(d_i\) and \(d_j\):</p>
+    <div class="eq">$$\lambda_i = \sum_{j \neq i} \frac{\Delta \text{NDCG}_{ij}}{1 + e^{\sigma(s_i - s_j)}}$$</div>
+    <p>Let's break down this formula for a given document \(d_i\):</p>
+    <ul>
+      <li>\(\Delta \text{NDCG}_{ij}\): This term represents the change in the NDCG score if documents \(d_i\) and \(d_j\) were swapped in the ranking. It's positive if swapping improves NDCG (i.e., \(d_i\) is currently ranked below \(d_j\) but is more relevant, or vice-versa).</li>
+      <li>\(1 / (1 + e^{\sigma(s_i - s_j)})\): This is a sigmoid function that acts as a weighting factor.
+        <ul>
+          <li>If \(s_i \gg s_j\), the term \(e^{\sigma(s_i - s_j)}\) is very large, so the weight is near 0. This means pairs where \(d_i\) is already clearly ranked above \(d_j\) (or vice-versa) contribute little to \(\lambda_i\).</li>
+          <li>If \(s_i \approx s_j\), the weight is near 0.5. These are "borderline" pairs where a small change in scores could easily flip their ranks, and thus have a large impact on the ranking metric.</li>
+          <li>\(\sigma\): A hyperparameter that controls the steepness of the sigmoid. A larger \(\sigma\) means the model is more sensitive to small score differences.</li>
+        </ul>
+      </li>
+    </ul>
+    <p>Essentially, \(\lambda_i\) is a weighted sum of potential NDCG gains from correcting misordered pairs involving \(d_i\), prioritizing pairs whose scores are currently close. The GBDT then builds trees to predict these \(\lambda_i\) values, effectively performing gradient descent on the ranking metric.</p>
+    <p>For the Hessian (second derivative) required by some GBDT implementations (like LightGBM's Newton-like steps), an approximation is used:</p>
+    <div class="eq}$$ \text{Hessian}_i = \sum_{j \neq i} \frac{\sigma^2 e^{\sigma(s_i - s_j)}}{(1 + e^{\sigma(s_i - s_j)})^2} $$</div>
+    <p>This approximation ensures that the GBDT's tree-fitting process can utilize second-order information, further improving convergence and performance.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The "lambda gradients" are fundamentally heuristics, not true gradients of a scalar loss function. This means standard theoretical guarantees for gradient descent (like convergence to a global optimum) do not strictly apply. However, empirically, LambdaMART has proven to be incredibly effective and robust, often outperforming models that attempt to directly optimize surrogate differentiable losses.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through one iteration of LambdaMART on a query with 5 documents. Watch how lambda gradients are computed from pairwise swaps and used to update scores, improving the NDCG.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Sigmoid Scale (σ)</div>
+          <input type="range" id="sigmaSlider" min="0.1" max="5.0" step="0.1" value="1.0">
+          <div class="slider-value" id="sigmaValue">1.0</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Learning Rate (η)</div>
+          <input type="range" id="lrSlider" min="0.01" max="0.5" step="0.01" value="0.1">
+          <div class="slider-value" id="lrValue">0.10</div>
+        </div>
+        <div class="slider-hint">Adjust σ to change how sensitive lambda gradients are to score differences. η controls update step size.</div>
+      </div>
+
+      <div class="viz-stats">
+        <div class="stat-chip">Query NDCG@5: <b id="statNDCG">0.000</b></div>
+        <div class="stat-chip">Iteration: <b id="statIteration">0</b></div>
+        <div class="stat-chip">Updates this iteration: <b id="statUpdates">0</b></div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial State: Documents & Scores</div>
+        <div class="info-desc" id="infoDesc">We have 5 documents for a query, each with a true relevance label (0-4) and an initial predicted score. The goal is to re-rank them to maximize NDCG.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Document</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> True Relevance</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Predicted Score</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Misordered Pair (low score, high relevance)</div>
+        <div class="legend-item"><div class="legend-swatch arrow" style="background:var(--purple-mid)"></div> Lambda Gradient (force to adjust score)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use LambdaMART:</strong></p>
+    <ul>
+      <li><strong>Search Engines:</strong> Ranking web pages, products, or news articles by relevance to a query.</li>
+      <li><strong>Recommendation Systems:</strong> Ordering items (movies, music, products) in a personalized feed.</li>
+      <li><strong>Personalized Feeds:</strong> Ranking content in social media or news aggregators.</li>
+      <li><strong>Any task where *order* matters:</strong> Unlike traditional classification/regression, LambdaMART excels when the primary objective is to produce a high-quality ranked list, measured by metrics like NDCG, MRR, or MAP.</li>
+      <li><strong>When you need strong empirical performance:</strong> LambdaMART (and its variants/successors like LightGBM's `lambdarank` objective) is a go-to choice for state-of-the-art ranking performance in many industrial settings.</li>
+    </ul>
+    <p><strong>When NOT to use or be cautious:</strong></p>
+    <ul>
+      <li><strong>Small or sparse datasets:</strong> Gradient boosting models, including LambdaMART, tend to perform best with reasonably large datasets. Overfitting can be a concern with small data.</li>
+      <li><strong>Need for high interpretability of individual scores:</strong> While the overall ranking is optimized, the individual predicted scores \(s_i\) and especially the lambda gradients are abstract and don't have a direct, intuitive meaning like "probability of relevance."</li>
+      <li><strong>Computational cost:</strong> Calculating pairwise \(\Delta \text{NDCG}_{ij}\) for all pairs can be computationally intensive for very large document lists per query, though optimizations exist (e.g., sampling pairs).</li>
+      <li><strong>When a simpler point-wise model suffices:</strong> If your ranking problem is simple enough that a point-wise regression or classification model (e.g., predicting relevance score directly) performs adequately, its simplicity might be preferred.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture: Learning to Rank Approaches</div>
+      <p style="font-size:14px;margin:0;">LambdaMART is a "learning to rank" algorithm, specifically a "pairwise" or "listwise" approach. It bridges the gap between traditional GBDT (which needs a differentiable loss) and complex, non-differentiable ranking metrics. It's a prime example of how clever heuristics can drive practical breakthroughs in machine learning, even without strict theoretical purity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — Core LambdaMART Logic</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">from sklearn.tree import DecisionTreeRegressor</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># --- Helper: Calculate NDCG@k (simplified) ---</div>
+      <div class="code-line" id="cl4">def calculate_ndcg(true_relevances, predicted_scores, k=5):</div>
+      <div class="code-line" id="cl5">    # Combine and sort documents by predicted score</div>
+      <div class="code-line" id="cl6">    docs = sorted(zip(predicted_scores, true_relevances), key=lambda x: x[0], reverse=True)</div>
+      <div class="code-line" id="cl7">    docs_at_k = docs[:k]</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    dcg = 0.0</div>
+      <div class="code-line" id="cl10">    for i, (_, rel) in enumerate(docs_at_k):</div>
+      <div class="code-line" id="cl11">        dcg += (2**rel - 1) / np.log2(i + 2) # i+2 because log2(1)=0, log2(2)=1, etc.</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">    # Calculate IDCG (ideal DCG)</div>
+      <div class="code-line" id="cl14">    ideal_relevances = sorted(true_relevances, reverse=True)[:k]</div>
+      <div class="code-line" id="cl15">    idcg = 0.0</div>
+      <div class="code-line" id="cl16">    for i, rel in enumerate(ideal_relevances):</div>
+      <div class="code-line" id="cl17">        idcg += (2**rel - 1) / np.log2(i + 2)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">    return dcg / idcg if idcg > 0 else 0.0</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># --- LambdaMART Training Loop (simplified for a single query) ---</div>
+      <div class="code-line" id="cl22">def train_lambdamart_iteration(X_features, y_true_relevances, current_scores, sigma=1.0, learning_rate=0.1):</div>
+      <div class="code-line" id="cl23">    num_docs = len(y_true_relevances)</div>
+      <div class="code-line" id="cl24">    lambda_gradients = np.zeros(num_docs)</div>
+      <div class="code-line" id="cl25">    # hessians = np.zeros(num_docs) # For full Newton step, omitted for simplicity</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">    # Calculate current NDCG to compute delta_NDCG_ij</div>
+      <div class="code-line" id="cl28">    current_ndcg = calculate_ndcg(y_true_relevances, current_scores)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">    for i in range(num_docs):</div>
+      <div class="code-line" id="cl31">        for j in range(num_docs):</div>
+      <div class="code-line" id="cl32">            if i == j: continue</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34">            # Simulate score swap for delta_NDCG_ij calculation</div>
+      <div class="code-line" id="cl35">            temp_scores = np.copy(current_scores)</div>
+      <div class="code-line" id="cl36">            temp_scores[i], temp_scores[j] = temp_scores[j], temp_scores[i] # Swap scores</div>
+      <div class="code-line" id="cl37">            ndcg_after_swap = calculate_ndcg(y_true_relevances, temp_scores)</div>
+      <div class="code-line" id="cl38">            delta_ndcg_ij = ndcg_after_swap - current_ndcg</div>
+      <div class="code-line" id="cl39"></div>
+      <div class="code-line" id="cl40">            # Sigmoid weighting factor</div>
+      <div class="code-line" id="cl41">            sigmoid_weight = 1.0 / (1.0 + np.exp(sigma * (current_scores[i] - current_scores[j])))</div>
+      <div class="code-line" id="cl42"></div>
+      <div class="code-line" id="cl43">            # Accumulate lambda gradient for document i</div>
+      <div class="code-line" id="cl44">            lambda_gradients[i] += delta_ndcg_ij * sigmoid_weight</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46">    # Train a weak learner (e.g., a shallow decision tree) to predict -lambda_gradients</div>
+      <div class="code-line" id="cl47">    # In real GBDT, this is done by the boosting framework (e.g., LightGBM's objective)</div>
+      <div class="code-line" id="cl48">    tree = DecisionTreeRegressor(max_depth=3) # Example weak learner</div>
+      <div class="code-line" id="cl49">    tree.fit(X_features, -lambda_gradients)   # Fit to negative lambda gradients</div>
+      <div class="code-line" id="cl50">    tree_output = tree.predict(X_features)</div>
+      <div class="code-line" id="cl51"></div>
+      <div class="code-line" id="cl52">    # Update scores: new_scores = current_scores + learning_rate * tree_output</div>
+      <div class="code-line" id="cl53">    new_scores = current_scores + learning_rate * tree_output</div>
+      <div class="code-line" id="cl54"></div>
+      <div class="code-line" id="cl55">    return new_scores, lambda_gradients, tree_output</div>
+      <div class="code-line" id="cl56"></div>
+      <div class="code-line" id="cl57"># Example usage:</div>
+      <div class="code-line" id="cl58"># X_features = np.array([[f1,f2,...], ...]) # Features for each document</div>
+      <div class="code-line" id="cl59"># y_true_relevances = np.array([3,0,4,1,2])</div>
+      <div class="code-line" id="cl60"># current_scores = np.array([0.5, 0.2, 0.8, 0.3, 0.6])</div>
+      <div class="code-line" id="cl61"># new_scores, lambdas, tree_preds = train_lambdamart_iteration(X_features, y_true_relevances, current_scores)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & UTILS ──
+const NUM_DOCS = 5;
+const INITIAL_RELEVANCE = [3, 0, 4, 1, 2]; // Fixed true relevance for 5 documents
+const INITIAL_SCORES = [0.5, 0.2, 0.8, 0.3, 0.6]; // Initial predicted scores
+
+// Dummy features for the tree, just indices for simplicity
+const X_FEATURES = Array.from({length: NUM_DOCS}, (_, i) => [i]);
+
+// Seeded RNG for reproducible random tree outputs
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(12345);
+
+function formatFloat(val, precision = 3) {
+  if (typeof val !== 'number' || isNaN(val)) return 'NaN';
+  return val.toFixed(precision);
+}
+
+function calculateNDCG(trueRelevances, predictedScores, k = NUM_DOCS) {
+  const docs = trueRelevances.map((rel, idx) => ({ id: idx, rel: rel, score: predictedScores[idx] }));
+  docs.sort((a, b) => b.score - a.score);
+
+  const docsAtK = docs.slice(0, k);
+
+  let dcg = 0.0;
+  for (let i = 0; i < docsAtK.length; i++) {
+    dcg += (Math.pow(2, docsAtK[i].rel) - 1) / Math.log2(i + 2);
+  }
+
+  const idealRelevances = [...trueRelevances].sort((a, b) => b - a).slice(0, k);
+  let idcg = 0.0;
+  for (let i = 0; i < idealRelevances.length; i++) {
+    idcg += (Math.pow(2, idealRelevances[i]) - 1) / Math.log2(i + 2);
+  }
+
+  return idcg > 0 ? dcg / idcg : 0.0;
+}
+
+function calculateLambdaGradients(trueRelevances, currentScores, sigma) {
+  const numDocs = trueRelevances.length;
+  const lambdaGradients = new Array(numDocs).fill(0);
+  const currentNDCG = calculateNDCG(trueRelevances, currentScores);
+
+  for (let i = 0; i < numDocs; i++) {
+    for (let j = 0; j < numDocs; j++) {
+      if (i === j) continue;
+
+      // Simulate score swap for delta_NDCG_ij calculation
+      const tempScores = [...currentScores];
+      [tempScores[i], tempScores[j]] = [tempScores[j], tempScores[i]]; // Swap scores
+      const ndcgAfterSwap = calculateNDCG(trueRelevances, tempScores);
+      const deltaNDCG_ij = ndcgAfterSwap - currentNDCG;
+
+      // Sigmoid weighting factor
+      const sigmoidWeight = 1.0 / (1.0 + Math.exp(sigma * (currentScores[i] - currentScores[j])));
+
+      // Accumulate lambda gradient for document i
+      lambdaGradients[i] += deltaNDCG_ij * sigmoidWeight;
+    }
+  }
+  return lambdaGradients;
+}
+
+// Simplified tree output simulation (predicts based on input index, fixed for step)
+function simulateTreeOutput(lambdaGradients) {
+  const output = new Array(NUM_DOCS).fill(0);
+  // A real decision tree would learn splits. Here, we simulate a simple
+  // tree that might push some values up and others down.
+  // For reproducibility, we'll make this deterministic based on lambdaGradients
+  // For this explainer, we will just use the negative lambda_gradients as tree_output
+  // (which is what a GBDT tree aims to fit)
+  return lambdaGradients.map(l => -l * (0.5 + 0.5 * rng())); // Add some noise for realism
+}
+
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State: Documents & Scores',
+    desc: 'We have 5 documents for a query, each with a true relevance label (0-4) and an initial predicted score. The goal is to re-rank them to maximize NDCG. Currently, the ranking is suboptimal.',
+    codeLines: [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19],
+    highlightPair: null,
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'eval', title: 'Current Ranking and NDCG',
+    desc: 'Based on the initial predicted scores, documents are ranked. The current NDCG@5 is calculated. We want to improve this metric.',
+    codeLines: [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19],
+    highlightPair: null,
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'eval', title: 'Identifying Misordered Pairs',
+    desc: 'LambdaMART works by identifying misordered pairs. For example, Document 0 (relevance 3, score 0.50) is less relevant than Document 2 (relevance 4, score 0.80), but Document 4 (relevance 2, score 0.60) is less relevant than Document 0 but ranked higher. This pair is misordered: (Doc 0 vs Doc 4).',
+    codeLines: [],
+    highlightPair: [0, 4], // Doc 0 (rel 3, score 0.5) vs Doc 4 (rel 2, score 0.6) - Doc 0 should be higher
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'grad', title: 'Calculating ΔNDCG for a Swap',
+    desc: 'For each misordered pair, we calculate how much the NDCG would change if their ranks were swapped. For Doc 0 and Doc 4, swapping them (conceptually) would change the NDCG by a certain amount.',
+    codeLines: [34,35,36,37,38],
+    highlightPair: [0, 4],
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'grad', title: 'Weighting by Sigmoid Factor',
+    desc: 'The ΔNDCG for each pair is weighted by a sigmoid function: \(1 / (1 + e^{\sigma(s_i - s_j)})\). This prioritizes pairs with similar scores (small difference means a small nudge can fix it) and less so for widely separated scores. The slider for \\(\\sigma\\) adjusts this sensitivity.',
+    codeLines: [40,41],
+    highlightPair: [0, 4],
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'grad', title: 'Aggregating Lambda Gradients',
+    desc: 'For each document, we sum up these weighted ΔNDCG contributions from all other documents. This gives us the final "lambda gradient" for each document, indicating the desired push/pull on its score. These are the pseudo-gradients the new tree will learn.',
+    codeLines: [24,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45],
+    highlightPair: null,
+    showLambdas: true,
+    showTreeOutput: false,
+    iteration: 0
+  },
+  {
+    phase: 'boost', title: 'Training a New Decision Tree',
+    desc: 'A new decision tree (weak learner) is trained. Its target is to predict these lambda gradients from the documents\' features. This tree learns how document features relate to the necessary score adjustments.',
+    codeLines: [46,47,48,49,50],
+    highlightPair: null,
+    showLambdas: true,
+    showTreeOutput: true,
+    iteration: 0
+  },
+  {
+    phase: 'update', title: 'Updating Scores',
+    desc: 'The output of the newly trained tree (scaled by the learning rate) is added to the current predicted scores. This incrementally adjusts the scores to improve the ranking. Watch the scores change.',
+    codeLines: [52,53],
+    highlightPair: null,
+    showLambdas: true,
+    showTreeOutput: true,
+    iteration: 0
+  },
+  {
+    phase: 'update', title: 'New Ranking & NDCG (Iteration End)',
+    desc: 'After one iteration, the scores are updated, leading to a new ranking and hopefully an improved NDCG score. This process repeats for many iterations, with each new tree further refining the ranking.',
+    codeLines: [],
+    highlightPair: null,
+    showLambdas: false,
+    showTreeOutput: false,
+    iteration: 1
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let sigma = parseFloat(document.getElementById('sigmaSlider').value);
+let learningRate = parseFloat(document.getElementById('lrSlider').value);
+
+let currentPredictedScores = [...INITIAL_SCORES];
+let lambdaGradients = [];
+let treeOutputs = [];
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentPredictedScores = [...INITIAL_SCORES];
+  document.getElementById('sigmaSlider').value = 1.0;
+  document.getElementById('lrSlider').value = 0.1;
+  sigma = 1.0;
+  learningRate = 0.1;
+  updateSliderLabels();
+  render();
+}
+
+// ── SLIDER WIRING ──
+document.getElementById('sigmaSlider').addEventListener('input', (e) => {
+  sigma = parseFloat(e.target.value);
+  updateSliderLabels();
+  // Re-render relevant steps if sigma changes
+  if (step >= 4 && step <= 7) render();
+});
+document.getElementById('lrSlider').addEventListener('input', (e) => {
+  learningRate = parseFloat(e.target.value);
+  updateSliderLabels();
+  if (step >= 7) render();
+});
+
+function updateSliderLabels() {
+  document.getElementById('sigmaValue').textContent = sigma.toFixed(1);
+  document.getElementById('lrValue').textContent = learningRate.toFixed(2);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', eval:'phase-eval', grad:'phase-grad', boost:'phase-boost', update:'phase-update'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Calculate lambdas and tree outputs for current state
+  lambdaGradients = calculateLambdaGradients(INITIAL_RELEVANCE, currentPredictedScores, sigma);
+  treeOutputs = simulateTreeOutput(lambdaGradients); // Simplified: directly use -lambda as tree output
+
+  // Update stats
+  const currentNDCG = calculateNDCG(INITIAL_RELEVANCE, currentPredictedScores);
+  document.getElementById('statNDCG').textContent = currentNDCG.toFixed(3);
+  document.getElementById('statIteration').textContent = s.iteration;
+  document.getElementById('statUpdates').textContent = (step >= 8) ? '1' : '0';
+  document.getElementById('statNDCG').parentNode.classList.toggle('highlight', step >= 8);
+
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const docHeight = (H - 40) / NUM_DOCS;
+  const docPad = 10;
+  const docBoxH = docHeight - docPad;
+
+  const sortedDocs = currentPredictedScores.map((score, id) => ({
+    id: id,
+    score: score,
+    rel: INITIAL_RELEVANCE[id]
+  })).sort((a, b) => b.score - a.score);
+
+  // Draw document rows
+  sortedDocs.forEach((doc, rankIdx) => {
+    const y = rankIdx * docHeight + docPad / 2;
+    const x = 10;
+    const boxW = W - 20;
+
+    // Background box
+    ctx.fillStyle = colors.surface;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(x, y, boxW, docBoxH, colors.radius) : ctx.rect(x, y, boxW, docBoxH);
+    ctx.fill();
+    ctx.stroke();
+
+    // Highlight misordered pair
+    if (s.highlightPair && (doc.id === s.highlightPair[0] || doc.id === s.highlightPair[1])) {
+      ctx.strokeStyle = colors.red;
+      ctx.lineWidth = 2.5;
+      ctx.roundRect ? ctx.roundRect(x, y, boxW, docBoxH, colors.radius) : ctx.rect(x, y, boxW, docBoxH);
+      ctx.stroke();
+    }
+
+    // Rank
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${rankIdx + 1}.`, x + 30, y + docBoxH / 2 + 5);
+
+    // Document ID
+    ctx.fillStyle = colors.blue;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.textAlign = 'left';
+    ctx.fillText(`Doc ${doc.id}`, x + 60, y + docBoxH / 2 + 5);
+
+    // True Relevance
+    ctx.fillStyle = colors.green;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.fillText(`Rel: ${doc.rel}`, x + 150, y + docBoxH / 2 + 5);
+
+    // Predicted Score
+    ctx.fillStyle = colors.amber;
+    ctx.font = '600 14px ' + colors.mono;
+    ctx.fillText(`Score: ${formatFloat(doc.score, 2)}`, x + 250, y + docBoxH / 2 + 5);
+
+    // Lambda Gradient
+    if (s.showLambdas) {
+      const lambda = lambdaGradients[doc.id];
+      const arrowX = x + boxW - 120;
+      const arrowY = y + docBoxH / 2;
+      const arrowLength = Math.min(60, Math.abs(lambda) * 100); // Scale lambda for arrow length
+      const arrowDir = lambda > 0 ? -1 : 1; // Negative for positive lambda (push score up)
+
+      ctx.strokeStyle = colors.purple;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(arrowX, arrowY);
+      ctx.lineTo(arrowX + arrowDir * arrowLength, arrowY);
+      ctx.stroke();
+
+      // Arrow head
+      ctx.beginPath();
+      ctx.moveTo(arrowX + arrowDir * arrowLength, arrowY);
+      ctx.lineTo(arrowX + arrowDir * arrowLength + arrowDir * 8, arrowY - 4);
+      ctx.moveTo(arrowX + arrowDir * arrowLength, arrowY);
+      ctx.lineTo(arrowX + arrowDir * arrowLength + arrowDir * 8, arrowY + 4);
+      ctx.stroke();
+
+      ctx.fillStyle = colors.purple;
+      ctx.font = '12px ' + colors.mono;
+      ctx.textAlign = 'right';
+      ctx.fillText(`λ: ${formatFloat(lambda, 3)}`, arrowX - 10, arrowY + 5);
+    }
+
+    // Tree Output
+    if (s.showTreeOutput) {
+      const treeOut = treeOutputs[doc.id];
+      ctx.fillStyle = colors.cyan;
+      ctx.font = '12px ' + colors.mono;
+      ctx.textAlign = 'right';
+      ctx.fillText(`Tree Out: ${formatFloat(treeOut, 3)}`, x + boxW - 10, y + docBoxH / 2 + 5);
+    }
+  });
+
+  // If final step, apply the update
+  if (s.iteration === 1) {
+    currentPredictedScores = currentPredictedScores.map((score, id) =>
+      score + learningRate * treeOutputs[id]
+    );
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateSliderLabels();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

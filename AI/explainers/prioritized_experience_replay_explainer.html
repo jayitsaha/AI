@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prioritized Experience Replay (PER) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-add{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-sample{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-update{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-is{background:var(--red-bg);color:var(--red-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Prioritized Experience Replay (PER)</h1>
+  <div class="subtitle">Sampling important experiences more often for faster, more stable Reinforcement Learning</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-complexity">O(log N) sample/update</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Prioritized Experience Replay</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> In Reinforcement Learning, agents collect (state, action, reward, next_state) tuples and store them in an "experience replay buffer." Standard replay samples these experiences uniformly at random. Prioritized Experience Replay (PER) samples "important" experiences more frequently, where importance is typically measured by the magnitude of the Temporal Difference (TD) error.</p>
+    <p><strong>Analogy:</strong> Imagine studying for an exam. Uniform sampling means reviewing every page of your textbook with equal frequency. Prioritized replay is like focusing more of your study time on the concepts you struggled with most on practice tests (high TD error) or the new material you just learned. This way, you learn faster and more efficiently by addressing your biggest knowledge gaps first.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">PER samples transitions with high TD error more often. High TD error means the agent's current prediction (\(Q(s,a)\)) is far from its target (\(r + \gamma \max_{a'} Q(s',a')\)), indicating a "surprising" or "informative" event that the agent should learn from more. This significantly speeds up learning for many RL algorithms like DQN.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How PER Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Idea: TD-error as Priority</h4>
+    <p>When an agent interacts with its environment, it collects a stream of (state, action, reward, next_state) tuples. For Q-learning algorithms, the TD error \(\delta\) for a transition \((s_t, a_t, r_t, s_{t+1})\) is defined as:</p>
+    <div class="eq">$$\delta_t = r_t + \gamma \max_{a'} Q(s_{t+1}, a'; \theta^-) - Q(s_t, a_t; \theta)$$</div>
+    <p>where \(\theta\) are the current network weights and \(\theta^-\) are the target network weights. A large absolute TD error \(|\delta_t|\) means the agent's current value estimate for \((s_t, a_t)\) is significantly different from what it "should" be, according to the Bellman equation. These "surprising" transitions are more informative for learning.</p>
+
+    <h4>The PER Algorithm: Store, Sample, Update</h4>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Store:</strong> When a new experience \((s,a,r,s')\) is observed, it's added to the replay buffer. It's assigned a high initial priority (often the maximum priority seen so far) to ensure it's sampled at least once.</li>
+      <li><strong>Sample:</strong> Instead of uniform sampling, experiences are sampled with a probability proportional to their priority. This is typically done using a SumTree or similar data structure for efficient \(O(\log N)\) sampling.</li>
+      <li><strong>Update:</strong> After an experience is sampled and used for a learning step (e.g., updating the Q-network), its priority is updated to the magnitude of the *new* TD error computed with the *updated* network weights.</li>
+    </ol>
+
+    <h4>Importance Sampling (IS) Weights for Bias Correction</h4>
+    <p>Prioritized sampling introduces bias: the distribution of sampled experiences no longer matches the distribution of experiences generated by the agent's policy. To correct this, Importance Sampling (IS) weights are used during the gradient update:</p>
+    <div class="eq}">$$w_i = \left( \frac{1}{N \cdot P(i)} \right)^\beta$$</div>
+    <p>where \(N\) is the buffer size, \(P(i)\) is the sampling probability of experience \(i\), and \(\beta\) is a hyperparameter that controls how much bias correction is applied (typically annealed from a small value to 1 over training). These weights are applied to the gradients during backpropagation, effectively down-weighting the contribution of frequently sampled experiences and up-weighting rarely sampled ones.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">PER uses two hyperparameters: \(\alpha\) (alpha) and \(\beta\) (beta). \(\alpha \in [0,1]\) determines how much prioritization influences sampling (0 = uniform, 1 = full priority). \(\beta \in [0,1]\) determines how much importance sampling correction is applied (0 = no correction, 1 = full correction). Both are crucial for balancing sampling efficiency with avoiding bias.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Priority Function</h4>
+    <p>The priority \(p_i\) of an experience \(i\) is typically defined based on its absolute TD error \(|\delta_i|\). To ensure all experiences have a chance to be sampled (especially new ones with unknown TD error), a small positive constant \(\epsilon\) is added:</p>
+    <div class="eq}">$$p_i = |\delta_i| + \epsilon$$</div>
+    <p>This is called the "proportional prioritization" scheme. An alternative is "rank-based prioritization," where \(p_i = 1 / \text{rank}(i)\), with rank determined by \(|\delta_i|\). Proportional prioritization is more common due to its direct link to the TD error magnitude.</p>
+
+    <h4>Sampling Probability</h4>
+    <p>The probability of sampling experience \(i\) is given by a power of its priority, normalized by the sum of priorities of all experiences in the buffer. The exponent \(\alpha\) controls the degree of prioritization:</p>
+    <div class="eq}">$$P(i) = \frac{p_i^\alpha}{\sum_k p_k^\alpha}$$</div>
+    <p>If \(\alpha = 0\), then \(p_i^\alpha = 1\) for all \(i\), and \(P(i) = 1/\sum_k 1 = 1/N\), which reverts to uniform sampling. As \(\alpha \to 1\), sampling becomes strongly biased towards high-TD-error experiences.</p>
+
+    <h4>Importance Sampling (IS) Weights</h4>
+    <p>When we use a stochastic gradient descent update for a loss function \(L(\theta)\), the expectation of the gradient is taken over the data distribution. If we sample from a biased distribution \(Q\) instead of the true distribution \(P\), we need to correct for this. For an unbiased estimate of \(\mathbb{E}_{x \sim P}[\nabla L(x)]\), we use:</p>
+    <div class="eq}">$$\mathbb{E}_{x \sim P}[\nabla L(x)] = \mathbb{E}_{x \sim Q}\left[ \frac{P(x)}{Q(x)} \nabla L(x) \right]$$</div>
+    <p>In PER, \(P(x)\) is the uniform distribution (\(1/N\)) and \(Q(x)\) is \(P(i)\) (defined above). So the IS weight is \(w_i = \frac{1/N}{P(i)}\). To further control the correction, a hyperparameter \(\beta\) is introduced, and the weights are often normalized by \(\max_k w_k\) for stability:</p>
+    <div class="eq}">$$w_i = \left( \frac{1}{N \cdot P(i)} \right)^\beta \quad \text{and then } w_i \leftarrow w_i / \max_k w_k$$</div>
+    <p>The \(\max_k w_k\) normalization ensures that IS weights are never greater than 1, preventing large updates from rare experiences, which can lead to instability. The \(\beta\) parameter is typically annealed from an initial value (e.g., 0.4) to 1.0 over training, gradually increasing the bias correction as learning progresses.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Forgetting to update the priority of a sampled experience after a learning step is a critical error. The priority must reflect the <em>current</em> TD error with the <em>latest</em> network weights. If priorities become stale, the agent might repeatedly sample experiences that are no longer informative, or miss new, high-TD-error experiences.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize a replay buffer's experiences, their priorities, sampling probabilities, and importance sampling weights. Add new experiences, sample, and update priorities to see PER in action.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Prioritization exponent α</div>
+          <input type="range" id="alphaSlider" min="0" max="1" step="0.05" value="0.6">
+          <div class="slider-value" id="alphaValue">0.60</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">IS weight exponent β</div>
+          <input type="range" id="betaSlider" min="0" max="1" step="0.05" value="0.4">
+          <div class="slider-value" id="betaValue">0.40</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Welcome to Prioritized Experience Replay</div>
+        <div class="info-desc" id="infoDesc">This visualization shows a replay buffer. Each slot holds an experience. We'll explore how PER manages these experiences.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Experience TD Error</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Experience Priority</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Sampling Probability</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> IS Weight (Bias Correction)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Sampled Experience</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use PER:</strong></p>
+    <ul>
+      <li>When training Deep Q-Networks (DQNs) or other off-policy value-based RL algorithms.</li>
+      <li>In environments where rewards are sparse or events are rare but critical (e.g., reaching a goal state).</li>
+      <li>To accelerate learning and improve sample efficiency, especially in complex environments.</li>
+      <li>When you have a large replay buffer and want to make the most of stored experiences.</li>
+    </ul>
+    <p><strong>When NOT to use / be cautious:</strong></p>
+    <ul>
+      <li>On-policy algorithms (like Policy Gradients, PPO, A2C) where the data distribution must strictly match the current policy. PER introduces off-policy data bias.</li>
+      <li>If the TD error is not a good indicator of importance (e.g., if the reward function is pathological or the value function is highly unstable).</li>
+      <li>With very small replay buffers, as the benefits of prioritization might be limited, and the overhead might not be worth it.</li>
+      <li>If computational overhead is a major concern: PER's sampling (SumTree) is \(O(\log N)\) vs. \(O(1)\) for uniform, and IS weights add computation.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">PER is a crucial ingredient for many state-of-the-art deep RL agents, offering a significant boost in performance and stability by intelligently re-using past data. It highlights the importance of data management in complex learning systems.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python - Simplified PER Buffer)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">class SumTree: # A binary tree structure for efficient sampling and update</div>
+      <div class="code-line" id="cl3">    def __init__(self, capacity):</div>
+      <div class="code-line" id="cl4">        self.capacity = capacity</div>
+      <div class="code-line" id="cl5">        self.tree = np.zeros(2 * capacity - 1) # Stores priorities (leaf nodes) and sums</div>
+      <div class="code-line" id="cl6">        self.data = np.zeros(capacity, dtype=object) # Stores experiences</div>
+      <div class="code-line" id="cl7">        self.data_ptr = 0</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    def add(self, priority, data):</div>
+      <div class="code-line" id="cl10">        tree_idx = self.data_ptr + self.capacity - 1</div>
+      <div class="code-line" id="cl11">        self.data[self.data_ptr] = data</div>
+      <div class="code-line" id="cl12">        self.update(tree_idx, priority) # Update leaf node and its parents</div>
+      <div class="code-line" id="cl13">        self.data_ptr = (self.data_ptr + 1) % self.capacity</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    def update(self, tree_idx, priority):</div>
+      <div class="code-line" id="cl16">        change = priority - self.tree[tree_idx]</div>
+      <div class="code-line" id="cl17">        self.tree[tree_idx] = priority</div>
+      <div class="code-line" id="cl18">        while tree_idx != 0: # Propagate change up to root</div>
+      <div class="code-line" id="cl19">            tree_idx = (tree_idx - 1) // 2</div>
+      <div class="code-line" id="cl20">            self.tree[tree_idx] += change</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    def get_leaf(self, v): # Sample a leaf proportional to its priority</div>
+      <div class="code-line" id="cl23">        parent_idx = 0</div>
+      <div class="code-line" id="cl24">        while True:</div>
+      <div class="code-line" id="cl25">            left_child_idx = 2 * parent_idx + 1</div>
+      <div class="code-line" id="cl26">            right_child_idx = left_child_idx + 1</div>
+      <div class="code-line" id="cl27">            if left_child_idx >= len(self.tree): # Reached leaf node</div>
+      <div class="code-line" id="cl28">                leaf_idx = parent_idx</div>
+      <div class="code-line" id="cl29">                break</div>
+      <div class="code-line" id="cl30">            else: # Traverse down the tree</div>
+      <div class="code-line" id="cl31">                if v <= self.tree[left_child_idx]:</div>
+      <div class="code-line" id="cl32">                    parent_idx = left_child_idx</div>
+      <div class="code-line" id="cl33">                else:</div>
+      <div class="code-line" id="cl34">                    v -= self.tree[left_child_idx]</div>
+      <div class="code-line" id="cl35">                    parent_idx = right_child_idx</div>
+      <div class="code-line" id="cl36">        data_idx = leaf_idx - self.capacity + 1</div>
+      <div class="code-line" id="cl37">        return leaf_idx, self.tree[leaf_idx], self.data[data_idx]</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">    @property</div>
+      <div class="code-line" id="cl40">    def total_priority(self): return self.tree[0] # Root contains sum of all priorities</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42">class PrioritizedReplayBuffer:</div>
+      <div class="code-line" id="cl43">    def __init__(self, capacity, alpha=0.6, beta=0.4, epsilon=0.01):</div>
+      <div class="code-line" id="cl44">        self.sum_tree = SumTree(capacity)</div>
+      <div class="code-line" id="cl45">        self.capacity = capacity</div>
+      <div class="code-line" id="cl46">        self.alpha = alpha</div>
+      <div class="code-line" id="cl47">        self.beta = beta</div>
+      <div class="code-line" id="cl48">        self.epsilon = epsilon</div>
+      <div class="code-line" id="cl49">        self.max_priority = 1.0 # Initial max priority for new experiences</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">    def add(self, experience):</div>
+      <div class="code-line" id="cl52">        self.sum_tree.add(self.max_priority, experience)</div>
+      <div class="code-line" id="cl53"></div>
+      <div class="code-line" id="cl54">    def sample(self, batch_size):</div>
+      <div class="code-line" id="cl55">        batch = []</div>
+      <div class="code-line" id="cl56">        indices = []</div>
+      <div class="code-line" id="cl57">        weights = []</div>
+      <div class="code-line" id="cl58">        total_priority = self.sum_tree.total_priority</div>
+      <div class="code-line" id="cl59">        segment = total_priority / batch_size</div>
+      <div class="code-line" id="cl60"></div>
+      <div class="code-line" id="cl61">        for i in range(batch_size):</div>
+      <div class="code-line" id="cl62">            a = segment * i</div>
+      <div class="code-line" id="cl63">            b = segment * (i + 1)</div>
+      <div class="code-line" id="cl64">            v = np.random.uniform(a, b) # Sample uniformly within segments</div>
+      <div class="code-line" id="cl65">            idx, priority, data = self.sum_tree.get_leaf(v)</div>
+      <div class="code-line" id="cl66">            sampling_prob = priority / total_priority</div>
+      <div class="code-line" id="cl67">            weight = (self.capacity * sampling_prob)**(-self.beta)</div>
+      <div class="code-line" id="cl68">            batch.append(data)</div>
+      <div class="code-line" id="cl69">            indices.append(idx)</div>
+      <div class="code-line" id="cl70">            weights.append(weight)</div>
+      <div class="code-line" id="cl71">        </div>
+      <div class="code-line" id="cl72">        max_weight = max(weights) if weights else 1.0</div>
+      <div class="code-line" id="cl73">        weights = np.array(weights) / max_weight # Normalize IS weights</div>
+      <div class="code-line" id="cl74">        return indices, batch, weights</div>
+      <div class="code-line" id="cl75"></div>
+      <div class="code-line" id="cl76">    def update_priorities(self, indices, td_errors):</div>
+      <div class="code-line" id="cl77">        for idx, td_error in zip(indices, td_errors):</div>
+      <div class="code-line" id="cl78">            priority = (np.abs(td_error) + self.epsilon)**self.alpha</div>
+      <div class="code-line" id="cl79">            self.sum_tree.update(idx, priority)</div>
+      <div class="code-line" id="cl80">            self.max_priority = max(self.max_priority, priority)</div>
+      <div class="code-line" id="cl81"></div>
+      <div class="code-line" id="cl82"># Example usage:</div>
+      <div class="code-line" id="cl83"># buffer = PrioritizedReplayBuffer(capacity=1000, alpha=0.6, beta=0.4)</div>
+      <div class="code-line" id="cl84"># buffer.add("experience_1")</div>
+      <div class="code-line" id="cl85"># buffer.add("experience_2")</div>
+      <div class="code-line" id="cl86"># indices, experiences, weights = buffer.sample(batch_size=32)</div>
+      <div class="code-line" id="cl87"># new_td_errors = np.random.rand(32) # Simulate new TD errors</div>
+      <div class="code-line" id="cl88"># buffer.update_priorities(indices, new_td_errors)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG (for reproducible random values) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let seededRng = mulberry32(12345); // Initial seed
+function resetRNG() { seededRng = mulberry32(12345); }
+function randFloat(min = 0, max = 1) { return min + seededRng() * (max - min); }
+function randInt(min, max) { return Math.floor(randFloat(min, max + 1)); } // inclusive
+
+// ── PER LOGIC ──
+const BUFFER_CAPACITY = 10;
+const EPSILON = 0.01; // Small constant for priority
+
+let experiences = []; // [{id, td_error, priority, sampling_prob, is_weight, highlight, sampled, new}]
+let maxPriority = 1.0;
+let currentStep = 0;
+
+function calculatePriorities(alpha) {
+  let sumPriorities = 0;
+  for (const exp of experiences) {
+    exp.priority = (Math.abs(exp.td_error) + EPSILON);
+    sumPriorities += Math.pow(exp.priority, alpha);
+  }
+  for (const exp of experiences) {
+    exp.sampling_prob = Math.pow(exp.priority, alpha) / sumPriorities;
+  }
+}
+
+function calculateISWeights(beta) {
+  if (experiences.length === 0) return;
+  let maxWeight = 0;
+  for (const exp of experiences) {
+    if (exp.sampling_prob > 0) {
+      exp.is_weight = Math.pow(1 / (experiences.length * exp.sampling_prob), beta);
+      if (exp.is_weight > maxWeight) maxWeight = exp.is_weight;
+    } else {
+      exp.is_weight = 0; // Should not happen if epsilon > 0
+    }
+  }
+  // Normalize IS weights
+  for (const exp of experiences) {
+    exp.is_weight = exp.is_weight / maxWeight;
+  }
+}
+
+function addNewExperience(td_error_val = randFloat(0.1, 1.0)) {
+  const newExp = {
+    id: Date.now() + experiences.length, // Unique ID
+    td_error: td_error_val,
+    priority: 0, // Will be calculated
+    sampling_prob: 0, // Will be calculated
+    is_weight: 0, // Will be calculated
+    highlight: false,
+    sampled: false,
+    new: true
+  };
+  experiences.unshift(newExp); // Add to front for visual effect
+  if (experiences.length > BUFFER_CAPACITY) {
+    experiences.pop(); // Remove oldest if buffer full
+  }
+  // All new experiences get max priority initially to ensure they are sampled
+  // maxPriority is updated during priority updates, this ensures new entries are considered important
+  maxPriority = Math.max(maxPriority, newExp.td_error + EPSILON); 
+  
+  // Clear 'new' flag after a short delay for visualization
+  setTimeout(() => {
+    const idx = experiences.indexOf(newExp);
+    if (idx !== -1) experiences[idx].new = false;
+    render();
+  }, 500);
+}
+
+function sampleExperience() {
+  const totalProb = experiences.reduce((sum, exp) => sum + exp.sampling_prob, 0);
+  let r = randFloat(0, totalProb);
+  let sampledIdx = -1;
+  for (let i = 0; i < experiences.length; i++) {
+    r -= experiences[i].sampling_prob;
+    if (r <= 0) {
+      sampledIdx = i;
+      break;
+    }
+  }
+  if (sampledIdx === -1 && experiences.length > 0) { // Fallback if float precision issues
+    sampledIdx = experiences.length - 1;
+  }
+  return sampledIdx;
+}
+
+function updateSampledExperience(sampledIdx, new_td_error = randFloat(0.1, 1.0)) {
+  if (sampledIdx !== -1) {
+    experiences[sampledIdx].td_error = new_td_error;
+    experiences[sampledIdx].sampled = false; // Reset sampled highlight
+  }
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  { phase: 'setup', title: 'Welcome to Prioritized Experience Replay', desc: 'This visualization shows a replay buffer (initially empty). Each slot will hold an experience (state, action, reward, next_state). We\'ll explore how PER manages these experiences.', codeLines: [] },
+  { phase: 'add', title: 'Adding Initial Experiences', desc: 'New experiences are continuously added to the buffer. Initially, their importance (priority) is unknown, so they are often given a high default priority (e.g., max priority) to ensure they are sampled at least once.', action: 'add_initial_experiences', codeLines: [9,10,11,12] },
+  { phase: 'setup', title: 'Temporal Difference (TD) Error', desc: 'The TD error (\\(|\delta_i|\\)) measures how "surprising" an experience is. A large TD error means the agent\'s current Q-value estimate is far from the target. We derive priority from this: \\(p_i = |\\delta_i| + \\epsilon\\).', action: 'calculate_priorities', codeLines: [] },
+  { phase: 'sample', title: 'Sampling Probabilities (α)', desc: 'Instead of uniform sampling, experiences are sampled with probability \\(P(i) = p_i^\\alpha / \\sum_k p_k^\\alpha\\). The \\(\\alpha\\) slider controls how much priority influences sampling (\\(\\alpha=0\\) is uniform, \\(\\alpha=1\\) is full prioritization).', action: 'calculate_priorities', codeLines: [54,55,56,57,58,59,60,61,62,63,64,65,66] },
+  { phase: 'sample', title: 'Sampling an Experience', desc: 'An experience is sampled from the buffer according to its probability \\(P(i)\\). Notice how experiences with higher priorities are more likely to be picked. The sampled experience is then used for a learning step.', action: 'sample_experience', codeLines: [65] },
+  { phase: 'update', title: 'Updating Priority After Learning', desc: 'After a sampled experience is used for learning, its priority (and thus its sampling probability) is updated to reflect the *new* TD error (\\(|\\delta_i|\\)) calculated with the *updated* network weights. This makes the buffer dynamic.', action: 'update_td_error', codeLines: [76,77,78,79,80] },
+  { phase: 'sample', title: 'Re-sampling with Updated Priorities', desc: 'With the updated priorities, the sampling distribution shifts. The agent will now focus on experiences that are still "surprising" given its latest knowledge.', action: 'sample_experience', codeLines: [65] },
+  { phase: 'is', title: 'Importance Sampling (IS) Weights (β)', desc: 'Prioritized sampling introduces bias. To correct this, Importance Sampling weights \\(w_i = (N \\cdot P(i))^{-\\beta} / \\max_k w_k\\) are applied to gradients. The \\(\\beta\\) slider controls this correction (\\(\\beta=0\\) is no correction, \\(\\beta=1\\) is full correction).', action: 'calculate_is_weights', codeLines: [67,72,73] },
+  { phase: 'add', title: 'Adding a New Experience (Buffer Full)', desc: 'When the buffer is full, adding a new experience replaces the oldest one. The new experience is again assigned a high initial priority to ensure it\'s learned from.', action: 'add_new_experience_full', codeLines: [9,10,11,12] },
+  { phase: 'update', title: 'Full Cycle: Add, Sample, Update, IS', desc: 'This is the complete PER cycle: add new, sample prioritized, update priority, apply IS weights. This continuous process keeps the agent learning efficiently from the most informative data.', action: 'full_cycle', codeLines: [9,10,11,12,65,76,77,78,79,80,67,72,73] }
+];
+
+const totalSteps = steps.length;
+let currentVizStep = 0;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentVizStep) d.classList.add('done');
+    if (i === currentVizStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentVizStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentVizStep = next;
+  render();
+}
+function goTo(i) { currentVizStep = i; render(); }
+
+function reset() {
+  currentVizStep = 0;
+  experiences = [];
+  maxPriority = 1.0;
+  resetRNG();
+  document.getElementById('alphaSlider').value = 0.6;
+  document.getElementById('betaSlider').value = 0.4;
+  updateSliderLabels();
+  render();
+}
+
+// ── SLIDER ──
+const alphaSlider = document.getElementById('alphaSlider');
+const betaSlider = document.getElementById('betaSlider');
+
+alphaSlider.addEventListener('input', () => { updateSliderLabels(); render(); });
+betaSlider.addEventListener('input', () => { updateSliderLabels(); render(); });
+
+function updateSliderLabels() {
+  document.getElementById('alphaValue').textContent = parseFloat(alphaSlider.value).toFixed(2);
+  document.getElementById('betaValue').textContent = parseFloat(betaSlider.value).toFixed(2);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentVizStep];
+  const alpha = parseFloat(alphaSlider.value);
+  const beta = parseFloat(betaSlider.value);
+
+  // Apply actions based on step
+  if (s.action === 'add_initial_experiences' && experiences.length === 0) {
+    for (let i = 0; i < BUFFER_CAPACITY / 2; i++) { // Fill half buffer
+      addNewExperience();
+    }
+  } else if (s.action === 'calculate_priorities' && experiences.length === 0) {
+    addNewExperience(); // Ensure there's at least one experience
+  } else if (s.action === 'sample_experience') {
+    experiences.forEach(exp => exp.sampled = false); // Clear previous sampled
+    const sampledIdx = sampleExperience();
+    if (sampledIdx !== -1) experiences[sampledIdx].sampled = true;
+  } else if (s.action === 'update_td_error') {
+    const sampledExp = experiences.find(exp => exp.sampled);
+    if (sampledExp) {
+      updateSampledExperience(experiences.indexOf(sampledExp), randFloat(0.1, 1.0));
+    }
+  } else if (s.action === 'calculate_is_weights' && experiences.length === 0) {
+    addNewExperience();
+  } else if (s.action === 'add_new_experience_full' && experiences.length < BUFFER_CAPACITY) {
+    while (experiences.length < BUFFER_CAPACITY) addNewExperience(); // Fill buffer
+    addNewExperience(randFloat(1.5, 2.0)); // Add a new high TD experience
+  } else if (s.action === 'full_cycle') {
+    experiences.forEach(exp => exp.sampled = false);
+    addNewExperience(randFloat(1.5, 2.0)); // Add a new high TD experience
+    const sampledIdx = sampleExperience();
+    if (sampledIdx !== -1) {
+      experiences[sampledIdx].sampled = true;
+      updateSampledExperience(sampledIdx, randFloat(0.1, 1.0));
+    }
+  }
+
+  // Always recalculate priorities and IS weights for current alpha/beta
+  calculatePriorities(alpha);
+  calculateISWeights(beta);
+
+  document.getElementById('btnPrev').disabled = currentVizStep === 0;
+  document.getElementById('btnNext').disabled = currentVizStep === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', add: 'phase-add', sample: 'phase-sample', update: 'phase-update', is: 'phase-is' };
+  document.getElementById('infoPhase').className = 'info-phase ' + (phaseMap[s.phase] || 'phase-setup');
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentVizStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(experiences, alpha, beta);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+    surface: g('--surface'),
+    highlightBG: g('--green-bg'), highlightBorder: g('--green-border'),
+    newExpBG: g('--amber-bg'), newExpBorder: g('--amber-border'),
+  };
+}
+
+function drawCanvas(experiences, alpha, beta) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const bufferX = W * 0.05;
+  const bufferY = H * 0.1;
+  const bufferW = W * 0.9;
+  const bufferH = H * 0.8;
+
+  const expWidth = bufferW / BUFFER_CAPACITY;
+  const expHeight = bufferH * 0.15; // Height for each experience block
+
+  // Max values for scaling bars
+  const maxTD = Math.max(...experiences.map(e => e.td_error), 1.0);
+  const maxPriorityVal = Math.max(...experiences.map(e => e.priority), 1.0);
+  const maxProb = Math.max(...experiences.map(e => e.sampling_prob), 0.1);
+  const maxIS = Math.max(...experiences.map(e => e.is_weight), 0.1);
+
+  // Draw buffer slots
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.font = '10px ' + colors.mono;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Labels
+  ctx.fillStyle = colors.text2;
+  ctx.font = '12px ' + colors.sans;
+  ctx.textAlign = 'left';
+  ctx.fillText('TD Error', bufferX, bufferY - 10);
+  ctx.fillText('Priority', bufferX, bufferY + expHeight * 1.5 - 10);
+  ctx.fillText('Sampling P(i)', bufferX, bufferY + expHeight * 3 - 10);
+  ctx.fillText('IS Weight (w)', bufferX, bufferY + expHeight * 4.5 - 10);
+  ctx.textAlign = 'center';
+
+
+  experiences.forEach((exp, i) => {
+    const x = bufferX + i * expWidth;
+    const y = bufferY;
+
+    // Background for each experience column
+    if (exp.sampled) {
+      ctx.fillStyle = colors.highlightBG;
+      ctx.fillRect(x, y - 20, expWidth, bufferH + 20);
+    } else if (exp.new) {
+      ctx.fillStyle = colors.newExpBG;
+      ctx.fillRect(x, y - 20, expWidth, bufferH + 20);
+    }
+
+    // TD Error bar
+    const tdBarHeight = expHeight * (exp.td_error / maxTD);
+    ctx.fillStyle = colors.blueMid;
+    ctx.fillRect(x + 2, y + expHeight - tdBarHeight, expWidth - 4, tdBarHeight);
+    ctx.strokeStyle = colors.border;
+    ctx.strokeRect(x + 2, y, expWidth - 4, expHeight);
+    ctx.fillStyle = colors.text;
+    ctx.font = '10px ' + colors.mono;
+    ctx.fillText(`TD: ${exp.td_error.toFixed(2)}`, x + expWidth / 2, y + expHeight / 2);
+
+    // Priority bar
+    const priorityBarHeight = expHeight * (exp.priority / maxPriorityVal);
+    ctx.fillStyle = colors.amberMid;
+    ctx.fillRect(x + 2, y + expHeight * 2.5 - priorityBarHeight, expWidth - 4, priorityBarHeight);
+    ctx.strokeStyle = colors.border;
+    ctx.strokeRect(x + 2, y + expHeight * 1.5, expWidth - 4, expHeight);
+    ctx.fillStyle = colors.text;
+    ctx.fillText(`P: ${exp.priority.toFixed(2)}`, x + expWidth / 2, y + expHeight * 1.5 + expHeight / 2);
+
+    // Sampling Probability bar
+    const probBarHeight = expHeight * (exp.sampling_prob / maxProb);
+    ctx.fillStyle = colors.purpleMid;
+    ctx.fillRect(x + 2, y + expHeight * 4 - probBarHeight, expWidth - 4, probBarHeight);
+    ctx.strokeStyle = colors.border;
+    ctx.strokeRect(x + 2, y + expHeight * 3, expWidth - 4, expHeight);
+    ctx.fillStyle = colors.text;
+    ctx.fillText(`P(i): ${exp.sampling_prob.toFixed(3)}`, x + expWidth / 2, y + expHeight * 3 + expHeight / 2);
+
+    // IS Weight bar
+    const isWeightBarHeight = expHeight * (exp.is_weight / maxIS);
+    ctx.fillStyle = colors.redMid;
+    ctx.fillRect(x + 2, y + expHeight * 5.5 - isWeightBarHeight, expWidth - 4, isWeightBarHeight);
+    ctx.strokeStyle = colors.border;
+    ctx.strokeRect(x + 2, y + expHeight * 4.5, expWidth - 4, expHeight);
+    ctx.fillStyle = colors.text;
+    ctx.fillText(`w: ${exp.is_weight.toFixed(2)}`, x + expWidth / 2, y + expHeight * 4.5 + expHeight / 2);
+
+    // Index label
+    ctx.fillStyle = colors.text3;
+    ctx.font = '9px ' + colors.mono;
+    ctx.fillText(`Exp ${i}`, x + expWidth / 2, y + bufferH * 0.95);
+  });
+
+  // Info numbers
+  let infoText = `Buffer size: ${experiences.length}/${BUFFER_CAPACITY}\n`;
+  infoText += `Alpha (α): ${alpha.toFixed(2)}, Beta (β): ${beta.toFixed(2)}\n`;
+  if (experiences.length > 0) {
+    infoText += `Total Priority: ${experiences.reduce((sum, exp) => sum + Math.pow(exp.priority, alpha), 0).toFixed(2)}\n`;
+    const sampledExp = experiences.find(exp => exp.sampled);
+    if (sampledExp) {
+      infoText += `Sampled Exp (TD): ${sampledExp.td_error.toFixed(2)}, IS Weight: ${sampledExp.is_weight.toFixed(2)}`;
+    }
+  }
+  document.getElementById('infoNumbers').textContent = infoText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateSliderLabels();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(experiences, parseFloat(alphaSlider.value), parseFloat(betaSlider.value)));
+</script>
+</body>
+</html>
