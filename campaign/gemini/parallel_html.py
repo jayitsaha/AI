@@ -56,10 +56,16 @@ def fine_html(p):
 def build_todo():
     d = json.load(open(os.path.join(AI, "topic_page_ids.json"))); topics = list(d.keys())
     start = int(os.environ.get("START_IDX", open(os.path.join(AI, "campaign", "floor.txt")).read().strip()))
+    # skip normative ethics/safety indices + slugs reserved for the parallel Sonnet wave
+    try: skip_idx = set(json.load(open(os.path.join(AI, "campaign", "html_skip_idx.json"))))
+    except Exception: skip_idx = set()
+    try: reserved = set(l.strip() for l in open(os.path.join(AI, "campaign", "html_reserved.txt")) if l.strip())
+    except Exception: reserved = set()
     todo, seen = [], set()
     for i in range(start, min(TARGET, len(topics))):
+        if i in skip_idx: continue
         t = topics[i]; slug = slugify(t)
-        if slug in seen: continue
+        if slug in seen or slug in reserved: continue
         seen.add(slug)
         if not os.path.exists(os.path.join(EXPL, f"{slug}_explainer.html")):   # MISSING only
             todo.append((d[t], t, slug))

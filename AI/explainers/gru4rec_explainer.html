@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRU4Rec: RNN for Session-Based Recommendation — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:140px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;text-align:right;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-input{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-gru{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-predict{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>GRU4Rec: RNN for Session-Based Recommendation</h1>
+  <div class="subtitle">Using Gated Recurrent Units to model sequential user behavior for next-item prediction</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Recommendation Systems</span>
+    <span class="tag tag-complexity">O(S*D) inference</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding GRU4Rec</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> GRU4Rec (Hidasi et al., 2015) is a pioneering model that applies Gated Recurrent Units (GRUs) to the problem of <em>session-based recommendation</em>. Unlike traditional collaborative filtering which focuses on long-term user preferences, GRU4Rec aims to predict the very next item a user will interact with, given their short, anonymous sequence of actions within the current session (e.g., items viewed in a single browsing session, or products added to a shopping cart).</p>
+    <p><strong>Analogy:</strong> Imagine you're browsing an online store. You click on a pair of running shoes, then some athletic socks, then a water bottle. A traditional recommender might suggest other running gear based on your past purchase history. GRU4Rec, however, focuses purely on your *current session*: given the shoes, socks, and bottle, it tries to guess what you'll click on next — perhaps a fitness tracker, or maybe even a specific brand of protein powder if it detects a pattern from similar sessions. It's about capturing the immediate, evolving intent, not the static long-term profile.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">GRU4Rec leverages the GRU's ability to capture long-term dependencies in sequences, specifically for item sequences in a session, to predict the *next* item. It learns a dynamic representation of the user's current intent based on their *past actions within the current session*.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How GRU4Rec Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Architecture: Item Embeddings to Hidden States</h4>
+    <p>GRU4Rec processes a sequence of items, \(x_1, x_2, \dots, x_t\), representing a user's session. Each item is first converted into a dense <em>item embedding</em>. These embeddings are fed sequentially into a stack of GRU layers. The core idea is that the GRU maintains a "hidden state" (\(h_t\)) that summarizes all previous items in the session up to time \(t\). This hidden state is then used to predict the next item.</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Input Embedding:</strong> Each item \(x_t\) (e.g., item ID) is mapped to a continuous vector embedding.</li>
+      <li><strong>GRU Layers:</strong> The item embedding \(x_t\) and the previous hidden state \(h_{t-1}\) are fed into the GRU cell. The GRU's internal gates (reset and update) control how much of the old hidden state to forget and how much of the new input to incorporate, producing a new hidden state \(h_t\).</li>
+      <li><strong>Output Layer:</strong> The final hidden state \(h_t\) is passed through a dense layer, which projects it into a vector of scores, one for each possible item in the catalog.</li>
+      <li><strong>Softmax:</strong> A softmax function is applied to these scores to produce a probability distribution over all items, indicating the likelihood of each item being the next one the user interacts with.</li>
+    </ol>
+
+    <h4>Design Decision: Why GRU over Vanilla RNN or LSTM?</h4>
+    <p>Recurrent Neural Networks (RNNs) are natural for sequential data, but vanilla RNNs suffer from vanishing/exploding gradients, making them struggle with long dependencies. LSTMs (Long Short-Term Memory) solve this with three gates (input, forget, output), but GRUs (Gated Recurrent Units) simplify this to just two gates (reset, update). For session-based recommendation, GRUs offer a good balance:</p>
+    <ul>
+      <li><strong>Efficiency:</strong> Fewer parameters and computations than LSTMs, leading to faster training and inference.</li>
+      <li><strong>Effectiveness:</strong> Still capable of capturing long-term dependencies within a session, crucial for understanding evolving user intent.</li>
+      <li><strong>Simplicity:</strong> Easier to implement and tune compared to LSTMs, while often achieving comparable performance for many sequence tasks.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core strength of GRU4Rec lies in its ability to learn a dynamic, context-aware representation (\(h_t\)) of the user's current session. This representation is continuously updated with each new item, allowing the model to adapt its predictions to the user's evolving preferences within that specific interaction sequence.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Gated Recurrent Unit (GRU) Equations</h4>
+    <p>A GRU cell takes the current input \(x_t\) (the item embedding) and the previous hidden state \(h_{t-1}\) to compute the new hidden state \(h_t\). It uses two gates to control information flow:</p>
+    <p>1. <strong>Update Gate (\(z_t\)):</strong> Determines how much of the previous hidden state \(h_{t-1}\) should be carried forward to the current hidden state \(h_t\). A value close to 1 means "keep" the old state; a value close to 0 means "forget" it and focus on the new input.</p>
+    <div class="eq">$$z_t = \sigma(W_z x_t + U_z h_{t-1} + b_z)$$</div>
+    <p>2. <strong>Reset Gate (\(r_t\)):</strong> Determines how much of the previous hidden state \(h_{t-1}\) should be "reset" or ignored when computing the candidate hidden state \(\tilde{h}_t\). If \(r_t\) is close to 0, the GRU largely ignores the past when considering the new input.</p>
+    <div class="eq">$$r_t = \sigma(W_r x_t + U_r h_{t-1} + b_r)$$</div>
+    <p>3. <strong>Candidate Hidden State (\(\tilde{h}_t\)):</strong> This is the potential new hidden state, computed by combining the current input \(x_t\) and a "reset" version of the previous hidden state \((r_t \odot h_{t-1})\). The \(\odot\) denotes element-wise (Hadamard) product.</p>
+    <div class="eq">$$\tilde{h}_t = \tanh(W_h x_t + U_h (r_t \odot h_{t-1}) + b_h)$$</div>
+    <p>4. <strong>Final Hidden State (\(h_t\)):</strong> The new hidden state is a linear interpolation between the previous hidden state \(h_{t-1}\) and the candidate hidden state \(\tilde{h}_t\), controlled by the update gate \(z_t\). This allows the GRU to selectively pass information from the past while incorporating new information.</p>
+    <div class="eq">$$h_t = (1 - z_t) \odot h_{t-1} + z_t \odot \tilde{h}_t$$</div>
+    <p>Here, \(W\) and \(U\) are weight matrices, \(b\) are bias vectors, and \(\sigma\) is the sigmoid activation function.</p>
+
+    <h4>Output Layer and Prediction</h4>
+    <p>After computing \(h_t\), the model predicts the next item. If there are \(N\) unique items in the catalog, the hidden state is transformed into \(N\) scores:</p>
+    <div class="eq">$$s_j = V_j h_t + c_j$$</div>
+    <p>where \(V_j\) is the embedding vector for item \(j\) (or a row from an output weight matrix) and \(c_j\) is a bias term. These scores are then normalized into a probability distribution using the softmax function:</p>
+    <div class="eq">$$P(\text{next item}=j \mid h_t) = \frac{e^{s_j}}{\sum_{k=1}^N e^{s_k}}$$</div>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Computational Challenge</div>
+      <p style="font-size:14px;margin:0;">The final softmax layer requires computing scores for <em>all \(N\) items</em> in the catalog. For large catalogs (millions of items), this is computationally expensive. Practical solutions include using sampling techniques (e.g., negative sampling) or approximate nearest neighbor search during inference to only evaluate a subset of relevant items.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow a user's session through a GRU4Rec model. See how each item updates the hidden state and influences the next-item prediction. Adjust the 'Input Scale' to see how input magnitude affects GRU gate behavior.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Input Scale</div>
+          <input type="range" id="inputScaleSlider" min="0.5" max="2.0" step="0.1" value="1.0">
+          <div class="slider-value" id="inputScaleValue">1.0</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Scales the magnitude of item embeddings fed into the GRU. Higher values can make the GRU more reactive to new inputs.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The GRU4Rec Model & Session</div>
+        <div class="info-desc" id="infoDesc">We're simulating a GRU4Rec model with 5 items (A-E) and a 4-dimensional hidden state. The session starts empty, with a zero initial hidden state (\(h_0\)). This hidden state represents the evolving "memory" of the user's session intent.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input Item Embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Hidden State</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> GRU Gate Values</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Predicted Item Probability</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use GRU4Rec:</strong></p>
+    <ul>
+      <li><strong>Session-based recommendation:</strong> Ideal for scenarios where user identity is unknown or irrelevant, and predictions depend solely on the current sequence of interactions (e.g., anonymous browsing, shopping carts).</li>
+      <li><strong>Capturing short-term dynamics:</strong> Excels at modeling rapidly evolving user intent within a single interaction session.</li>
+      <li><strong>Sequential data:</strong> Any domain where the order of interactions matters (e.g., clickstreams, video watch history, search queries).</li>
+      <li><strong>Cold-start sessions:</strong> Can provide relevant recommendations even for new users or sessions with no historical data, as it only needs the current session's items.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Long-term user preferences:</strong> Not designed to capture stable, cross-session user tastes. Hybrid models or other approaches are better for this.</li>
+      <li><strong>Very sparse session data:</strong> If sessions are extremely short (1-2 items) or contain very few unique items, the GRU may not learn meaningful patterns.</li>
+      <li><strong>Non-sequential data:</strong> If the order of interactions is arbitrary or irrelevant, a simpler model (e.g., matrix factorization, item-to-item similarity) might suffice.</li>
+      <li><strong>Extremely large item catalogs:</strong> While effective, the full softmax over millions of items can be a bottleneck, requiring approximations.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">GRU4Rec's strength lies in its ability to adapt quickly to evolving user intent within a single session. By continuously updating its hidden state, it acts as a dynamic "memory" of the session's context, making it highly effective for real-time, context-sensitive recommendations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class GRU4Rec(nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, num_items, embedding_dim, hidden_size):</div>
+      <div class="code-line" id="cl5">        super(GRU4Rec, self).__init__()</div>
+      <div class="code-line" id="cl6">        self.item_embedding = nn.Embedding(num_items, embedding_dim)</div>
+      <div class="code-line" id="cl7">        self.gru = nn.GRU(embedding_dim, hidden_size, batch_first=True)</div>
+      <div class="code-line" id="cl8">        self.output_layer = nn.Linear(hidden_size, num_items)</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">    def forward(self, session_items, hidden_state=None):</div>
+      <div class="code-line" id="cl11">        # session_items: (batch_size, seq_len) -> item IDs</div>
+      <div class="code-line" id="cl12">        embedded_items = self.item_embedding(session_items) # (batch_size, seq_len, embedding_dim)</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">        # GRU processes the sequence</div>
+      <div class="code-line" id="cl15">        gru_out, h_n = self.gru(embedded_items, hidden_state) # gru_out: (batch, seq_len, hidden_size)</div>
+      <div class="code-line" id="cl16">                                                            # h_n: (1, batch, hidden_size) for single layer GRU</div>
+      <div class="code-line" id="cl17">        # Use the hidden state from the *last* item in the sequence for prediction</div>
+      <div class="code-line" id="cl18">        last_hidden_state = h_n.squeeze(0)                  # (batch_size, hidden_size)</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        # Predict scores for all items</div>
+      <div class="code-line" id="cl21">        item_scores = self.output_layer(last_hidden_state)  # (batch_size, num_items)</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">        return item_scores</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># --- Example Usage ---</div>
+      <div class="code-line" id="cl26">num_items = 1000</div>
+      <div class="code-line" id="cl27">embedding_dim = 64</div>
+      <div class="code-line" id="cl28">hidden_size = 64</div>
+      <div class="code-line" id="cl29">batch_size = 32</div>
+      <div class="code-line" id="cl30">seq_len = 5</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">model = GRU4Rec(num_items, embedding_dim, hidden_size)</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34"># Simulate a session batch</div>
+      <div class="code-line" id="cl35">session_data = torch.randint(0, num_items, (batch_size, seq_len))</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># Forward pass</div>
+      <div class="code-line" id="cl38">scores = model(session_data)</div>
+      <div class="code-line" id="cl39"></div>
+      <div class="code-line" id="cl40"># To get probabilities:</div>
+      <div class="code-line" id="cl41">probs = torch.softmax(scores, dim=-1)</div>
+      <div class="code-line" id="cl42"></div>
+      <div class="code-line" id="cl43"># For training, use CrossEntropyLoss with raw scores:</div>
+      <div class="code-line" id="cl44"># target_items = torch.randint(0, num_items, (batch_size,)) # next item IDs</div>
+      <div class="code-line" id="cl45"># loss = nn.CrossEntropyLoss()(scores, target_items)</div>
+      <div class="code-line" id="cl46"># loss.backward()</div>
+      <div class="code-line" id="cl47"># optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── MATH HELPERS ──
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function tanh(x) { return Math.tanh(x); }
+function softmax(arr) {
+  const max = Math.max(...arr); // For numerical stability
+  const exp = arr.map(v => Math.exp(v - max));
+  const sum = exp.reduce((a, b) => a + b, 0);
+  return exp.map(v => v / sum);
+}
+function dot(v1, v2) { return v1.reduce((sum, val, i) => sum + val * v2[i], 0); }
+function matMul(mat, vec) {
+  return mat.map(row => dot(row, vec));
+}
+function add(v1, v2) { return v1.map((val, i) => val + v2[i]); }
+function mul(v1, v2) { return v1.map((val, i) => val * v2[i], 0); } // Hadamard product
+function scale(vec, s) { return vec.map(v => v * s); }
+
+function fmt(v, precision = 2) {
+  if (Number.isNaN(v)) return 'NaN';
+  if (!Number.isFinite(v)) return v > 0 ? '∞' : '-∞';
+  if (Math.abs(v) < 0.001 && v !== 0) return v.toExponential(1);
+  return v.toFixed(precision);
+}
+function fmtVec(vec, precision = 2) {
+  return '[' + vec.map(v => fmt(v, precision)).join(', ') + ']';
+}
+
+// ── SEEDED RNG FOR REPRODUCIBLE WEIGHTS/EMBEDDINGS ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(12345); // Fixed seed for reproducibility
+
+function randVec(dim, scale = 0.5) { return Array.from({length: dim}, () => (rng() - 0.5) * 2 * scale); }
+function randMat(rows, cols, scale = 0.5) { return Array.from({length: rows}, () => randVec(cols, scale)); }
+
+// ── MODEL PARAMETERS (SYNTHETIC) ──
+const ITEM_DIM = 4;
+const HIDDEN_DIM = 4;
+const NUM_ITEMS = 5; // A, B, C, D, E
+
+const itemEmbeddings = {
+  'A': randVec(ITEM_DIM, 0.8),
+  'B': randVec(ITEM_DIM, 0.8),
+  'C': randVec(ITEM_DIM, 0.8),
+  'D': randVec(ITEM_DIM, 0.8),
+  'E': randVec(ITEM_DIM, 0.8),
+};
+const itemNames = ['A', 'B', 'C', 'D', 'E'];
+
+// GRU weights
+const Wz = randMat(HIDDEN_DIM, ITEM_DIM, 0.3); const Uz = randMat(HIDDEN_DIM, HIDDEN_DIM, 0.3); const bz = randVec(HIDDEN_DIM, 0.1);
+const Wr = randMat(HIDDEN_DIM, ITEM_DIM, 0.3); const Ur = randMat(HIDDEN_DIM, HIDDEN_DIM, 0.3); const br = randVec(HIDDEN_DIM, 0.1);
+const Wh = randMat(HIDDEN_DIM, ITEM_DIM, 0.3); const Uh = randMat(HIDDEN_DIM, HIDDEN_DIM, 0.3); const bh = randVec(HIDDEN_DIM, 0.1);
+
+// Output layer weights (V_j are rows of this matrix)
+const V_out = randMat(NUM_ITEMS, HIDDEN_DIM, 0.5);
+const b_out = randVec(NUM_ITEMS, 0.2);
+
+// ── GRU FORWARD PASS FUNCTION ──
+function gruForward(x_t, h_prev, inputScale = 1.0) {
+  const scaled_x_t = scale(x_t, inputScale);
+
+  // Update Gate
+  const Wz_xt = matMul(Wz, scaled_x_t);
+  const Uz_h_prev = matMul(Uz, h_prev);
+  const z_t = add(add(Wz_xt, Uz_h_prev), bz).map(sigmoid);
+
+  // Reset Gate
+  const Wr_xt = matMul(Wr, scaled_x_t);
+  const Ur_h_prev = matMul(Ur, h_prev);
+  const r_t = add(add(Wr_xt, Ur_h_prev), br).map(sigmoid);
+
+  // Candidate Hidden State
+  const r_h_prev_odot = mul(r_t, h_prev);
+  const Wh_xt = matMul(Wh, scaled_x_t);
+  const Uh_r_h_prev = matMul(Uh, r_h_prev_odot);
+  const h_tilde_t = add(add(Wh_xt, Uh_r_h_prev), bh).map(tanh);
+
+  // Final Hidden State
+  const one_minus_z_t = z_t.map(v => 1 - v);
+  const h_prev_odot_one_minus_z_t = mul(one_minus_z_t, h_prev);
+  const h_tilde_t_odot_z_t = mul(z_t, h_tilde_t);
+  const h_t = add(h_prev_odot_one_minus_z_t, h_tilde_t_odot_z_t);
+
+  return { z_t, r_t, h_tilde_t, h_t };
+}
+
+// ── PREDICTION FUNCTION ──
+function predictNextItem(h_t) {
+  const scores = Array(NUM_ITEMS).fill(0);
+  for (let i = 0; i < NUM_ITEMS; i++) {
+    scores[i] = dot(V_out[i], h_t) + b_out[i];
+  }
+  const probabilities = softmax(scores);
+  const topK = probabilities
+    .map((prob, idx) => ({ item: itemNames[idx], prob }))
+    .sort((a, b) => b.prob - a.prob)
+    .slice(0, 3); // Get top 3 predictions
+  return { scores, probabilities, topK };
+}
+
+// ── SESSION SIMULATION ──
+const sessionItems = ['A', 'B', 'C']; // Example session
+const initialHiddenState = Array(HIDDEN_DIM).fill(0);
+
+// This function calculates the full trace for a given input scale
+function calculateSessionTrace(inputScale) {
+  const trace = [{
+    h_prev: initialHiddenState,
+    input_item: null,
+    input_embedding: null,
+    gru_output: null,
+    prediction: null,
+    session_so_far: []
+  }];
+
+  let current_h = initialHiddenState;
+  let session_history = [];
+
+  for (let i = 0; i < sessionItems.length; i++) {
+    const item_name = sessionItems[i];
+    const item_emb = itemEmbeddings[item_name];
+    session_history.push(item_name);
+
+    const gru_results = gruForward(item_emb, current_h, inputScale);
+    const prediction_results = predictNextItem(gru_results.h_t);
+
+    trace.push({
+      h_prev: current_h,
+      input_item: item_name,
+      input_embedding: item_emb,
+      gru_output: gru_results,
+      prediction: prediction_results,
+      session_so_far: [...session_history]
+    });
+    current_h = gru_results.h_t;
+  }
+  return trace;
+}
+
+let sessionTrace = calculateSessionTrace(1.0); // Initial trace
+let currentInputScale = 1.0;
+
+// ── STEPS DEFINITIONS ──
+const steps = [
+  { phase: 'setup', title: 'The GRU4Rec Model & Session', mode: 'init',
+    desc: `We're simulating a GRU4Rec model with 5 items (A-E) and a 4-dimensional hidden state. The session starts empty, with a zero initial hidden state (\(h_0\)). This hidden state represents the evolving "memory" of the user's session intent.` },
+  { phase: 'input', title: 'User Clicks Item A', mode: 'input_A', itemIdx: 0,
+    desc: `The user interacts with Item A. Item A is converted into its dense vector embedding (\(x_A\)). This embedding will be fed into the GRU cell along with the previous hidden state (\(h_0\)).` },
+  { phase: 'gru', title: 'GRU Processes Item A', mode: 'gru_A', itemIdx: 0,
+    desc: `The GRU cell takes \(x_A\) and \(h_0\) to compute new gate values (\(z_1, r_1\)) and a candidate hidden state (\(\tilde{h}_1\)). These control how much of \(h_0\) to keep/forget and how much of \(x_A\) to incorporate, forming the new hidden state \(h_1\).` },
+  { phase: 'predict', title: 'Predict Next Item (After A)', mode: 'predict_A', itemIdx: 0,
+    desc: `The new hidden state \(h_1\) is fed into the output layer to get scores for all 5 items. Softmax converts these into probabilities. We can now recommend the top items based on the user's interaction with Item A.` },
+  { phase: 'input', title: 'User Clicks Item B', mode: 'input_B', itemIdx: 1,
+    desc: `Next, the user interacts with Item B. Its embedding (\(x_B\)) is prepared. Notice how the hidden state \(h_1\) now carries the context from Item A.` },
+  { phase: 'gru', title: 'GRU Processes Item B', mode: 'gru_B', itemIdx: 1,
+    desc: `The GRU processes \(x_B\) and \(h_1\). New gate values (\(z_2, r_2\)) and candidate state (\(\tilde{h}_2\)) are computed. The resulting hidden state \(h_2\) now reflects the combined context of both Item A and Item B.` },
+  { phase: 'predict', title: 'Predict Next Item (After B)', mode: 'predict_B', itemIdx: 1,
+    desc: `With \(h_2\), the model generates updated scores and probabilities. The top recommendations might have shifted, reflecting the user's evolving intent after interacting with Item B.` },
+  { phase: 'input', title: 'User Clicks Item C', mode: 'input_C', itemIdx: 2,
+    desc: `Finally, the user interacts with Item C. Its embedding (\(x_C\)) is prepared. The session context in \(h_2\) now includes A and B.` },
+  { phase: 'gru', title: 'GRU Processes Item C', mode: 'gru_C', itemIdx: 2,
+    desc: `The GRU processes \(x_C\) and \(h_2\). A final hidden state \(h_3\) is computed, summarizing the entire session (A, B, C).` },
+  { phase: 'predict', title: 'Final Prediction (After C)', mode: 'predict_C', itemIdx: 2,
+    desc: `The model's final prediction for the next item is based on \(h_3\). This is the most informed recommendation for this session, considering all previous items. The process repeats for every new item in a real session.` },
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; currentInputScale = 1.0; document.getElementById('inputScaleSlider').value = 1.0; render(); }
+
+// ── SLIDER ──
+const inputScaleSlider = document.getElementById('inputScaleSlider');
+inputScaleSlider.addEventListener('input', () => {
+  currentInputScale = parseFloat(inputScaleSlider.value);
+  document.getElementById('inputScaleValue').textContent = currentInputScale.toFixed(1);
+  sessionTrace = calculateSessionTrace(currentInputScale); // Recalculate trace
+  render();
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', input: 'phase-input', gru: 'phase-gru', predict: 'phase-predict' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  const codeMapping = {
+    'init': [],
+    'input_A': [11,12], 'gru_A': [14,15], 'predict_A': [17,18,20,21],
+    'input_B': [11,12], 'gru_B': [14,15], 'predict_B': [17,18,20,21],
+    'input_C': [11,12], 'gru_C': [14,15], 'predict_C': [17,18,20,21],
+  };
+  (codeMapping[s.mode] || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.mode, s.itemIdx);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    surface: g('--surface'),
+  };
+}
+
+function drawCanvas(mode, itemIdx) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Layout constants
+  const PADDING = 20;
+  const ITEM_EMB_W = 60, ITEM_EMB_H = 80;
+  const HIDDEN_STATE_W = 80, HIDDEN_STATE_H = 100;
+  const GRU_CELL_W = 120, GRU_CELL_H = 120;
+  const PRED_BAR_W = 20, PRED_BAR_H = 100;
+
+  const X_INPUT_EMB = PADDING;
+  const X_GRU_CELL = X_INPUT_EMB + ITEM_EMB_W + 60;
+  const X_HIDDEN_STATE = X_GRU_CELL + GRU_CELL_W + 60;
+  const X_PREDICTION = X_HIDDEN_STATE + HIDDEN_STATE_W + 60;
+
+  const Y_TOP = H / 2 - GRU_CELL_H / 2;
+  const Y_ITEM_INPUT = Y_TOP + (GRU_CELL_H - ITEM_EMB_H) / 2;
+  const Y_HIDDEN_STATE = Y_TOP + (GRU_CELL_H - HIDDEN_STATE_H) / 2;
+  const Y_PREDICTION = Y_TOP + (GRU_CELL_H - PRED_BAR_H) / 2;
+
+  // Draw utilities
+  function drawVector(vec, x, y, width, height, label, color, highlight = false, precision = 2) {
+    const barSpacing = 2;
+    const barWidth = (width - (vec.length - 1) * barSpacing) / vec.length;
+    const maxAbsVal = Math.max(...vec.map(Math.abs), 0.1); // Ensure min height for small values
+    
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 11px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + width / 2, y - 8);
+    ctx.textAlign = 'left';
+
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, height);
+
+    vec.forEach((val, i) => {
+      const barX = x + i * (barWidth + barSpacing);
+      const barHeight = (Math.abs(val) / maxAbsVal) * height * 0.8; // Scale to 80% of height
+      const barY = y + height / 2 - barHeight / 2; // Center bars vertically
+
+      ctx.fillStyle = color;
+      if (highlight) ctx.fillStyle = 'white'; // Highlight with white fill
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+
+      // Value text
+      ctx.fillStyle = colors.text;
+      ctx.font = '9px ' + colors.mono;
+      ctx.textAlign = 'center';
+      ctx.fillText(fmt(val, precision), barX + barWidth / 2, y + height + 12);
+    });
+  }
+
+  function drawGRUCell(x, y, width, height, highlight = false) {
+    ctx.strokeStyle = highlight ? colors.purple : colors.border;
+    ctx.lineWidth = highlight ? 2 : 1;
+    ctx.fillStyle = colors.surface;
+    ctx.roundRect ? ctx.roundRect(x, y, width, height, colors.radius) : ctx.fillRect(x, y, width, height);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = colors.purple;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('GRU Cell', x + width / 2, y + height / 2 + 5);
+    ctx.textAlign = 'left';
+  }
+
+  function drawArrow(ctx, fromX, fromY, toX, toY, color, dash = false, headSize = 8) {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.5;
+    if (dash) ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Arrowhead
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headSize * Math.cos(angle - Math.PI / 6), toY - headSize * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(toX - headSize * Math.cos(angle + Math.PI / 6), toY - headSize * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPredictionBars(probs, x, y, width, height, highlightIdx = -1) {
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 11px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('Prediction', x + width / 2, y - 8);
+    ctx.textAlign = 'left';
+
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, height);
+
+    const barSpacing = 2;
+    const singleBarWidth = (width - (NUM_ITEMS - 1) * barSpacing) / NUM_ITEMS;
+
+    probs.forEach((prob, i) => {
+      const barX = x + i * (singleBarWidth + barSpacing);
+      const barHeight = prob * height;
+      const barY = y + height - barHeight;
+
+      ctx.fillStyle = colors.green;
+      if (i === highlightIdx) ctx.fillStyle = 'white'; // Highlight with white fill
+      ctx.fillRect(barX, barY, singleBarWidth, barHeight);
+
+      ctx.fillStyle = colors.text;
+      ctx.font = '9px ' + colors.mono;
+      ctx.textAlign = 'center';
+      ctx.fillText(itemNames[i], barX + singleBarWidth / 2, y + height + 12);
+      ctx.fillText(fmt(prob), barX + singleBarWidth / 2, barY - 4);
+    });
+  }
+
+  function drawSessionHistory(session, x, y, itemWidth, itemHeight, spacing) {
+    ctx.fillStyle = colors.text2;
+    ctx.font = '600 11px ' + colors.sans;
+    ctx.textAlign = 'left';
+    ctx.fillText('Session History:', x, y - 12);
+
+    session.forEach((item, i) => {
+      const itemX = x + i * (itemWidth + spacing);
+      ctx.fillStyle = colors.blue;
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1;
+      ctx.roundRect ? ctx.roundRect(itemX, y, itemWidth, itemHeight, 5) : ctx.fillRect(itemX, y, itemWidth, itemHeight);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 12px ' + colors.sans;
+      ctx.textAlign = 'center';
+      ctx.fillText(item, itemX + itemWidth / 2, y + itemHeight / 2 + 4);
+    });
+  }
+
+  // Current session state based on step
+  let currentSessionIdx = -1;
+  if (mode.startsWith('input_')) currentSessionIdx = itemIdx;
+  else if (mode.startsWith('gru_')) currentSessionIdx = itemIdx;
+  else if (mode.startsWith('predict_')) currentSessionIdx = itemIdx;
+
+  const currentTrace = sessionTrace[currentSessionIdx + 1] || sessionTrace[0];
+  const h_prev = sessionTrace[currentSessionIdx] ? sessionTrace[currentSessionIdx].gru_output?.h_t || initialHiddenState : initialHiddenState;
+  const h_current = currentTrace.gru_output?.h_t || initialHiddenState;
+  const input_embedding = currentTrace.input_embedding;
+  const gru_output = currentTrace.gru_output;
+  const prediction = currentTrace.prediction;
+
+  // Draw Session History
+  const sessionHistoryY = PADDING + 10;
+  const sessionHistoryItemW = 30, sessionHistoryItemH = 30, sessionHistorySpacing = 10;
+  drawSessionHistory(currentTrace.session_so_far, PADDING, sessionHistoryY, sessionHistoryItemW, sessionHistoryItemH, sessionHistorySpacing);
+
+  // Draw Initial Hidden State (h_prev)
+  const X_H_PREV = X_HIDDEN_STATE - 180;
+  const Y_H_PREV = Y_HIDDEN_STATE;
+  drawVector(h_prev, X_H_PREV, Y_H_PREV, HIDDEN_STATE_W, HIDDEN_STATE_H, 'h_t-1', colors.purple, false);
+  if (h_prev === initialHiddenState) {
+    ctx.fillStyle = colors.text2; ctx.font = '11px ' + colors.sans;
+    ctx.fillText('Initial (zero) hidden state', X_H_PREV + HIDDEN_STATE_W / 2 - 60, Y_H_PREV + HIDDEN_STATE_H + 30);
+  }
+
+  // Draw Input Item Embedding
+  if (input_embedding && (mode.startsWith('input_') || mode.startsWith('gru_') || mode.startsWith('predict_'))) {
+    drawVector(input_embedding, X_INPUT_EMB, Y_ITEM_INPUT, ITEM_EMB_W, ITEM_EMB_H, `Item ${sessionItems[itemIdx]} (x_t)`, colors.blue, mode.startsWith('input_'));
+    drawArrow(ctx, X_INPUT_EMB + ITEM_EMB_W, Y_ITEM_INPUT + ITEM_EMB_H / 2, X_GRU_CELL, Y_TOP + GRU_CELL_H / 2, colors.border);
+  }
+
+  // Draw GRU Cell
+  drawGRUCell(X_GRU_CELL, Y_TOP, GRU_CELL_W, GRU_CELL_H, mode.startsWith('gru_'));
+
+  // Draw Hidden State (h_t)
+  if (mode !== 'init') {
+    drawVector(h_current, X_HIDDEN_STATE, Y_HIDDEN_STATE, HIDDEN_STATE_W, HIDDEN_STATE_H, `h_t`, colors.purple, mode.startsWith('gru_') || mode.startsWith('predict_'));
+    drawArrow(ctx, X_GRU_CELL + GRU_CELL_W, Y_TOP + GRU_CELL_H / 2, X_HIDDEN_STATE, Y_HIDDEN_STATE + HIDDEN_STATE_H / 2, colors.border);
+    drawArrow(ctx, X_HIDDEN_STATE, Y_HIDDEN_STATE + HIDDEN_STATE_H / 2, X_H_PREV + HIDDEN_STATE_W, Y_H_PREV + HIDDEN_STATE_H / 2, colors.border, true); // Recurrent arrow
+  }
+
+  // Draw Prediction
+  if (prediction && mode.startsWith('predict_')) {
+    drawPredictionBars(prediction.probabilities, X_PREDICTION, Y_PREDICTION, PRED_BAR_W * NUM_ITEMS, PRED_BAR_H);
+    drawArrow(ctx, X_HIDDEN_STATE + HIDDEN_STATE_W, Y_HIDDEN_STATE + HIDDEN_STATE_H / 2, X_PREDICTION, Y_PREDICTION + PRED_BAR_H / 2, colors.border);
+
+    // Top-K text
+    ctx.fillStyle = colors.text;
+    ctx.font = '12px ' + colors.sans;
+    ctx.textAlign = 'left';
+    let topKText = `Top predictions:\n`;
+    prediction.topK.forEach((p, i) => {
+      topKText += `${i + 1}. Item ${p.item}: ${fmt(p.prob * 100)}%\n`;
+    });
+    document.getElementById('infoNumbers').textContent = topKText;
+  } else {
+    document.getElementById('infoNumbers').textContent = '';
+  }
+
+  // Draw GRU gate values (small bars inside GRU cell)
+  if (gru_output && mode.startsWith('gru_')) {
+    const gateY = Y_TOP + 10;
+    const gateW = 30, gateH = 30;
+    const gateSpacing = (GRU_CELL_W - 3 * gateW) / 4;
+
+    drawVector(gru_output.z_t, X_GRU_CELL + gateSpacing, gateY, gateW, gateH, 'z_t (Update)', colors.amber, true, 1);
+    drawVector(gru_output.r_t, X_GRU_CELL + 2 * gateSpacing + gateW, gateY, gateW, gateH, 'r_t (Reset)', colors.amber, true, 1);
+    drawVector(gru_output.h_tilde_t, X_GRU_CELL + 3 * gateSpacing + 2 * gateW, gateY, gateW, gateH, '~h_t (Candidate)', colors.amber, true, 1);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode, steps[step].itemIdx));
+</script>
+</body>
+</html>
