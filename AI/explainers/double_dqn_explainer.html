@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Double DQN: Overestimation Bias Correction — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-dqn{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-ddqn{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+/* Custom styles for this explainer */
+.q-value-bar-container {
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+    gap: 10px;
+    padding-bottom: 30px; /* Space for labels */
+}
+.q-value-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 1;
+    position: relative;
+    height: 100%;
+}
+.q-bar-label {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+    position: absolute;
+    bottom: 0px;
+}
+.q-value-bar {
+    width: 30px;
+    background-color: var(--blue-mid);
+    border-radius: 4px 4px 0 0;
+    transition: height 0.3s ease-out, background-color 0.3s ease-out;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 5px;
+}
+.q-value-text {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 0 2px rgba(0,0,0,0.5);
+}
+.q-value-bar.true { background-color: var(--blue-mid); }
+.q-value-bar.policy { background-color: var(--red-mid); }
+.q-value-bar.target { background-color: var(--purple-mid); }
+.q-value-bar.selected { border: 2px solid var(--amber-mid); }
+.q-value-bar.dqn-target-val { background-color: var(--green-mid); }
+.q-value-bar.ddqn-target-val { background-color: var(--cyan-mid); }
+
+.q-value-bar.true .q-value-text { color: white; }
+.q-value-bar.policy .q-value-text { color: white; }
+.q-value-bar.target .q-value-text { color: white; }
+.q-value-bar.selected .q-value-text { color: white; }
+.q-value-bar.dqn-target-val .q-value-text { color: white; }
+.q-value-bar.ddqn-target-val .q-value-text { color: white; }
+
+.q-overlay-text {
+    position: absolute;
+    top: -18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    text-align: center;
+    background: var(--surface);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+    pointer-events: none;
+    z-index: 10;
+}
+.q-overlay-text.visible {
+    opacity: 1;
+}
+
+.comparison-box {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.comparison-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.comparison-label {
+    font-weight: 600;
+    min-width: 100px;
+    color: var(--text2);
+}
+.comparison-value {
+    flex: 1;
+    color: var(--text);
+}
+.comparison-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Double DQN: Overestimation Bias Correction</h1>
+  <div class="subtitle">Decoupling action selection and evaluation for more stable Q-learning targets</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(1) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Double DQN</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Deep Q-Networks (DQN) revolutionized Reinforcement Learning by combining Q-learning with deep neural networks. However, standard DQN suffers from an overestimation bias: it tends to consistently overestimate the true Q-values of actions. Double DQN (DDQN) is a simple, yet effective, modification that corrects this bias by decoupling the action selection from its evaluation.</p>
+    <p><strong>Analogy:</strong> Imagine you're picking the best restaurant from a list, but each restaurant has a review score that's a bit noisy. If you pick the restaurant with the highest *noisy* score, you're likely picking one whose true score is lower, but got lucky with its noise. If you then trust that *same noisy score* as the restaurant's true quality, you'll overestimate. Double DQN is like having two separate sets of noisy reviews (from two different review sites). You use one site to *pick* the best restaurant, but then you check the *other* site for its score, which gives you a less biased estimate of its actual quality.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">DQN's target calculation, \(Y_t^{DQN} = r + \gamma \max_{a'} Q(s', a'; \theta)\), uses the same network \(\theta\) to both select (\(\max\)) and evaluate the next action. This leads to overestimation. Double DQN splits this: \(Y_t^{DDQN} = r + \gamma Q(s', \operatorname{argmax}_{a'} Q(s', a'; \theta), \theta')\), using the <em>policy network</em> \(\theta\) for selection and the <em>target network</em> \(\theta'\) for evaluation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Double DQN Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Overestimation Problem in DQN</h4>
+    <p>In Q-learning, we update our estimate of \(Q(s,a)\) towards a target value. For DQN, this target is derived from the Bellman equation using the maximum Q-value of the next state: \(Y_t = r + \gamma \max_{a'} Q(s', a'; \theta)\). The problem arises because the \(\max\) operator, when applied to noisy estimates, is inherently biased. If Q-values are noisy, the action that *appears* to have the highest value is often one whose true value is lower, but whose noise pushed it higher. By then using this *same network's* Q-value for the target, we propagate this inflated estimate.</p>
+
+    <h4>The Double DQN Solution: Decoupling</h4>
+    <p>Double DQN (Hasselt et al., 2016) resolves this by using two separate Q-networks for the two roles in the target calculation:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Action Selection:</strong> The action \(a^*\) in the next state \(s'\) is chosen using the <em>current policy network</em> (which is being updated): \(a^* = \operatorname{argmax}_{a'} Q(s', a'; \theta)\).</li>
+      <li><strong>Action Evaluation:</strong> The Q-value of the selected action \(a^*\) is then evaluated using a <em>separate target network</em> (which is updated less frequently): \(Q(s', a^*; \theta')\).</li>
+    </ol>
+    <p>This simple change ensures that the noise influencing the selection of \(a^*\) is independent of the noise influencing its evaluation, significantly reducing the overestimation bias. The target network \(\theta'\) typically lags behind the policy network \(\theta\), being updated by copying \(\theta\) every few thousand steps, or via a soft update \( \theta' \leftarrow \tau \theta + (1-\tau)\theta' \).</p>
+
+    <h4>Design Decision: Why Not Two Fully Independent Networks?</h4>
+    <p>While using two completely independent networks (one for selection, one for evaluation) would also reduce bias, it would effectively double the number of parameters to train and might make training less stable. Double DQN's approach leverages the existing target network (already present in standard DQN for stability) to also serve the bias-correction role, incurring almost no additional computational cost.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core of Double DQN is using the <strong>policy network</strong> to <em>choose</em> the best action, and the <strong>target network</strong> to <em>evaluate</em> the chosen action. This breaks the link between the positive noise that makes an action look best and the value used in the update, thus reducing overestimation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Bellman Equation and Q-Learning Target</h4>
+    <p>The optimal Q-function \(Q^*(s,a)\) satisfies the Bellman optimality equation:</p>
+    <div class="eq">$$Q^*(s,a) = \mathbb{E}_{s',r}[r + \gamma \max_{a'} Q^*(s',a') \mid s,a]$$</div>
+    <p>In Q-learning, we update our current estimate \(Q(s,a)\) towards a sample-based target. For DQN, this target \(Y_t^{DQN}\) is:</p>
+    <div class="eq">$$Y_t^{DQN} = r + \gamma \max_{a'} Q(s', a'; \theta)$$</div>
+    <p>The problem is that the expectation of a maximum is greater than or equal to the maximum of the expectation: \(\mathbb{E}[\max_{a'} X_{a'}] \ge \max_{a'} \mathbb{E}[X_{a'}]\). When \(Q(s',a';\theta)\) is a noisy estimate of \(Q^*(s',a')\), the \(\max\) operator introduces a positive bias.</p>
+
+    <h4>The Double DQN Target</h4>
+    <p>Double DQN's target \(Y_t^{DDQN}\) modifies this by using two different sets of weights for selection and evaluation:</p>
+    <div class="eq">$$Y_t^{DDQN} = r + \gamma Q(s', \operatorname{argmax}_{a'} Q(s', a'; \theta), \theta')$$</div>
+    <p>Here, \(\theta\) are the weights of the *policy network* (which is being trained), used to *select* the action \(\operatorname{argmax}_{a'} Q(s', a'; \theta)\). And \(\theta'\) are the weights of the *target network* (a lagged copy of \(\theta\)), used to *evaluate* the Q-value of that selected action. Because \(\theta\) and \(\theta'\) are different, the noise in the selection is decoupled from the noise in the evaluation, significantly reducing the overestimation bias.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While DDQN reduces overestimation, it doesn't eliminate it entirely, especially if the target network \(\theta'\) is updated very frequently (making it too similar to \(\theta\)). The frequency of target network updates (or the \(\tau\) for soft updates) is a hyperparameter that balances bias reduction with training stability. Too infrequent, and \(\theta'\) becomes too stale; too frequent, and the bias returns.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Simulate Q-value estimates for 5 actions in a next state \\(s'\\). Observe how noise leads to overestimation in DQN and how Double DQN corrects it. Adjust the noise level to see its impact.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Q-value Noise Level</div>
+          <input type="range" id="noiseSlider" min="0" max="1.5" step="0.05" value="0.5">
+          <div class="slider-value" id="noiseValue">0.50</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher noise increases the chance of overestimation.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">True Q-values for next state s'</div>
+        <div class="info-desc" id="infoDesc">We have 5 possible actions in the next state \(s'\). Each has a true (but unknown to the agent) Q-value. Our goal is to estimate the optimal target value: \(r + \gamma \max_{a'} Q^*(s',a')\). The true max Q-value is \(9.00\).</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> True Q-value</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Policy Q-value (Q_main)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Target Q-value (Q_target)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid); border: 1px solid var(--amber-mid);"></div> Selected Action</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> DQN Target Value</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> DDQN Target Value</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Double DQN:</strong></p>
+    <ul>
+      <li>Anytime you're using DQN! It's a simple, low-cost modification that almost always improves performance and stability.</li>
+      <li>In environments with high stochasticity or noisy observations, where Q-value estimates are inherently more volatile.</li>
+      <li>When training deep Q-networks where the \(\max\) operator can compound small estimation errors into significant overestimation.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>There are very few downsides to using DDQN over vanilla DQN. The primary 'cost' is managing the target network, which is already a standard practice in DQN.</li>
+      <li>If computational resources are extremely constrained and even the slight overhead of a second forward pass (for the target network evaluation) is prohibitive (highly unlikely in modern setups).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Broader Impact</div>
+      <p style="font-size:14px;margin:0;">The principle of decoupling selection and evaluation is a powerful idea in RL that extends beyond DQN. It's found in algorithms like Actor-Critic methods (where an actor selects actions and a critic evaluates them) and even in some forms of Monte Carlo Tree Search. DDQN is a foundational step towards more robust and stable value-based RL algorithms.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume Q_policy and Q_target are instances of nn.Module</div>
+      <div class="code-line" id="cl4"># Q_policy is the network being optimized (theta)</div>
+      <div class="code-line" id="cl5"># Q_target is a lagged copy of Q_policy (theta')</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># --- Sample transition (s, a, r, s_prime, done) from replay buffer ---</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9"># Current Q-values for (s, a) from policy network</div>
+      <div class="code-line" id="cl10">current_q_values = Q_policy(s).gather(1, a.long().unsqueeze(-1)).squeeze(-1)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12"># --- DQN Target Calculation (for comparison) ---</div>
+      <div class="code-line" id="cl13"># Select and evaluate using Q_target (original DQN uses Q_policy for both)</div>
+      <div class="code-line" id="cl14">next_q_values_dqn = Q_target(s_prime).max(1)[0]</div>
+      <div class="code-line" id="cl15">target_q_values_dqn = r + gamma * next_q_values_dqn * (1 - done.float())</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17"># --- Double DQN Target Calculation ---</div>
+      <div class="code-line" id="cl18"># 1. Select action using Q_policy (current network)</div>
+      <div class="code-line" id="cl19">actions_to_take = Q_policy(s_prime).argmax(1)</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># 2. Evaluate selected action using Q_target (lagged network)</div>
+      <div class="code-line" id="cl22">next_q_values_ddqn = Q_target(s_prime).gather(1, actions_to_take.unsqueeze(-1)).squeeze(-1)</div>
+      <div class="code-line" id="cl23">target_q_values_ddqn = r + gamma * next_q_values_ddqn * (1 - done.float())</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># --- Loss calculation (using DDQN target) ---</div>
+      <div class="code-line" id="cl26">loss = F.mse_loss(current_q_values, target_q_values_ddqn.detach())</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28"># --- Optimization step ---</div>
+      <div class="code-line" id="cl29">optimizer.zero_grad()</div>
+      <div class="code-line" id="cl30">loss.backward()</div>
+      <div class="code-line" id="cl31">optimizer.step()</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33"># --- Target network update (soft update example) ---</div>
+      <div class="code-line" id="cl34"># for target_param, policy_param in zip(Q_target.parameters(), Q_policy.parameters()):</div>
+      <div class="code-line" id="cl35">#     target_param.data.copy_(tau * policy_param.data + (1.0 - tau) * target_param.data)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA & SIMULATION ──
+const NUM_ACTIONS = 5;
+const TRUE_Q_VALUES = [8.0, 7.5, 9.0, 6.0, 8.5]; // True Q-values for actions 0-4
+const GAMMA = 0.99; // Discount factor for target calculation
+const REWARD = 1.0; // Sample reward for target calculation
+
+// Seeded random number generator for reproducibility
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let q_rng_seed = 1234;
+let q_rng = mulberry32(q_rng_seed);
+
+function generateNoisyQValues(trueValues, noiseLevel, rng) {
+  return trueValues.map(q => q + (rng() - 0.5) * 2 * noiseLevel);
+}
+
+function calculateTargets(noiseLevel) {
+  q_rng = mulberry32(q_rng_seed); // Reset RNG for consistent noise across calculations
+  const q_main = generateNoisyQValues(TRUE_Q_VALUES, noiseLevel, q_rng);
+  const q_target = generateNoisyQValues(TRUE_Q_VALUES, noiseLevel * 0.9, q_rng); // Target network has slightly different noise/lag
+
+  // DQN calculation
+  const dqn_selected_action_idx = q_main.indexOf(Math.max(...q_main));
+  const dqn_target_q_value = REWARD + GAMMA * q_main[dqn_selected_action_idx]; // Use Q_main for evaluation
+
+  // Double DQN calculation
+  const ddqn_selected_action_idx = q_main.indexOf(Math.max(...q_main)); // Select with Q_main
+  const ddqn_target_q_value = REWARD + GAMMA * q_target[ddqn_selected_action_idx]; // Evaluate with Q_target
+
+  const true_max_q_value = Math.max(...TRUE_Q_VALUES);
+  const true_target_value = REWARD + GAMMA * true_max_q_value;
+
+  return {
+    q_main,
+    q_target,
+    dqn_selected_action_idx,
+    dqn_target_q_value,
+    ddqn_selected_action_idx,
+    ddqn_target_q_value,
+    true_max_q_value,
+    true_target_value
+  };
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'True Q-values for next state s\'',
+    desc: `We have ${NUM_ACTIONS} possible actions in the next state \\(s'\\). Each has a true (but unknown to the agent) Q-value. Our goal is to estimate the optimal target value: \\(r + \\gamma \\max_{a'} Q^*(s',a')\\). The true max Q-value is \\(${Math.max(...TRUE_Q_VALUES).toFixed(2)}\\).`,
+    codeLines: [],
+    vizMode: 'true_q'
+  },
+  {
+    phase: 'setup', title: 'Noisy Policy Network (Q_main) Estimates',
+    desc: `Our policy network \\(Q(\\cdot; \\theta)\\) estimates Q-values. These estimates are noisy and deviate from the true values. A higher noise level (slider) means more variance. Note that the action with the highest *estimated* Q-value might not be the one with the highest *true* Q-value.`,
+    codeLines: [],
+    vizMode: 'policy_q'
+  },
+  {
+    phase: 'dqn', title: 'DQN: Action Selection & Evaluation',
+    desc: `Standard DQN calculates its target using the policy network for both selection and evaluation: \\(Y_t^{DQN} = r + \\gamma \\max_{a'} Q(s', a'; \\theta)\\). It selects action \\(A_{${calculateTargets(0.5).dqn_selected_action_idx}}\\) (red outline) and uses its Q-value directly.`,
+    codeLines: [12, 13, 14, 15],
+    vizMode: 'dqn_select_eval'
+  },
+  {
+    phase: 'dqn', title: 'DQN: Overestimation Bias',
+    desc: `Because \\(\\max_{a'} Q(s', a'; \\theta)\\) is taken over noisy estimates, it tends to be higher than the true maximum Q-value. This leads to an overestimation bias in the DQN target value. The DQN target (green bar) is often higher than the true target.`,
+    codeLines: [14, 15],
+    vizMode: 'dqn_bias'
+  },
+  {
+    phase: 'ddqn', title: 'Introducing the Target Network (Q_target)',
+    desc: `Double DQN leverages a separate target network \\(Q(\\cdot; \\theta')\\), which is a lagged copy of the policy network. It has slightly different (or independent) noise, making its estimates for the same actions a bit different from \\(Q_{main}\\).`,
+    codeLines: [4, 5],
+    vizMode: 'target_q'
+  },
+  {
+    phase: 'ddqn', title: 'Double DQN: Decoupled Selection & Evaluation',
+    desc: `DDQN calculates its target by using the <strong>policy network</strong> \\(\\theta\\) for action selection: \\(a^* = \\operatorname{argmax}_{a'} Q(s', a'; \\theta)\\). Then, it uses the <strong>target network</strong> \\(\\theta'\\) for evaluation: \\(Y_t^{DDQN} = r + \\gamma Q(s', a^*, \\theta')\\). Action \\(A_{${calculateTargets(0.5).ddqn_selected_action_idx}}\\) is selected, but evaluated with \\(Q_{target}\\).`,
+    codeLines: [17, 18, 19, 21, 22, 23],
+    vizMode: 'ddqn_select_eval'
+  },
+  {
+    phase: 'compare', title: 'Double DQN: Reduced Bias',
+    desc: `By decoupling selection and evaluation, the overestimation bias is significantly reduced. The DDQN target (cyan bar) is typically much closer to the true target value compared to the DQN target. This leads to more stable and efficient learning.`,
+    codeLines: [22, 23],
+    vizMode: 'ddqn_bias'
+  },
+  {
+    phase: 'explore', title: 'Compare & Explore Noise Impact',
+    desc: `Now you can interactively adjust the Q-value noise level. Observe how increasing noise amplifies DQN's overestimation, while DDQN consistently provides a less biased target. The true target value is \\(${calculateTargets(0.5).true_target_value.toFixed(2)}\\).`,
+    codeLines: [14, 15, 22, 23],
+    vizMode: 'compare_all'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let noiseLevel = 0.5;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; noiseLevel = 0.5; document.getElementById('noiseSlider').value = noiseLevel; q_rng_seed = 1234; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',dqn:'phase-dqn',ddqn:'phase-ddqn',compare:'phase-compare',explore:'phase-explore'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Slider visibility
+  document.getElementById('noiseSlider').parentElement.parentElement.style.display = (s.vizMode === 'compare_all' || s.vizMode === 'policy_q') ? 'flex' : 'none';
+  if (s.vizMode === 'compare_all' || s.vizMode === 'policy_q') {
+      document.getElementById('noiseValue').textContent = noiseLevel.toFixed(2);
+  }
+
+  // Canvas
+  drawCanvas(s.vizMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const results = calculateTargets(noiseLevel);
+  const { q_main, q_target, dqn_selected_action_idx, dqn_target_q_value, ddqn_selected_action_idx, ddqn_target_q_value, true_max_q_value, true_target_value } = results;
+
+  const all_q_values = [...TRUE_Q_VALUES, ...q_main, ...q_target, dqn_target_q_value, ddqn_target_q_value, true_target_value];
+  const max_val = Math.max(...all_q_values) * 1.1; // 10% buffer
+  const min_val = Math.min(...all_q_values, 0) * 0.9; // 10% buffer, ensure 0 is visible
+  const value_range = max_val - min_val;
+
+  const bar_width = 40;
+  const gap = 20;
+  const total_width_for_bars = NUM_ACTIONS * bar_width * (mode === 'true_q' ? 1 : (mode === 'policy_q' || mode === 'dqn_select_eval' || mode === 'dqn_bias' ? 2 : (mode === 'target_q' || mode === 'ddqn_select_eval' || mode === 'ddqn_bias' ? 3 : 3))) + (NUM_ACTIONS - 1) * gap * (mode === 'true_q' ? 1 : 3);
+  const start_x = (W - total_width_for_bars) / 2;
+  const base_y = H - 50; // Y position for value 0
+
+  const to_canvas_y = (val) => base_y - (val - min_val) / value_range * (H - 100);
+  const zero_line_y = to_canvas_y(0);
+
+  // Draw zero line
+  ctx.strokeStyle = text2;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, zero_line_y);
+  ctx.lineTo(W, zero_line_y);
+  ctx.stroke();
+
+  // Draw Q-value bars
+  for (let i = 0; i < NUM_ACTIONS; i++) {
+    const x_base = start_x + i * (bar_width * 3 + gap * 3); // Base X for each action group
+
+    // True Q-value bar
+    if (mode === 'true_q' || mode === 'compare_all') {
+      const bar_height = (TRUE_Q_VALUES[i] - min_val) / value_range * (H - 100);
+      ctx.fillStyle = blueMid;
+      ctx.fillRect(x_base, to_canvas_y(TRUE_Q_VALUES[i]), bar_width, bar_height);
+      ctx.fillStyle = 'white';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(TRUE_Q_VALUES[i].toFixed(1), x_base + bar_width / 2, to_canvas_y(TRUE_Q_VALUES[i]) - 5);
+      ctx.fillStyle = text2;
+      ctx.font = '11px "DM Sans", system-ui';
+      ctx.fillText(`A${i}`, x_base + bar_width / 2, H - 30);
+    }
+
+    // Policy Q-value bar
+    if (mode === 'policy_q' || mode === 'dqn_select_eval' || mode === 'dqn_bias' || mode === 'ddqn_select_eval' || mode === 'compare_all' || mode === 'target_q') {
+      const x_offset = (mode === 'true_q' ? 0 : (mode === 'policy_q' || mode === 'dqn_select_eval' || mode === 'dqn_bias' ? bar_width + 5 : x_base + bar_width + 5));
+      const current_x = (mode === 'true_q' ? x_base : (mode === 'policy_q' || mode === 'dqn_select_eval' || mode === 'dqn_bias' ? start_x + (i * (bar_width*2 + gap)) : x_base + bar_width + 5));
+
+      const bar_height = (q_main[i] - min_val) / value_range * (H - 100);
+      ctx.fillStyle = redMid;
+      ctx.fillRect(current_x, to_canvas_y(q_main[i]), bar_width, bar_height);
+      ctx.fillStyle = 'white';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(q_main[i].toFixed(1), current_x + bar_width / 2, to_canvas_y(q_main[i]) - 5);
+      ctx.fillStyle = text2;
+      ctx.font = '11px "DM Sans", system-ui';
+      ctx.fillText(`A${i}`, current_x + bar_width / 2, H - 30);
+
+      if (mode === 'dqn_select_eval' || mode === 'ddqn_select_eval' || mode === 'compare_all' || mode === 'dqn_bias') {
+        if (i === dqn_selected_action_idx) {
+          ctx.strokeStyle = amberMid;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(current_x, to_canvas_y(q_main[i]), bar_width, bar_height);
+          ctx.fillStyle = amberMid;
+          ctx.font = '11px "DM Sans", system-ui';
+          ctx.fillText('Selected', current_x + bar_width / 2, to_canvas_y(q_main[i]) - 20);
+        }
+      }
+    }
+
+    // Target Q-value bar
+    if (mode === 'target_q' || mode === 'ddqn_select_eval' || mode === 'ddqn_bias' || mode === 'compare_all') {
+      const current_x = (mode === 'target_q' ? start_x + (i * (bar_width*2 + gap)) : x_base + bar_width * 2 + 10);
+
+      const bar_height = (q_target[i] - min_val) / value_range * (H - 100);
+      ctx.fillStyle = purpleMid;
+      ctx.fillRect(current_x, to_canvas_y(q_target[i]), bar_width, bar_height);
+      ctx.fillStyle = 'white';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(q_target[i].toFixed(1), current_x + bar_width / 2, to_canvas_y(q_target[i]) - 5);
+      ctx.fillStyle = text2;
+      ctx.font = '11px "DM Sans", system-ui';
+      ctx.fillText(`A${i}`, current_x + bar_width / 2, H - 30);
+
+      if (mode === 'ddqn_select_eval' || mode === 'ddqn_bias' || mode === 'compare_all') {
+        if (i === ddqn_selected_action_idx) {
+          ctx.strokeStyle = amberMid;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(current_x, to_canvas_y(q_target[i]), bar_width, bar_height);
+          ctx.fillStyle = amberMid;
+          ctx.font = '11px "DM Sans", system-ui';
+          ctx.fillText('Evaluated', current_x + bar_width / 2, to_canvas_y(q_target[i]) - 20);
+        }
+      }
+    }
+  }
+
+  // Draw target values
+  const target_section_start_x = start_x + NUM_ACTIONS * (bar_width * 3 + gap * 3) + 40;
+
+  // DQN Target Value
+  if (mode === 'dqn_bias' || mode === 'compare_all' || mode === 'dqn_select_eval') {
+    const bar_height = (dqn_target_q_value - min_val) / value_range * (H - 100);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(target_section_start_x, to_canvas_y(dqn_target_q_value), bar_width, bar_height);
+    ctx.fillStyle = 'white';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dqn_target_q_value.toFixed(1), target_section_start_x + bar_width / 2, to_canvas_y(dqn_target_q_value) - 5);
+    ctx.fillStyle = text2;
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('DQN Target', target_section_start_x + bar_width / 2, H - 30);
+  }
+
+  // Double DQN Target Value
+  if (mode === 'ddqn_bias' || mode === 'compare_all' || mode === 'ddqn_select_eval') {
+    const target_x_pos_ddqn = target_section_start_x + bar_width + gap;
+    const bar_height = (ddqn_target_q_value - min_val) / value_range * (H - 100);
+    ctx.fillStyle = cyanMid;
+    ctx.fillRect(target_x_pos_ddqn, to_canvas_y(ddqn_target_q_value), bar_width, bar_height);
+    ctx.fillStyle = 'white';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ddqn_target_q_value.toFixed(1), target_x_pos_ddqn + bar_width / 2, to_canvas_y(ddqn_target_q_value) - 5);
+    ctx.fillStyle = text2;
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('DDQN Target', target_x_pos_ddqn + bar_width / 2, H - 30);
+  }
+
+  // True Target Value (for comparison)
+  if (mode === 'dqn_bias' || mode === 'ddqn_bias' || mode === 'compare_all') {
+    const target_x_pos_true = target_section_start_x + (mode === 'dqn_bias' ? bar_width + gap : bar_width * 2 + gap * 2);
+    const bar_height = (true_target_value - min_val) / value_range * (H - 100);
+    ctx.fillStyle = blueMid;
+    ctx.fillRect(target_x_pos_true, to_canvas_y(true_target_value), bar_width, bar_height);
+    ctx.fillStyle = 'white';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(true_target_value.toFixed(1), target_x_pos_true + bar_width / 2, to_canvas_y(true_target_value) - 5);
+    ctx.fillStyle = text2;
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('True Target', target_x_pos_true + bar_width / 2, H - 30);
+  }
+
+  // Info Numbers
+  let info_text = '';
+  if (mode === 'true_q') {
+    info_text += `True Q-values: [${TRUE_Q_VALUES.map(q => q.toFixed(1)).join(', ')}]\n`;
+    info_text += `True Max Q-value: ${true_max_q_value.toFixed(2)}\n`;
+    info_text += `True Target (r + γ * Q*): ${true_target_value.toFixed(2)}`;
+  } else if (mode === 'policy_q') {
+    info_text += `True Q-values: [${TRUE_Q_VALUES.map(q => q.toFixed(1)).join(', ')}]\n`;
+    info_text += `Policy Q-values: [${q_main.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Max Policy Q-value: ${Math.max(...q_main).toFixed(2)}`;
+  } else if (mode === 'dqn_select_eval' || mode === 'dqn_bias') {
+    info_text += `Policy Q-values: [${q_main.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Selected Action (Q_main): A${dqn_selected_action_idx}\n`;
+    info_text += `DQN Target Q-value: ${dqn_target_q_value.toFixed(2)}\n`;
+    info_text += `True Target Q-value: ${true_target_value.toFixed(2)}\n`;
+    info_text += `DQN Bias: ${(dqn_target_q_value - true_target_value).toFixed(2)}`;
+  } else if (mode === 'target_q') {
+    info_text += `Policy Q-values: [${q_main.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Target Q-values: [${q_target.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Max Target Q-value: ${Math.max(...q_target).toFixed(2)}`;
+  } else if (mode === 'ddqn_select_eval' || mode === 'ddqn_bias') {
+    info_text += `Policy Q-values: [${q_main.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Target Q-values: [${q_target.map(q => q.toFixed(2)).join(', ')}]\n`;
+    info_text += `Selected Action (Q_main): A${ddqn_selected_action_idx}\n`;
+    info_text += `DDQN Target Q-value: ${ddqn_target_q_value.toFixed(2)}\n`;
+    info_text += `True Target Q-value: ${true_target_value.toFixed(2)}\n`;
+    info_text += `DDQN Bias: ${(ddqn_target_q_value - true_target_value).toFixed(2)}`;
+  } else if (mode === 'compare_all') {
+    info_text += `True Target: ${true_target_value.toFixed(2)}\n`;
+    info_text += `DQN Target: ${dqn_target_q_value.toFixed(2)} (Bias: ${(dqn_target_q_value - true_target_value).toFixed(2)})\n`;
+    info_text += `DDQN Target: ${ddqn_target_q_value.toFixed(2)} (Bias: ${(ddqn_target_q_value - true_target_value).toFixed(2)})`;
+  }
+
+  document.getElementById('infoNumbers').textContent = info_text;
+}
+
+// ── SLIDER WIRING ──
+const noiseSlider = document.getElementById('noiseSlider');
+noiseSlider.addEventListener('input', () => {
+  noiseLevel = parseFloat(noiseSlider.value);
+  document.getElementById('noiseValue').textContent = noiseLevel.toFixed(2);
+  drawCanvas(steps[step].vizMode);
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].vizMode));
+</script>
+</body>
+</html>
