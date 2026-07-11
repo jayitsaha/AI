@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Session-Based Recommendations: GRU4Rec &amp; SR-GNN — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:0.35rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Compare table */
+.cmp-table{width:100%;border-collapse:collapse;font-size:13px;margin:0.75rem 0;}
+.cmp-table th,.cmp-table td{border:1px solid var(--border);padding:8px 10px;text-align:left;}
+.cmp-table th{background:var(--bg2);font-weight:700;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+
+/* Live stats panel */
+.stat-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;}
+.stat-chip{font-family:var(--mono);font-size:11.5px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text2);}
+.stat-chip b{color:var(--text);font-weight:600;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-gru{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-embed{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-graph{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-attn{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Session-Based Recommendations: GRU4Rec &amp; SR-GNN</h1>
+  <div class="subtitle">Recommending the next click from an anonymous sequence — no user profile required</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Sequential Models</span>
+    <span class="tag tag-category">Recommender Systems</span>
+    <span class="tag tag-category">Graph Neural Networks</span>
+    <span class="tag tag-complexity">RNN + GNN</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Session-Based Recommendation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Classic recommenders (matrix factorization, collaborative filtering) need a long history tied to a known user ID. But most e-commerce and streaming traffic comes from <em>anonymous</em> or short-lived sessions — a shopper browsing without logging in. Session-based recommendation predicts the <em>next</em> item a person will click, using only the sequence of clicks made so far in the current session.</p>
+    <p><strong>Analogy:</strong> Imagine watching over someone's shoulder as they shop: they click Running Shoes → Socks → Running Shoes again → Water Bottle. You don't know their name or purchase history, but the pattern already screams "runner assembling a race-day kit" — the next click is probably Energy Gel, not a random product. The model's job is to compress that click sequence into a representation that captures exactly this kind of intent.</p>
+    <p><strong>Two landmark approaches:</strong> <strong>GRU4Rec</strong> (2016) treats the session as a sequence and feeds it through a Gated Recurrent Unit (GRU), reading clicks one at a time like a sentence. <strong>SR-GNN</strong> (2019) instead treats the session as a small <em>graph</em> — items are nodes, clicks-in-a-row are edges — and uses a Graph Neural Network plus attention to build the session representation, which better captures repeat visits and non-adjacent transitions that a strictly left-to-right RNN can blur together.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Both models compress a session \(S = [v_1, v_2, \dots, v_n]\) into a single vector \(\mathbf{s}_h\) (the "session embedding"), then rank every catalog item \(v\) by \(\hat{z}_v = \mathbf{s}_h \cdot \mathbf{e}_v\). GRU4Rec builds \(\mathbf{s}_h\) by folding clicks through time; SR-GNN builds it by passing messages over a session graph and attending over the result.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How They Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>GRU4Rec: sessions as sequences</h4>
+    <p>Each session is a sequence of item IDs. Every item is embedded into a dense vector \(\mathbf{e}_{v_t}\), and fed one-at-a-time into a GRU layer. The GRU keeps a hidden state \(\mathbf{h}_t\) that acts as compressed memory of everything seen so far, updated at each step by <em>update</em> and <em>reset</em> gates that decide how much of the past to keep versus overwrite. After the last click, \(\mathbf{h}_n\) is the session representation, scored against every candidate item's embedding to rank "what's next."</p>
+    <h4>SR-GNN: sessions as graphs</h4>
+    <p>A session graph turns unique items into nodes and consecutive clicks into directed edges (with self-loops / repeated edges when an item is revisited). A gated graph neural network (GGNN) propagates messages along these edges — structurally the same gated update math as a GRU, just applied across graph neighbors instead of across time steps. After a few propagation rounds, every node embedding reflects its local neighborhood. An attention mechanism then blends the <em>local</em> signal (the last clicked item) with a <em>global</em> signal (an attention-weighted sum over all nodes) into the final session embedding.</p>
+    <h4>Design decision: why bother with a graph?</h4>
+    <p>A pure RNN reads clicks strictly left-to-right, so it struggles to represent that item A was revisited, or that two non-adjacent clicks are strongly related. A graph makes those relationships explicit edges the GNN can propagate over directly, regardless of how far apart the clicks are in the raw sequence.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both models are trained with a ranking loss over the <em>entire item catalog</em> (or a sampled subset) — cross-entropy / sampled softmax for GRU4Rec, or TOP1 / BPR pairwise losses — because the target is "which item is clicked next," not a single scalar rating.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>GRU update equations</h4>
+    <p>At time step \(t\), given input embedding \(\mathbf{x}_t = \mathbf{e}_{v_t}\) and previous hidden state \(\mathbf{h}_{t-1}\):</p>
+    <div class="eq">$$\mathbf{z}_t = \sigma(W_z \mathbf{x}_t + U_z \mathbf{h}_{t-1} + \mathbf{b}_z) \qquad \mathbf{r}_t = \sigma(W_r \mathbf{x}_t + U_r \mathbf{h}_{t-1} + \mathbf{b}_r)$$</div>
+    <div class="eq">$$\tilde{\mathbf{h}}_t = \tanh\big(W_h \mathbf{x}_t + U_h(\mathbf{r}_t \odot \mathbf{h}_{t-1}) + \mathbf{b}_h\big) \qquad \mathbf{h}_t = (1-\mathbf{z}_t)\odot \mathbf{h}_{t-1} + \mathbf{z}_t \odot \tilde{\mathbf{h}}_t$$</div>
+    <p>\(\mathbf{z}_t\) is the update gate (how much to overwrite), \(\mathbf{r}_t\) the reset gate (how much past state to ignore when proposing a new candidate state \(\tilde{\mathbf{h}}_t\)).</p>
+
+    <h4>SR-GNN graph propagation</h4>
+    <p>With normalized session-graph adjacency \(A\), each node aggregates its neighbors' current embeddings, then applies the <em>same style</em> of gated update as the GRU above, but indexed by node \(i\) instead of time \(t\):</p>
+    <div class="eq">$$\mathbf{a}_i = \sum_j A_{ij}\, \mathbf{h}_j \qquad \mathbf{h}_i \leftarrow \text{GRU-update}(\mathbf{a}_i, \mathbf{h}_i)$$</div>
+
+    <h4>SR-GNN attention &amp; readout</h4>
+    <p>Let \(\mathbf{s}_l = \mathbf{h}_{v_n}\) be the <em>local</em> embedding of the last clicked item. The <em>global</em> embedding attends over all node embeddings:</p>
+    <div class="eq">$$\alpha_i = \mathbf{q}^\top \sigma\big(W_1 \mathbf{h}_i + W_2 \mathbf{s}_l + \mathbf{c}\big) \qquad \mathbf{s}_g = \sum_i \operatorname{softmax}(\alpha)_i \, \mathbf{h}_i$$</div>
+    <p>The final session embedding fuses both signals: \(\mathbf{s}_h = W_3 [\mathbf{s}_l \, ; \, \mathbf{s}_g]\). Both models finish identically — score every candidate item \(v\) by \(\hat{z}_v = \mathbf{s}_h \cdot \mathbf{e}_v\), then softmax to get a probability of being clicked next.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Because sessions are short and the catalog is huge, computing the softmax over <em>every</em> item is expensive. Both papers use <strong>negative sampling</strong> (mini-batch-based sampling in GRU4Rec) rather than a full softmax at training time — the visualization below uses a small candidate set to keep the full softmax tractable to show.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow one anonymous session — <strong>Running Shoes → Socks → Running Shoes → Water Bottle</strong> — through GRU4Rec, then re-process the exact same session through SR-GNN's graph + attention pipeline.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="stat-row" id="statRow"></div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-gru" id="infoPhase">GRU4REC</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">An Anonymous Session Arrives</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Clicked items</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Hidden / node state</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Gate / attention weight</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Predicted next item</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Other candidates</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp-table">
+      <tr><th></th><th>GRU4Rec</th><th>SR-GNN</th></tr>
+      <tr><td>Session representation</td><td>Sequential — RNN hidden state</td><td>Structural — graph + attention</td></tr>
+      <tr><td>Handles repeated clicks</td><td>Implicitly, via memory decay</td><td>Explicitly, via self-loops / merged edges</td></tr>
+      <tr><td>Non-adjacent transitions</td><td>Must survive through every intermediate step</td><td>Direct edge / message if items co-occur</td></tr>
+      <tr><td>Complexity per session</td><td>\(O(n \cdot d^2)\), strictly sequential</td><td>\(O(n \cdot d^2)\) per GNN layer, more parallel-friendly across nodes</td></tr>
+      <tr><td>Good fit for</td><td>Long, clearly ordered sessions (e.g. music playlists)</td><td>Short, noisy sessions with repeats/backtracking (e.g. e-commerce)</td></tr>
+    </table>
+    <p><strong>When to use session-based models at all:</strong></p>
+    <ul>
+      <li>Most traffic is anonymous or has very sparse user history (cold-start users)</li>
+      <li>Intent shifts within a single visit matter more than long-term taste (e.g. gift shopping)</li>
+      <li>Catalog and trends move fast, so long-term collaborative-filtering profiles go stale</li>
+    </ul>
+    <p><strong>When NOT to bother:</strong></p>
+    <ul>
+      <li>You have strong, stable long-term user profiles — classic CF / two-tower models may suffice</li>
+      <li>Sessions are extremely short (1 click) — there's no sequence to model yet</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The bigger picture</div>
+      <p style="font-size:14px;margin:0;">GRU4Rec (RNN) → NARM / STAMP (RNN + attention) → SR-GNN (graph + attention) → later Transformer-based session models (e.g. SASRec) all chase the same goal through increasingly expressive session encoders: turn a short, noisy click stream into one vector that predicts the next click.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># Session: Running Shoes -> Socks -> Running Shoes -> Water Bottle</div>
+      <div class="code-line" id="cl3">session = [3, 7, 3, 9]           # item ids, click order</div>
+      <div class="code-line" id="cl4">E = embedding_table              # E[item_id] -> R^3</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># ---------- GRU4Rec ----------</div>
+      <div class="code-line" id="cl7">h = np.zeros(3)</div>
+      <div class="code-line" id="cl8">for v in session:</div>
+      <div class="code-line" id="cl9">    x = E[v]</div>
+      <div class="code-line" id="cl10">    z = sigmoid(Wz @ x + Uz @ h + bz)</div>
+      <div class="code-line" id="cl11">    r = sigmoid(Wr @ x + Ur @ h + br)</div>
+      <div class="code-line" id="cl12">    h_tilde = tanh(Wh @ x + Uh @ (r * h) + bh)</div>
+      <div class="code-line" id="cl13">    h = (1 - z) * h + z * h_tilde</div>
+      <div class="code-line" id="cl14">session_repr_gru4rec = h         # final hidden state</div>
+      <div class="code-line" id="cl15">scores = {v: session_repr_gru4rec @ E[v] for v in candidates}</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17"># ---------- SR-GNN ----------</div>
+      <div class="code-line" id="cl18">nodes = unique(session)          # [3, 7, 9]</div>
+      <div class="code-line" id="cl19">A = build_normalized_adjacency(session, nodes)</div>
+      <div class="code-line" id="cl20">H = {v: E[v] for v in nodes}     # init node states = embeddings</div>
+      <div class="code-line" id="cl21">for v in nodes:</div>
+      <div class="code-line" id="cl22">    a_v = sum(A[v][u] * H[u] for u in nodes)</div>
+      <div class="code-line" id="cl23">    H[v] = gru_update(a_v, H[v])   # same gated-update math as GRU4Rec</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25">s_l = H[session[-1]]             # local embedding (last click)</div>
+      <div class="code-line" id="cl26">alpha = {v: q @ sigmoid(W1 @ H[v] + W2 @ s_l + c) for v in nodes}</div>
+      <div class="code-line" id="cl27">alpha = softmax(alpha)</div>
+      <div class="code-line" id="cl28">s_g = sum(alpha[v] * H[v] for v in nodes)   # global embedding</div>
+      <div class="code-line" id="cl29">session_repr_srgnn = W3 @ concat(s_l, s_g)</div>
+      <div class="code-line" id="cl30">scores = {v: session_repr_srgnn @ E[v] for v in candidates}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   LINEAR ALGEBRA UTILITIES
+   ============================================================ */
+function matVec(M, v) { return M.map(row => row.reduce((s, m, j) => s + m * v[j], 0)); }
+function vAdd(a, b) { return a.map((x, i) => x + b[i]); }
+function vSub(a, b) { return a.map((x, i) => x - b[i]); }
+function vMul(a, b) { return a.map((x, i) => x * b[i]); }
+function vScale(a, k) { return a.map(x => x * k); }
+function sigmoid(v) { return v.map(x => 1 / (1 + Math.exp(-x))); }
+function tanhV(v) { return v.map(x => Math.tanh(x)); }
+function dot(a, b) { return a.reduce((s, x, i) => s + x * b[i], 0); }
+function softmax(arr) {
+  const m = Math.max(...arr);
+  const ex = arr.map(x => Math.exp(x - m));
+  const sum = ex.reduce((s, x) => s + x, 0);
+  return ex.map(x => x / sum);
+}
+
+/* ============================================================
+   TOY "TRAINED" WEIGHTS (hidden dim = embedding dim = 3)
+   ============================================================ */
+const Wz = [[0.5,-0.2,0.1],[0.3,0.4,-0.1],[-0.2,0.2,0.5]];
+const Uz = [[0.2,0.1,-0.3],[0.1,0.3,0.2],[-0.1,0.2,0.4]];
+const bz = [0.10,-0.10,0.05];
+const Wr = [[0.4,0.1,-0.2],[-0.1,0.5,0.2],[0.2,-0.2,0.3]];
+const Ur = [[0.3,-0.1,0.2],[0.2,0.4,-0.1],[0.1,0.1,0.3]];
+const br = [-0.05,0.10,0.00];
+const Wh = [[0.6,-0.3,0.2],[0.2,0.5,-0.2],[-0.3,0.1,0.6]];
+const Uh = [[0.1,0.2,-0.2],[-0.2,0.3,0.1],[0.2,-0.1,0.4]];
+const bh = [0.05,0.00,-0.05];
+
+// SR-GNN attention params
+const W1a = [[0.4,0.1,-0.1],[0.1,0.3,0.2],[-0.2,0.2,0.5]];
+const W2a = [[0.3,-0.2,0.2],[0.2,0.4,-0.1],[0.1,0.1,0.3]];
+const ca  = [0.05,-0.05,0.10];
+const qa  = [0.6,0.5,-0.4];
+// Fusion layer: R^6 -> R^3, split as [W3l | W3g]
+const W3l = [[0.5,0.1,-0.2],[0.2,0.4,0.1],[-0.1,0.2,0.5]];
+const W3g = [[0.4,-0.1,0.2],[0.1,0.5,-0.1],[0.2,0.1,0.4]];
+
+function gruUpdate(x, hPrev) {
+  const z = sigmoid(vAdd(vAdd(matVec(Wz, x), matVec(Uz, hPrev)), bz));
+  const r = sigmoid(vAdd(vAdd(matVec(Wr, x), matVec(Ur, hPrev)), br));
+  const hTilde = tanhV(vAdd(vAdd(matVec(Wh, x), matVec(Uh, vMul(r, hPrev))), bh));
+  const h = vAdd(vMul(vSub([1,1,1], z), hPrev), vMul(z, hTilde));
+  return { z, r, hTilde, h };
+}
+
+/* ============================================================
+   THE SESSION + CATALOG
+   ============================================================ */
+const ITEM_NAME = { 3:'Running Shoes', 7:'Socks', 9:'Water Bottle', 12:'Energy Gel', 15:'Cap', 20:'Backpack' };
+const ITEM_SHORT = { 3:'Shoes', 7:'Socks', 9:'Bottle', 12:'Gel', 15:'Cap', 20:'Bag' };
+const session = [3, 7, 3, 9];                 // click sequence
+const candidates = [3, 7, 9, 12, 15, 20];      // items to rank as "next click"
+const TARGET = 12;                             // ground-truth next item (Energy Gel)
+
+const E = {
+  3:  [0.80, 0.20, -0.30],
+  7:  [0.10, 0.90, 0.40],
+  9:  [-0.20, 0.30, 0.80],
+  12: [0.60, 0.10, 0.50],
+  15: [0.05, 0.05, 0.05],
+  20: [-0.50, -0.40, 0.10]
+};
+
+/* ---- Run the full GRU4Rec forward pass once (deterministic, but computed live) ---- */
+function runGRU4Rec() {
+  let h = [0, 0, 0];
+  const trace = [];
+  session.forEach(v => {
+    const out = gruUpdate(E[v], h);
+    trace.push({ item: v, x: E[v], hPrev: h.slice(), ...out });
+    h = out.h;
+  });
+  const scores = candidates.map(v => dot(h, E[v]));
+  const probs = softmax(scores);
+  return { trace, hFinal: h, scores, probs };
+}
+const gru4recRun = runGRU4Rec();
+
+/* ---- Build the session graph for SR-GNN ---- */
+function buildGraph() {
+  const nodes = [...new Set(session)]; // unique items, first-appearance order: [3,7,9]
+  const edgeCounts = {}; // "i-j" -> count
+  for (let t = 0; t < session.length - 1; t++) {
+    const key = session[t] + '-' + session[t + 1];
+    edgeCounts[key] = (edgeCounts[key] || 0) + 1;
+  }
+  // out-degree normalized adjacency
+  const outTotals = {};
+  Object.keys(edgeCounts).forEach(k => {
+    const i = k.split('-')[0];
+    outTotals[i] = (outTotals[i] || 0) + edgeCounts[k];
+  });
+  const A = {}; // A[i][j] = normalized weight
+  nodes.forEach(i => { A[i] = {}; nodes.forEach(j => A[i][j] = 0); });
+  Object.keys(edgeCounts).forEach(k => {
+    const [i, j] = k.split('-').map(Number);
+    A[i][j] = edgeCounts[k] / outTotals[i];
+  });
+  return { nodes, edgeCounts, A };
+}
+const graph = buildGraph();
+
+/* ---- Run one round of GGNN propagation (live) ---- */
+function runGNNPropagation() {
+  const H0 = {};
+  graph.nodes.forEach(v => H0[v] = E[v].slice());
+  const agg = {};
+  const updated = {};
+  graph.nodes.forEach(i => {
+    const a = [0, 0, 0];
+    graph.nodes.forEach(j => {
+      const w = graph.A[i][j];
+      if (w > 0) { const m = vScale(H0[j], w); a[0]+=m[0]; a[1]+=m[1]; a[2]+=m[2]; }
+    });
+    agg[i] = a;
+    updated[i] = gruUpdate(a, H0[i]).h;
+  });
+  return { H0, agg, H1: updated };
+}
+const gnnRun = runGNNPropagation();
+
+/* ---- Attention + fusion (live) ---- */
+function runAttentionFusion() {
+  const lastItem = session[session.length - 1]; // 9
+  const sl = gnnRun.H1[lastItem];
+  const rawScores = {};
+  graph.nodes.forEach(i => {
+    const inner = tanhV(vAdd(vAdd(matVec(W1a, gnnRun.H1[i]), matVec(W2a, sl)), ca));
+    rawScores[i] = dot(qa, inner);
+  });
+  const vals = graph.nodes.map(i => rawScores[i]);
+  const alphaVals = softmax(vals);
+  const alpha = {};
+  graph.nodes.forEach((i, idx) => alpha[i] = alphaVals[idx]);
+  const sg = [0, 0, 0];
+  graph.nodes.forEach(i => { const w = vScale(gnnRun.H1[i], alpha[i]); sg[0]+=w[0]; sg[1]+=w[1]; sg[2]+=w[2]; });
+  const sh = vAdd(matVec(W3l, sl), matVec(W3g, sg));
+  const scores = candidates.map(v => dot(sh, E[v]));
+  const probs = softmax(scores);
+  return { lastItem, sl, alpha, sg, sh, scores, probs };
+}
+const srgnnRun = runAttentionFusion();
+
+function fmt(v, d) { return v.toFixed(d === undefined ? 2 : d); }
+function fmtVec(v) { return '[' + v.map(x => fmt(x)).join(', ') + ']'; }
+
+/* ============================================================
+   CANVAS DRAWING
+   ============================================================ */
+function getThemeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    bg2: g('--bg2'), text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+    border2: g('--border2')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W0 = rect.width || 800, H0 = rect.height || 450;
+  canvas.width = W0 * dpr;
+  canvas.height = H0 * dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = W0, H = H0;
+  const C = getThemeColors();
+  ctx.clearRect(0, 0, W, H);
+  ctx.textBaseline = 'alphabetic';
+
+  const itemColor = { 3: C.blueMid, 7: C.cyanMid, 9: C.purpleMid, 12: C.greenMid, 15: C.amberMid, 20: C.redMid };
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawChain(highlightIdx, showEmbed) {
+    const n = session.length;
+    const boxW = 108, boxH = 46, gap = (W - 60 - n * boxW) / (n - 1);
+    const y = showEmbed ? 70 : H / 2 - boxH / 2;
+    for (let t = 0; t < n; t++) {
+      const x = 30 + t * (boxW + gap);
+      const v = session[t];
+      if (t < n - 1) {
+        ctx.strokeStyle = C.text3; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + boxW, y + boxH / 2);
+        ctx.lineTo(x + boxW + gap, y + boxH / 2);
+        ctx.stroke();
+        // arrowhead
+        ctx.beginPath();
+        ctx.moveTo(x + boxW + gap, y + boxH / 2);
+        ctx.lineTo(x + boxW + gap - 8, y + boxH / 2 - 5);
+        ctx.lineTo(x + boxW + gap - 8, y + boxH / 2 + 5);
+        ctx.closePath();
+        ctx.fillStyle = C.text3; ctx.fill();
+      }
+      const isActive = (highlightIdx !== undefined && t === highlightIdx);
+      const isPast = (highlightIdx !== undefined && t < highlightIdx);
+      ctx.fillStyle = isActive ? itemColor[v] : (isPast ? C.bg2 : C.bg2);
+      roundRect(x, y, boxW, boxH, 8);
+      ctx.fill();
+      ctx.lineWidth = isActive ? 3 : 1.5;
+      ctx.strokeStyle = isActive ? itemColor[v] : C.border2;
+      ctx.stroke();
+      ctx.fillStyle = isActive ? '#ffffff' : C.text;
+      ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(ITEM_SHORT[v], x + boxW / 2, y + boxH / 2 - 2);
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillText('click ' + (t + 1), x + boxW / 2, y + boxH / 2 + 14);
+      ctx.textAlign = 'left';
+
+      if (showEmbed) {
+        const ey = y + boxH + 18;
+        const evec = E[v];
+        const cw = 30;
+        evec.forEach((val, i) => {
+          const ex = x + boxW / 2 - (cw * 3) / 2 + i * cw;
+          ctx.fillStyle = C.bg2;
+          roundRect(ex, ey, cw - 3, 24, 4);
+          ctx.fill();
+          ctx.strokeStyle = C.border2; ctx.lineWidth = 1; ctx.stroke();
+          ctx.fillStyle = val >= 0 ? C.greenMid : C.redMid;
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(val.toFixed(2), ex + (cw - 3) / 2, ey + 16);
+          ctx.textAlign = 'left';
+        });
+        ctx.fillStyle = C.text3; ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('e(' + ITEM_SHORT[v] + ')', x + boxW / 2, ey + 38);
+        ctx.textAlign = 'left';
+      }
+    }
+  }
+
+  function drawBars(vec, x, y, w, h, label, colorFn) {
+    const bw = w / vec.length - 6;
+    const maxAbs = Math.max(0.6, ...vec.map(Math.abs));
+    vec.forEach((val, i) => {
+      const bx = x + i * (bw + 6);
+      const barH = (Math.abs(val) / maxAbs) * (h / 2 - 4);
+      const midY = y + h / 2;
+      const by = val >= 0 ? midY - barH : midY;
+      ctx.fillStyle = colorFn ? colorFn(val, i) : (val >= 0 ? C.greenMid : C.redMid);
+      ctx.fillRect(bx, by, bw, barH || 1);
+      ctx.fillStyle = C.text3; ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(val.toFixed(2), bx + bw / 2, val >= 0 ? by - 4 : by + barH + 12);
+      ctx.textAlign = 'left';
+    });
+    ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2); ctx.stroke();
+    ctx.fillStyle = C.text2; ctx.font = '600 11px "DM Sans", system-ui';
+    ctx.fillText(label, x, y - 6);
+  }
+
+  function drawGraph(highlightNodes, edgeAlphaFn, nodeLabelFn, nodeColorFn) {
+    const positions = { 3: [W * 0.5, H * 0.28], 7: [W * 0.22, H * 0.68], 9: [W * 0.78, H * 0.68] };
+    // edges
+    Object.keys(graph.edgeCounts).forEach(k => {
+      const [i, j] = k.split('-').map(Number);
+      const [x1, y1] = positions[i], [x2, y2] = positions[j];
+      const curve = i === j ? 0 : (i < j ? 22 : -22);
+      const mx = (x1 + x2) / 2 + (y1 === y2 ? 0 : curve), my = (y1 + y2) / 2 + curve;
+      ctx.strokeStyle = C.text3;
+      ctx.globalAlpha = edgeAlphaFn ? edgeAlphaFn(i, j) : 0.7;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(mx, my, x2, y2);
+      ctx.stroke();
+      // arrowhead near target
+      const t = 0.88;
+      const ax = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * mx + t * t * x2;
+      const ay = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * my + t * t * y2;
+      const dx = x2 - ax, dy = y2 - ay;
+      const ang = Math.atan2(dy, dx);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - 9 * Math.cos(ang - 0.4), ay - 9 * Math.sin(ang - 0.4));
+      ctx.lineTo(ax - 9 * Math.cos(ang + 0.4), ay - 9 * Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fillStyle = C.text3;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // weight label
+      ctx.fillStyle = C.text3; ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(graph.A[i][j].toFixed(2), mx, my - 4);
+      ctx.textAlign = 'left';
+    });
+    // nodes
+    graph.nodes.forEach(v => {
+      const [x, y] = positions[v];
+      const r = highlightNodes && highlightNodes.includes(v) ? 34 : 30;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = nodeColorFn ? nodeColorFn(v) : itemColor[v];
+      ctx.fill();
+      ctx.lineWidth = highlightNodes && highlightNodes.includes(v) ? 4 : 2;
+      ctx.strokeStyle = highlightNodes && highlightNodes.includes(v) ? C.text : '#ffffff';
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 11px "DM Sans", system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(ITEM_SHORT[v], x, y + 4);
+      ctx.textAlign = 'left';
+      if (nodeLabelFn) {
+        ctx.fillStyle = C.text2; ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(nodeLabelFn(v), x, y + r + 16);
+        ctx.textAlign = 'left';
+      }
+    });
+    return positions;
+  }
+
+  if (mode === 'chain') {
+    drawChain(-1, false);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('Raw click sequence — no user profile attached', 30, H - 20);
+  }
+
+  else if (mode === 'embed') {
+    drawChain(-1, true);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('Each item id -> dense vector e(v) ∈ R³', 30, H - 12);
+  }
+
+  else if (mode === 'gru1') {
+    drawChain(0, false);
+    const tr = gru4recRun.trace[0];
+    drawBars(tr.z, 40, H - 150, 140, 90, 'z₁ (update gate)', (v) => C.amberMid);
+    drawBars(tr.r, 220, H - 150, 140, 90, 'r₁ (reset gate)', (v) => C.cyanMid);
+    drawBars(tr.h, 400, H - 150, 140, 90, 'h₁ (new hidden state)', (v) => C.purpleMid);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('GRU processes click 1 → gates combine x₁ and h₀=0', 30, 20);
+  }
+
+  else if (mode === 'gru-multi') {
+    // hidden state trajectory across timesteps as a small multi-line chart
+    const pad = { l: 60, r: 30, t: 30, b: 40 };
+    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b - 90;
+    const hs = [[0,0,0], gru4recRun.trace[0].h, gru4recRun.trace[1].h, gru4recRun.trace[2].h, gru4recRun.hFinal];
+    const n = hs.length;
+    const yMin = -1, yMax = 1;
+    const toX = t => pad.l + (t / (n - 1)) * pw;
+    const toY = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * ph;
+    ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ph); ctx.lineTo(pad.l + pw, pad.t + ph); ctx.stroke();
+    ctx.fillStyle = C.text3; ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillText('h(t)', pad.l - 30, pad.t + 4);
+    for (let t = 0; t < n; t++) {
+      ctx.fillText('t=' + t, toX(t) - 8, pad.t + ph + 16);
+    }
+    const dims = [0, 1, 2];
+    const dimColors = [C.blueMid, C.greenMid, C.purpleMid];
+    dims.forEach(d => {
+      ctx.strokeStyle = dimColors[d]; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      hs.forEach((h, t) => { const x = toX(t), y = toY(h[d]); if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+      hs.forEach((h, t) => {
+        ctx.beginPath(); ctx.arc(toX(t), toY(h[d]), t === 3 ? 6 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = dimColors[d];
+        ctx.globalAlpha = t <= 3 ? 1 : 0.3;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    });
+    ctx.fillStyle = C.text2; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('h₁, h₂, h₃ trajectory (dim 1=blue, 2=green, 3=purple)', pad.l, 16);
+    drawChain(2, false);
+  }
+
+  else if (mode === 'gru-scores') {
+    const pad = { l: 50, r: 20, t: 20, b: 50 };
+    const pw = W - pad.l - pad.r, barW = pw / candidates.length - 14;
+    const maxP = Math.max(...gru4recRun.probs);
+    candidates.forEach((v, i) => {
+      const x = pad.l + i * (pw / candidates.length) + 7;
+      const p = gru4recRun.probs[i];
+      const barH = (p / maxP) * (H - pad.t - pad.b - 20);
+      const y = H - pad.b - barH;
+      const isTop = v === topItem(gru4recRun.probs);
+      ctx.fillStyle = isTop ? C.greenMid : C.redMid;
+      ctx.globalAlpha = isTop ? 1 : 0.55;
+      roundRect(x, y, barW, barH, 5); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.text; ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText((p * 100).toFixed(1) + '%', x + barW / 2, y - 6);
+      ctx.fillStyle = C.text2; ctx.font = '10px "DM Sans", system-ui';
+      ctx.fillText(ITEM_SHORT[v], x + barW / 2, H - pad.b + 16);
+      ctx.textAlign = 'left';
+    });
+    ctx.strokeStyle = C.border2; ctx.beginPath(); ctx.moveTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('GRU4Rec: P(next item | h₄) over candidates', pad.l, 14);
+  }
+
+  else if (mode === 'graph') {
+    drawGraph([], () => 0.7, v => 'node ' + v, null);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('Session graph: unique items = nodes, transitions = weighted edges', 20, 20);
+  }
+
+  else if (mode === 'gnn-prop') {
+    drawGraph(graph.nodes, () => 0.85, v => 'h:' + gnnRun.H1[v].map(x=>x.toFixed(2)).join(','), null);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('Message passing: each node aggregates weighted neighbor states, then GRU-updates', 20, 20);
+  }
+
+  else if (mode === 'attention') {
+    const maxAlpha = Math.max(...graph.nodes.map(v => srgnnRun.alpha[v]));
+    drawGraph([srgnnRun.lastItem], () => 0.3,
+      v => 'α=' + srgnnRun.alpha[v].toFixed(2),
+      v => {
+        const t = srgnnRun.alpha[v] / maxAlpha;
+        return v === srgnnRun.lastItem ? C.purpleMid : itemColor[v];
+      });
+    // attention bar overlay bottom
+    const bx = 30, by = H - 60, bw = W - 60, bh = 18;
+    ctx.fillStyle = C.text2; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('Attention weights α (softmax over nodes, query = last click)', bx, by - 8);
+    let cx = bx;
+    graph.nodes.forEach(v => {
+      const w = srgnnRun.alpha[v] * bw;
+      ctx.fillStyle = itemColor[v];
+      ctx.fillRect(cx, by, w, bh);
+      ctx.fillStyle = '#fff'; ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(ITEM_SHORT[v] + ' ' + (srgnnRun.alpha[v]*100).toFixed(0) + '%', cx + w/2, by + 13);
+      ctx.textAlign = 'left';
+      cx += w;
+    });
+  }
+
+  else if (mode === 'fusion') {
+    drawBars(srgnnRun.sl, 40, 60, 150, 90, 's_l (local, last click)', () => C.blueMid);
+    drawBars(srgnnRun.sg, 220, 60, 150, 90, 's_g (global, attention sum)', () => C.amberMid);
+    // plus sign
+    ctx.fillStyle = C.text2; ctx.font = '700 22px "DM Sans", system-ui';
+    ctx.fillText('→', 385, 115);
+    drawBars(srgnnRun.sh, 420, 60, 150, 90, 's_h (fused session repr)', () => C.greenMid);
+    ctx.fillStyle = C.text2; ctx.font = '12px "DM Sans", system-ui';
+    ctx.fillText('Concatenate [s_l ; s_g] then project with W₃ → final session embedding', 30, H - 20);
+  }
+
+  else if (mode === 'compare') {
+    const pad = { l: 50, r: 20, t: 40, b: 50 };
+    const pw = W - pad.l - pad.r;
+    const groupW = pw / candidates.length;
+    const maxP = Math.max(...gru4recRun.probs, ...srgnnRun.probs);
+    candidates.forEach((v, i) => {
+      const gx = pad.l + i * groupW;
+      const bw = groupW * 0.32;
+      const p1 = gru4recRun.probs[i], p2 = srgnnRun.probs[i];
+      const h1 = (p1 / maxP) * (H - pad.t - pad.b);
+      const h2 = (p2 / maxP) * (H - pad.t - pad.b);
+      ctx.fillStyle = C.blueMid;
+      ctx.fillRect(gx + groupW*0.12, H - pad.b - h1, bw, h1);
+      ctx.fillStyle = C.purpleMid;
+      ctx.fillRect(gx + groupW*0.12 + bw + 6, H - pad.b - h2, bw, h2);
+      ctx.fillStyle = C.text2; ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText((p1*100).toFixed(0)+'%', gx + groupW*0.12 + bw/2, H - pad.b - h1 - 4);
+      ctx.fillText((p2*100).toFixed(0)+'%', gx + groupW*0.12 + bw + 6 + bw/2, H - pad.b - h2 - 4);
+      ctx.fillStyle = v === TARGET ? C.greenMid : C.text2;
+      ctx.font = (v === TARGET ? '700 11px' : '11px') + ' "DM Sans", system-ui';
+      ctx.fillText(ITEM_SHORT[v] + (v===TARGET?' ✓':''), gx + groupW/2, H - pad.b + 16);
+      ctx.textAlign = 'left';
+    });
+    ctx.strokeStyle = C.border2; ctx.beginPath(); ctx.moveTo(pad.l, H-pad.b); ctx.lineTo(W-pad.r, H-pad.b); ctx.stroke();
+    ctx.fillStyle = C.text; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText('GRU4Rec (blue) vs SR-GNN (purple) — next-item probability', pad.l, 18);
+    ctx.fillStyle = C.greenMid; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('✓ = true next click (Energy Gel)', pad.l, 34);
+  }
+}
+
+/* ============================================================
+   STEP DEFINITIONS
+   ============================================================ */
+const steps = [
+  {
+    phase: 'embed', title: 'An Anonymous Session Arrives',
+    desc: 'No user ID, no login — just a raw click stream \\(S=[v_1,v_2,v_3,v_4]\\): <b>Running Shoes → Socks → Running Shoes → Water Bottle</b>. Both GRU4Rec and SR-GNN start from exactly this sequence. Our job: predict what gets clicked <em>5th</em>.',
+    codeLines: [2,3], canvasMode: 'chain', stats: () => [['Session length n', session.length], ['Unique items', new Set(session).size], ['Candidate items', candidates.length]]
+  },
+  {
+    phase: 'embed', title: 'Embedding Each Click',
+    desc: 'Every item id is looked up in an embedding table \\(E\\), giving a dense vector \\(\\mathbf{e}_{v_t}\\in\\mathbb{R}^3\\). \\(\\mathbf{e}_3=' + fmtVec(E[3]) + '\\), \\(\\mathbf{e}_7=' + fmtVec(E[7]) + '\\), \\(\\mathbf{e}_9=' + fmtVec(E[9]) + '\\). These are the raw inputs \\(\\mathbf{x}_t\\) fed to the GRU one at a time.',
+    codeLines: [4], canvasMode: 'embed', stats: () => [['e(Shoes)', fmtVec(E[3])], ['e(Socks)', fmtVec(E[7])], ['e(Bottle)', fmtVec(E[9])]]
+  },
+  {
+    phase: 'gru', title: 'GRU Cell: Update &amp; Reset Gates (click 1)',
+    desc: 'Processing click 1 (Shoes): \\(\\mathbf{z}_1=' + fmtVec(gru4recRun.trace[0].z) + '\\) (update gate) and \\(\\mathbf{r}_1=' + fmtVec(gru4recRun.trace[0].r) + '\\) (reset gate) are computed from \\(\\mathbf{x}_1\\) and \\(\\mathbf{h}_0=\\mathbf{0}\\). These gates blend the old memory with a new candidate state \\(\\tilde{\\mathbf{h}}_1\\) to produce \\(\\mathbf{h}_1=' + fmtVec(gru4recRun.trace[0].h) + '\\).',
+    codeLines: [7,8,9,10,11,12,13], canvasMode: 'gru1', stats: () => [['z1', fmtVec(gru4recRun.trace[0].z)], ['r1', fmtVec(gru4recRun.trace[0].r)], ['h1', fmtVec(gru4recRun.trace[0].h)]]
+  },
+  {
+    phase: 'gru', title: 'Hidden State Evolves (clicks 2 &amp; 3)',
+    desc: 'Each further click updates the hidden state again: \\(\\mathbf{h}_2=' + fmtVec(gru4recRun.trace[1].h) + '\\) after Socks, \\(\\mathbf{h}_3=' + fmtVec(gru4recRun.trace[2].h) + '\\) after re-clicking Shoes. The trajectory below shows memory accumulating — nothing is thrown away, it is continuously reweighed by the gates.',
+    codeLines: [8,9,10,11,12,13], canvasMode: 'gru-multi', stats: () => [['h2', fmtVec(gru4recRun.trace[1].h)], ['h3', fmtVec(gru4recRun.trace[2].h)]]
+  },
+  {
+    phase: 'gru', title: 'Final Hidden State &amp; Next-Item Scores',
+    desc: 'After the 4th click (Water Bottle), \\(\\mathbf{h}_4=' + fmtVec(gru4recRun.hFinal) + '\\) is the session representation. Scoring \\(\\hat z_v=\\mathbf{h}_4\\cdot\\mathbf{e}_v\\) for each candidate and taking softmax gives GRU4Rec\'s ranked predictions — top pick: <b>' + ITEM_NAME[topItem(gru4recRun.probs)] + '</b> (' + fmt(100*Math.max(...gru4recRun.probs),1) + '%).',
+    codeLines: [14,15], canvasMode: 'gru-scores', stats: () => [['h4 (session repr)', fmtVec(gru4recRun.hFinal)], ['Top pick', ITEM_SHORT[topItem(gru4recRun.probs)]], ['P(top)', fmt(100*Math.max(...gru4recRun.probs),1)+'%']]
+  },
+  {
+    phase: 'graph', title: 'Same Session as a Graph',
+    desc: 'SR-GNN re-reads the identical session, but builds a directed <b>session graph</b> first: nodes = unique items {Shoes, Socks, Bottle}; edges = observed transitions (Shoes→Socks, Socks→Shoes, Shoes→Bottle). Because Shoes was clicked twice, it has both in- and out-edges — a structure an RNN can only approximate through decayed memory.',
+    codeLines: [18,19,20], canvasMode: 'graph', stats: () => [['Nodes', graph.nodes.length], ['Directed edges', Object.keys(graph.edgeCounts).length], ['Repeated node', 'Shoes (id 3)']]
+  },
+  {
+    phase: 'graph', title: 'Message Passing Along the Graph',
+    desc: 'Each node aggregates its neighbors\' current embeddings via the normalized adjacency \\(A\\), then updates with the <em>same gated-update equations</em> as GRU4Rec, applied node-wise: \\(\\mathbf{a}_i=\\sum_j A_{ij}\\mathbf{h}_j\\), \\(\\mathbf{h}_i\\leftarrow\\text{GRU-update}(\\mathbf{a}_i,\\mathbf{h}_i)\\). Shoes\' embedding shifts most because it has the most (and most varied) neighbors.',
+    codeLines: [21,22,23], canvasMode: 'gnn-prop', stats: () => [['h(Shoes) after GNN', fmtVec(gnnRun.H1[3])], ['h(Socks) after GNN', fmtVec(gnnRun.H1[7])], ['h(Bottle) after GNN', fmtVec(gnnRun.H1[9])]]
+  },
+  {
+    phase: 'attn', title: 'Attention Blends Local + Global Interest',
+    desc: 'The last click (Water Bottle) is the query \\(\\mathbf{s}_l\\). Soft attention scores every node against it: \\(\\alpha_i=\\operatorname{softmax}(\\mathbf{q}^\\top\\sigma(W_1\\mathbf{h}_i+W_2\\mathbf{s}_l+\\mathbf{c}))\\). Node <b>Shoes</b> gets \\(\\alpha=' + fmt(srgnnRun.alpha[3],2) + '\\), <b>Socks</b> \\(\\alpha=' + fmt(srgnnRun.alpha[7],2) + '\\), <b>Bottle</b> \\(\\alpha=' + fmt(srgnnRun.alpha[9],2) + '\\) — these weights decide how much each node contributes to the global summary.',
+    codeLines: [25,26,27], canvasMode: 'attention', stats: () => [['α(Shoes)', fmt(srgnnRun.alpha[3],2)], ['α(Socks)', fmt(srgnnRun.alpha[7],2)], ['α(Bottle)', fmt(srgnnRun.alpha[9],2)]]
+  },
+  {
+    phase: 'attn', title: 'Session Embedding = Local + Global',
+    desc: 'Local embedding \\(\\mathbf{s}_l=' + fmtVec(srgnnRun.sl) + '\\) (last click) and global embedding \\(\\mathbf{s}_g=' + fmtVec(srgnnRun.sg) + '\\) (attention-weighted sum over all nodes) are fused: \\(\\mathbf{s}_h=W_3[\\mathbf{s}_l;\\mathbf{s}_g]=' + fmtVec(srgnnRun.sh) + '\\). This single vector now represents the <em>whole</em> session graph, not just a left-to-right read of it.',
+    codeLines: [28,29], canvasMode: 'fusion', stats: () => [['s_l', fmtVec(srgnnRun.sl)], ['s_g', fmtVec(srgnnRun.sg)], ['s_h (fused)', fmtVec(srgnnRun.sh)]]
+  },
+  {
+    phase: 'result', title: 'SR-GNN Prediction vs. GRU4Rec',
+    desc: 'Scoring \\(\\hat z_v=\\mathbf{s}_h\\cdot\\mathbf{e}_v\\) over the same candidates gives SR-GNN\'s ranking — top pick: <b>' + ITEM_NAME[topItem(srgnnRun.probs)] + '</b> (' + fmt(100*Math.max(...srgnnRun.probs),1) + '%). Compare both models side-by-side: SR-GNN\'s graph view of the repeated Shoes click shifts probability mass differently than GRU4Rec\'s purely sequential memory.',
+    codeLines: [30], canvasMode: 'compare', stats: () => [['GRU4Rec top', ITEM_SHORT[topItem(gru4recRun.probs)]], ['SR-GNN top', ITEM_SHORT[topItem(srgnnRun.probs)]], ['Ground truth next', ITEM_SHORT[TARGET]]]
+  }
+];
+function topItem(probs) {
+  let best = 0;
+  for (let i = 1; i < probs.length; i++) if (probs[i] > probs[best]) best = i;
+  return candidates[best];
+}
+
+let step = 0;
+const totalSteps = steps.length;
+
+/* ============================================================
+   SECTION TOGGLE
+   ============================================================ */
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = { embed:'phase-embed', gru:'phase-gru', graph:'phase-graph', attn:'phase-attn', result:'phase-result' };
+  const phaseLabel = { embed:'INPUT', gru:'GRU4REC', graph:'SR-GNN GRAPH', attn:'SR-GNN ATTENTION', result:'RESULT' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = phaseLabel[s.phase];
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').innerHTML = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // live stat chips
+  const statRow = document.getElementById('statRow');
+  statRow.innerHTML = '';
+  (s.stats ? s.stats() : []).forEach(([label, val]) => {
+    const chip = document.createElement('div');
+    chip.className = 'stat-chip';
+    chip.innerHTML = label + ': <b>' + val + '</b>';
+    statRow.appendChild(chip);
+  });
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+/* ============================================================
+   KEYBOARD
+   ============================================================ */
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+/* ============================================================
+   INIT
+   ============================================================ */
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>
