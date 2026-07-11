@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GNN-Based Recommendations: PinSage, LightGCN & NGCF — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:26px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Matrix / vector displays */
+.matrix-row{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.matrix-display{display:inline-grid;gap:2px;padding:8px;background:var(--bg2);border-radius:var(--radius);border-left:3px solid var(--text2);border-right:3px solid var(--text2);}
+.matrix-label{font-family:var(--mono);font-size:11px;font-weight:600;text-align:center;margin-bottom:4px;color:var(--text2);}
+.matrix-cell{width:54px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;border-radius:3px;transition:all 0.4s;}
+.matrix-cell.highlight{background:var(--blue-bg);color:var(--blue-mid);font-weight:600;}
+.matrix-cell.result{background:var(--green-bg);color:var(--green-mid);font-weight:600;}
+.matrix-cell.omega{background:var(--purple-bg);color:var(--purple-mid);font-weight:600;}
+.matrix-cell.warn{background:var(--amber-bg);color:var(--amber-mid);font-weight:600;}
+.op-symbol{font-size:22px;font-weight:700;color:var(--text2);display:flex;align-items:center;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-propagate{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-combine{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-desc b{color:var(--text);}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:20px;}
+  .matrix-cell{width:40px;height:26px;font-size:10px;}
+  .matrix-row{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>GNN-Based Recommendations: PinSage, LightGCN &amp; NGCF</h1>
+  <div class="subtitle">Turning the user–item interaction graph into embeddings via message passing</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Advanced</span>
+    <span class="tag tag-category">Graph Neural Networks</span>
+    <span class="tag tag-category">Recommender Systems</span>
+    <span class="tag tag-complexity">O(|E|·K·d) per epoch</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding GNN-Based Recommendation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Classical collaborative filtering (matrix factorization) gives every user and every item a flat learned vector and trains them to reconstruct the interactions you've already observed. It treats each interaction as an independent (user, item) pair — it never explicitly asks "who else likes what this user likes, and what do <em>those</em> people like?" Graph Neural Network (GNN) recommenders — NGCF, LightGCN, PinSage — fix this by treating the interaction log as a literal graph: users and items are nodes, an edge exists for every click/purchase/save, and embeddings are refined by <strong>message passing</strong> — repeatedly averaging each node's embedding with its neighbors' embeddings.</p>
+    <p><strong>Analogy:</strong> word-of-mouth taste refinement. Your "taste vector" isn't just about what you clicked — it gets pulled toward the taste of everyone who liked the same items as you. And their vectors get pulled toward the tastes of people who liked what <em>they</em> liked. After a few rounds of this gossip, your embedding encodes multi-hop collaborative signal — "friends of friends" — not just your own direct history.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Stack \(K\) rounds of neighbor-averaging on the bipartite user–item graph, combine the embeddings from every round, then rank items for a user by the dot product of their final embeddings: $$\hat{y}_{ui} = e_u^{\top} e_i, \qquad e_u = \operatorname{combine}\big(e_u^{(0)}, e_u^{(1)}, \dots, e_u^{(K)}\big)$$ LightGCN, NGCF and PinSage are three different answers to "exactly how should each round of averaging work?"</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Three Models Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>NGCF (2019) — the "full" graph convolution</h4>
+    <p>Neural Graph Collaborative Filtering explicitly models two things at every propagation layer: (1) a <em>learnable linear transform</em> \(W_1\) applied to neighbor embeddings, and (2) a <em>bi-interaction</em> term \(W_2(e_i \odot e_u)\) — an element-wise product between the neighbor and the ego node, capturing "how similar are our tastes on each latent dimension" — followed by a LeakyReLU nonlinearity. It is essentially a GCN with an extra interaction-aware term borrowed from factorization-machine intuition.</p>
+    <h4>LightGCN (2020) — strip it down to what matters</h4>
+    <p>The LightGCN authors ran ablations and found that NGCF's feature transforms and nonlinearities barely help — and sometimes hurt — pure collaborative filtering, while adding parameters and overfitting risk. LightGCN's layer is <em>just</em> a symmetric-normalized weighted sum of neighbor embeddings: no \(W\), no activation, no self-loop, no bias. The final embedding for each node is the (weighted) mean of its embeddings across all \(K\) layers, which behaves like a residual/skip connection and prevents over-smoothing as layers stack.</p>
+    <h4>PinSage (2018) — the same idea at Pinterest's billion-node scale</h4>
+    <p>PinSage cannot materialize the full graph or do exact neighbor aggregation — a popular pin can have millions of neighbors. Instead, for every node it runs short <strong>random walks</strong> starting from that node and counts how often each candidate neighbor is visited. Neighbors are aggregated with <strong>importance pooling</strong> — a weighted sum where the weight is each neighbor's normalized visit count — and only the top-\(K\) most-visited neighbors are kept per node. It trains with a max-margin ranking loss on (query, positive, hard-negative) triples mined from the same random walks, and runs inference as an offline MapReduce-style batch job.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">All three are instances of <strong>message passing</strong>: \(e^{(k+1)}_v = \text{AGG}\big(\{e^{(k)}_u : u \in \mathcal{N}(v)\}\big)\). They differ only in the aggregation function \(\text{AGG}\), whether neighbors are transformed/weighted by learnable matrices, and whether the full neighborhood or a sampled subset is used.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>LightGCN propagation rule</h4>
+    <p>For user \(u\) and item \(i\), with \(\mathcal{N}(u)\) the items \(u\) interacted with and \(\mathcal{N}(i)\) the users who interacted with \(i\):</p>
+    <div class="eq">$$e_u^{(k+1)} = \sum_{i \in \mathcal{N}(u)} \frac{1}{\sqrt{|\mathcal{N}(u)|\,|\mathcal{N}(i)|}}\, e_i^{(k)}, \qquad e_i^{(k+1)} = \sum_{u \in \mathcal{N}(i)} \frac{1}{\sqrt{|\mathcal{N}(i)|\,|\mathcal{N}(u)|}}\, e_u^{(k)}$$</div>
+    <p>The symmetric normalization \(1/\sqrt{\deg(u)\deg(i)}\) is exactly the one used in the original GCN (Kipf &amp; Welling) — it prevents high-degree "hub" nodes from dominating. After \(K\) layers, the final representation is the layer-combination:</p>
+    <div class="eq">$$e_u = \sum_{k=0}^{K} \alpha_k\, e_u^{(k)}, \quad \text{typically } \alpha_k = \frac{1}{K+1} \text{ (simple mean)}$$</div>
+    <h4>NGCF propagation rule</h4>
+    <div class="eq">$$e_u^{(k+1)} = \text{LeakyReLU}\!\left(\sum_{i \in \mathcal{N}(u)} \frac{1}{\sqrt{|\mathcal{N}(u)||\mathcal{N}(i)|}} \Big(W_1 e_i^{(k)} + W_2\big(e_i^{(k)} \odot e_u^{(k)}\big)\Big)\right)$$</div>
+    <p>Setting \(W_1 = I\), \(W_2 = 0\), and removing the nonlinearity recovers exactly the LightGCN rule — LightGCN is a strict simplification of NGCF, not a different family.</p>
+    <h4>PinSage importance pooling</h4>
+    <div class="eq">$$e_u^{(k+1)} = \sigma\!\left(W \cdot \text{CONCAT}\Big(e_u^{(k)},\; \gamma\big(\{e_i^{(k)} \cdot \pi(u,i) : i \in \mathcal{N}_S(u)\}\big)\Big)\right)$$</div>
+    <p>where \(\mathcal{N}_S(u)\) is the sampled top-\(K\) neighborhood, \(\pi(u,i)\) is the normalized visit count from random walks started at \(u\) (higher = more topically related), and \(\gamma\) is a weighted aggregator (weighted mean/sum). Training uses a max-margin loss over mined triples \((u, i^+, i^-)\): \(\mathcal{L} = \max(0,\; e_u^\top e_{i^-} - e_u^\top e_{i^+} + \Delta)\).</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Stacking too many layers <strong>over-smooths</strong> the graph — after enough hops, every node's embedding converges toward the same graph-wide average and items become indistinguishable. In practice \(K=2\text{–}4\) layers is typical; the layer-combination step (mean over 0..K) is precisely what protects LightGCN from this collapse, since layer 0 (the un-smoothed embedding) is always kept in the mix.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through message passing on a small bipartite graph — 3 users, 4 items — computed live, then see how LightGCN, NGCF and PinSage diverge.</p>
+
+    <div class="viz-container">
+      <div id="vecViz"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The User–Item Bipartite Graph</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> User node</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--amber-mid)"></div> Item node</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> LightGCN message</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> NGCF transform (W)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Pruned (not sampled)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to reach for which model:</strong></p>
+    <ul>
+      <li><strong>LightGCN</strong> — default choice for pure collaborative-filtering benchmarks; fewer parameters, faster to train, usually matches or beats NGCF.</li>
+      <li><strong>NGCF</strong> — when you want the model to also learn nonlinear feature interactions from side information baked into the initial embeddings, and can afford the extra parameters/tuning.</li>
+      <li><strong>PinSage</strong> — when the graph has hundreds of millions to billions of nodes/edges and full-neighborhood aggregation is computationally impossible; the random-walk sampling + importance pooling + MapReduce inference pipeline is built for that scale.</li>
+    </ul>
+    <p><strong>Shared caveats:</strong></p>
+    <ul>
+      <li>Over-smoothing: too many propagation layers make all embeddings converge — always keep the layer-combination / residual step.</li>
+      <li>Cold start remains hard: a user or item with zero edges has no neighbors to aggregate from, so these graphs still need side-feature fallbacks.</li>
+      <li>The graph must be rebuilt or incrementally updated as new interactions arrive — full-graph propagation is not naturally streaming.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Hierarchy</div>
+      <p style="font-size:14px;margin:0;"><strong>LightGCN</strong> (no \(W\), no \(\sigma\)) \(\subset\) <strong>NGCF</strong> (\(W_1, W_2, \sigma\), full neighborhood) — and <strong>PinSage</strong> is the same message-passing idea as NGCF/LightGCN, re-engineered with random-walk sampling and importance pooling so it survives web-scale graphs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># --- LightGCN: light graph convolution, no W, no activation ---</div>
+      <div class="code-line" id="cl3">def lightgcn_layer(E, adj_norm):</div>
+      <div class="code-line" id="cl4">    # E: (num_nodes, dim) embedding table</div>
+      <div class="code-line" id="cl5">    # adj_norm: symmetric-normalized bipartite adjacency</div>
+      <div class="code-line" id="cl6">    return adj_norm @ E</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">def lightgcn_forward(E0, adj_norm, K=2):</div>
+      <div class="code-line" id="cl9">    layers = [E0]</div>
+      <div class="code-line" id="cl10">    for k in range(K):</div>
+      <div class="code-line" id="cl11">        layers.append(lightgcn_layer(layers[-1], adj_norm))</div>
+      <div class="code-line" id="cl12">    return torch.stack(layers, dim=0).mean(dim=0)   # layer combination</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># --- NGCF adds a learnable transform + bi-interaction ---</div>
+      <div class="code-line" id="cl15">def ngcf_layer(E, adj_norm, W1, W2):</div>
+      <div class="code-line" id="cl16">    agg = adj_norm @ E</div>
+      <div class="code-line" id="cl17">    bi  = adj_norm @ (E * E)             # elementwise interaction</div>
+      <div class="code-line" id="cl18">    return leaky_relu(agg @ W1 + bi @ W2)</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># --- PinSage: importance-pooled sampled neighborhoods ---</div>
+      <div class="code-line" id="cl21">def pinsage_layer(node, sampled_neighbors, visit_weights, E, W):</div>
+      <div class="code-line" id="cl22">    agg = sum(w * E[n] for n, w in zip(sampled_neighbors, visit_weights))</div>
+      <div class="code-line" id="cl23">    return relu(W @ torch.cat([E[node], agg]))</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># --- Training: BPR pairwise ranking loss ---</div>
+      <div class="code-line" id="cl26">def bpr_loss(e_u, e_pos, e_neg):</div>
+      <div class="code-line" id="cl27">    return -torch.log(torch.sigmoid((e_u * e_pos).sum() - (e_u * e_neg).sum()))</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// GRAPH DATA
+// ============================================================
+const users = ['U1','U2','U3'];
+const items = ['I1','I2','I3','I4'];
+const allNodes = users.concat(items);
+
+const adj = {
+  U1: ['I1','I2'],
+  U2: ['I2','I3'],
+  U3: ['I3','I4'],
+  I1: ['U1'],
+  I2: ['U1','U2'],
+  I3: ['U2','U3'],
+  I4: ['U3']
+};
+const edgeList = [['U1','I1'],['U1','I2'],['U2','I2'],['U2','I3'],['U3','I3'],['U3','I4']];
+const deg = n => adj[n].length;
+
+// Layer-0 embeddings (2D, deterministic "random init")
+const e0 = {
+  U1:[0.80,0.20], U2:[0.30,0.70], U3:[0.50,0.50],
+  I1:[0.90,0.10], I2:[0.40,0.60], I3:[0.20,0.80], I4:[0.60,0.40]
+};
+
+// ============================================================
+// LIVE PROPAGATION MATH
+// ============================================================
+function lightgcnLayer(prev){
+  const out = {};
+  allNodes.forEach(n=>{
+    const nbrs = adj[n], dn = nbrs.length;
+    let s0=0, s1=0;
+    nbrs.forEach(m=>{
+      const dm = adj[m].length;
+      const norm = 1/Math.sqrt(dn*dm);
+      s0 += norm*prev[m][0];
+      s1 += norm*prev[m][1];
+    });
+    out[n] = [s0, s1];
+  });
+  return out;
+}
+const e1 = lightgcnLayer(e0);
+const e2 = lightgcnLayer(e1);
+const eFinal = {};
+allNodes.forEach(n=>{
+  eFinal[n] = [ (e0[n][0]+e1[n][0]+e2[n][0])/3, (e0[n][1]+e1[n][1]+e2[n][1])/3 ];
+});
+
+// NGCF layer-1 (for comparison against LightGCN layer-1)
+const W1 = [[1.1,0.0],[0.0,0.9]];
+const W2 = [[0.5,0.0],[0.0,0.5]];
+function matVec(M,v){ return [ M[0][0]*v[0]+M[0][1]*v[1], M[1][0]*v[0]+M[1][1]*v[1] ]; }
+function leakyRelu(x, a=0.2){ return x>=0 ? x : a*x; }
+function ngcfLayer(prev){
+  const out = {};
+  allNodes.forEach(n=>{
+    const nbrs = adj[n], dn = nbrs.length;
+    let s0=0, s1=0;
+    nbrs.forEach(m=>{
+      const dm = adj[m].length;
+      const norm = 1/Math.sqrt(dn*dm);
+      const w1e = matVec(W1, prev[m]);
+      const elem = [ prev[m][0]*prev[n][0], prev[m][1]*prev[n][1] ];
+      const w2e = matVec(W2, elem);
+      s0 += norm*(w1e[0]+w2e[0]);
+      s1 += norm*(w1e[1]+w2e[1]);
+    });
+    out[n] = [ leakyRelu(s0), leakyRelu(s1) ];
+  });
+  return out;
+}
+const eNGCF1 = ngcfLayer(e0);
+
+// PinSage: seeded random-walk importance simulation over a synthetic
+// large candidate neighborhood (illustrates web-scale sampling)
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function computePinsageImportance(numItems, numWalks, walkLength, seed){
+  const rand = mulberry32(seed);
+  const popularity = Array.from({length:numItems}, () => 0.2 + rand()*0.8);
+  const totalPop = popularity.reduce((a,b)=>a+b,0);
+  const visits = new Array(numItems).fill(0);
+  for (let w=0; w<numWalks; w++){
+    for (let step=0; step<walkLength; step++){
+      let r = rand()*totalPop, acc=0, chosen=numItems-1;
+      for (let idx=0; idx<numItems; idx++){
+        acc += popularity[idx];
+        if (r <= acc){ chosen = idx; break; }
+      }
+      visits[chosen]++;
+    }
+  }
+  const totalVisits = visits.reduce((a,b)=>a+b,0);
+  return visits.map(v => v/totalVisits);
+}
+const PIN_N = 8;
+const pinImportance = computePinsageImportance(PIN_N, 600, 4, 7);
+const pinRanked = pinImportance.map((w,i)=>({idx:i, w})).sort((a,b)=>b.w-a.w);
+const PIN_K = 3; // top-K sampled
+const pinSampledIdx = new Set(pinRanked.slice(0,PIN_K).map(r=>r.idx));
+
+// Recommendation scores: dot product of final embeddings, ALL user-item pairs
+function dot(a,b){ return a[0]*b[0]+a[1]*b[1]; }
+const scores = {};
+users.forEach(u=>{
+  scores[u] = {};
+  items.forEach(it=>{ scores[u][it] = dot(eFinal[u], eFinal[it]); });
+});
+const u1Ranking = items.slice().sort((a,b)=>scores.U1[b]-scores.U1[a]);
+const topItemU1 = u1Ranking[0];
+
+// ============================================================
+// STEPS
+// ============================================================
+const steps = [
+  {
+    phase:'setup', title:'The User–Item Bipartite Graph',
+    desc:`Every interaction (click, purchase, save) becomes an edge in a bipartite graph: users on the left, items on the right. Each node starts with a random <b>layer-0 embedding</b> \\(e^{(0)}\\) — e.g. \\(e^{(0)}_{U1}=[${e0.U1[0].toFixed(2)}, ${e0.U1[1].toFixed(2)}]\\). No graph structure has been used yet; this is just the raw lookup-table embedding matrix.`,
+    canvasMode:'graph_init',
+    codeLines:[],
+    vectors:[{label:'e⁰(U1)', vec:e0.U1, cls:'highlight'},{label:'e⁰(I2)', vec:e0.I2, cls:'warn'}]
+  },
+  {
+    phase:'setup', title:'Why Graph Structure Matters',
+    desc:`U1 and U2 both interacted with I2 — that shared edge is <b>collaborative signal</b>: it says "U1 and U2 have overlapping taste." A flat matrix-factorization model never uses this path explicitly. A GNN does: information can flow U2 → I2 → U1 in one hop, and U2 → I2 → U1 → I1 in further hops, letting U1's embedding absorb U2's taste through the shared item.`,
+    canvasMode:'graph_path',
+    codeLines:[],
+    vectors:[{label:'deg(U1)', vec:[deg('U1'), deg('I2')], cls:'omega'}]
+  },
+  {
+    phase:'propagate', title:'LightGCN Layer 1: Aggregate Into U1',
+    desc:`LightGCN's update has <b>no weight matrix and no nonlinearity</b> — just a symmetric-normalized sum: $$e_{U1}^{(1)} = \\sum_{i \\in \\{I1,I2\\}} \\frac{1}{\\sqrt{\\deg(U1)\\deg(i)}} e_i^{(0)}$$ Computed live: \\(e^{(1)}_{U1} = [${e1.U1[0].toFixed(3)}, ${e1.U1[1].toFixed(3)}]\\), a blend of I1's and I2's layer-0 vectors, normalized by both endpoints' degree.`,
+    canvasMode:'layer1_agg',
+    codeLines:[3,4,5,6],
+    vectors:[{label:'e¹(U1) new', vec:e1.U1, cls:'result'},{label:'e⁰(I1)', vec:e0.I1, cls:'highlight'},{label:'e⁰(I2)', vec:e0.I2, cls:'highlight'}]
+  },
+  {
+    phase:'propagate', title:'Layer 1 Completes for Every Node',
+    desc:`The same update runs <em>simultaneously</em> at every user and item. All 7 nodes now hold a layer-1 embedding that mixes in one hop of neighbor information — users have absorbed their items' vectors, and items have absorbed their users' vectors, symmetrically.`,
+    canvasMode:'layer1_full',
+    codeLines:[8,9,10,11],
+    vectors:[{label:'e¹(U1)', vec:e1.U1, cls:'result'},{label:'e¹(U2)', vec:e1.U2, cls:'result'},{label:'e¹(I2)', vec:e1.I2, cls:'result'}]
+  },
+  {
+    phase:'propagate', title:'LightGCN Layer 2: Higher-Order Signal Arrives',
+    desc:`Layer 2 aggregates the <em>already-mixed</em> layer-1 vectors: \\(e^{(2)}_{U1}\\) pulls from \\(e^{(1)}_{I1}, e^{(1)}_{I2}\\) — but \\(e^{(1)}_{I2}\\) itself already contains U2's taste (from layer 1). So after 2 hops, U1's embedding \\(e^{(2)}_{U1}=[${e2.U1[0].toFixed(3)}, ${e2.U1[1].toFixed(3)}]\\) carries influence from U2 <em>and</em>, through U2, from I3 — genuine higher-order collaborative filtering.`,
+    canvasMode:'layer2_agg',
+    codeLines:[8,9,10,11],
+    vectors:[{label:'e²(U1) new', vec:e2.U1, cls:'result'},{label:'e¹(I1)', vec:e1.I1, cls:'highlight'},{label:'e¹(I2)', vec:e1.I2, cls:'highlight'}]
+  },
+  {
+    phase:'compare', title:'NGCF: Add a Weight Transform + Bi-Interaction',
+    desc:`NGCF computes the same 1-hop update but pushes every neighbor through learnable matrices first: \\(W_1 e_i\\) (linear transform) plus \\(W_2(e_i \\odot e_u)\\) (element-wise taste-similarity term), then a LeakyReLU. Same graph, same neighbors, different arithmetic: LightGCN gives \\(e^{(1)}_{U1}=[${e1.U1[0].toFixed(3)}, ${e1.U1[1].toFixed(3)}]\\) while NGCF gives \\(e^{(1)}_{U1}=[${eNGCF1.U1[0].toFixed(3)}, ${eNGCF1.U1[1].toFixed(3)}]\\) — the extra parameters reshape the message.`,
+    canvasMode:'ngcf_compare',
+    codeLines:[14,15,16,17,18],
+    vectors:[{label:'LightGCN e¹(U1)', vec:e1.U1, cls:'result'},{label:'NGCF e¹(U1)', vec:eNGCF1.U1, cls:'omega'}]
+  },
+  {
+    phase:'compare', title:'PinSage: Random-Walk Sampling at Web Scale',
+    desc:`A real pin can have millions of potential neighbors — full aggregation is impossible. PinSage runs short random walks from the query node and counts visits; here, ${8} simulated candidate items receive live-computed visit shares (seeded random walk, ${600} walks × length ${4}). Only the top-${PIN_K} most-visited — <b>${pinRanked.slice(0,PIN_K).map(r=>'C'+(r.idx+1)).join(', ')}</b> — are kept as the sampled neighborhood; the rest are pruned before aggregation.`,
+    canvasMode:'pinsage',
+    codeLines:[20,21,22,23],
+    vectors: pinRanked.slice(0,3).map(r=>({label:'visit share C'+(r.idx+1), vec:[r.w*100, 0], cls:'highlight'}))
+  },
+  {
+    phase:'combine', title:'Layer Combination: The Final Embedding',
+    desc:`LightGCN's key trick: don't just use the last layer — average <em>all</em> layers. \\(e_{U1} = \\tfrac{1}{3}(e^{(0)}_{U1}+e^{(1)}_{U1}+e^{(2)}_{U1}) = [${eFinal.U1[0].toFixed(3)}, ${eFinal.U1[1].toFixed(3)}]\\). Layer 0 keeps the node's own identity; deeper layers add neighborhood context. This acts like a skip connection and is precisely what prevents over-smoothing when \\(K\\) grows.`,
+    canvasMode:'combine',
+    codeLines:[12],
+    vectors:[{label:'Final e(U1)', vec:eFinal.U1, cls:'result'},{label:'Final e(I2)', vec:eFinal.I2, cls:'result'}]
+  },
+  {
+    phase:'result', title:'Recommendation Score = Dot Product',
+    desc:`Rank items for U1 by \\(\\hat{y}_{U1,i} = e_{U1}^{\\top} e_i\\) using the final combined embeddings. Live-computed ranking for U1: <b>${u1Ranking.map(it=>it+' ('+scores.U1[it].toFixed(3)+')').join(' > ')}</b>. Top recommendation: <b>${topItemU1}</b> — note U1 never directly interacted with every high-scoring item; the graph propagation is what surfaces it.`,
+    canvasMode:'score',
+    codeLines:[25,26,27],
+    vectors: items.map(it=>({label:'score(U1,'+it+')', vec:[scores.U1[it], 0], cls: it===topItemU1 ? 'result':'highlight'}))
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ============================================================
+// SECTION TOGGLE
+// ============================================================
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ============================================================
+// DOTS
+// ============================================================
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ============================================================
+// RENDER
+// ============================================================
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup',propagate:'phase-propagate',compare:'phase-compare',combine:'phase-combine',result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  renderVectors(s.vectors || []);
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ============================================================
+// VECTOR PANEL
+// ============================================================
+function renderVectors(list) {
+  const container = document.getElementById('vecViz');
+  if (!list.length) { container.innerHTML = ''; return; }
+  let html = '<div class="matrix-row">';
+  list.forEach((v, idx) => {
+    if (idx > 0) html += '<div class="op-symbol">&nbsp;</div>';
+    html += `<div><div class="matrix-label">${v.label}</div><div class="matrix-display" style="grid-template-columns:repeat(${v.vec.length},1fr)">`;
+    v.vec.forEach(val => {
+      html += `<div class="matrix-cell ${v.cls}">${val.toFixed(3)}</div>`;
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ============================================================
+// CANVAS LAYOUT HELPERS
+// ============================================================
+function computeLayout(W,H){
+  const pad = {l:70,r:70,t:36,b:36};
+  const ph = H - pad.t - pad.b;
+  const usersX = pad.l + 26;
+  const itemsX = W - pad.r - 26;
+  const pos = {};
+  users.forEach((u,i)=>{ pos[u] = {x:usersX, y: pad.t + ph*((i+0.5)/users.length)}; });
+  items.forEach((it,i)=>{ pos[it] = {x:itemsX, y: pad.t + ph*((i+0.5)/items.length)}; });
+  return pos;
+}
+function drawArrow(ctx, x1,y1,x2,y2,color,lw){
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const ang = Math.atan2(y2-y1, x2-x1);
+  const ah = 7;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - ah*Math.cos(ang-0.4), y2 - ah*Math.sin(ang-0.4));
+  ctx.lineTo(x2 - ah*Math.cos(ang+0.4), y2 - ah*Math.sin(ang+0.4));
+  ctx.closePath();
+  ctx.fillStyle = color; ctx.fill();
+}
+function drawNode(ctx, x, y, r, fill, label, textC){
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = textC; ctx.font = '600 11px "DM Sans", system-ui';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+function drawVecBars(ctx, x, y, vec, maxAbs, colorA, colorB){
+  const barW = 5, gap = 2, maxH = 22;
+  const h0 = Math.max(1,(vec[0]/maxAbs)*maxH);
+  const h1 = Math.max(1,(vec[1]/maxAbs)*maxH);
+  const baseY = y - 26;
+  ctx.fillStyle = colorA;
+  ctx.fillRect(x - barW - gap/2, baseY - h0, barW, h0);
+  ctx.fillStyle = colorB;
+  ctx.fillRect(x + gap/2, baseY - h1, barW, h1);
+}
+
+// ============================================================
+// MAIN CANVAS DRAW
+// ============================================================
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const cyanMid = cs.getPropertyValue('--cyan-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+  const bg2 = cs.getPropertyValue('--bg2').trim();
+
+  ctx.clearRect(0,0,W,H);
+  ctx.font = '11px "DM Sans", system-ui';
+
+  const pos = computeLayout(W,H);
+
+  function drawBaseEdges(color, lw, alpha){
+    ctx.globalAlpha = alpha===undefined?1:alpha;
+    edgeList.forEach(([u,it])=>{
+      ctx.strokeStyle = color; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(pos[u].x,pos[u].y); ctx.lineTo(pos[it].x,pos[it].y); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+  function drawAllNodesPlain(embSet, highlightSet){
+    let maxAbs = 0;
+    allNodes.forEach(n=>{ maxAbs = Math.max(maxAbs, Math.abs(embSet[n][0]), Math.abs(embSet[n][1])); });
+    allNodes.forEach(n=>{
+      const p = pos[n];
+      const isUser = users.includes(n);
+      const dim = highlightSet && !highlightSet.has(n);
+      ctx.globalAlpha = dim ? 0.35 : 1;
+      drawVecBars(ctx, p.x, p.y, embSet[n], maxAbs, blueMid, cyanMid);
+      drawNode(ctx, p.x, p.y, 17, isUser?blueMid:amberMid, n, '#fff');
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  if (mode === 'graph_init') {
+    drawBaseEdges(borderC, 1.5);
+    drawAllNodesPlain(e0, null);
+    ctx.fillStyle = text3; ctx.fillText('Layer-0 embeddings (random init) — bars show [dim1, dim2] magnitude', 12, H-10);
+  }
+
+  else if (mode === 'graph_path') {
+    drawBaseEdges(borderC, 1.5, 0.35);
+    // highlight path U2 - I2 - U1
+    drawArrow(ctx, pos.U2.x, pos.U2.y, pos.I2.x, pos.I2.y, greenMid, 3);
+    drawArrow(ctx, pos.I2.x, pos.I2.y, pos.U1.x, pos.U1.y, greenMid, 3);
+    drawAllNodesPlain(e0, new Set(['U1','U2','I2']));
+    ctx.fillStyle = greenMid; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText('Shared item I2 links U1 ↔ U2 — collaborative signal', 12, H-10);
+  }
+
+  else if (mode === 'layer1_agg') {
+    drawBaseEdges(borderC, 1, 0.2);
+    drawArrow(ctx, pos.I1.x, pos.I1.y, pos.U1.x, pos.U1.y, greenMid, 3);
+    drawArrow(ctx, pos.I2.x, pos.I2.y, pos.U1.x, pos.U1.y, greenMid, 3);
+    // mid-labels
+    ctx.fillStyle = greenMid; ctx.font = '600 10px monospace';
+    ctx.fillText('1/√(2·1)', (pos.I1.x+pos.U1.x)/2 - 10, (pos.I1.y+pos.U1.y)/2 - 6);
+    ctx.fillText('1/√(2·2)', (pos.I2.x+pos.U1.x)/2 - 10, (pos.I2.y+pos.U1.y)/2 - 6);
+    let maxAbs = 0;
+    ['U1','I1','I2'].forEach(n=>{ maxAbs = Math.max(maxAbs, Math.abs(e0[n][0]), Math.abs(e0[n][1]), Math.abs(e1.U1[0]), Math.abs(e1.U1[1])); });
+    allNodes.forEach(n=>{
+      const p = pos[n];
+      const isUser = users.includes(n);
+      const active = (n==='U1'||n==='I1'||n==='I2');
+      ctx.globalAlpha = active?1:0.25;
+      const vec = (n==='U1') ? e1.U1 : e0[n];
+      drawVecBars(ctx, p.x, p.y, vec, maxAbs, blueMid, cyanMid);
+      drawNode(ctx, p.x, p.y, active&&n==='U1'?20:17, isUser?blueMid:amberMid, n, '#fff');
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = text3; ctx.fillText('U1 aggregates I1 & I2 → new e¹(U1) shown as bars', 12, H-10);
+  }
+
+  else if (mode === 'layer1_full') {
+    drawBaseEdges(borderC, 1, 0.5);
+    drawAllNodesPlain(e1, null);
+    ctx.fillStyle = text3; ctx.fillText('Every node updated simultaneously to layer-1 embeddings', 12, H-10);
+  }
+
+  else if (mode === 'layer2_agg') {
+    drawBaseEdges(borderC, 1, 0.2);
+    drawArrow(ctx, pos.I1.x, pos.I1.y, pos.U1.x, pos.U1.y, purpleMid, 3);
+    drawArrow(ctx, pos.I2.x, pos.I2.y, pos.U1.x, pos.U1.y, purpleMid, 3);
+    // faint indicator that I2's e1 already contains U2 info
+    ctx.setLineDash([4,3]);
+    drawArrow(ctx, pos.U2.x, pos.U2.y, pos.I2.x, pos.I2.y, greenMid, 1.5);
+    ctx.setLineDash([]);
+    let maxAbs = 0;
+    ['U1','I1','I2'].forEach(n=>{ maxAbs = Math.max(maxAbs, Math.abs(e1[n][0]), Math.abs(e1[n][1]), Math.abs(e2.U1[0]), Math.abs(e2.U1[1])); });
+    allNodes.forEach(n=>{
+      const p = pos[n];
+      const isUser = users.includes(n);
+      const active = (n==='U1'||n==='I1'||n==='I2'||n==='U2');
+      ctx.globalAlpha = active?1:0.2;
+      const vec = (n==='U1') ? e2.U1 : e1[n];
+      drawVecBars(ctx, p.x, p.y, vec, maxAbs, purpleMid, cyanMid);
+      drawNode(ctx, p.x, p.y, n==='U1'?20:17, isUser?blueMid:amberMid, n, '#fff');
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = text3; ctx.fillText('2-hop: U1 now indirectly reached by U2 (dashed) via I2', 12, H-10);
+  }
+
+  else if (mode === 'ngcf_compare') {
+    // split-panel: left = LightGCN mini, right = NGCF mini, subgraph I1-U1-I2
+    const midX = W/2;
+    ctx.strokeStyle = borderC; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(midX,10); ctx.lineTo(midX,H-10); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = greenMid; ctx.font = '700 12px "DM Sans"'; ctx.fillText('LightGCN', 16, 20);
+    ctx.fillStyle = purpleMid; ctx.fillText('NGCF', midX+16, 20);
+
+    function miniPanel(cx, colorMsg, isNgcf){
+      const iy1 = H*0.35, iy2 = H*0.75, uy = H*0.55;
+      const ix = cx - 60, ux = cx + 40;
+      drawArrow(ctx, ix, iy1, ux, uy, colorMsg, 2.5);
+      drawArrow(ctx, ix, iy2, ux, uy, colorMsg, 2.5);
+      if (isNgcf) {
+        // little W squares on edges
+        ctx.fillStyle = purpleMid;
+        ctx.fillRect((ix+ux)/2-16, (iy1+uy)/2-8, 14, 14);
+        ctx.fillRect((ix+ux)/2-16, (iy2+uy)/2-8, 14, 14);
+        ctx.fillStyle = '#fff'; ctx.font = '700 9px monospace'; ctx.textAlign='center';
+        ctx.fillText('W', (ix+ux)/2-9, (iy1+uy)/2-1);
+        ctx.fillText('W', (ix+ux)/2-9, (iy2+uy)/2-1);
+        ctx.textAlign='left';
+        ctx.fillStyle = purpleMid; ctx.font='600 10px "DM Sans"';
+        ctx.fillText('σ', ux+18, uy+4);
+        ctx.beginPath(); ctx.arc(ux+16, uy, 9, 0, Math.PI*2); ctx.strokeStyle=purpleMid; ctx.lineWidth=1.5; ctx.stroke();
+      }
+      drawNode(ctx, ix, iy1, 15, amberMid, 'I1', '#fff');
+      drawNode(ctx, ix, iy2, 15, amberMid, 'I2', '#fff');
+      drawNode(ctx, ux, uy, 17, blueMid, 'U1', '#fff');
+      const vec = isNgcf ? eNGCF1.U1 : e1.U1;
+      ctx.fillStyle = text2; ctx.font='11px monospace';
+      ctx.fillText(`e¹=[${vec[0].toFixed(2)},${vec[1].toFixed(2)}]`, ux-45, uy+38);
+    }
+    miniPanel(W*0.27, greenMid, false);
+    miniPanel(W*0.77, purpleMid, true);
+  }
+
+  else if (mode === 'pinsage') {
+    const cx = W/2, cy = H/2;
+    const r = Math.min(W,H)*0.36;
+    const posC = [];
+    for (let i=0;i<PIN_N;i++){
+      const ang = -Math.PI/2 + i*(2*Math.PI/PIN_N);
+      posC.push({x:cx+r*Math.cos(ang), y:cy+r*Math.sin(ang)});
+    }
+    // edges with thickness = importance
+    posC.forEach((p,i)=>{
+      const sampled = pinSampledIdx.has(i);
+      ctx.strokeStyle = sampled ? blueMid : redMid;
+      ctx.lineWidth = sampled ? (1+pinImportance[i]*40) : 1;
+      ctx.globalAlpha = sampled ? 0.9 : 0.35;
+      if (!sampled) ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    });
+    posC.forEach((p,i)=>{
+      const sampled = pinSampledIdx.has(i);
+      drawNode(ctx, p.x, p.y, sampled?16:12, sampled?amberMid:'rgba(160,160,160,0.5)', 'C'+(i+1), sampled?'#fff':'#333');
+      ctx.fillStyle = text3; ctx.font='9px monospace'; ctx.textAlign='center';
+      ctx.fillText((pinImportance[i]*100).toFixed(1)+'%', p.x, p.y + (sampled?28:22));
+      ctx.textAlign='left';
+    });
+    drawNode(ctx, cx, cy, 20, blueMid, 'U*', '#fff');
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans"';
+    ctx.fillText(`Random-walk visit share over ${PIN_N} candidate neighbors — top-${PIN_K} sampled (blue), rest pruned (gray)`, 10, H-10);
+  }
+
+  else if (mode === 'combine') {
+    const nodesToShow = ['U1','I2'];
+    const colW = W/2;
+    let maxAbs = 0;
+    nodesToShow.forEach(n=>{
+      [e0[n],e1[n],e2[n],eFinal[n]].forEach(v=>{ maxAbs = Math.max(maxAbs, Math.abs(v[0]), Math.abs(v[1])); });
+    });
+    nodesToShow.forEach((n, ni)=>{
+      const baseX = colW*ni + colW*0.22;
+      const groups = [['L0',e0[n],text2],['L1',e1[n],greenMid],['L2',e2[n],purpleMid]];
+      const gy = H*0.68, maxH=34;
+      ctx.fillStyle = text; ctx.font='700 13px "DM Sans"'; ctx.textAlign='center';
+      ctx.fillText(n, colW*ni+colW*0.5, 22);
+      ctx.textAlign='left';
+      groups.forEach((g,gi)=>{
+        const gx = baseX + gi*46;
+        const h0 = Math.max(1,(g[1][0]/maxAbs)*maxH), h1 = Math.max(1,(g[1][1]/maxAbs)*maxH);
+        ctx.fillStyle = g[2];
+        ctx.fillRect(gx, gy-h0, 8, h0);
+        ctx.fillRect(gx+11, gy-h1, 8, h1);
+        ctx.fillStyle = text3; ctx.font='10px monospace'; ctx.textAlign='center';
+        ctx.fillText(g[0], gx+9, gy+14);
+        ctx.textAlign='left';
+        if (gi<2){
+          ctx.fillStyle = text3; ctx.font='700 14px "DM Sans"';
+          ctx.fillText('+', gx+24, gy-maxH/2);
+        }
+      });
+      // arrow to final
+      const fx = baseX + 3*46 + 10;
+      ctx.fillStyle = text3; ctx.font='700 12px "DM Sans"';
+      ctx.fillText('÷3 =', baseX+3*46-8, gy-maxH/2);
+      const fv = eFinal[n];
+      const fh0 = Math.max(1,(fv[0]/maxAbs)*maxH), fh1 = Math.max(1,(fv[1]/maxAbs)*maxH);
+      ctx.fillStyle = amberMid;
+      ctx.fillRect(fx, gy-fh0, 9, fh0);
+      ctx.fillRect(fx+12, gy-fh1, 9, fh1);
+      ctx.strokeStyle = amberMid; ctx.lineWidth=1.5;
+      ctx.strokeRect(fx-4, gy-maxH-6, 29, maxH+10);
+      ctx.fillStyle = amberMid; ctx.font='700 10px monospace'; ctx.textAlign='center';
+      ctx.fillText('Final', fx+10, gy+16);
+      ctx.textAlign='left';
+    });
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans"';
+    ctx.fillText('Final embedding = mean of layer-0, layer-1, layer-2 vectors', 12, H-10);
+  }
+
+  else if (mode === 'score') {
+    const pad = {l:90,r:30,t:50,b:30};
+    const gw = (W-pad.l-pad.r)/items.length;
+    const gh = (H-pad.t-pad.b)/users.length;
+    let maxS=-Infinity, minS=Infinity;
+    users.forEach(u=>items.forEach(it=>{ maxS=Math.max(maxS,scores[u][it]); minS=Math.min(minS,scores[u][it]); }));
+    items.forEach((it,ci)=>{
+      ctx.fillStyle = text2; ctx.font='600 11px "DM Sans"'; ctx.textAlign='center';
+      ctx.fillText(it, pad.l+gw*(ci+0.5), pad.t-14);
+      ctx.textAlign='left';
+    });
+    users.forEach((u,ri)=>{
+      ctx.fillStyle = text2; ctx.font='600 11px "DM Sans"';
+      ctx.fillText(u, 20, pad.t+gh*(ri+0.5)+4);
+      items.forEach((it,ci)=>{
+        const v = scores[u][it];
+        const t = (v-minS)/(maxS-minS+1e-9);
+        const isTop = (u==='U1' && it===topItemU1);
+        const r = Math.round(240 - t*140);
+        const g = Math.round(240 - t*60);
+        const b = Math.round(245 - t*30);
+        ctx.fillStyle = isTop ? amberMid : `rgb(${r},${g},${b})`;
+        const x = pad.l+gw*ci, y = pad.t+gh*ri;
+        ctx.fillRect(x+2,y+2,gw-4,gh-4);
+        if (isTop){ ctx.strokeStyle = '#fff'; ctx.lineWidth=2; ctx.strokeRect(x+2,y+2,gw-4,gh-4); }
+        ctx.fillStyle = isTop ? '#fff' : text;
+        ctx.font = (isTop?'700 ':'500 ')+'11px monospace'; ctx.textAlign='center';
+        ctx.fillText(v.toFixed(2), x+gw/2, y+gh/2+4);
+        ctx.textAlign='left';
+      });
+    });
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans"';
+    ctx.fillText(`Score = eᵤᵀeᵢ · top pick for U1 = ${topItemU1} (highlighted)`, pad.l, H-8);
+  }
+}
+
+// ============================================================
+// KEYBOARD
+// ============================================================
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ============================================================
+// INIT
+// ============================================================
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>
