@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LightGCN: Simplified GCN for Recommendation — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-controls{display:flex;flex-wrap:wrap;gap:15px;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid var(--border);}
+.viz-control-group{display:flex;align-items:center;gap:8px;}
+.viz-control-label{font-size:13px;font-weight:600;color:var(--text2);}
+.viz-control-value{font-family:var(--mono);font-size:13px;color:var(--purple-mid);min-width:30px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;width:120px;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-propagate{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-combine{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-predict{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-detail{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+.legend-swatch.square{border-radius:3px;}
+.legend-swatch.line{height:2px;width:16px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .viz-control-group{flex-direction:column;align-items:flex-start;}
+  input[type="range"]{width:100%;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>LightGCN: Simplified GCN for Recommendation</h1>
+  <div class="subtitle">Graph Convolutional Networks without feature transformation or non-linearities</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Recommendation</span>
+    <span class="tag tag-complexity">O(L · |E|) propagation</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding LightGCN</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> LightGCN (Light Graph Convolutional Network) is a graph neural network (GNN) model specifically designed for recommendation systems. It simplifies traditional GCNs by removing two key components: feature transformation matrices (weights) and non-linear activation functions. This makes it more efficient and, surprisingly, often more effective for collaborative filtering tasks.</p>
+    <p><strong>Analogy:</strong> Imagine you're asking friends for movie recommendations. A standard GCN is like asking your friends (Layer 0), then processing their complex opinions through a "filter" (weight matrix) and making a decision (non-linearity). Then you ask your friends' friends (Layer 1), and repeat the complex filtering. LightGCN is simpler: you just directly average your friends' raw preferences. Then you average your friends' friends' raw preferences. Finally, you combine all these simple averages (from direct friends, friends of friends, etc.) to form your final opinion.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">LightGCN's core idea is <strong>linear propagation</strong>: it iteratively smooths user and item embeddings by averaging their neighbors' embeddings in the user-item interaction graph. The final embedding for each user/item is a simple weighted sum of their embeddings from all propagation layers. This focuses purely on collaborative signal via graph structure.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How LightGCN Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Simplification Rationale</h4>
+    <p>Traditional GCN layers learn complex feature transformations \((W^{(l)})\) and apply non-linear activations \(( \sigma )\). While powerful for rich node features, for recommendation, where nodes (users/items) often only have ID embeddings (sparse one-hot vectors), these components can be detrimental:</p>
+    <ul>
+      <li><strong>Weight Matrices (\(W^{(l)}\)):</strong> Learning these matrices introduces many parameters, increasing model complexity and risk of overfitting, especially with sparse interaction data. For ID embeddings, simple aggregation often suffices.</li>
+      <li><strong>Non-linear Activations (\(\sigma\)):</strong> Non-linearities can sometimes hinder the smooth propagation of collaborative signals across the graph, potentially leading to over-smoothing or making the optimization landscape more difficult.</li>
+    </ul>
+    <p>LightGCN argues that for collaborative filtering, the primary signal comes from the graph structure itself (who interacted with what), and complex feature transformations are less critical than effective neighborhood aggregation.</p>
+
+    <h4>The Core Propagation Process</h4>
+    <p>LightGCN operates in two main phases:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Embedding Propagation:</strong> Starting with initial (0-th layer) embeddings for all users and items, LightGCN iteratively propagates these embeddings across the user-item interaction graph. In each layer, a node's embedding is updated by averaging the embeddings of its direct neighbors from the previous layer. This process is repeated for \(L\) layers, capturing higher-order connectivity (friends of friends, items similar to items you liked, etc.).</li>
+      <li><strong>Layer Combination:</strong> After obtaining embeddings from all \(L+1\) layers (from 0 to \(L\)), the final embedding for each user and item is computed as a weighted sum of its embeddings across all layers. This combines information from various "distances" in the graph, allowing the model to balance local (direct connections) and global (multi-hop connections) collaborative signals.</li>
+    </ol>
+    <p>The final user and item embeddings are then used to predict interaction scores (e.g., via dot product), which are optimized using a ranking-based loss like BPR (Bayesian Personalized Ranking).</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">By stripping down the GCN architecture, LightGCN effectively transforms into an elegant and powerful <strong>generalized matrix factorization</strong> model. The propagation layers learn increasingly smoothed representations, and their linear combination implicitly captures complex user-item relationships through graph structure, without the overhead of explicit transformations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Graph Representation</h4>
+    <p>Let \(R \in \mathbb{R}^{N \times M}\) be the user-item interaction matrix, where \(N\) is the number of users and \(M\) is the number of items. If user \(u\) interacted with item \(i\), \(R_{ui}=1\), otherwise \(0\). We construct a bipartite graph with users and items as nodes. The adjacency matrix \(A\) of this graph is:</p>
+    <div class="eq">$$A = \begin{pmatrix} 0 & R \\ R^\top & 0 \end{pmatrix}$$</div>
+    <p>Let \(E^{(0)} \in \mathbb{R}^{(N+M) \times D}\) be the initial embedding matrix, where \(D\) is the embedding dimension. \(E^{(0)}\) consists of concatenated user and item ID embeddings.</p>
+
+    <h4>Symmetric Normalization and Propagation</h4>
+    <p>The core propagation rule of LightGCN, without feature transformation and non-linearity, is:</p>
+    <div class="eq">$$E^{(k+1)} = \tilde{A} E^{(k)}$$</div>
+    <p>where \(\tilde{A}\) is the symmetrically normalized adjacency matrix. For a bipartite graph, \(\tilde{A}\) is often defined as:</p>
+    <div class="eq">$$\tilde{A} = D^{-\frac{1}{2}} A D^{-\frac{1}{2}}$$</div>
+    <p>Here, \(D\) is the diagonal degree matrix of \(A\), where \(D_{ii}\) is the degree of node \(i\). This normalization ensures that embeddings are averaged across neighbors, preventing magnitudes from exploding. This propagation is repeated for \(L\) layers, generating \(E^{(1)}, E^{(2)}, \dots, E^{(L)}\).</p>
+
+    <h4>Layer Combination and Prediction</h4>
+    <p>The final embedding for each user \(u\) and item \(i\) is a weighted sum of their embeddings from all layers (\(0\) to \(L\)):</p>
+    <div class="eq">$$e_u^* = \sum_{k=0}^{L} \alpha_k e_u^{(k)}, \quad e_i^* = \sum_{k=0}^{L} \alpha_k e_i^{(k)}$$</div>
+    <p>where \(\alpha_k\) are trainable (or fixed, e.g., \(1/(L+1)\)) weighting coefficients. The prediction score for user \(u\) on item \(i\) is then typically computed as the dot product:</p>
+    <div class="eq">$$\hat{r}_{ui} = e_u^* \cdot e_i^*$$</div>
+    <p>This score is optimized using a ranking loss, such as Bayesian Personalized Ranking (BPR) loss, to learn the embeddings.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">While LightGCN's simplicity is its strength, it also means it relies heavily on the quality of the <strong>initial embeddings</strong> (\(E^{(0)}\)). If these initial embeddings are poor or cannot capture basic user/item characteristics, the propagation alone might not be sufficient to learn highly effective representations. For scenarios with rich side information (text, images), a more complex GCN that incorporates feature transformations might be necessary.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore LightGCN's propagation on a small user-item graph. Users (circles) and items (squares) are embedded in 2D space. Watch their embeddings (positions) shift as information propagates, and see how the final recommendation scores are derived.</p>
+
+    <div class="viz-container">
+      <div class="viz-controls">
+        <div class="viz-control-group">
+          <div class="viz-control-label">Max Layers (L)</div>
+          <input type="range" id="layersSlider" min="1" max="3" step="1" value="2">
+          <div class="viz-control-value" id="layersValue">2</div>
+        </div>
+        <div class="viz-control-group">
+          <div class="viz-control-label">Alpha Weights</div>
+          <select id="alphaWeightsSelect">
+            <option value="uniform">Uniform (1/(L+1))</option>
+            <option value="learned">Learned (fixed example)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial Embeddings (E⁽⁰⁾)</div>
+        <div class="info-desc" id="infoDesc">Users (circles) and items (squares) start with random 2D embeddings. These are their "Layer 0" representations.</div>
+        <div class="info-detail" id="infoDetail"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> User Node</div>
+        <div class="legend-item"><div class="legend-swatch square" style="background:var(--red-mid)"></div> Item Node</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Highlighted Node</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Active Edge</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--green-mid)"></div> Top Recommendation</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use LightGCN:</strong></p>
+    <ul>
+      <li><strong>Collaborative Filtering:</strong> It excels in recommendation systems where the primary signal comes from user-item interactions (e.g., movie ratings, product purchases).</li>
+      <li><strong>Sparse Data:</strong> Its simplified architecture and focus on graph propagation make it robust to sparse interaction matrices, common in recommendation.</li>
+      <li><strong>Efficiency:</strong> With fewer parameters (no weight matrices) and simpler operations (linear aggregation), LightGCN is faster to train and requires less memory than full GCNs.</li>
+      <li><strong>Scalability:</strong> The layer-wise propagation can be efficiently implemented using sparse matrix operations, making it scalable to large graphs.</li>
+    </ul>
+    <p><strong>When to consider alternatives:</strong></p>
+    <ul>
+      <li><strong>Rich Side Information:</strong> If users and items have abundant, complex, and highly informative features (e.g., user demographics, item descriptions, images) that are crucial for recommendation, a more feature-rich GCN or a hybrid model might be more effective. LightGCN's strength is its reliance on graph structure, not external features.</li>
+      <li><strong>Non-Collaborative Tasks:</strong> For general graph learning tasks that require complex node feature transformations (e.g., node classification on graphs with rich attribute data), a full GCN or other GNN variants might be more appropriate.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">LightGCN demonstrates that sometimes, <strong>simplicity is key</strong>. By carefully analyzing the specific needs of recommendation systems, it stripped away components that were either redundant or counterproductive, leading to a highly effective and efficient model that leverages the power of graph neural networks for collaborative filtering.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">class LightGCN(torch.nn.Module):</div>
+      <div class="code-line" id="cl4">    def __init__(self, num_users, num_items, embedding_dim, num_layers, adj_matrix):</div>
+      <div class="code-line" id="cl5">        super().__init__()</div>
+      <div class="code-line" id="cl6">        self.num_users = num_users</div>
+      <div class="code-line" id="cl7">        self.num_items = num_items</div>
+      <div class="code-line" id="cl8">        self.embedding_dim = embedding_dim</div>
+      <div class="code-line" id="cl9">        self.num_layers = num_layers</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">        # Initial embeddings E^(0) for users and items</div>
+      <div class="code-line" id="cl12">        self.user_embedding = torch.nn.Embedding(num_users, embedding_dim)</div>
+      <div class="code-line" id="cl13">        self.item_embedding = torch.nn.Embedding(num_items, embedding_dim)</div>
+      <div class="code-line" id="cl14">        torch.nn.init.normal_(self.user_embedding.weight, std=0.1)</div>
+      <div class="code-line" id="cl15">        torch.nn.init.normal_(self.item_embedding.weight, std=0.1)</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">        # Normalized adjacency matrix (pre-computed and sparse)</div>
+      <div class="code-line" id="cl18">        self.norm_adj = self._convert_to_sparse_tensor(adj_matrix)</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        # Optional: Learnable alpha weights for layer combination</div>
+      <div class="code-line" id="cl21">        self.alpha_weights = torch.nn.Parameter(torch.ones(num_layers + 1) / (num_layers + 1))</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">    def _convert_to_sparse_tensor(self, adj_matrix):</div>
+      <div class="code-line" id="cl24">        # Helper to convert a dense matrix to sparse COO format</div>
+      <div class="code-line" id="cl25">        # (D^(-1/2) A D^(-1/2) here)</div>
+      <div class="code-line" id="cl26">        indices = adj_matrix.nonzero(as_tuple=True)</div>
+      <div class="code-line" id="cl27">        values = adj_matrix[indices]</div>
+      <div class="code-line" id="cl28">        size = adj_matrix.size()</div>
+      <div class="code-line" id="cl29">        return torch.sparse_coo_tensor(indices, values, size)</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">    def forward(self):</div>
+      <div class="code-line" id="cl32">        # Concatenate user and item embeddings to form E^(0)</div>
+      <div class="code-line" id="cl33">        all_embeddings = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)</div>
+      <div class="code-line" id="cl34">        all_layer_embeddings = [all_embeddings]</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">        # Layer-wise propagation E^(k+1) = Ã E^(k)</div>
+      <div class="code-line" id="cl37">        for k in range(self.num_layers):</div>
+      <div class="code-line" id="cl38">            all_embeddings = torch.sparse.mm(self.norm_adj, all_embeddings)</div>
+      <div class="code-line" id="cl39">            all_layer_embeddings.append(all_embeddings)</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41">        # Combine embeddings from all layers: E* = Σ α_k E^(k)</div>
+      <div class="code-line" id="cl42">        # Using softmax on alpha_weights for normalized sum if learnable</div>
+      <div class="code-line" id="cl43">        alpha_norm = F.softmax(self.alpha_weights, dim=0) # or just self.alpha_weights if fixed</div>
+      <div class="code-line" id="cl44">        final_embeddings = sum(alpha_norm[k] * emb for k, emb in enumerate(all_layer_embeddings))</div>
+      <div class="code-line" id="cl45"></div>
+      <div class="code-line" id="cl46">        # Split back into user and item embeddings</div>
+      <div class="code-line" id="cl47">        user_final_embeddings, item_final_embeddings = torch.split(</div>
+      <div class="code-line" id="cl48">            final_embeddings, [self.num_users, self.num_items], dim=0)</div>
+      <div class="code-line" id="cl49"></div>
+      <div class="code-line" id="cl50">        return user_final_embeddings, item_final_embeddings</div>
+      <div class="code-line" id="cl51"></div>
+      <div class="code-line" id="cl52">    def predict(self, user_ids, item_ids):</div>
+      <div class="code-line" id="cl53">        user_emb, item_emb = self.forward()</div>
+      <div class="code-line" id="cl54">        user_vecs = user_emb[user_ids]</div>
+      <div class="code-line" id="cl55">        item_vecs = item_emb[item_ids]</div>
+      <div class="code-line" id="cl56">        # Dot product for scores</div>
+      <div class="code-line" id="cl57">        scores = (user_vecs * item_vecs).sum(dim=1)</div>
+      <div class="code-line" id="cl58">        return scores</div>
+      <div class="code-line" id="cl59"></div>
+      <div class="code-line" id="cl60"># Example usage (simplified for demonstration)</div>
+      <div class="code-line" id="cl61"># num_users, num_items, embedding_dim, num_layers = 3, 3, 2, 2</div>
+      <div class="code-line" id="cl62"># R_matrix = torch.tensor([[1, 1, 0], [0, 1, 0], [0, 0, 1]], dtype=torch.float)</div>
+      <div class="code-line" id="cl63"># A_matrix = torch.zeros(num_users + num_items, num_users + num_items)</div>
+      <div class="code-line" id="cl64"># A_matrix[:num_users, num_users:] = R_matrix</div>
+      <div class="code-line" id="cl65"># A_matrix[num_users:, :num_users] = R_matrix.T</div>
+      <div class="code-line" id="cl66"># D_inv_sqrt = torch.diag(1.0 / torch.sqrt(A_matrix.sum(dim=1)))</div>
+      <div class="code-line" id="cl67"># norm_adj_matrix = D_inv_sqrt @ A_matrix @ D_inv_sqrt</div>
+      <div class="code-line" id="cl68">#</div>
+      <div class="code-line" id="cl69"># model = LightGCN(num_users, num_items, embedding_dim, num_layers, norm_adj_matrix)</div>
+      <div class="code-line" id="cl70"># user_emb, item_emb = model()</div>
+      <div class="code-line" id="cl71"># # To get recommendations for U0:</div>
+      <div class="code-line" id="cl72"># # scores_U0 = model.predict(torch.tensor([0,0,0]), torch.tensor([0,1,2]))</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG (for reproducible initial embeddings) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345); // Fixed seed for reproducibility
+
+// ── MATH UTILS ──
+function matrixMult(A, B) {
+    const rowsA = A.length, colsA = A[0].length;
+    const rowsB = B.length, colsB = B[0].length;
+    if (colsA !== rowsB) throw new Error("Matrix dimensions mismatch for multiplication");
+
+    const result = Array(rowsA).fill(0).map(() => Array(colsB).fill(0));
+    for (let i = 0; i < rowsA; i++) {
+        for (let j = 0; j < colsB; j++) {
+            for (let k = 0; k < colsA; k++) {
+                result[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+    return result;
+}
+
+function normalizeMatrix(M) {
+    const rows = M.length, cols = M[0].length;
+    const result = Array(rows).fill(0).map(() => Array(cols).fill(0));
+    for (let i = 0; i < rows; i++) {
+        const rowSum = M[i].reduce((sum, val) => sum + val, 0);
+        for (let j = 0; j < cols; j++) {
+            result[i][j] = rowSum === 0 ? 0 : M[i][j] / rowSum;
+        }
+    }
+    return result;
+}
+
+function dotProduct(v1, v2) {
+    return v1.reduce((sum, val, i) => sum + val * v2[i], 0);
+}
+
+function vectorAdd(v1, v2, scale1 = 1, scale2 = 1) {
+    return v1.map((val, i) => scale1 * val + scale2 * v2[i]);
+}
+
+function vectorScale(v, s) {
+    return v.map(val => val * s);
+}
+
+// ── GRAPH DATA (fixed for this explainer) ──
+const NUM_USERS = 3;
+const NUM_ITEMS = 3;
+const NODE_COUNT = NUM_USERS + NUM_ITEMS; // Total nodes in bipartite graph
+const EMB_DIM = 2; // 2D embeddings for visualization
+
+// User-item interaction matrix (R)
+// U1: I1, I2
+// U2: I2
+// U3: I3
+const R_MATRIX = [
+    [1, 1, 0], // U1
+    [0, 1, 0], // U2
+    [0, 0, 1]  // U3
+];
+
+// Build full adjacency matrix A (users + items)
+// A = [ 0 R ]
+//     [ R' 0 ]
+const ADJ_MATRIX = Array(NODE_COUNT).fill(0).map(() => Array(NODE_COUNT).fill(0));
+for (let i = 0; i < NUM_USERS; i++) {
+    for (let j = 0; j < NUM_ITEMS; j++) {
+        if (R_MATRIX[i][j] === 1) {
+            ADJ_MATRIX[i][NUM_USERS + j] = 1; // User to Item
+            ADJ_MATRIX[NUM_USERS + j][i] = 1; // Item to User
+        }
+    }
+}
+
+// Calculate degree matrix D and its inverse square root D^(-1/2)
+const DEGREE_INV_SQRT = Array(NODE_COUNT).fill(0).map(() => Array(NODE_COUNT).fill(0));
+for (let i = 0; i < NODE_COUNT; i++) {
+    const degree = ADJ_MATRIX[i].reduce((sum, val) => sum + val, 0);
+    if (degree > 0) {
+        DEGREE_INV_SQRT[i][i] = 1.0 / Math.sqrt(degree);
+    }
+}
+
+// Calculate normalized adjacency matrix Ã = D^(-1/2) A D^(-1/2)
+const ADJ_NORM_TEMP = matrixMult(DEGREE_INV_SQRT, ADJ_MATRIX);
+const ADJ_NORM = matrixMult(ADJ_NORM_TEMP, DEGREE_INV_SQRT);
+
+// Initial Embeddings E^(0)
+let initialEmbeddings = Array(NODE_COUNT).fill(0).map(() => Array(EMB_DIM).fill(0));
+function generateInitialEmbeddings() {
+  for (let i = 0; i < NODE_COUNT; i++) {
+      initialEmbeddings[i][0] = (seededRng() * 2 - 1) * 0.8; // x-coordinate
+      initialEmbeddings[i][1] = (seededRng() * 2 - 1) * 0.8; // y-coordinate
+  }
+}
+generateInitialEmbeddings();
+
+// ── LIGHTGCN COMPUTATION (all layers) ──
+let allLayerEmbeddings = []; // allLayerEmbeddings[k] stores E^(k)
+function computeLightGCN(maxLayers) {
+    allLayerEmbeddings = [];
+    allLayerEmbeddings.push(initialEmbeddings); // E^(0)
+
+    let currentEmbeddings = initialEmbeddings;
+    for (let k = 0; k < maxLayers; k++) {
+        currentEmbeddings = matrixMult(ADJ_NORM, currentEmbeddings);
+        allLayerEmbeddings.push(currentEmbeddings);
+    }
+}
+
+// ── STEPS DEFINITION ──
+const steps = [
+    {
+        phase: 'setup', title: 'Initial Embeddings (E⁽⁰⁾)',
+        desc: 'Users (circles) and items (squares) start with random 2D embeddings. These are their "Layer 0" representations. We want to learn better embeddings that reflect their relationships.',
+        highlightNode: -1, highlightEdges: [], currentLayer: 0, showFinal: false,
+        codeLines: [11,12,13,14,15]
+    },
+    {
+        phase: 'setup', title: 'Adjacency Matrix (A)',
+        desc: 'The user-item interaction graph is represented by the adjacency matrix A. It connects users to items they interacted with, and vice-versa. For LightGCN, we use a normalized version of this matrix.',
+        highlightNode: -1, highlightEdges: [], currentLayer: 0, showFinal: false,
+        codeLines: []
+    },
+    {
+        phase: 'setup', title: 'Normalized Adjacency (Ã)',
+        desc: 'Before propagation, the adjacency matrix A is symmetrically normalized: \\(\\tilde{A} = D^{-\\frac{1}{2}} A D^{-\\frac{1}{2}}\\). This ensures that each node\'s embedding update is an average of its neighbors, preventing magnitudes from growing uncontrollably.',
+        highlightNode: -1, highlightEdges: [], currentLayer: 0, showFinal: false,
+        codeLines: [17,18,23,24,25,26,27,28,29]
+    },
+    {
+        phase: 'propagate', title: 'Layer 1 Propagation (E⁽¹⁾ = Ã E⁽⁰⁾)',
+        desc: 'Each node\'s embedding is updated by averaging its neighbors\' embeddings from the previous layer. For example, User 0 (U0) moves towards Item 0 (I0) and Item 1 (I1) as they are its neighbors.',
+        highlightNode: 0, highlightEdges: [[0, NUM_USERS+0], [0, NUM_USERS+1]], currentLayer: 1, showFinal: false,
+        codeLines: [36,37,38,39]
+    },
+    {
+        phase: 'propagate', title: 'Layer 2 Propagation (E⁽²⁾ = Ã E⁽¹⁾)',
+        desc: 'The process repeats: E⁽²⁾ = Ã E⁽¹⁾. Embeddings continue to smooth and capture higher-order relationships. Item 1 (I1) now averages its neighbors from E⁽¹⁾ (U0, U1).',
+        highlightNode: NUM_USERS+1, highlightEdges: [[NUM_USERS+1, 0], [NUM_USERS+1, 1]], currentLayer: 2, showFinal: false,
+        codeLines: [36,37,38,39]
+    },
+    {
+        phase: 'combine', title: 'Combine Layers (E*)',
+        desc: 'The final embedding for each node (E*) is a weighted sum of its embeddings from all layers (E⁽⁰⁾, E⁽¹⁾, ..., E⁽ᴸ⁾). This combines local and global structural information.',
+        highlightNode: -1, highlightEdges: [], currentLayer: -1, showFinal: true,
+        codeLines: [41,42,43,44,46,47,48]
+    },
+    {
+        phase: 'predict', title: 'Generate Recommendation Scores',
+        desc: 'To recommend items for a user, we compute the dot product between the user\'s final embedding and each item\'s final embedding. Higher scores indicate stronger predicted preference.',
+        highlightNode: 0, highlightEdges: [], currentLayer: -1, showFinal: true,
+        codeLines: [52,53,54,55,56,57]
+    },
+    {
+        phase: 'predict', title: 'Effect of Layers (L)',
+        desc: 'The number of propagation layers (L) determines how far information spreads. More layers capture wider neighborhoods but can lead to over-smoothing. Use the slider to explore!',
+        highlightNode: -1, highlightEdges: [], currentLayer: -1, showFinal: true,
+        codeLines: [36,37,38,39]
+    }
+];
+
+let currentStepIdx = 0;
+const totalSteps = steps.length;
+let maxLayers = parseInt(document.getElementById('layersSlider').value);
+let alphaWeightsType = document.getElementById('alphaWeightsSelect').value;
+let finalEmbeddings = []; // E*
+
+// ── UI WIRING ──
+const layersSlider = document.getElementById('layersSlider');
+const layersValue = document.getElementById('layersValue');
+const alphaWeightsSelect = document.getElementById('alphaWeightsSelect');
+
+layersSlider.addEventListener('input', () => {
+    maxLayers = parseInt(layersSlider.value);
+    layersValue.textContent = maxLayers;
+    computeLightGCN(maxLayers);
+    calculateFinalEmbeddings();
+    render();
+});
+
+alphaWeightsSelect.addEventListener('change', () => {
+    alphaWeightsType = alphaWeightsSelect.value;
+    calculateFinalEmbeddings();
+    render();
+});
+
+// ── LIGHTGCN CORE LOGIC ──
+function getAlphaWeights(L) {
+    if (alphaWeightsType === 'uniform') {
+        const val = 1.0 / (L + 1);
+        return Array(L + 1).fill(val);
+    } else { // 'learned' - fixed example values
+        // Example learned weights, sum to 1
+        switch (L) {
+            case 1: return [0.6, 0.4]; // E0, E1
+            case 2: return [0.3, 0.4, 0.3]; // E0, E1, E2
+            case 3: return [0.2, 0.3, 0.3, 0.2]; // E0, E1, E2, E3
+            default: return Array(L + 1).fill(1.0 / (L + 1)); // fallback to uniform
+        }
+    }
+}
+
+function calculateFinalEmbeddings() {
+    finalEmbeddings = Array(NODE_COUNT).fill(0).map(() => Array(EMB_DIM).fill(0));
+    const alphas = getAlphaWeights(maxLayers);
+
+    for (let i = 0; i < NODE_COUNT; i++) {
+        for (let k = 0; k <= maxLayers; k++) {
+            finalEmbeddings[i] = vectorAdd(finalEmbeddings[i], allLayerEmbeddings[k][i], 1, alphas[k]);
+        }
+    }
+}
+
+// ── CANVAS DRAWING ──
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+const WORLD_SIZE = 1.2; // Max coordinate value for visualization
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    userNode: g('--blue-mid'), itemNode: g('--red-mid'),
+    highlightNode: g('--amber-mid'), activeEdge: g('--purple-mid'),
+    recommendation: g('--green-mid'),
+    nodeOutline: 'white',
+  };
+}
+
+function drawGraph(stepData) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width, H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+    const colors = getColors();
+
+    const currentEmbeds = stepData.showFinal ? finalEmbeddings : allLayerEmbeddings[stepData.currentLayer];
+
+    // Coordinate transformation
+    const toCanvasX = (x) => (x / (2 * WORLD_SIZE) + 0.5) * W;
+    const toCanvasY = (y) => (1 - (y / (2 * WORLD_SIZE) + 0.5)) * H;
+
+    // Draw edges
+    for (let u = 0; u < NUM_USERS; u++) {
+        for (let i = 0; i < NUM_ITEMS; i++) {
+            if (R_MATRIX[u][i] === 1) {
+                const userIdx = u;
+                const itemIdx = NUM_USERS + i;
+                const ux = toCanvasX(currentEmbeds[userIdx][0]);
+                const uy = toCanvasY(currentEmbeds[userIdx][1]);
+                const ix = toCanvasX(currentEmbeds[itemIdx][0]);
+                const iy = toCanvasY(currentEmbeds[itemIdx][1]);
+
+                ctx.beginPath();
+                ctx.moveTo(ux, uy);
+                ctx.lineTo(ix, iy);
+                ctx.strokeStyle = colors.border;
+                ctx.lineWidth = 1.5;
+                ctx.globalAlpha = 0.5;
+
+                // Highlight active edges
+                const isHighlighted = stepData.highlightEdges.some(
+                    ([n1, n2]) => (n1 === userIdx && n2 === itemIdx) || (n1 === itemIdx && n2 === userIdx)
+                );
+                if (isHighlighted) {
+                    ctx.strokeStyle = colors.activeEdge;
+                    ctx.lineWidth = 3;
+                    ctx.globalAlpha = 1;
+                }
+                ctx.stroke();
+            }
+        }
+    }
+
+    // Draw nodes
+    for (let i = 0; i < NODE_COUNT; i++) {
+        const x = toCanvasX(currentEmbeds[i][0]);
+        const y = toCanvasY(currentEmbeds[i][1]);
+        const isUser = i < NUM_USERS;
+        const isHighlighted = i === stepData.highlightNode;
+        const nodeSize = isHighlighted ? 18 : 12;
+
+        ctx.beginPath();
+        if (isUser) { // User: circle
+            ctx.arc(x, y, nodeSize / 2, 0, Math.PI * 2);
+        } else { // Item: square
+            ctx.rect(x - nodeSize / 2, y - nodeSize / 2, nodeSize, nodeSize);
+        }
+        ctx.fillStyle = isUser ? colors.userNode : colors.itemNode;
+        if (isHighlighted) {
+            ctx.fillStyle = colors.highlightNode;
+        }
+        ctx.fill();
+        ctx.strokeStyle = colors.nodeOutline;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = colors.text;
+        ctx.font = `600 ${nodeSize * 0.7}px ${getComputedStyle(document.body).fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(isUser ? `U${i}` : `I${i - NUM_USERS}`, x, y);
+    }
+
+    // Draw recommendation for U0 (if in relevant step)
+    if (currentStepIdx >= 6 && stepData.showFinal) {
+        const user0Idx = 0;
+        const user0Emb = finalEmbeddings[user0Idx];
+        let bestItemIdx = -1;
+        let maxScore = -Infinity;
+        const scores = [];
+
+        for (let i = 0; i < NUM_ITEMS; i++) {
+            const itemIdx = NUM_USERS + i;
+            const itemEmb = finalEmbeddings[itemIdx];
+            const score = dotProduct(user0Emb, itemEmb);
+            scores.push({item: `I${i}`, score: score.toFixed(2)});
+            if (score > maxScore) {
+                maxScore = score;
+                bestItemIdx = itemIdx;
+            }
+        }
+
+        if (bestItemIdx !== -1) {
+            const ux = toCanvasX(finalEmbeddings[user0Idx][0]);
+            const uy = toCanvasY(finalEmbeddings[user0Idx][1]);
+            const ix = toCanvasX(finalEmbeddings[bestItemIdx][0]);
+            const iy = toCanvasY(finalEmbeddings[bestItemIdx][1]);
+
+            ctx.beginPath();
+            ctx.moveTo(ux, uy);
+            ctx.lineTo(ix, iy);
+            ctx.strokeStyle = colors.recommendation;
+            ctx.lineWidth = 4;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Update info detail with scores
+        if (currentStepIdx === 6) {
+            let detailText = `U0's Final Embedding: [${user0Emb[0].toFixed(2)}, ${user0Emb[1].toFixed(2)}]\n\n`;
+            detailText += 'Recommendation Scores for U0:\n';
+            scores.forEach(s => {
+                detailText += `  ${s.item}: ${s.score}\n`;
+            });
+            document.getElementById('infoDetail').textContent = detailText;
+        } else {
+            document.getElementById('infoDetail').textContent = '';
+        }
+    } else {
+        document.getElementById('infoDetail').textContent = '';
+    }
+}
+
+// ── NAVIGATION & RENDER ──
+function initDots() {
+    const wrap = document.getElementById('progressDots');
+    wrap.innerHTML = '';
+    for (let i = 0; i < totalSteps; i++) {
+        const d = document.createElement('div');
+        d.className = 'dot' + (i === 0 ? ' active' : '');
+        d.onclick = () => goTo(i);
+        wrap.appendChild(d);
+    }
+}
+
+function updateDots() {
+    const dots = document.querySelectorAll('.dot');
+    dots.forEach((d, i) => {
+        d.className = 'dot';
+        if (i < currentStepIdx) d.classList.add('done');
+        if (i === currentStepIdx) d.classList.add('active');
+    });
+}
+
+function go(dir) {
+    const next = currentStepIdx + dir;
+    if (next < 0 || next >= totalSteps) return;
+    currentStepIdx = next;
+    render();
+}
+
+function goTo(i) {
+    currentStepIdx = i;
+    render();
+}
+
+function reset() {
+    currentStepIdx = 0;
+    generateInitialEmbeddings(); // Re-randomize initial embeddings
+    maxLayers = 2; // Reset slider
+    layersSlider.value = 2;
+    layersValue.textContent = 2;
+    alphaWeightsType = 'uniform'; // Reset select
+    alphaWeightsSelect.value = 'uniform';
+    
+    computeLightGCN(maxLayers);
+    calculateFinalEmbeddings();
+    render();
+}
+
+function render() {
+    const s = steps[currentStepIdx];
+
+    document.getElementById('btnPrev').disabled = currentStepIdx === 0;
+    document.getElementById('btnNext').disabled = currentStepIdx === totalSteps - 1;
+
+    const phaseMap = {
+        setup: 'phase-setup', propagate: 'phase-propagate',
+        combine: 'phase-combine', predict: 'phase-predict'
+    };
+    document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+    document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+    document.getElementById('infoStep').textContent = `Step ${currentStepIdx + 1} of ${totalSteps}`;
+    document.getElementById('infoTitle').textContent = s.title;
+    document.getElementById('infoDesc').innerHTML = s.desc;
+
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(document.getElementById('infoCard'), {
+            delimiters: [
+                { left: '$$', right: '$$', display: true },
+                { left: '\\(', right: '\\)', display: false }
+            ]
+        });
+    }
+
+    document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+    (s.codeLines || []).forEach(i => {
+        const el = document.getElementById('cl' + i);
+        if (el) el.classList.add('active');
+    });
+
+    // Enable/disable slider based on step
+    const layersSliderEnabled = (currentStepIdx === totalSteps - 1);
+    layersSlider.disabled = !layersSliderEnabled;
+    alphaWeightsSelect.disabled = !layersSliderEnabled;
+
+
+    drawGraph(s);
+    updateDots();
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowLeft') go(-1);
+    if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+window.addEventListener('load', () => {
+    computeLightGCN(maxLayers);
+    calculateFinalEmbeddings();
+    initDots();
+    render();
+});
+window.addEventListener('resize', () => drawGraph(steps[currentStepIdx]));
+</script>
+</body>
+</html>

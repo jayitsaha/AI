@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soft Actor-Critic (SAC) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-objective{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-explore{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-tune{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+.legend-swatch.ellipse{width:20px;height:12px;border-radius:50%;transform:skewX(-20deg);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Soft Actor-Critic (SAC)</h1>
+  <div class="subtitle">Maximum entropy RL, temperature \(\alpha\), and continuous action spaces</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">Multi-network</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Soft Actor-Critic (SAC)</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Soft Actor-Critic (SAC) is a model-free, off-policy reinforcement learning algorithm designed for continuous action spaces. Unlike traditional RL algorithms that solely maximize cumulative reward, SAC introduces an "entropy regularization" term into its objective. This encourages the agent to explore more and learn a broader range of behaviors, leading to more robust policies and improved performance in complex environments.</p>
+    <p><strong>Analogy:</strong> Imagine a chef trying to perfect a new dish. A traditional RL chef might only focus on maximizing taste (reward), quickly finding one popular recipe and sticking to it. A SAC chef, however, also values "culinary diversity" (entropy). They'll try many variations, even slightly suboptimal ones, to learn a wider range of techniques and adapt better to new ingredients or customer preferences. This makes them more resilient and creative in the long run.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">SAC's core idea is to maximize a trade-off between expected reward and policy entropy: \(J(\pi) = \sum_{t=0}^T \mathbb{E}_{(s_t, a_t) \sim \rho_\pi} [R(s_t, a_t) + \alpha H(\pi(\cdot|s_t))]\). The <strong>temperature parameter \(\alpha\)</strong> controls the importance of entropy, balancing exploitation (high reward) and exploration (diverse actions).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How SAC Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How SAC Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Actor-Critic Architecture</h4>
+    <p>SAC, like other actor-critic methods, uses two main components:</p>
+    <ul>
+      <li><strong>Actor (\(\pi\)):</strong> A neural network that learns the policy, mapping states \(s\) to a probability distribution over actions \(a\). For continuous action spaces, this typically outputs the mean (\(\mu\)) and log-standard deviation (\(\log \sigma\)) of a Gaussian distribution, from which actions are sampled.</li>
+      <li><strong>Critic (Q-functions):</strong> One or more neural networks (SAC typically uses two Q-networks, \(Q_1\) and \(Q_2\), to mitigate overestimation bias) that learn the action-value function, estimating the expected return for taking a specific action \(a\) in a given state \(s\).</li>
+    </ul>
+    <p>In SAC, the actor is updated to maximize not just the Q-values, but a combination of Q-values and policy entropy. The Q-functions are updated using samples from the environment and the current policy, similar to Q-learning.</p>
+
+    <h4>The Role of Entropy and Temperature \(\alpha\)</h4>
+    <p>Entropy \(H(\pi(\cdot|s))\) measures the randomness or unpredictability of the policy's action distribution in a given state. A high entropy policy takes a wider variety of actions, promoting exploration. SAC's objective explicitly encourages this diversity. The temperature parameter \(\alpha\) is a non-negative scalar that weights the entropy term. A larger \(\alpha\) means the agent prioritizes exploration more, leading to more uniform action distributions. A smaller \(\alpha\) makes the agent more deterministic, focusing on high-reward actions.</p>
+
+    <h4>Key Features and Design Decisions</h4>
+    <ul>
+      <li><strong>Off-policy:</strong> SAC can learn from data collected by any policy, not just its current one. This makes it highly sample-efficient, as it can reuse past experiences stored in a replay buffer.</li>
+      <li><strong>Soft Updates:</strong> Instead of hard updates, SAC uses "soft" updates for its target Q-networks, slowly blending the current Q-network weights with the target weights. This stabilizes training.</li>
+      <li><strong>Continuous Actions:</strong> SAC is particularly well-suited for continuous action spaces, where the action is a real-valued vector (e.g., motor torques). The policy outputs parameters of a continuous distribution (like a Gaussian), from which actions can be sampled.</li>
+      <li><strong>Auto-tuning \(\alpha\):</strong> A crucial innovation in later SAC versions is the ability to automatically learn \(\alpha\) itself. This removes the need for manual tuning and allows the agent to dynamically adjust its exploration-exploitation balance throughout training, often targeting a specific entropy level.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The "softness" in Soft Actor-Critic comes from two places: (1) the entropy regularization in the objective, which encourages a stochastic policy, and (2) the soft updates for target networks. Both contribute to SAC's stability and robustness.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Maximum Entropy Objective</h4>
+    <p>Instead of maximizing expected discounted returns \(J(\pi) = \mathbb{E}[\sum \gamma^t R_t]\), SAC maximizes the expected sum of rewards and entropy:</p>
+    <div class="eq">$$J(\pi) = \mathbb{E}_{\tau \sim \pi} \left[ \sum_{t=0}^T \gamma^t (R(s_t, a_t) + \alpha H(\pi(\cdot|s_t))) \right]$$</div>
+    <p>where \(\tau\) is a trajectory, \(R\) is the reward, \(\gamma\) is the discount factor, \(\alpha\) is the temperature, and \(H(\pi(\cdot|s_t))\) is the entropy of the policy at state \(s_t\). This leads to a modified Bellman equation for the soft Q-function:</p>
+    <div class="eq">$$Q(s_t, a_t) = R(s_t, a_t) + \gamma \mathbb{E}_{s_{t+1} \sim P, a_{t+1} \sim \pi} \left[ Q(s_{t+1}, a_{t+1}) - \alpha \log \pi(a_{t+1}|s_{t+1}) \right]$$</div>
+    <p>The term \(-\alpha \log \pi(a_{t+1}|s_{t+1})\) is effectively an "entropy bonus" added to the future reward. This makes actions with higher probability (lower \(\log \pi\)) more attractive, but crucially, it also makes actions that lead to states with higher policy entropy more attractive, promoting exploration.</p>
+
+    <h4>Policy Update with Reparameterization Trick</h4>
+    <p>The policy \(\pi\) is typically represented as a Gaussian distribution with mean \(\mu_\theta(s)\) and standard deviation \(\sigma_\theta(s)\) (parameterized by \(\theta\)). Actions are sampled using the reparameterization trick: \(a = \mu_\theta(s) + \sigma_\theta(s) \odot \epsilon\), where \(\epsilon \sim \mathcal{N}(0, I)\). The policy is updated by minimizing the Kullback-Leibler (KL) divergence to an "optimal" soft policy, or more directly, by maximizing:</p>
+    <div class="eq">$$J_\pi(\theta) = \mathbb{E}_{s \sim \mathcal{D}, \epsilon \sim \mathcal{N}} \left[ Q(s, \tilde{a}_\theta(s, \epsilon)) - \alpha \log \pi(\tilde{a}_\theta(s, \epsilon)|s) \right]$$</div>
+    <p>where \(\tilde{a}_\theta(s, \epsilon)\) is the sampled action. This objective directly pushes the policy towards actions that have high Q-values and high entropy, controlled by \(\alpha\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Choosing \(\alpha\) is critical. Too small, and SAC behaves like a standard (overfitting) RL algorithm, losing its robustness. Too large, and the agent prioritizes random exploration over reward, leading to suboptimal performance. This is why auto-tuning \(\alpha\) (where \(\alpha\) is also learned to maintain a target entropy) is a standard and highly recommended practice in modern SAC implementations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how SAC's policy adapts to a 2D continuous action space, balancing reward and entropy. Adjust the temperature \(\alpha\) to see its effect live.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Temperature α</div>
+          <input type="range" id="alphaSlider" min="0.01" max="5.0" step="0.01" value="0.5">
+          <div class="slider-value" id="alphaValue">0.50</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Controls the balance between reward and exploration.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Action Space & Q-function</div>
+        <div class="info-desc" id="infoDesc">We consider a 2D continuous action space, where the agent chooses (x, y) coordinates. The background heatmap shows the Q-value landscape for a fixed state — darker regions are higher reward.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(to right, #ffffff, #000000);"></div> Q-value (darker = higher)</div>
+        <div class="legend-item"><div class="legend-swatch ellipse" style="background:var(--blue-mid);opacity:0.6;"></div> Policy distribution \(\pi(a|s)\)</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--green-mid);"></div> Sampled action</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--red-mid);"></div> Optimal Q-peak</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use SAC:</strong></p>
+    <ul>
+      <li><strong>Continuous control tasks:</strong> Robotics, autonomous driving, game AI with continuous inputs (e.g., joystick movements).</li>
+      <li><strong>Complex environments:</strong> Where exploration is crucial to discover optimal or robust behaviors.</li>
+      <li><strong>Sample efficiency is important:</strong> Due to its off-policy nature and replay buffer usage.</li>
+      <li><strong>Need for robust policies:</strong> Policies that can adapt to minor changes in the environment or initial conditions.</li>
+    </ul>
+    <p><strong>When NOT to use / Considerations:</strong></p>
+    <ul>
+      <li><strong>Discrete action spaces:</strong> While extensions exist, SAC's core formulation is for continuous actions. For discrete actions, algorithms like DQN or PPO are more direct.</li>
+      <li><strong>Computational cost:</strong> SAC requires training multiple neural networks (actor, two Q-critics, and potentially two target Q-critics, plus an alpha network), which can be computationally intensive compared to simpler algorithms.</li>
+      <li><strong>Hyperparameter tuning:</strong> Even with auto-tuning \(\alpha\), other hyperparameters (learning rates, network sizes, replay buffer size) still require careful selection.</li>
+      <li><strong>Safety-critical applications:</strong> While exploration is good, uncontrolled exploration can lead to undesirable or unsafe actions in real-world systems. Additional safety constraints might be needed.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">SAC successfully bridges the gap between efficient learning (off-policy, continuous actions) and robust exploration (maximum entropy). Its ability to learn a stochastic policy that values both reward and diversity has made it a go-to algorithm for many challenging continuous control problems in modern deep reinforcement learning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from torch.distributions import Normal</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># Hyperparameters</div>
+      <div class="code-line" id="cl5">GAMMA = 0.99</div>
+      <div class="code-line" id="cl6">LR_ACTOR = 3e-4</div>
+      <div class="code-line" id="cl7">LR_CRITIC = 3e-4</div>
+      <div class="code-line" id="cl8">LR_ALPHA = 3e-4</div>
+      <div class="code-line" id="cl9">TARGET_ENTROPY = -2.0 # for auto-tuning alpha</div>
+      <div class="code-line" id="cl10">TAU = 0.005 # soft update rate</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">class Actor(nn.Module):</div>
+      <div class="code-line" id="cl13">    def __init__(self, state_dim, action_dim, hidden_dim=256):</div>
+      <div class="code-line" id="cl14">        super().__init__()</div>
+      <div class="code-line" id="cl15">        self.net = nn.Sequential(</div>
+      <div class="code-line" id="cl16">            nn.Linear(state_dim, hidden_dim), nn.ReLU(),</div>
+      <div class="code-line" id="cl17">            nn.Linear(hidden_dim, hidden_dim), nn.ReLU()</div>
+      <div class="code-line" id="cl18">        )</div>
+      <div class="code-line" id="cl19">        self.mean_layer = nn.Linear(hidden_dim, action_dim)</div>
+      <div class="code-line" id="cl20">        self.log_std_layer = nn.Linear(hidden_dim, action_dim)</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    def forward(self, state):</div>
+      <div class="code-line" id="cl23">        x = self.net(state)</div>
+      <div class="code-line" id="cl24">        mean = self.mean_layer(x)</div>
+      <div class="code-line" id="cl25">        log_std = torch.clamp(self.log_std_layer(x), -20, 2) # clamp for stability</div>
+      <div class="code-line" id="cl26">        std = log_std.exp()</div>
+      <div class="code-line" id="cl27">        return Normal(mean, std)</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">class Critic(nn.Module):</div>
+      <div class="code-line" id="cl30">    def __init__(self, state_dim, action_dim, hidden_dim=256):</div>
+      <div class="code-line" id="cl31">        super().__init__()</div>
+      <div class="code-line" id="cl32">        self.net = nn.Sequential(</div>
+      <div class="code-line" id="cl33">            nn.Linear(state_dim + action_dim, hidden_dim), nn.ReLU(),</div>
+      <div class="code-line" id="cl34">            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),</div>
+      <div class="code-line" id="cl35">            nn.Linear(hidden_dim, 1)</div>
+      <div class="code-line" id="cl36">        )</div>
+      <div class="code-line" id="cl37">    def forward(self, state, action):</div>
+      <div class="code-line" id="cl38">        return self.net(torch.cat([state, action], dim=1))</div>
+      <div class="code-line" id="cl39"></div>
+      <div class="code-line" id="cl40"># Initialize networks</div>
+      <div class="code-line" id="cl41">actor = Actor(state_dim=4, action_dim=2)</div>
+      <div class="code-line" id="cl42">q_net1 = Critic(state_dim=4, action_dim=2)</div>
+      <div class="code-line" id="cl43">q_net2 = Critic(state_dim=4, action_dim=2)</div>
+      <div class="code-line" id="cl44">target_q_net1 = Critic(state_dim=4, action_dim=2)</div>
+      <div class="code-line" id="cl45">target_q_net2 = Critic(state_dim=4, action_dim=2)</div>
+      <div class="code-line" id="cl46">target_q_net1.load_state_dict(q_net1.state_dict())</div>
+      <div class="code-line" id="cl47">target_q_net2.load_state_dict(q_net2.state_dict())</div>
+      <div class="code-line" id="cl48"></div>
+      <div class="code-line" id="cl49"># Temperature alpha (can be learned)</div>
+      <div class="code-line" id="cl50">log_alpha = torch.zeros(1, requires_grad=True)</div>
+      <div class="code-line" id="cl51">alpha_optimizer = torch.optim.Adam([log_alpha], lr=LR_ALPHA)</div>
+      <div class="code-line" id="cl52">alpha = log_alpha.exp()</div>
+      <div class="code-line" id="cl53"></div>
+      <div class="code-line" id="cl54"># Optimizers</div>
+      <div class="code-line" id="cl55">actor_optimizer = torch.optim.Adam(actor.parameters(), lr=LR_ACTOR)</div>
+      <div class="code-line" id="cl56">q_optimizer = torch.optim.Adam(list(q_net1.parameters()) + list(q_net2.parameters()), lr=LR_CRITIC)</div>
+      <div class="code-line" id="cl57"></div>
+      <div class="code-line" id="cl58"># Training step (simplified)</div>
+      <div class="code-line" id="cl59">def update(state, action, reward, next_state, done):</div>
+      <div class="code-line" id="cl60">    # --- Update Q-functions ---</div>
+      <div class="code-line" id="cl61">    with torch.no_grad():</div>
+      <div class="code-line" id="cl62">        next_action_dist = actor(next_state)</div>
+      <div class="code-line" id="cl63">        next_action = next_action_dist.sample()</div>
+      <div class="code-line" id="cl64">        log_prob_next_action = next_action_dist.log_prob(next_action).sum(axis=-1, keepdim=True)</div>
+      <div class="code-line" id="cl65">        target_q_next = torch.min(target_q_net1(next_state, next_action), target_q_net2(next_state, next_action))</div>
+      <div class="code-line" id="cl66">        # Bellman target with entropy term</div>
+      <div class="code-line" id="cl67">        target_value = reward + GAMMA * (1 - done) * (target_q_next - alpha.detach() * log_prob_next_action)</div>
+      <div class="code-line" id="cl68">    </div>
+      <div class="code-line" id="cl69">    q1_loss = ((q_net1(state, action) - target_value)**2).mean()</div>
+      <div class="code-line" id="cl70">    q2_loss = ((q_net2(state, action) - target_value)**2).mean()</div>
+      <div class="code-line" id="cl71">    q_loss = q1_loss + q2_loss</div>
+      <div class="code-line" id="cl72">    q_optimizer.zero_grad(); q_loss.backward(); q_optimizer.step()</div>
+      <div class="code-line" id="cl73"></div>
+      <div class="code-line" id="cl74">    # --- Update Actor ---</div>
+      <div class="code-line" id="cl75">    action_dist = actor(state)</div>
+      <div class="code-line" id="cl76">    new_action = action_dist.rsample() # reparameterization trick</div>
+      <div class="code-line" id="cl77">    log_prob_new_action = action_dist.log_prob(new_action).sum(axis=-1, keepdim=True)</div>
+      <div class="code-line" id="cl78">    min_q_new_action = torch.min(q_net1(state, new_action), q_net2(state, new_action))</div>
+      <div class="code-line" id="cl79">    # Actor loss: Maximize Q-value + alpha * Entropy</div>
+      <div class="code-line" id="cl80">    actor_loss = (alpha.detach() * log_prob_new_action - min_q_new_action).mean()</div>
+      <div class="code-line" id="cl81">    actor_optimizer.zero_grad(); actor_loss.backward(); actor_optimizer.step()</div>
+      <div class="code-line" id="cl82"></div>
+      <div class="code-line" id="cl83">    # --- Update alpha (if auto-tuning) ---</div>
+      <div class="code-line" id="cl84">    alpha_loss = (alpha * (-log_prob_new_action - TARGET_ENTROPY).detach()).mean()</div>
+      <div class="code-line" id="cl85">    alpha_optimizer.zero_grad(); alpha_loss.backward(); alpha_optimizer.step()</div>
+      <div class="code-line" id="cl86">    alpha = log_alpha.exp() # update alpha for next step</div>
+      <div class="code-line" id="cl87"></div>
+      <div class="code-line" id="cl88">    # --- Soft update target Q-networks ---</div>
+      <div class="code-line" id="cl89">    for param, target_param in zip(q_net1.parameters(), target_q_net1.parameters()):</div>
+      <div class="code-line" id="cl90">        target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)</div>
+      <div class="code-line" id="cl91">    for param, target_param in zip(q_net2.parameters(), target_q_net2.parameters()):</div>
+      <div class="code-line" id="cl92">        target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function randn_bm() { // Box-Muller transform for normal distribution
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+    while(v === 0) v = Math.random();
+    let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return num;
+}
+
+function multivariateGaussian(x, y, mean, cov) {
+    const [muX, muY] = mean;
+    const [[sxx, sxy], [syx, syy]] = cov;
+    const detCov = sxx * syy - sxy * syx;
+    if (detCov <= 0) return 0; // Covariance must be positive definite
+
+    const invDet = 1 / detCov;
+    const invCov = [
+        [syy * invDet, -sxy * invDet],
+        [-syx * invDet, sxx * invDet]
+    ];
+
+    const dx = x - muX;
+    const dy = y - muY;
+
+    const exponent = -0.5 * (
+        dx * (invCov[0][0] * dx + invCov[0][1] * dy) +
+        dy * (invCov[1][0] * dx + invCov[1][1] * dy)
+    );
+
+    return (1 / (2 * Math.PI * Math.sqrt(detCov))) * Math.exp(exponent);
+}
+
+function sampleMultivariateGaussian(mean, cov, numSamples) {
+    const samples = [];
+    const [muX, muY] = mean;
+    const [[sxx, sxy], [syx, syy]] = cov;
+
+    // Cholesky decomposition for sampling
+    // For a 2x2 symmetric matrix [[a,b],[b,d]], L = [[sqrt(a), 0], [b/sqrt(a), sqrt(d - b^2/a)]]
+    let L;
+    try {
+        const det = sxx * syy - sxy * syx;
+        if (det <= 0 || sxx <= 0) throw new Error("Covariance matrix not positive definite for Cholesky");
+
+        const l11 = Math.sqrt(sxx);
+        const l21 = sxy / l11;
+        const l22 = Math.sqrt(syy - l21 * l21);
+        L = [[l11, 0], [l21, l22]];
+    } catch (e) {
+        console.warn("Falling back to simpler sampling due to Cholesky failure:", e.message);
+        // Fallback: assume diagonal covariance if Cholesky fails (e.g., near singular)
+        L = [[Math.sqrt(Math.max(0.01, sxx)), 0], [0, Math.sqrt(Math.max(0.01, syy))]];
+    }
+
+    for (let i = 0; i < numSamples; i++) {
+        const z1 = randn_bm();
+        const z2 = randn_bm();
+        const sx = L[0][0] * z1 + L[0][1] * z2;
+        const sy = L[1][0] * z1 + L[1][1] * z2;
+        samples.push([muX + sx, muY + sy]);
+    }
+    return samples;
+}
+
+function getGaussianEntropy(cov) {
+    const [[sxx, sxy], [syx, syy]] = cov;
+    const detCov = sxx * syy - sxy * syx;
+    if (detCov <= 0) return -Infinity; // Invalid covariance
+    return 0.5 * Math.log(Math.pow(2 * Math.PI * Math.E, 2) * detCov);
+}
+
+
+// ── DATA & MODEL (SIMULATED) ──
+const ACTION_SPACE_RANGE = [-6, 6];
+const Q_FUNCTION_PEAKS = [
+    {mean: [-3, 3], std: 1.5, weight: 1.0},
+    {mean: [2, -2], std: 1.0, weight: 0.8},
+    {mean: [4, 4], std: 0.8, weight: 0.6}
+];
+
+// Q-function (fixed for visualization)
+function getQValue(x, y) {
+    let q = 0;
+    for (const peak of Q_FUNCTION_PEAKS) {
+        const dx = x - peak.mean[0];
+        const dy = y - peak.mean[1];
+        q += peak.weight * Math.exp(-(dx*dx + dy*dy) / (2 * peak.std * peak.std));
+    }
+    return q;
+}
+
+// Find global Q max for normalization/reference
+let GLOBAL_Q_MAX = -Infinity;
+let GLOBAL_Q_MAX_COORD = [0,0];
+(function() {
+    const step = 0.1;
+    for (let x = ACTION_SPACE_RANGE[0]; x <= ACTION_SPACE_RANGE[1]; x += step) {
+        for (let y = ACTION_SPACE_RANGE[0]; y <= ACTION_SPACE_RANGE[1]; y += step) {
+            const q = getQValue(x, y);
+            if (q > GLOBAL_Q_MAX) {
+                GLOBAL_Q_MAX = q;
+                GLOBAL_Q_MAX_COORD = [x,y];
+            }
+        }
+    }
+})();
+
+
+// Policy parameters (dynamically adjusted based on alpha and Q)
+function getPolicyParams(alpha, mode) {
+    let mean = [0, 0];
+    let covariance = [[1, 0], [0, 1]]; // Identity covariance initially
+
+    // For visualization, we'll simplify how policy mean/cov are derived from Q and alpha
+    // In a real SAC, this would be learned by the actor network
+    const explorationFactor = Math.min(1.0, alpha * 0.5); // Scale alpha to affect spread visibly
+
+    if (mode === 'q_focus') {
+        // Policy mean tries to move towards the highest Q-value peak
+        mean = GLOBAL_Q_MAX_COORD;
+        // Covariance is influenced by alpha
+        const baseStd = 0.5 + explorationFactor * 1.5; // Wider for higher alpha
+        covariance = [[baseStd*baseStd, 0], [0, baseStd*baseStd]];
+    } else if (mode === 'entropy_focus') {
+        // Policy mean might be slightly off the peak, but covariance is very wide
+        mean = [-1, -1]; // Example: a different region
+        const baseStd = 1.0 + explorationFactor * 2.5;
+        covariance = [[baseStd*baseStd, 0], [0, baseStd*baseStd]];
+    } else if (mode === 'balance') {
+        // Main SAC behavior: balance between Q-peak and entropy
+        mean = GLOBAL_Q_MAX_COORD;
+        const baseStd = 0.5 + explorationFactor * 1.5;
+        covariance = [[baseStd*baseStd, 0], [0, baseStd*baseStd]];
+    } else if (mode === 'auto_tune') {
+        // Example: policy trying to hit a target entropy
+        mean = GLOBAL_Q_MAX_COORD;
+        const targetEntropyVal = -1; // Arbitrary target for visualization
+        const currentEntropy = getGaussianEntropy(covariance);
+        let stdAdjust = (targetEntropyVal - currentEntropy) * 0.1; // Simple P-controller
+        const baseStd = 0.5 + explorationFactor * 1.5 + stdAdjust;
+        covariance = [[baseStd*baseStd, 0], [0, baseStd*baseStd]];
+    } else if (mode === 'fixed_narrow') {
+        mean = GLOBAL_Q_MAX_COORD;
+        covariance = [[0.5*0.5, 0], [0, 0.5*0.5]];
+    } else if (mode === 'fixed_wide') {
+        mean = [-1, -1];
+        covariance = [[1.5*1.5, 0], [0, 1.5*1.5]];
+    }
+
+    return { mean, covariance };
+}
+
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Action Space & Q-function',
+    desc: 'We consider a 2D continuous action space, where the agent chooses \\((x, y)\\) coordinates. The background heatmap shows the Q-value landscape for a fixed state — darker regions are higher reward. The goal is to find actions \\(a\\) that maximize \\(Q(s,a)\\).',
+    canvasMode: 'q_only',
+    alphaEnabled: false,
+    sampledActions: false,
+    alphaVal: 0.5
+  },
+  {
+    phase: 'setup', title: 'Initial Policy: Naive Reward Maximization',
+    desc: 'A naive policy (like in vanilla Actor-Critic) would try to become deterministic, peaking sharply at the highest Q-value action. This policy (blue ellipse) focuses solely on exploitation, but risks getting stuck in local optima.',
+    canvasMode: 'fixed_narrow',
+    alphaEnabled: false,
+    sampledActions: false,
+    alphaVal: 0.5
+  },
+  {
+    phase: 'objective', title: 'SAC Objective: Reward Term',
+    desc: 'SAC still values reward! The policy is pulled towards actions that yield high Q-values. Here, the policy mean is centered on the global maximum of the Q-function, similar to a greedy approach.',
+    canvasMode: 'q_focus',
+    alphaEnabled: false,
+    sampledActions: false,
+    alphaVal: 0.01 // Low alpha to show reward dominance
+  },
+  {
+    phase: 'objective', title: 'SAC Objective: Entropy Term',
+    desc: 'But SAC also maximizes entropy \\(H(\\pi(\\cdot|s))\\). This encourages the policy to be stochastic and explore diverse actions. A policy with high entropy (wide spread) is preferred, even if it slightly sacrifices immediate reward. Here, the policy is intentionally spread out.',
+    canvasMode: 'entropy_focus',
+    alphaEnabled: false,
+    sampledActions: false,
+    alphaVal: 5.0 // High alpha to show entropy dominance
+  },
+  {
+    phase: 'tune', title: 'Temperature α: Balancing Act',
+    desc: 'The temperature parameter \\(\\alpha\\) directly controls the trade-off: \\(J(\\pi) = \\mathbb{E}[R + \\alpha H(\\pi)]\\). Use the slider to adjust \\(\\alpha\\).',
+    canvasMode: 'balance',
+    alphaEnabled: true,
+    sampledActions: false,
+    alphaVal: 0.5
+  },
+  {
+    phase: 'tune', title: 'Low α: Prioritize Reward (Exploitation)',
+    desc: 'When \\(\\alpha\\) is low (e.g., \\(\\alpha=0.1\\)), the entropy term has little weight. The policy becomes more deterministic, focusing tightly on actions with the highest Q-values. This is good for exploitation but limits exploration.',
+    canvasMode: 'balance',
+    alphaEnabled: true,
+    sampledActions: false,
+    alphaVal: 0.1
+  },
+  {
+    phase: 'tune', title: 'High α: Prioritize Entropy (Exploration)',
+    desc: 'When \\(\\alpha\\) is high (e.g., \\(\\alpha=2.0\\)), the entropy term dominates. The policy spreads out, taking a wider variety of actions, even those with slightly lower Q-values. This promotes robust exploration, but might lead to suboptimal average reward if too high.',
+    canvasMode: 'balance',
+    alphaEnabled: true,
+    sampledActions: false,
+    alphaVal: 2.0
+  },
+  {
+    phase: 'explore', title: 'Sampling Actions from the Soft Policy',
+    desc: 'SAC learns a stochastic policy, meaning it outputs a distribution. At each step, an action is sampled from this distribution. The sampled points (green dots) show actions drawn from the current policy. Notice how a higher \\(\\alpha\\) leads to more diverse samples.',
+    canvasMode: 'balance',
+    alphaEnabled: true,
+    sampledActions: true,
+    alphaVal: 0.5
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentAlpha = 0.5; // Initial alpha value, updated by slider
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; currentAlpha = 0.5; render(); }
+
+// ── SLIDER ──
+const alphaSlider = document.getElementById('alphaSlider');
+alphaSlider.addEventListener('input', () => {
+  currentAlpha = parseFloat(alphaSlider.value);
+  updateAlphaLabel();
+  if (steps[step].alphaEnabled) drawCanvas(steps[step].canvasMode);
+});
+
+function updateAlphaLabel() {
+  document.getElementById('alphaValue').textContent = currentAlpha.toFixed(2);
+  document.getElementById('sliderHint').textContent =
+    `Current α = ${currentAlpha.toFixed(2)} → ${currentAlpha < 0.5 ? 'more exploitation' : (currentAlpha > 1.5 ? 'more exploration' : 'balanced')}`;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup',objective:'phase-objective',explore:'phase-explore',tune:'phase-tune'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight (none for SAC steps, only for code card)
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  // (s.codeLines||[]).forEach(i => {
+  //   const el = document.getElementById('cl'+i);
+  //   if(el) el.classList.add('active');
+  // });
+
+  // Update slider visibility and value
+  alphaSlider.disabled = !s.alphaEnabled;
+  alphaSlider.value = s.alphaEnabled ? currentAlpha : s.alphaVal;
+  currentAlpha = parseFloat(alphaSlider.value); // Ensure currentAlpha is synced
+  updateAlphaLabel();
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const redMid = cs.getPropertyValue('--red-mid').trim();
+  const borderC = cs.getPropertyValue('--border2').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const range = ACTION_SPACE_RANGE[1] - ACTION_SPACE_RANGE[0];
+  const toCanvasX = v => (v - ACTION_SPACE_RANGE[0]) / range * W;
+  const toCanvasY = v => H - (v - ACTION_SPACE_RANGE[0]) / range * H; // Y-axis inverted for canvas
+
+  // 1. Draw Q-function heatmap
+  const resolution = 50; // pixels per grid cell
+  const cellW = W / resolution;
+  const cellH = H / resolution;
+  const stepX = range / resolution;
+  const stepY = range / resolution;
+
+  for (let i = 0; i < resolution; i++) {
+    for (let j = 0; j < resolution; j++) {
+      const x = ACTION_SPACE_RANGE[0] + i * stepX + stepX / 2;
+      const y = ACTION_SPACE_RANGE[0] + j * stepY + stepY / 2;
+      const q = getQValue(x, y);
+      const intensity = Math.max(0, Math.min(1, q / GLOBAL_Q_MAX)); // Normalize to 0-1
+      ctx.fillStyle = `rgb(${255 * (1 - intensity)}, ${255 * (1 - intensity)}, ${255 * (1 - intensity)})`;
+      ctx.fillRect(i * cellW, H - (j + 1) * cellH, cellW, cellH);
+    }
+  }
+
+  // 2. Draw Q-peak marker
+  ctx.beginPath();
+  ctx.arc(toCanvasX(GLOBAL_Q_MAX_COORD[0]), toCanvasY(GLOBAL_Q_MAX_COORD[1]), 5, 0, Math.PI * 2);
+  ctx.fillStyle = redMid;
+  ctx.fill();
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 3. Draw Policy Distribution (Gaussian ellipse)
+  if (mode !== 'q_only') {
+    const { mean, covariance } = getPolicyParams(currentAlpha, mode);
+    const [muX, muY] = mean;
+    const [[sxx, sxy], [syx, syy]] = covariance;
+
+    // Draw ellipse representing 1-sigma contour
+    // Eigenvalues and eigenvectors of covariance matrix
+    const a = sxx, b = sxy, d = syy;
+    const D = Math.sqrt(Math.pow(a - d, 2) + 4 * b * b);
+    const lambda1 = (a + d + D) / 2;
+    const lambda2 = (a + d - D) / 2;
+
+    const angle = (Math.abs(b) < 1e-6) ? 0 : 0.5 * Math.atan2(2 * b, a - d);
+
+    const radiusX = Math.sqrt(lambda1);
+    const radiusY = Math.sqrt(lambda2);
+
+    ctx.save();
+    ctx.translate(toCanvasX(muX), toCanvasY(muY));
+    ctx.rotate(-angle); // Canvas rotation is CCW, angle is usually CW from x-axis
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radiusX / range * W, radiusY / range * H, 0, 0, Math.PI * 2);
+    ctx.fillStyle = blueMid;
+    ctx.globalAlpha = 0.5;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = blueMid;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    // Policy details in infoNumbers
+    const policyEntropy = getGaussianEntropy(covariance);
+    document.getElementById('infoNumbers').textContent = `Policy Mean: [${mean[0].toFixed(2)}, ${mean[1].toFixed(2)}]\n` +
+                                                         `Policy Covariance: \n  [[${covariance[0][0].toFixed(2)}, ${covariance[0][1].toFixed(2)}],\n   [${covariance[1][0].toFixed(2)}, ${covariance[1][1].toFixed(2)}]]\n` +
+                                                         `Policy Entropy: ${policyEntropy.toFixed(2)}`;
+  } else {
+    document.getElementById('infoNumbers').textContent = '';
+  }
+
+
+  // 4. Sampled Actions
+  if (steps[step].sampledActions) {
+    const { mean, covariance } = getPolicyParams(currentAlpha, mode);
+    const numSamples = 50;
+    const samples = sampleMultivariateGaussian(mean, covariance, numSamples);
+
+    ctx.fillStyle = greenMid;
+    ctx.globalAlpha = 0.7;
+    for (const [x, y] of samples) {
+      ctx.beginPath();
+      ctx.arc(toCanvasX(x), toCanvasY(y), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Axes labels (optional, for clarity)
+  ctx.fillStyle = text3;
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Action X', W / 2, H - 10);
+  ctx.textAlign = 'left';
+  ctx.fillText('Action Y', 10, H / 2);
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>
