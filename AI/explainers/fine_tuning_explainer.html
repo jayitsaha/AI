@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fine-tuning: Full, Head-Only, Gradual Unfreezing, Discriminative LRs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);font-weight:600;}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-method{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-strategy{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Fine-tuning Strategies</h1>
+  <div class="subtitle">Full, Head-only, Gradual Unfreezing, and Discriminative Learning Rates</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Transfer Learning</span>
+    <span class="tag tag-complexity">O(N) layers</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Fine-tuning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Fine-tuning is a transfer learning technique where a model, pre-trained on a large, general dataset (e.g., ImageNet for vision, Wikipedia for NLP), is adapted to a new, often smaller, task-specific dataset. Instead of training from scratch, we leverage the pre-trained model's learned features as a powerful starting point, saving computational resources and often achieving better performance, especially with limited data.</p>
+    <p><strong>Analogy:</strong> Imagine you've hired a brilliant chef (the pre-trained model) who specializes in French cuisine (the general task). Now you want them to cook Italian food (your specific task). You wouldn't make them forget everything and learn to cook from scratch. Instead, you'd teach them some new Italian recipes, perhaps let them tweak their techniques slightly, or even allow them to re-evaluate some fundamental assumptions about ingredients if the "Italian" task is very different. Fine-tuning is about deciding how much to let the chef adapt.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Fine-tuning is a spectrum, not a single method. It ranges from freezing almost all pre-trained layers and only training a new "head" (for very different tasks or tiny datasets) to unfreezing and training the entire model with very small learning rates (for similar tasks or larger datasets). The goal is to balance leveraging pre-trained knowledge with adapting to new data.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Core Mechanism: Freezing Layers</h4>
+    <p>A deep neural network consists of many layers, typically with earlier layers learning more general, low-level features (e.g., edges, textures, basic grammar) and later layers learning more task-specific, high-level features (e.g., object parts, sentiment, named entities). Fine-tuning exploits this hierarchy.</p>
+    <p>To "freeze" a layer means to prevent its weights from being updated during backpropagation. This is typically done by setting <code>param.requires_grad = False</code> in frameworks like PyTorch. When a layer is frozen:</p>
+    <ul>
+      <li>Its parameters remain constant, acting as fixed feature extractors.</li>
+      <li>Gradients are not computed for its parameters, saving memory and computation.</li>
+      <li>No weight updates are applied to it by the optimizer.</li>
+    </ul>
+    <p>The "head" of a model (often a final fully-connected or classification layer) is usually replaced or re-initialized for the new task, as its original weights were tailored for the pre-training task's output space.</p>
+
+    <h4>Four Common Strategies (a Spectrum)</h4>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Head-only Fine-tuning:</strong> Freeze all pre-trained layers, only train the newly added classification/regression head. This is the fastest and safest method, suitable for very small datasets or drastically different tasks.</li>
+      <li><strong>Full Fine-tuning:</strong> Unfreeze all layers and train the entire model (including the pre-trained backbone and the new head) end-to-end. This requires more data and careful learning rate selection to avoid "catastrophic forgetting" of pre-trained knowledge.</li>
+      <li><strong>Gradual Unfreezing:</strong> Start by training only the head. After some epochs, unfreeze the last few pre-trained layers and train them with the head. Repeat this process, gradually unfreezing more layers from the top (closer to the output) down to the bottom (closer to the input). This provides a gentler adaptation.</li>
+      <li><strong>Discriminative Learning Rates:</strong> Instead of strict freezing, assign different learning rates to different layers. Typically, earlier layers (extracting general features) receive very small learning rates, while later layers (extracting task-specific features) and the head receive larger learning rates. This allows all layers to adapt, but at different paces.</li>
+    </ol>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The optimal fine-tuning strategy depends on the similarity between the pre-training and fine-tuning tasks, and the size of the fine-tuning dataset. Generally, more layers are unfrozen and higher learning rates are used as the fine-tuning dataset grows or the tasks become more similar.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Standard Gradient Descent</h4>
+    <p>The core of neural network training is gradient descent, where weights are updated in the direction opposite to the gradient of the loss function. For a single weight parameter \(w\), the update rule is:</p>
+    <div class="eq">$$w_{t+1} = w_t - \eta \frac{\partial L}{\partial w_t}$$</div>
+    <p>Here, \(\eta\) is the learning rate, controlling the step size. When a layer's parameters are "frozen," it means that for all weights \(w \in \text{Layer}_l\), we effectively set \(\eta = 0\) (or prevent \(\frac{\partial L}{\partial w_t}\) from being computed/applied), so \(w_{t+1} = w_t\).</p>
+
+    <h4>Discriminative Learning Rates</h4>
+    <p>Discriminative learning rates extend this by assigning different \(\eta\) values to different groups of layers. If we denote the learning rate for layer \(l\) as \(\eta_l\), then:</p>
+    <div class="eq}$$w_{l, t+1} = w_{l, t} - \eta_l \frac{\partial L}{\partial w_{l, t}}$$</div>
+    <p>A common heuristic is to decrease the learning rate for layers deeper in the network (closer to the input) and increase it for layers closer to the output (and the new head). This can be expressed as \(\eta_l = \eta_{\text{base}} \cdot \alpha^{L-l}\), where \(L\) is the total number of layers, \(l\) is the layer index (from 1 to \(L\)), \(\eta_{\text{base}}\) is the learning rate for the last layer (or head), and \(\alpha \in (0,1)\) is a scaling factor (e.g., 0.8 or 0.5). For example, if \(\eta_{\text{base}}=10^{-3}\) and \(\alpha=0.5\), then the \(L\)-th layer gets \(10^{-3}\), the \((L-1)\)-th layer gets \(0.5 \times 10^{-3}\), and so on.</p>
+
+    <h4>Why it works: Preserving General Features</h4>
+    <p>Early layers of a deep network learn highly general features (e.g., Gabor filters in CNNs, basic syntax in LLMs) that are often useful across a wide range of tasks. Modifying these too aggressively with a large learning rate can destroy this valuable pre-trained knowledge, leading to a phenomenon called "catastrophic forgetting." By freezing or using very small learning rates for these early layers, we protect their robust feature extraction capabilities while allowing later, more specialized layers to adapt to the nuances of the new task.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Using too high a learning rate when fine-tuning can quickly degrade performance, especially when unfreezing early layers. The pre-trained weights are already in a good configuration; large steps can push them into a poor local optimum, effectively "unlearning" useful representations. Always start with very small learning rates (e.g., \(10^{-5}\) to \(10^{-4}\)) for fine-tuning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore different fine-tuning strategies on a model with 8 layers (Layer 0 is input, Layer 7 is the classification head). Drag the slider to control the unfreezing depth, and toggle discriminative learning rates to see their effect on individual layers.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Unfreeze Depth (from head)</div>
+          <input type="range" id="unfreezeSlider" min="0" max="7" step="1" value="0">
+          <div class="slider-value" id="unfreezeValue">Head Only</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="discriminativeLRToggle">
+          <label for="discriminativeLRToggle">Use Discriminative Learning Rates (α=0.7)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Pre-trained Model</div>
+        <div class="info-desc" id="infoDesc">This represents a pre-trained deep neural network, with 7 hidden layers and a final classification head (Layer 7). Initially, all layers are frozen. The goal of fine-tuning is to adapt this model to a new task.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Frozen layer (no updates)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Trainable layer (updates)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Head layer (always trainable)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Highlighted layer</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Discriminative LR</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to choose which strategy:</strong></p>
+    <ul>
+      <li><strong>Head-only:</strong> Best for very small datasets, very different tasks, or as a quick baseline. Low risk of catastrophic forgetting.</li>
+      <li><strong>Full Fine-tuning:</strong> When you have a moderately large dataset for the new task, and the task is somewhat similar to the pre-training task. Requires careful tuning of learning rates.</li>
+      <li><strong>Gradual Unfreezing:</strong> A robust strategy that balances adaptation and stability. Ideal when you have a moderate dataset and want to leverage more of the pre-trained features without destabilizing early layers too quickly.</li>
+      <li><strong>Discriminative Learning Rates:</strong> Can be combined with any unfreezing strategy (including full fine-tuning). Useful when you want all layers to adapt, but acknowledge that early layers need gentler updates.</li>
+    </ul>
+    <p><strong>General best practices:</strong></p>
+    <ul>
+      <li>Always start with a much smaller learning rate than for training from scratch (e.g., \(10^{-5}\) to \(10^{-4}\)).</li>
+      <li>Use a learning rate scheduler (e.g., cosine decay, ReduceLROnPlateau) to further refine learning.</li>
+      <li>Monitor validation loss closely to detect overfitting, especially when unfreezing more layers.</li>
+      <li>Consider using techniques like early stopping to prevent overfitting.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Fine-tuning is about efficiently adapting general knowledge to specific problems. By selectively training layers and adjusting learning rates, we navigate the trade-off between exploiting powerful pre-trained features and specializing for the new task, ultimately achieving high performance with less data and computation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch Example)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch.nn as nn</div>
+      <div class="code-line" id="cl1">import torch.optim as optim</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume `model` is a pre-trained model (e.g., ResNet, BERT)</div>
+      <div class="code-line" id="cl4"># Replace the classification head for a new task (e.g., 10 classes)</div>
+      <div class="code-line" id="cl5">model.fc = nn.Linear(model.fc.in_features, 10) # For ResNet-like models</div>
+      <div class="code-line" id="cl6"># (For Transformers, this might be model.classifier or a custom head)</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># --- Strategy 1: Head-only fine-tuning ---</div>
+      <div class="code-line" id="cl9">for param in model.parameters():</div>
+      <div class="code-line" id="cl10">    param.requires_grad = False            # Freeze all layers</div>
+      <div class="code-line" id="cl11">model.fc.weight.requires_grad = True       # Unfreeze new head weights</div>
+      <div class="code-line" id="cl12">model.fc.bias.requires_grad = True         # Unfreeze new head bias</div>
+      <div class="code-line" id="cl13">optimizer = optim.Adam(model.fc.parameters(), lr=1e-3) # Only head params</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># --- Strategy 2: Full fine-tuning ---</div>
+      <div class="code-line" id="cl16">for param in model.parameters():</div>
+      <div class="code-line" id="cl17">    param.requires_grad = True             # Unfreeze all layers</div>
+      <div class="code-line" id="cl18">optimizer = optim.Adam(model.parameters(), lr=1e-5) # All params, small LR</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># --- Strategy 3: Gradual Unfreezing (example for 3 groups) ---</div>
+      <div class="code-line" id="cl21"># Group 1: Head (e.g., model.fc)</div>
+      <div class="code-line" id="cl22"># Group 2: Last block (e.g., model.layer4)</div>
+      <div class="code-line" id="cl23"># Group 3: Rest of backbone (e.g., model.layer1, model.layer2, model.layer3)</div>
+      <div class="code-line" id="cl24"># Training loop 1: Freeze all, train head with LR=1e-3</div>
+      <div class="code-line" id="cl25"># Training loop 2: Unfreeze head & Group 2, train with LR=1e-4</div>
+      <div class="code-line" id="cl26"># Training loop 3: Unfreeze head & Group 2 & Group 3, train with LR=1e-5</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28"># --- Strategy 4: Discriminative Learning Rates ---</div>
+      <div class="code-line" id="cl29"># Define parameter groups with different LRs</div>
+      <div class="code-line" id="cl30">params = []</div>
+      <div class="code-line" id="cl31">base_lr = 1e-3; alpha = 0.7</div>
+      <div class="code-line" id="cl32"># Iterate through model layers, assigning decreasing LRs</div>
+      <div class="code-line" id="cl33"># (Simplified; actual implementation needs model-specific layer access)</div>
+      <div class="code-line" id="cl34"># Example: for a model with 'features' and 'classifier' modules</div>
+      <div class="code-line" id="cl35"># model.features has many sub-layers, model.classifier is the head</div>
+      <div class="code-line" id="cl36">
+      <div class="code-line" id="cl37"># Let's say model.features has 4 blocks (layer1..layer4)</div>
+      <div class="code-line" id="cl38">params.append({'params': model.layer1.parameters(), 'lr': base_lr * (alpha**3)})</div>
+      <div class="code-line" id="cl39">params.append({'params': model.layer2.parameters(), 'lr': base_lr * (alpha**2)})</div>
+      <div class="code-line" id="cl40">params.append({'params': model.layer3.parameters(), 'lr': base_lr * (alpha**1)})</div>
+      <div class="code-line" id="cl41">params.append({'params': model.layer4.parameters(), 'lr': base_lr * (alpha**0)})</div>
+      <div class="code-line" id="cl42">params.append({'params': model.fc.parameters(), 'lr': base_lr}) # Head gets base_lr</div>
+      <div class="code-line" id="cl43">optimizer = optim.Adam(params)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── MODEL DATA ──
+const NUM_LAYERS = 8; // Layer 0 (input) to Layer 7 (head)
+const BASE_LR = 1e-3;
+const ALPHA = 0.7; // Discriminative LR scaling factor
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Pre-trained Model',
+    desc: 'This represents a pre-trained deep neural network, with 7 hidden layers and a final classification head (Layer 7). Initially, all layers are frozen. The goal of fine-tuning is to adapt this model to a new task.',
+    unfreezeDepth: 0, discriminativeLRs: false, highlightLayer: -1,
+    codeLines: []
+  },
+  {
+    phase: 'method', title: 'Head-only Fine-tuning',
+    desc: 'Only the classification head (Layer 7) is unfrozen and trained. All other pre-trained layers (0-6) remain frozen, acting as fixed feature extractors. This is ideal for very small datasets or drastically different new tasks.',
+    unfreezeDepth: 0, discriminativeLRs: false, highlightLayer: 7,
+    codeLines: [9,10,11,12,13]
+  },
+  {
+    phase: 'method', title: 'Full Fine-tuning',
+    desc: 'All layers (0-7) are unfrozen and trained end-to-end. This strategy allows the entire model to adapt to the new task, but requires a larger dataset and a very small learning rate (e.g., 1e-5) to avoid catastrophic forgetting.',
+    unfreezeDepth: NUM_LAYERS - 1, discriminativeLRs: false, highlightLayer: -1,
+    codeLines: [16,17,18]
+  },
+  {
+    phase: 'strategy', title: 'Gradual Unfreezing: Phase 1 (Head)',
+    desc: 'Gradual unfreezing starts like head-only fine-tuning: train only the head (Layer 7) for a few epochs. This quickly adapts the output layer to the new task while preserving the backbone.',
+    unfreezeDepth: 0, discriminativeLRs: false, highlightLayer: 7,
+    codeLines: [24]
+  },
+  {
+    phase: 'strategy', title: 'Gradual Unfreezing: Phase 2 (Head + Last Layer)',
+    desc: 'After the head has adapted, unfreeze the next layer (Layer 6) and continue training the head and Layer 6 together. This allows the model to adapt more deeply without perturbing the foundational features too early.',
+    unfreezeDepth: 1, discriminativeLRs: false, highlightLayer: 6,
+    codeLines: [25]
+  },
+  {
+    phase: 'strategy', title: 'Gradual Unfreezing: Phase 3 (Deeper Layers)',
+    desc: 'Continue the process, unfreezing more layers (e.g., Layer 5) as training progresses. This strategy is a good balance between adaptation and stability, commonly used for challenging fine-tuning tasks.',
+    unfreezeDepth: 2, discriminativeLRs: false, highlightLayer: 5,
+    codeLines: [26]
+  },
+  {
+    phase: 'strategy', title: 'Discriminative Learning Rates',
+    desc: 'Instead of freezing, assign different learning rates to different layer groups. Layers closer to the input (e.g., Layer 0) get very small LRs, while layers closer to the output (e.g., Layer 7) get larger LRs. All layers are trainable, but at different paces.',
+    unfreezeDepth: NUM_LAYERS - 1, discriminativeLRs: true, highlightLayer: -1,
+    codeLines: [29,30,31,32,33,34,35,36,37,38,39,40,41,42,43]
+  },
+  {
+    phase: 'explore', title: 'Interactive Exploration',
+    desc: 'Now, use the slider to dynamically unfreeze layers from the head downwards, and toggle discriminative learning rates. Observe how the "Trainable" status and effective Learning Rates change for each layer. The base LR for the head is 1e-3.',
+    unfreezeDepth: 0, discriminativeLRs: false, highlightLayer: -1,
+    codeLines: []
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INTERACTIVE CONTROLS STATE ──
+let currentUnfreezeDepth = 0; // 0 means only head, 7 means all layers (0-7)
+let currentDiscriminativeLRs = false;
+
+// ── UI WIRING ──
+const unfreezeSlider = document.getElementById('unfreezeSlider');
+const discriminativeLRToggle = document.getElementById('discriminativeLRToggle');
+
+unfreezeSlider.max = NUM_LAYERS - 1; // 0 (head only) to 7 (all layers)
+
+unfreezeSlider.addEventListener('input', () => {
+  currentUnfreezeDepth = parseInt(unfreezeSlider.value);
+  updateSliderLabel();
+  render();
+});
+
+discriminativeLRToggle.addEventListener('change', () => {
+  currentDiscriminativeLRs = discriminativeLRToggle.checked;
+  render();
+});
+
+function updateSliderLabel() {
+  const label = currentUnfreezeDepth === 0 ? 'Head Only' :
+                currentUnfreezeDepth === (NUM_LAYERS - 1) ? 'All Layers' :
+                `Head + ${currentUnfreezeDepth} Layers`;
+  document.getElementById('unfreezeValue').textContent = label;
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  syncControlsToStep();
+  render();
+}
+function goTo(i) {
+  step = i;
+  syncControlsToStep();
+  render();
+}
+function reset() {
+  step = 0;
+  currentUnfreezeDepth = 0;
+  currentDiscriminativeLRs = false;
+  syncControlsToStep();
+  render();
+}
+
+function syncControlsToStep() {
+  const s = steps[step];
+  // For interactive step, controls are live. For others, they reflect step state.
+  if (s.mode === 'explore') {
+    unfreezeSlider.disabled = false;
+    discriminativeLRToggle.disabled = false;
+    // Don't change actual slider/toggle values, just read them
+  } else {
+    unfreezeSlider.disabled = true;
+    discriminativeLRToggle.disabled = true;
+    currentUnfreezeDepth = s.unfreezeDepth;
+    currentDiscriminativeLRs = s.discriminativeLRs;
+  }
+  unfreezeSlider.value = currentUnfreezeDepth;
+  discriminativeLRToggle.checked = currentDiscriminativeLRs;
+  updateSliderLabel();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {setup:'phase-setup', method:'phase-method', strategy:'phase-strategy', explore:'phase-explore'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Canvas
+  drawCanvas(currentUnfreezeDepth, currentDiscriminativeLRs, s.highlightLayer);
+
+  updateDots();
+}
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(unfreezeDepth, discriminativeLRs, highlightLayer) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  // Get CSS vars
+  const cs = getComputedStyle(document.documentElement);
+  const textC = cs.getPropertyValue('--text').trim();
+  const text2 = cs.getPropertyValue('--text2').trim();
+  const text3 = cs.getPropertyValue('--text3').trim();
+  const blueMid = cs.getPropertyValue('--blue-mid').trim();
+  const greenMid = cs.getPropertyValue('--green-mid').trim();
+  const amberMid = cs.getPropertyValue('--amber-mid').trim();
+  const purpleMid = cs.getPropertyValue('--purple-mid').trim();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const layerWidth = 80;
+  const layerHeight = 40;
+  const layerGap = 20;
+
+  const totalWidth = NUM_LAYERS * layerWidth + (NUM_LAYERS - 1) * layerGap;
+  const startX = (W - totalWidth) / 2;
+  const startY = (H - layerHeight) / 2;
+
+  // Draw layers
+  for (let i = 0; i < NUM_LAYERS; i++) {
+    const x = startX + i * (layerWidth + layerGap);
+    const y = startY;
+
+    // Determine if layer is trainable
+    const isHead = (i === NUM_LAYERS - 1);
+    const isTrainable = isHead || (i >= (NUM_LAYERS - 1 - unfreezeDepth));
+    
+    let fillColor = text3; // Frozen by default
+    if (isTrainable) {
+      fillColor = blueMid;
+      if (isHead) fillColor = greenMid; // Head is always green when trainable
+    }
+
+    // Draw layer rectangle
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, layerWidth, layerHeight, 5) : ctx.rect(x, y, layerWidth, layerHeight);
+    ctx.fillStyle = fillColor;
+    ctx.globalAlpha = 1; // Reset alpha
+    ctx.fill();
+    ctx.strokeStyle = text2;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Layer label
+    ctx.fillStyle = textC;
+    ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Layer ${i}`, x + layerWidth / 2, y + layerHeight / 2 + 4);
+
+    // Learning rate label
+    if (isTrainable && discriminativeLRs) {
+      const lr = BASE_LR * Math.pow(ALPHA, (NUM_LAYERS - 1) - i);
+      ctx.fillStyle = purpleMid;
+      ctx.font = '500 10px "JetBrains Mono", monospace';
+      ctx.fillText(`LR: ${lr.toExponential(1)}`, x + layerWidth / 2, y + layerHeight + 18);
+    } else if (isTrainable && !discriminativeLRs) {
+        ctx.fillStyle = blueMid;
+        ctx.font = '500 10px "JetBrains Mono", monospace';
+        ctx.fillText(`LR: ${BASE_LR.toExponential(1)}`, x + layerWidth / 2, y + layerHeight + 18);
+    }
+
+    // Highlight layer
+    if (i === highlightLayer) {
+      ctx.strokeStyle = amberMid;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x-2, y-2, layerWidth+4, layerHeight+4, 7) : ctx.rect(x-2, y-2, layerWidth+4, layerHeight+4);
+      ctx.stroke();
+    }
+  }
+
+  // Draw arrows between layers
+  ctx.strokeStyle = text3;
+  ctx.lineWidth = 1;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < NUM_LAYERS - 1; i++) {
+    const x1 = startX + i * (layerWidth + layerGap) + layerWidth;
+    const y1 = startY + layerHeight / 2;
+    const x2 = x1 + layerGap;
+    const y2 = y1;
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x2 - 8, y2 - 4);
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 8, y2 + 4);
+    ctx.stroke();
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+syncControlsToStep(); // Initial sync
+render();
+window.addEventListener('resize', () => drawCanvas(currentUnfreezeDepth, currentDiscriminativeLRs, steps[step].highlightLayer));
+</script>
+</body>
+</html>

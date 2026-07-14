@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Batch-mode Active Learning — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-uncertainty{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-diversity{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-batch{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Batch-mode Active Learning</h1>
+  <div class="subtitle">Selecting diverse and informative batches of unlabeled data for efficient annotation</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Machine Learning</span>
+    <span class="tag tag-category">Unsupervised Learning</span>
+    <span class="tag tag-complexity">O(k·N) to O(N²)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Batch-mode Active Learning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Active learning aims to reduce the cost of labeling data by strategically selecting the most "valuable" unlabeled examples for human annotation. Traditional active learning often queries one data point at a time. <strong>Batch-mode active learning</strong> extends this by querying a *batch* of \(k\) unlabeled data points simultaneously. This is crucial for real-world scenarios where human annotators prefer to work on groups of examples, or where communication latency makes single-query loops impractical.</p>
+    <p><strong>Analogy:</strong> Imagine a doctor trying to diagnose a patient. Sequential active learning is like ordering one test, waiting for the result, then deciding the next test. Batch-mode active learning is like ordering a panel of \(k\) tests at once. The challenge isn't just to pick the \(k\) most "confusing" symptoms (most uncertain points), but to pick a *diverse* set of \(k\) tests that cover different diagnostic avenues, ensuring no two tests are redundant and collectively provide the most information. This balances getting informative results with covering all bases efficiently.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The core challenge of batch-mode active learning is to select a batch of \(k\) points that are both <strong>informative</strong> (high uncertainty for the current model) and <strong>diverse</strong> (represent different regions of the unlabeled data space). Simply picking the \(k\) most uncertain points often leads to a redundant batch, wasting annotation budget.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Batch-mode Active Learning Works</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Problem of Redundancy</h4>
+    <p>When a model is uncertain about a particular region of the feature space (e.g., near its decision boundary), many unlabeled points in that region will also be highly uncertain. If we simply pick the top \(k\) most uncertain points, they are likely to be highly clustered and similar. Labeling all of them provides diminishing returns: once one point from that cluster is labeled, the model's uncertainty for nearby, similar points often resolves itself, making the other labels in the batch less valuable.</p>
+
+    <h4>Balancing Informativeness and Diversity</h4>
+    <p>Batch-mode active learning algorithms address this by explicitly incorporating a diversity criterion into their selection process. This usually involves defining a score for each unlabeled point that combines its informativeness (e.g., model uncertainty) with how "different" it is from other points already selected for the batch, or from other points in the unlabeled pool. Common strategies include:</p>
+    <ul>
+      <li><strong>Greedy Selection:</strong> Iteratively select points. In each step, pick the point that maximizes a combined uncertainty-diversity score, given the points already chosen for the batch.</li>
+      <li><strong>Clustering-based Methods:</strong> Cluster the highly uncertain points, then select a representative (e.g., the centroid or most uncertain point) from each cluster until the batch size \(k\) is reached.</li>
+      <li><strong>Submodular Optimization:</strong> Formulate the batch selection as maximizing a submodular function that inherently captures the "diminishing returns" property of diversity and informativeness.</li>
+    </ul>
+
+    <h4>Design Decision: Why Not Just Retrain Between Each Point?</h4>
+    <p>The ideal active learning loop would retrain the model after *every single point* is labeled, and then select the next most informative point based on the updated model. This is called "sequential" or "online" active learning. However, retraining a deep learning model is computationally expensive and takes time. Batch-mode active learning is a compromise: we assume the model's uncertainty landscape doesn't change drastically within a small batch of \(k\) points, allowing us to select them all at once, send them for annotation, and only retrain once the entire batch is returned.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The goal is to select a batch that offers the maximum <strong>expected reduction in model error</strong> for a fixed annotation budget. This is achieved by finding points that are not only individually informative but also collectively cover a broad range of the model's current ambiguities, preventing redundant queries.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Quantifying Informativeness (Uncertainty)</h4>
+    <p>A common measure of a model's uncertainty about a point \(x\) is the entropy of its predicted class probabilities:</p>
+    <div class="eq">$$U(x) = -\sum_{c=1}^C P(y=c|x) \log P(y=c|x)$$</div>
+    <p>where \(C\) is the number of classes. A higher entropy indicates greater uncertainty (e.g., probabilities close to uniform for all classes). Other measures include Least Confidence (\(1 - \max_c P(y=c|x)\)) or Margin Sampling (\(P(y=c_1|x) - P(y=c_2|x)\) for top two classes \(c_1, c_2\)).</p>
+
+    <h4>Quantifying Diversity</h4>
+    <p>Diversity typically measures how "far apart" points are in the feature space (or an embedding space). For two points \(x_i\) and \(x_j\), a common dissimilarity measure is Euclidean distance:</p>
+    <div class="eq">$$D(x_i, x_j) = \|f(x_i) - f(x_j)\|_2$$</div>
+    <p>where \(f(x)\) could be the raw feature vector, or a representation from an intermediate layer of the neural network. A higher \(D(x_i, x_j)\) means the points are more diverse.</p>
+
+    <h4>The Batch Selection Objective</h4>
+    <p>Many batch-mode active learning algorithms can be seen as optimizing a utility function \(F(S)\) for a subset of unlabeled points \(S\) of size \(k\). A general form combining uncertainty and diversity often looks like:</p>
+    <div class="eq">$$S^* = \underset{S \subset U, |S|=k}{\operatorname{argmax}} \left[ \sum_{x \in S} U(x) + \lambda \sum_{x_i, x_j \in S, i \neq j} D(x_i, x_j) \right]$$</div>
+    <p>Here, \(U\) is the pool of unlabeled data, \(U(x)\) is the uncertainty of point \(x\), \(D(x_i, x_j)\) is the diversity (dissimilarity) between \(x_i\) and \(x_j\), and \(\lambda \ge 0\) is a hyperparameter that balances the trade-off between informativeness and diversity. Maximizing this function is often NP-hard, so greedy approximations are commonly used.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Computational Complexity</div>
+      <p style="font-size:14px;margin:0;">A naive search for the optimal batch of \(k\) points from an unlabeled pool of size \(N\) would involve checking \(\binom{N}{k}\) combinations, which is intractable. Greedy algorithms reduce this to roughly \(O(k \cdot N)\) or \(O(k \cdot N^2)\) depending on the diversity calculation, making them practical for large datasets but still more costly than simple top-k uncertainty sampling.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how batch size and the diversity weight influence the selection of points for annotation. The goal is to pick points that are both uncertain (close to the decision boundary) and diverse (spread out across the feature space).</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Batch Size \(k\)</div>
+          <input type="range" id="batchSizeSlider" min="1" max="10" step="1" value="5">
+          <div class="slider-value" id="batchSizeValue">5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Diversity Weight \(\lambda\)</div>
+          <input type="range" id="diversityWeightSlider" min="0" max="1" step="0.1" value="0.5">
+          <div class="slider-value" id="diversityWeightValue">0.5</div>
+        </div>
+        <div class="slider-hint">A higher \(\lambda\) prioritizes diversity; \(\lambda=0\) is pure uncertainty sampling.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial Data & Model</div>
+        <div class="info-desc" id="infoDesc">We have a pool of unlabeled data points (grey) and a few initial labeled points (blue/red). A simple linear classifier has been trained, resulting in the dashed decision boundary.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> Labeled Class 1</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--red-mid)"></div> Labeled Class 2</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--text3)"></div> Unlabeled data</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--border2)"></div> Decision Boundary</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid); border:2px solid var(--amber-border);"></div> High Uncertainty</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--green-mid); border:2px solid var(--purple-mid);"></div> Selected Batch</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use batch-mode active learning:</strong></p>
+    <ul>
+      <li><strong>High annotation cost:</strong> When human labeling is expensive or time-consuming, and you want to maximize the impact of each annotation budget.</li>
+      <li><strong>Large unlabeled pools:</strong> When you have vast amounts of unlabeled data but limited resources to label it all.</li>
+      <li><strong>Human-in-the-loop systems:</strong> When the annotation process involves human experts who prefer to work with batches rather than single examples.</li>
+      <li><strong>Slow model retraining:</strong> When retraining the model after each single point is labeled is computationally prohibitive.</li>
+      <li><strong>Stable model updates:</strong> When you want the model to learn from a diverse set of examples in each iteration, leading to more robust updates.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li><strong>Very small datasets:</strong> If your unlabeled pool is tiny, sequential active learning or even random sampling might be sufficient.</li>
+      <li><strong>Computational overhead:</strong> If the batch selection algorithm itself is too complex for your available compute, outstripping the benefits.</li>
+      <li><strong>Only uncertainty matters:</strong> In some niche cases (e.g., pure anomaly detection), diversity might be less critical than finding the single most anomalous point.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture: Practicality vs. Theory</div>
+      <p style="font-size:14px;margin:0;">While theoretically, sequential active learning might offer slightly better performance by always reacting to the latest model, batch-mode active learning is often a more practical and efficient choice for real-world machine learning systems. It effectively bridges the gap between theoretical optimality and the operational realities of human annotation workflows and computational constraints.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Greedy Batch Selection)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">from sklearn.metrics.pairwise import euclidean_distances</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">def calculate_uncertainty(probabilities):</div>
+      <div class="code-line" id="cl4">    # Entropy sampling: higher entropy means more uncertainty</div>
+      <div class="code-line" id="cl5">    # probabilities: (N, C) array of class probabilities for N points</div>
+      <div class="code-line" id="cl6">    epsilon = 1e-10 # to prevent log(0)</div>
+      <div class="code-line" id="cl7">    return -np.sum(probabilities * np.log(probabilities + epsilon), axis=1)</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">def select_batch_greedy(unlabeled_features, model_probs, k, lambda_diversity):</div>
+      <div class="code-line" id="cl10">    n_unlabeled = unlabeled_features.shape[0]</div>
+      <div class="code-line" id="cl11">    uncertainties = calculate_uncertainty(model_probs)</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">    selected_indices = []</div>
+      <div class="code-line" id="cl14">    remaining_indices = list(range(n_unlabeled))</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">    # Precompute all pairwise distances for efficiency</div>
+      <div class="code-line" id="cl17">    all_distances = euclidean_distances(unlabeled_features, unlabeled_features)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">    for _ in range(k):</div>
+      <div class="code-line" id="cl20">        if not remaining_indices: break</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">        best_score = -np.inf</div>
+      <div class="code-line" id="cl23">        best_idx = -1</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25">        for candidate_idx in remaining_indices:</div>
+      <div class="code-line" id="cl26">            # Informativeness term (uncertainty)</div>
+      <div class="code-line" id="cl27">            informativeness = uncertainties[candidate_idx]</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">            # Diversity term: sum of distances to already selected points</div>
+      <div class="code-line" id="cl30">            diversity = 0</div>
+      <div class="code-line" id="cl31">            if selected_indices:</div>
+      <div class="code-line" id="cl32">                diversity = np.sum(all_distances[candidate_idx, selected_indices])</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34">            # Combined score</div>
+      <div class="code-line" id="cl35">            current_score = informativeness + lambda_diversity * diversity</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37">            if current_score > best_score:</div>
+      <div class="code-line" id="cl38">                best_score = current_score</div>
+      <div class="code-line" id="cl39">                best_idx = candidate_idx</div>
+      <div class="code-line" id="cl40">        </div>
+      <div class="code-line" id="cl41">        if best_idx != -1:</div>
+      <div class="code-line" id="cl42">            selected_indices.append(best_idx)</div>
+      <div class="code-line" id="cl43">            remaining_indices.remove(best_idx)</div>
+      <div class="code-line" id="cl44">            </div>
+      <div class="code-line" id="cl45">    return selected_indices</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA GENERATION ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let rng = mulberry32(12345); // Seeded for reproducibility
+
+function generateData(numPoints, numLabeled, boundarySlope, boundaryIntercept, noiseStd) {
+  const data = [];
+  const labeled = [];
+
+  // Generate unlabeled points
+  for (let i = 0; i < numPoints; i++) {
+    const x = rng() * 10 - 5;
+    const y = rng() * 10 - 5;
+    const distanceToBoundary = (boundarySlope * x - y + boundaryIntercept) / Math.sqrt(boundarySlope * boundarySlope + 1);
+    const probClass1 = 1 / (1 + Math.exp(-distanceToBoundary * 2)); // Sigmoid for smooth probabilities
+    const uncertainty = -(probClass1 * Math.log(probClass1 + 1e-10) + (1 - probClass1) * Math.log(1 - probClass1 + 1e-10));
+    data.push({ x, y, probClass1, uncertainty, label: null, isLabeled: false, id: i });
+  }
+
+  // Randomly select some points to be initially labeled
+  const shuffledIndices = Array.from({ length: numPoints }, (_, i) => i).sort(() => rng() - 0.5);
+  for (let i = 0; i < numLabeled; i++) {
+    const idx = shuffledIndices[i];
+    data[idx].isLabeled = true;
+    data[idx].label = data[idx].probClass1 > 0.5 ? 1 : 0; // Assign true label based on boundary
+    labeled.push(data[idx]);
+  }
+
+  // Precompute pairwise Euclidean distances between all unlabeled points
+  const unlabeledPoints = data.filter(p => !p.isLabeled);
+  const distances = Array(unlabeledPoints.length).fill(0).map(() => Array(unlabeledPoints.length).fill(0));
+  for (let i = 0; i < unlabeledPoints.length; i++) {
+    for (let j = i + 1; j < unlabeledPoints.length; j++) {
+      const dist = Math.sqrt(
+        Math.pow(unlabeledPoints[i].x - unlabeledPoints[j].x, 2) +
+        Math.pow(unlabeledPoints[i].y - unlabeledPoints[j].y, 2)
+      );
+      distances[i][j] = dist;
+      distances[j][i] = dist;
+    }
+  }
+
+  return { data, unlabeledPoints, distances, boundary: { slope: boundarySlope, intercept: boundaryIntercept } };
+}
+
+let DATA_PARAMS = {
+  numPoints: 100,
+  numLabeled: 5,
+  boundarySlope: 0.8,
+  boundaryIntercept: 0.5,
+  noiseStd: 0.8
+};
+let currentData = generateData(
+  DATA_PARAMS.numPoints,
+  DATA_PARAMS.numLabeled,
+  DATA_PARAMS.boundarySlope,
+  DATA_PARAMS.boundaryIntercept,
+  DATA_PARAMS.noiseStd
+);
+
+// ── BATCH SELECTION ALGORITHM (Greedy) ──
+function selectBatchGreedy(allPoints, k, lambda_diversity) {
+  const unlabeledPool = allPoints.filter(p => !p.isLabeled);
+  if (unlabeledPool.length === 0 || k === 0) return [];
+
+  // Sort unlabeled points by uncertainty (descending)
+  unlabeledPool.sort((a, b) => b.uncertainty - a.uncertainty);
+
+  // Map original IDs to their index in the unlabeledPool for distance matrix lookup
+  const idToIndexMap = new Map(unlabeledPool.map((p, idx) => [p.id, idx]));
+
+  const uncertainties = unlabeledPool.map(p => p.uncertainty);
+  const features = unlabeledPool.map(p => [p.x, p.y]);
+
+  const selectedIndicesInPool = [];
+  const selectedOriginalIds = new Set();
+
+  // Precompute all pairwise distances for efficiency using the original data's distance matrix
+  const precomputedDistances = currentData.distances;
+
+  for (let i = 0; i < k; i++) {
+    if (selectedOriginalIds.size >= k || selectedOriginalIds.size === unlabeledPool.length) break;
+
+    let bestScore = -Infinity;
+    let bestPointInPoolIndex = -1;
+
+    for (let j = 0; j < unlabeledPool.length; j++) {
+      const candidatePoint = unlabeledPool[j];
+      if (selectedOriginalIds.has(candidatePoint.id)) continue;
+
+      // Informativeness term (uncertainty)
+      const informativeness = uncertainties[j];
+
+      // Diversity term: sum of distances to already selected points
+      let diversity = 0;
+      if (selectedIndicesInPool.length > 0) {
+        const candidatePoolIdx = idToIndexMap.get(candidatePoint.id);
+        for (const selectedPoolIdx of selectedIndicesInPool) {
+          diversity += precomputedDistances[candidatePoolIdx][selectedPoolIdx];
+        }
+      }
+
+      // Combined score
+      const currentScore = informativeness + lambda_diversity * diversity;
+
+      if (currentScore > bestScore) {
+        bestScore = currentScore;
+        bestPointInPoolIndex = j;
+      }
+    }
+
+    if (bestPointInPoolIndex !== -1) {
+      selectedIndicesInPool.push(bestPointInPoolIndex);
+      selectedOriginalIds.add(unlabeledPool[bestPointInPoolIndex].id);
+    }
+  }
+
+  return Array.from(selectedOriginalIds).map(id => allPoints[id]);
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Data & Model',
+    desc: 'We start with a pool of unlabeled data points (grey) and a few initially labeled points (blue/red). A simple linear classifier has been trained, resulting in the dashed decision boundary. Our goal is to select a batch of unlabeled points to send for annotation to improve this boundary.',
+    canvasMode: 'initial'
+  },
+  {
+    phase: 'uncertainty', title: 'Model Uncertainty',
+    desc: 'The model is most uncertain about points close to its decision boundary. These points have high entropy in their predicted class probabilities. Darker amber points represent higher uncertainty. Notice how they tend to cluster around the boundary.',
+    canvasMode: 'uncertainty'
+  },
+  {
+    phase: 'batch', title: 'Naive Batch: Top-k Uncertainty (λ=0)',
+    desc: 'If we only consider uncertainty (setting Diversity Weight \\(\\lambda=0\\)), the algorithm simply picks the top \\(k\\) most uncertain points. Observe how these selected points (green circles with purple border) are often clustered together, leading to redundant queries.',
+    canvasMode: 'pure_uncertainty'
+  },
+  {
+    phase: 'diversity', title: 'Introducing Diversity',
+    desc: 'To counteract redundancy, we introduce a diversity term. This measures how "far apart" points are in the feature space. A higher Diversity Weight \\(\\lambda\\) makes the algorithm prioritize selecting points that are spread out, even if they are slightly less uncertain individually.',
+    canvasMode: 'diversity_concept'
+  },
+  {
+    phase: 'batch', title: 'Balanced Batch: Uncertainty + Diversity (λ=0.5)',
+    desc: 'With a balanced Diversity Weight (e.g., \\(\\lambda=0.5\\)), the algorithm selects a batch that is both uncertain and diverse. The selected points are still near the boundary but are now more spread out, aiming to cover more distinct regions of uncertainty.',
+    canvasMode: 'balanced_batch'
+  },
+  {
+    phase: 'batch', title: 'High Diversity Batch (λ=1.0)',
+    desc: 'Increasing the Diversity Weight to \\(\\lambda=1.0\\) prioritizes spread. The selected batch covers a wider area, potentially including points further from the decision boundary but ensuring maximum coverage of the unlabeled space. This can be useful to prevent the model from getting stuck in local optima.',
+    canvasMode: 'high_diversity'
+  },
+  {
+    phase: 'batch', title: 'Small Batch Size (k=3)',
+    desc: 'Adjusting the Batch Size \\(k\\) changes how many points are selected. With a smaller \\(k\\) (e.g., \\(k=3\\)), the algorithm still attempts to balance uncertainty and diversity within that smaller budget. Fewer points are selected, so each one must be highly informative and unique.',
+    canvasMode: 'small_batch'
+  },
+  {
+    phase: 'batch', title: 'Model Update (Simulated)',
+    desc: 'Once the selected batch is annotated, the model is retrained. This usually shifts the decision boundary to better classify the newly labeled points, hopefully reducing overall uncertainty and improving generalization. The cycle then repeats with the updated model.',
+    canvasMode: 'model_update'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SLIDER CONTROLS ──
+const batchSizeSlider = document.getElementById('batchSizeSlider');
+const batchSizeValue = document.getElementById('batchSizeValue');
+const diversityWeightSlider = document.getElementById('diversityWeightSlider');
+const diversityWeightValue = document.getElementById('diversityWeightValue');
+
+batchSizeSlider.addEventListener('input', () => {
+  batchSizeValue.textContent = batchSizeSlider.value;
+  render();
+});
+diversityWeightSlider.addEventListener('input', () => {
+  diversityWeightValue.textContent = parseFloat(diversityWeightSlider.value).toFixed(1);
+  render();
+});
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) {
+  step = i;
+  render();
+}
+function reset() {
+  rng = mulberry32(12345); // Reset RNG
+  currentData = generateData(
+    DATA_PARAMS.numPoints,
+    DATA_PARAMS.numLabeled,
+    DATA_PARAMS.boundarySlope,
+    DATA_PARAMS.boundaryIntercept,
+    DATA_PARAMS.noiseStd
+  );
+  batchSizeSlider.value = 5;
+  diversityWeightSlider.value = 0.5;
+  batchSizeValue.textContent = 5;
+  diversityWeightValue.textContent = 0.5;
+  step = 0;
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup',
+    uncertainty: 'phase-uncertainty',
+    diversity: 'phase-diversity',
+    batch: 'phase-batch'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  // Set slider values based on step, if applicable
+  if (s.canvasMode === 'pure_uncertainty') {
+    diversityWeightSlider.value = 0;
+    diversityWeightValue.textContent = 0.0;
+    batchSizeSlider.value = 5;
+    batchSizeValue.textContent = 5;
+  } else if (s.canvasMode === 'balanced_batch') {
+    diversityWeightSlider.value = 0.5;
+    diversityWeightValue.textContent = 0.5;
+    batchSizeSlider.value = 5;
+    batchSizeValue.textContent = 5;
+  } else if (s.canvasMode === 'high_diversity') {
+    diversityWeightSlider.value = 1.0;
+    diversityWeightValue.textContent = 1.0;
+    batchSizeSlider.value = 5;
+    batchSizeValue.textContent = 5;
+  } else if (s.canvasMode === 'small_batch') {
+    batchSizeSlider.value = 3;
+    batchSizeValue.textContent = 3;
+    diversityWeightSlider.value = 0.5;
+    diversityWeightValue.textContent = 0.5;
+  } else {
+    // For other steps, use current slider values
+    batchSizeSlider.value = batchSizeSlider.value;
+    diversityWeightSlider.value = diversityWeightSlider.value;
+  }
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    surface: g('--surface')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const padding = 20;
+  const plotMinX = -5, plotMaxX = 5;
+  const plotMinY = -5, plotMaxY = 5;
+
+  const scaleX = (W - 2 * padding) / (plotMaxX - plotMinX);
+  const scaleY = (H - 2 * padding) / (plotMaxY - plotMinY);
+
+  const toCanvasX = (x) => padding + (x - plotMinX) * scaleX;
+  const toCanvasY = (y) => H - padding - (y - plotMinY) * scaleY;
+
+  // Draw decision boundary
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  const y1 = currentData.boundary.slope * plotMinX + currentData.boundary.intercept;
+  const y2 = currentData.boundary.slope * plotMaxX + currentData.boundary.intercept;
+  ctx.moveTo(toCanvasX(plotMinX), toCanvasY(y1));
+  ctx.lineTo(toCanvasX(plotMaxX), toCanvasY(y2));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw points
+  currentData.data.forEach(p => {
+    const cx = toCanvasX(p.x);
+    const cy = toCanvasY(p.y);
+    const radius = 5;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+
+    if (p.isLabeled) {
+      ctx.fillStyle = p.label === 1 ? colors.blue : colors.red;
+      ctx.fill();
+      ctx.strokeStyle = colors.surface;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = colors.text3;
+      ctx.fill();
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  // Mode-specific drawing
+  if (mode === 'uncertainty' || mode === 'pure_uncertainty' || mode === 'balanced_batch' || mode === 'high_diversity' || mode === 'small_batch' || mode === 'diversity_concept' || mode === 'model_update') {
+    // Highlight uncertain points
+    const sortedUnlabeled = currentData.data.filter(p => !p.isLabeled).sort((a, b) => b.uncertainty - a.uncertainty);
+    const topUncertainCount = Math.min(Math.floor(sortedUnlabeled.length * 0.3), 30); // Show top 30% or 30 points
+
+    for (let i = 0; i < topUncertainCount; i++) {
+      const p = sortedUnlabeled[i];
+      const cx = toCanvasX(p.x);
+      const cy = toCanvasY(p.y);
+      const radius = 5;
+
+      // Scale color based on uncertainty
+      const uncertaintyNormalized = p.uncertainty / Math.max(...currentData.data.map(pt => pt.uncertainty));
+      ctx.fillStyle = `rgba(${parseInt(colors.amber.slice(1,3),16)},${parseInt(colors.amber.slice(3,5),16)},${parseInt(colors.amber.slice(5,7),16)},${0.3 + uncertaintyNormalized * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colors.amber;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Draw lines for diversity concept
+    if (mode === 'diversity_concept') {
+      ctx.strokeStyle = colors.purple;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      const samplePoints = sortedUnlabeled.slice(0, 5); // Take a few top uncertain points
+      for (let i = 0; i < samplePoints.length; i++) {
+        for (let j = i + 1; j < samplePoints.length; j++) {
+          ctx.beginPath();
+          ctx.moveTo(toCanvasX(samplePoints[i].x), toCanvasY(samplePoints[i].y));
+          ctx.lineTo(toCanvasX(samplePoints[j].x), toCanvasY(samplePoints[j].y));
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Draw selected batch
+    if (mode === 'pure_uncertainty' || mode === 'balanced_batch' || mode === 'high_diversity' || mode === 'small_batch' || mode === 'model_update') {
+      const k = parseInt(batchSizeSlider.value);
+      const lambda = parseFloat(diversityWeightSlider.value);
+      const selectedBatch = selectBatchGreedy(currentData.data, k, lambda);
+
+      selectedBatch.forEach(p => {
+        const cx = toCanvasX(p.x);
+        const cy = toCanvasY(p.y);
+        const radius = 6.5;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = colors.green;
+        ctx.fill();
+        ctx.strokeStyle = colors.purple;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      });
+    }
+
+    // Simulate model update
+    if (mode === 'model_update') {
+      ctx.strokeStyle = colors.green;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      // Shift boundary slightly and rotate
+      const newSlope = currentData.boundary.slope * 0.9 - 0.1;
+      const newIntercept = currentData.boundary.intercept * 1.2 + 0.2;
+      const y1_new = newSlope * plotMinX + newIntercept;
+      const y2_new = newSlope * plotMaxX + newIntercept;
+      ctx.moveTo(toCanvasX(plotMinX), toCanvasY(y1_new));
+      ctx.lineTo(toCanvasX(plotMaxX), toCanvasY(y2_new));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = colors.green;
+      ctx.font = '600 12px "DM Sans", system-ui';
+      ctx.fillText('Updated Boundary', toCanvasX(plotMaxX) - 100, toCanvasY(y2_new) - 15);
+    }
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

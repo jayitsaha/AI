@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Replay-based Learning: Experience Replay & Generative Replay — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-online{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-er{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-gr{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Replay-based Learning: Experience Replay &amp; Generative Replay</h1>
+  <div class="subtitle">Strategies to reuse past experiences and mitigate catastrophic forgetting in sequential learning</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-category">Continual Learning</span>
+    <span class="tag tag-complexity">O(1) to O(N) memory</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Replay-based Learning</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Replay-based learning refers to a family of techniques in machine learning, particularly in Reinforcement Learning (RL) and Continual Learning, where past experiences are stored and then re-used for training. Instead of discarding data after a single use, these methods allow models to revisit and learn from old information, improving sample efficiency and mitigating "catastrophic forgetting" (where a model forgets previously learned tasks when learning new ones).</p>
+    <p><strong>Analogy:</strong> Imagine you're studying for an exam. One strategy is to only review the material from today's lecture (online learning). A better strategy (experience replay) is to take notes from all lectures, put them in a box, and occasionally pull out random notes from the box to review, mixing them with new material. An even more advanced strategy (generative replay) would be to summarize your old notes into a concise mental model, then use that mental model to "re-imagine" past examples, combining these re-imagined examples with new material. Both help you retain old knowledge while learning new things.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Replay-based methods leverage past data to stabilize learning and prevent forgetting. <strong>Experience Replay (ER)</strong> stores actual raw data. <strong>Generative Replay (GR)</strong> trains a separate model to synthesize data from past tasks, offering a more compact and sometimes privacy-preserving way to "remember."</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Replay Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Experience Replay (ER): Storing Raw Data</h4>
+    <p>In Experience Replay, as an agent interacts with its environment (in RL) or as new data arrives for a task (in continual learning), the observed tuples of \((s, a, r, s')\) (state, action, reward, next state) or \((x, y)\) (input, label) are stored in a data structure called a <strong>replay buffer</strong> (often a simple FIFO queue). During training, mini-batches are constructed by sampling randomly from this buffer, mixing old and new experiences. This breaks the temporal correlations inherent in sequential data and makes the training data more i.i.d. (independent and identically distributed), which is beneficial for gradient-based optimization.</p>
+    <ul>
+      <li><strong>Benefits:</strong> Breaks data correlation, improves sample efficiency, stabilizes training, simple to implement.</li>
+      <li><strong>Drawbacks:</strong> Memory intensive (stores raw data), can become stale, limited capacity, does not inherently solve catastrophic forgetting for many tasks.</li>
+    </ul>
+
+    <h4>Generative Replay (GR): Synthesizing Past Data</h4>
+    <p>Generative Replay takes a different approach, particularly useful in Continual Learning. Instead of storing raw data, a generative model (e.g., a GAN or VAE) is trained alongside the main task model. After learning a task (say, Task A), the generative model is trained to reproduce data similar to Task A. When the main model then learns a new task (Task B), it trains on a mixed batch of real Task B data and synthetic Task A data generated by the generative model. This allows the model to "rehearse" old knowledge without needing to store all previous raw data.</p>
+    <ul>
+      <li><strong>Benefits:</strong> Memory efficient (stores model, not data), can offer privacy (no raw data storage), potentially synthesizes diverse data.</li>
+      <li><strong>Drawbacks:</strong> Requires training and maintaining a generative model (computational overhead), generative model quality affects replay quality, potential for mode collapse or generating out-of-distribution data.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both ER and GR aim to provide a diverse, representative stream of past data to the learner. ER does this by direct storage and random sampling, while GR achieves it by learning a compressed, generative representation of past data, then synthesizing from that representation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Experience Replay: Stabilizing Q-Learning</h4>
+    <p>In Deep Q-Networks (DQN), the agent learns an action-value function \(Q(s, a)\). The update rule for a Q-value is typically a temporal difference (TD) update:</p>
+    <div class="eq">$$Q(s,a) \leftarrow Q(s,a) + \alpha \left[ r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right]$$</div>
+    <p>Without experience replay, this update uses only the most recent \((s, a, r, s')\) tuple. This leads to highly correlated updates, violating the i.i.d. assumption of many deep learning optimizers (like SGD). By sampling mini-batches \(\mathcal{B} = \{(s_j, a_j, r_j, s'_j)\}_{j=1}^k\) from a replay buffer, the loss function for DQN becomes:</p>
+    <div class="eq">$$L(\theta) = \mathbb{E}_{(s,a,r,s') \sim \mathcal{B}} \left[ \left( r + \gamma \max_{a'} Q(s',a'; \theta_{target}) - Q(s,a; \theta) \right)^2 \right]$$</div>
+    <p>This expectation over the buffer samples provides a more stable and less biased estimate of the gradient, leading to faster and more reliable convergence. The target network \(\theta_{target}\) is typically a lagged copy of \(\theta\) to further stabilize training.</p>
+
+    <h4>Generative Replay: Mitigating Catastrophic Forgetting</h4>
+    <p>In continual learning, a model learns a sequence of tasks \(T_1, T_2, \dots, T_N\). Training on \(T_k\) alone often degrades performance on \(T_{<k}\). Generative Replay combats this by synthesizing data from past tasks. For a new task \(T_k\), the model's loss function is augmented:</p>
+    <div class="eq">$$L_{total}(\theta) = L_{current}(D_k; \theta) + \lambda \cdot L_{replay}(G(z); \theta)$$</div>
+    <p>Here, \(L_{current}\) is the loss on the real data \(D_k\) from the current task, and \(L_{replay}\) is typically the same loss function applied to data \(G(z)\) generated from previous tasks (where \(z\) is a noise vector fed to the generator \(G\)). The hyperparameter \(\lambda\) controls the trade-off between learning the new task and retaining old knowledge. The generator \(G\) itself is updated to remember past data distributions, often through a separate loss like a GAN loss: \(\min_G \max_D \mathbb{E}_{x \sim D_{old}}[\log D(x)] + \mathbb{E}_{z \sim p(z)}[\log(1-D(G(z)))]\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">For Experience Replay, a buffer that is too small or samples poorly can lead to stale or unrepresentative data. For Generative Replay, the quality of the generated data is paramount. If the generator suffers from mode collapse or produces low-fidelity samples, the "replayed" knowledge will be flawed, potentially leading to incorrect retention or even negative transfer.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow a simple linear classifier as it learns a sequence of tasks (A, B, C). Observe how catastrophic forgetting occurs without replay, and how Experience Replay and Generative Replay help the model retain past knowledge.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel" style="display: none;">
+        <div class="slider-group">
+          <div class="slider-label">Replay Ratio (Replay / Total Batch)</div>
+          <input type="range" id="replayRatioSlider" min="0" max="1" step="0.05" value="0.5">
+          <div class="slider-value" id="replayRatioValue">0.50</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher ratio means more emphasis on past data, better retention.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Introduction to Tasks</div>
+        <div class="info-desc" id="infoDesc">We have three distinct 2D classification tasks (A, B, C), each represented by a cluster of points. The goal is for our simple linear model to learn to separate each task's points from an implicit "other" class.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Task A Data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Task B Data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Task C Data</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Model Decision Boundary</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Experience Replay Buffer</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Generative Replay Data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:white; border:1px solid var(--text2);"></div> Active/Sampled Data</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use replay-based methods:</strong></p>
+    <ul>
+      <li><strong>Reinforcement Learning:</strong> Almost universally used in off-policy RL (DQN, DDPG, SAC) to stabilize training, break correlations, and improve sample efficiency.</li>
+      <li><strong>Continual/Lifelong Learning:</strong> Essential for mitigating catastrophic forgetting when a model must learn a sequence of tasks without forgetting previous ones.</li>
+      <li><strong>Limited Data:</strong> When data acquisition is expensive or slow, re-using past experiences maximizes the utility of each sample.</li>
+      <li><strong>Offline Learning:</strong> Both methods can be seen as ways to build an effective offline dataset for training.</li>
+    </ul>
+    <p><strong>When NOT to use or be cautious:</strong></p>
+    <ul>
+      <li><strong>Experience Replay:</strong>
+        <ul>
+          <li>Very large state spaces or high-dimensional data can make buffer memory prohibitive.</li>
+          <li>Sensitive data where storing raw past examples might raise privacy concerns.</li>
+        </ul>
+      </li>
+      <li><strong>Generative Replay:</strong>
+        <ul>
+          <li>The computational cost of training and maintaining a generative model can be high.</li>
+          <li>If the generative model is poor, it can introduce noise or bias, degrading performance.</li>
+          <li>Tasks with highly diverse or complex data distributions might be difficult for a generator to accurately capture.</li>
+        </ul>
+      </li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Experience Replay is about leveraging <strong>stored data</strong> to learn more efficiently. Generative Replay is about leveraging <strong>learned data distributions</strong> to remember past knowledge more compactly. Both are crucial tools for building agents and models that can learn effectively over time.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python/PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import random</div>
+      <div class="code-line" id="cl1">import torch</div>
+      <div class="code-line" id="cl2">from collections import deque</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># --- Experience Replay Buffer ---</div>
+      <div class="code-line" id="cl5">class ReplayBuffer:</div>
+      <div class="code-line" id="cl6">    def __init__(self, capacity):</div>
+      <div class="code-line" id="cl7">        self.buffer = deque(maxlen=capacity)</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9">    def add(self, experience):</div>
+      <div class="code-line" id="cl10">        self.buffer.append(experience) # (state, action, reward, next_state, done) or (x, y)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">    def sample(self, batch_size):</div>
+      <div class="code-line" id="cl13">        return random.sample(self.buffer, batch_size)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    def __len__(self):</div>
+      <div class="code-line" id="cl16">        return len(self.buffer)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18"># --- DQN Training Loop with Experience Replay ---</div>
+      <div class="code-line" id="cl19"># model = QNetwork(); target_model = QNetwork(); optimizer = Adam(model.parameters())</div>
+      <div class="code-line" id="cl20"># replay_buffer = ReplayBuffer(capacity=100_000)</div>
+      <div class="code-line" id="cl21"># for episode in range(num_episodes):</div>
+      <div class="code-line" id="cl22">#     state = env.reset()</div>
+      <div class="code-line" id="cl23">#     for t in range(max_steps_per_episode):</div>
+      <div class="code-line" id="cl24">#         action = model.select_action(state)</div>
+      <div class="code-line" id="cl25">#         next_state, reward, done, _ = env.step(action)</div>
+      <div class="code-line" id="cl26">#         replay_buffer.add((state, action, reward, next_state, done))</div>
+      <div class="code-line" id="cl27">#         state = next_state</div>
+      <div class="code-line" id="cl28">#         if len(replay_buffer) > batch_size:</div>
+      <div class="code-line" id="cl29">#             experiences = replay_buffer.sample(batch_size)</div>
+      <div class="code-line" id="cl30">#             states, actions, rewards, next_states, dones = zip(*experiences)</div>
+      <div class="code-line" id="cl31">#             # Compute Q-values, target Q-values, and loss</div>
+      <div class="code-line" id="cl32">#             # Perform backpropagation and optimizer step</div>
+      <div class="code-line" id="cl33">#         if done: break</div>
+      <div class="code-line" id="cl34">#     # Update target network periodically</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36"># --- Generative Replay for Continual Learning ---</div>
+      <div class="code-line" id="cl37"># task_model = Classifier(); generator = Generator(); optimizer = Adam(task_model.parameters())</div>
+      <div class="code-line" id="cl38"># gen_optimizer = Adam(generator.parameters())</div>
+      <div class="code-line" id="cl39"># lambda_replay = 0.5 # Hyperparameter for replay strength</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41"># for task_id, (current_data, current_labels) in enumerate(tasks_stream):</div>
+      <div class="code-line" id="cl42">#     # 1. Train on current task data</div>
+      <div class="code-line" id="cl43">#     for epoch in range(num_epochs_task):</div>
+      <div class="code-line" id="cl44">#         # Sample batch from current task</div>
+      <div class="code-line" id="cl45">#         x_curr, y_curr = current_data.sample(batch_size * (1 - lambda_replay))</div>
+      <div class="code-line" id="cl46">#         # Generate replay data from previous tasks (if any)</div>
+      <div class="code-line" id="cl47">#         x_gen, y_gen = generator.generate(batch_size * lambda_replay) if task_id > 0 else ([], [])</div>
+      <div class="code-line" id="cl48">#</div>
+      <div class="code-line" id="cl49">#         # Combine current and generated data</div>
+      <div class="code-line" id="cl50">#         x_batch = torch.cat([x_curr, x_gen])</div>
+      <div class="code-line" id="cl51">#         y_batch = torch.cat([y_curr, y_gen])</div>
+      <div class="code-line" id="cl52">#</div>
+      <div class="code-line" id="cl53">#         # Forward pass, compute loss, backward pass, optimizer step for task_model</div>
+      <div class="code-line" id="cl54">#         predictions = task_model(x_batch)</div>
+      <div class="code-line" id="cl55">#         loss = criterion(predictions, y_batch)</div>
+      <div class="code-line" id="cl56">#         optimizer.zero_grad(); loss.backward(); optimizer.step()</div>
+      <div class="code-line" id="cl57">#</div>
+      <div class="code-line" id="cl58">#     # 2. After task, train generator on current task data (and potentially previous tasks)</div>
+      <div class="code-line" id="cl59">#     generator.train_on_data(current_data, gen_optimizer)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+// ── DATA GENERATION ──
+function normalRandom(mean, std, rng) {
+    let u = 0, v = 0;
+    while(u === 0) u = rng(); // Converting [0,1) to (0,1)
+    while(v === 0) v = rng();
+    let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return num * std + mean;
+}
+
+function generateCluster(count, meanX, meanY, std, label, rng) {
+    const cluster = [];
+    for (let i = 0; i < count; i++) {
+        cluster.push({
+            x: normalRandom(meanX, std, rng),
+            y: normalRandom(meanY, std, rng),
+            label: label,
+            id: `${label}_${i}`
+        });
+    }
+    return cluster;
+}
+
+const N_POINTS_PER_TASK = 50;
+const TASK_A_RAW = generateCluster(N_POINTS_PER_TASK, 2, 2, 0.8, 1, seededRng);
+const TASK_B_RAW = generateCluster(N_POINTS_PER_TASK, -2, -2, 0.8, 1, seededRng);
+const TASK_C_RAW = generateCluster(N_POINTS_PER_TASK, 2, -2, 0.8, 1, seededRng);
+
+// For simplicity, assume "other" class is always -1.
+// So Task A points are label +1, everything else is -1 for Task A's learning.
+function getTaskData(taskName, allData) {
+    let data = [];
+    for (const p of allData) {
+        if (p.id.startsWith(taskName)) {
+            data.push({ ...p, label: 1 });
+        } else {
+            data.push({ ...p, label: -1 });
+        }
+    }
+    return data;
+}
+
+// ── MODEL & LEARNING SIMULATION ──
+// Simple linear classifier: w_x * x + w_y * y + b = 0
+// Learning rule (simplified perceptron-like): w <- w + lr * (true_label - pred_label) * x
+function simulateLearning(initialW, dataPoints, learningRate, iterations = 100) {
+    let currentW = [...initialW];
+    for (let iter = 0; iter < iterations; iter++) {
+        let mistakes = 0;
+        for (const p of dataPoints) {
+            const activation = currentW[0] * p.x + currentW[1] * p.y + currentW[2];
+            const prediction = activation >= 0 ? 1 : -1;
+            if (prediction !== p.label) {
+                currentW[0] += learningRate * (p.label - prediction) * p.x;
+                currentW[1] += learningRate * (p.label - prediction) * p.y;
+                currentW[2] += learningRate * (p.label - prediction) * 1;
+                mistakes++;
+            }
+        }
+        if (mistakes === 0 && iter > 10) break; // Early stop if converged
+    }
+    return currentW;
+}
+
+// A generator model for GR (simplified: just adds noise to original data)
+function generateData(sourceData, count, noiseStd = 0.5, rng) {
+    const generated = [];
+    for (let i = 0; i < count; i++) {
+        const original = sourceData[Math.floor(rng() * sourceData.length)];
+        generated.push({
+            x: normalRandom(original.x, noiseStd, rng),
+            y: normalRandom(original.y, noiseStd, rng),
+            label: original.label,
+            id: `gen_${original.id}`
+        });
+    }
+    return generated;
+}
+
+// ── STEPS DEFINITION ──
+const steps = [
+  {
+    phase: 'setup', title: 'Introduction to Tasks',
+    desc: `We have three distinct 2D classification tasks (A, B, C), each represented by a cluster of points. For each task, the goal is to draw a linear decision boundary that separates the task's points (label +1) from all other points (label -1). Our model starts with a neutral boundary.`,
+    mode: 'intro',
+    currentTask: null,
+    w: [0, 0, 0],
+    bufferA: [], bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: []
+  },
+  {
+    phase: 'online', title: 'Learning Task A (Online)',
+    desc: `The model learns Task A using only Task A data. The decision boundary quickly moves to correctly classify Task A points. However, it has no memory of future tasks.`,
+    mode: 'online',
+    currentTask: 'A',
+    w: simulateLearning([0, 0, 0], getTaskData('A', TASK_A_RAW), 0.05),
+    bufferA: [], bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: TASK_A_RAW
+  },
+  {
+    phase: 'online', title: 'Learning Task B (Catastrophic Forgetting)',
+    desc: `Now, the model learns Task B using only Task B data. It successfully learns to classify Task B points, but completely forgets how to classify Task A points, as its decision boundary shifts away. This is catastrophic forgetting.`,
+    mode: 'online',
+    currentTask: 'B',
+    w: simulateLearning(simulateLearning([0, 0, 0], getTaskData('A', TASK_A_RAW), 0.05), getTaskData('B', TASK_B_RAW), 0.05), // Learn A then B
+    bufferA: [], bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: TASK_B_RAW
+  },
+  {
+    phase: 'er', title: 'Experience Replay Setup',
+    desc: `To combat forgetting, we introduce an Experience Replay buffer. After learning Task A, we will store a subset of its data in this buffer.`,
+    mode: 'er_setup',
+    currentTask: null,
+    w: [0, 0, 0],
+    bufferA: [], bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: []
+  },
+  {
+    phase: 'er', title: 'Learning Task A with ER',
+    desc: `The model learns Task A. A portion of Task A's data (highlighted in amber) is then copied into the replay buffer. This data will be available for future tasks.`,
+    mode: 'er_task_a',
+    currentTask: 'A',
+    w: simulateLearning([0, 0, 0], getTaskData('A', TASK_A_RAW), 0.05),
+    bufferA: TASK_A_RAW.slice(0, N_POINTS_PER_TASK / 2), // Store half of A
+    bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: TASK_A_RAW
+  },
+  {
+    phase: 'er', title: 'Learning Task B with ER (Mitigating Forgetting)',
+    desc: `Now, when learning Task B, the model samples from both the current Task B data and the replay buffer (Task A data). The decision boundary learns to separate both tasks, effectively mitigating catastrophic forgetting. Adjust the replay ratio to see its effect.`,
+    mode: 'er_task_b',
+    currentTask: 'B',
+    w: null, // Computed live by slider
+    bufferA: TASK_A_RAW.slice(0, N_POINTS_PER_TASK / 2),
+    bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: TASK_B_RAW
+  },
+  {
+    phase: 'gr', title: 'Generative Replay Setup',
+    desc: `Instead of raw data, Generative Replay uses a generator model. After learning Task A, we train a generator to synthesize Task A-like data.`,
+    mode: 'gr_setup',
+    currentTask: null,
+    w: [0, 0, 0],
+    bufferA: [], bufferB: [],
+    generatedA: [], generatedB: [],
+    activePoints: []
+  },
+  {
+    phase: 'gr', title: 'Learning Task A with GR',
+    desc: `The model learns Task A. Then, a generator is trained on Task A data. We show some example points (cyan) that the generator might produce, which resemble Task A data.`,
+    mode: 'gr_task_a',
+    currentTask: 'A',
+    w: simulateLearning([0, 0, 0], getTaskData('A', TASK_A_RAW), 0.05),
+    bufferA: [], bufferB: [],
+    generatedA: generateData(TASK_A_RAW, N_POINTS_PER_TASK / 2, 0.5, seededRng),
+    generatedB: [],
+    activePoints: TASK_A_RAW
+  },
+  {
+    phase: 'gr', title: 'Learning Task B with GR (Mitigating Forgetting)',
+    desc: `When learning Task B, the model now trains on a mix of real Task B data and synthetic Task A data from the generator. This helps retain Task A knowledge without storing raw data. Adjust the replay ratio.`,
+    mode: 'gr_task_b',
+    currentTask: 'B',
+    w: null, // Computed live by slider
+    bufferA: [], bufferB: [],
+    generatedA: generateData(TASK_A_RAW, N_POINTS_PER_TASK / 2, 0.5, seededRng),
+    generatedB: [],
+    activePoints: TASK_B_RAW
+  },
+];
+
+let currentStepIdx = 0;
+const totalSteps = steps.length;
+let replayRatio = 0.5; // Default for interactive steps
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStepIdx) d.classList.add('done');
+    if (i === currentStepIdx) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStepIdx + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStepIdx = next;
+  render();
+}
+function goTo(i) { currentStepIdx = i; render(); }
+function reset() {
+  currentStepIdx = 0;
+  replayRatio = 0.5;
+  document.getElementById('replayRatioSlider').value = replayRatio;
+  updateReplayRatioLabel();
+  render();
+}
+
+// ── SLIDER ──
+const replayRatioSlider = document.getElementById('replayRatioSlider');
+replayRatioSlider.addEventListener('input', () => {
+  replayRatio = parseFloat(replayRatioSlider.value);
+  updateReplayRatioLabel();
+  if (steps[currentStepIdx].mode === 'er_task_b' || steps[currentStepIdx].mode === 'gr_task_b') {
+    render(); // Re-render canvas for interactive steps
+  }
+});
+
+function updateReplayRatioLabel() {
+  document.getElementById('replayRatioValue').textContent = replayRatio.toFixed(2);
+  const currentStep = steps[currentStepIdx];
+  let replayType = '';
+  if (currentStep.mode === 'er_task_b') replayType = 'Experience Replay';
+  if (currentStep.mode === 'gr_task_b') replayType = 'Generative Replay';
+  document.getElementById('sliderHint').textContent =
+    `Replay Type: ${replayType} | Current batch: ${((1-replayRatio)*100).toFixed(0)}% new, ${(replayRatio*100).toFixed(0)}% replay.`;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStepIdx];
+
+  document.getElementById('btnPrev').disabled = currentStepIdx === 0;
+  document.getElementById('btnNext').disabled = currentStepIdx === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', online:'phase-online', er:'phase-er', gr:'phase-gr', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStepIdx+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  document.getElementById('sliderPanel').style.display =
+    (s.mode === 'er_task_b' || s.mode === 'gr_task_b') ? 'flex' : 'none';
+
+  if (s.mode === 'er_task_b' || s.mode === 'gr_task_b') {
+    updateReplayRatioLabel();
+  }
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+const WORLD_SIZE = 6; // +/- 6 in x and y
+const REPLAY_BUFFER_X = -5.5, REPLAY_BUFFER_Y = 3.5;
+const REPLAY_BUFFER_W = 3, REPLAY_BUFFER_H = 2;
+const GENERATOR_X = 2.5, GENERATOR_Y = 3.5;
+const GENERATOR_W = 3, GENERATOR_H = 2;
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(stepData) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Coordinate transformation
+  const toCanvasX = (worldX) => (worldX + WORLD_SIZE) / (2 * WORLD_SIZE) * W;
+  const toCanvasY = (worldY) => H - ((worldY + WORLD_SIZE) / (2 * WORLD_SIZE) * H);
+  const toWorldX = (canvasX) => (canvasX / W) * (2 * WORLD_SIZE) - WORLD_SIZE;
+  const toWorldY = (canvasY) => ((H - canvasY) / H) * (2 * WORLD_SIZE) - WORLD_SIZE;
+
+  // Draw Axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(toCanvasX(-WORLD_SIZE), toCanvasY(0)); ctx.lineTo(toCanvasX(WORLD_SIZE), toCanvasY(0)); // X-axis
+  ctx.moveTo(toCanvasX(0), toCanvasY(-WORLD_SIZE)); ctx.lineTo(toCanvasX(0), toCanvasY(WORLD_SIZE)); // Y-axis
+  ctx.stroke();
+
+  // Draw Replay Buffer
+  if (stepData.mode.startsWith('er_')) {
+    ctx.fillStyle = colors.amber + '20'; // light amber fill
+    ctx.strokeStyle = colors.amber;
+    ctx.lineWidth = 1.5;
+    ctx.roundRect ? ctx.roundRect(toCanvasX(REPLAY_BUFFER_X), toCanvasY(REPLAY_BUFFER_Y + REPLAY_BUFFER_H), toCanvasX(REPLAY_BUFFER_X + REPLAY_BUFFER_W) - toCanvasX(REPLAY_BUFFER_X), toCanvasY(REPLAY_BUFFER_Y) - toCanvasY(REPLAY_BUFFER_Y + REPLAY_BUFFER_H), 8) : ctx.rect(toCanvasX(REPLAY_BUFFER_X), toCanvasY(REPLAY_BUFFER_Y + REPLAY_BUFFER_H), toCanvasX(REPLAY_BUFFER_X + REPLAY_BUFFER_W) - toCanvasX(REPLAY_BUFFER_X), toCanvasY(REPLAY_BUFFER_Y) - toCanvasY(REPLAY_BUFFER_Y + REPLAY_BUFFER_H));
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colors.amber;
+    ctx.font = '600 12px ' + colors.sans;
+    ctx.fillText('Replay Buffer', toCanvasX(REPLAY_BUFFER_X + 0.1), toCanvasY(REPLAY_BUFFER_Y + REPLAY_BUFFER_H - 0.2));
+
+    // Draw points in buffer
+    stepData.bufferA.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 4, 0, Math.PI * 2);
+      ctx.fillStyle = colors.amber;
+      ctx.fill();
+    });
+  }
+
+  // Draw Generator
+  if (stepData.mode.startsWith('gr_')) {
+    ctx.fillStyle = colors.cyan + '20'; // light cyan fill
+    ctx.strokeStyle = colors.cyan;
+    ctx.lineWidth = 1.5;
+    ctx.roundRect ? ctx.roundRect(toCanvasX(GENERATOR_X), toCanvasY(GENERATOR_Y + GENERATOR_H), toCanvasX(GENERATOR_X + GENERATOR_W) - toCanvasX(GENERATOR_X), toCanvasY(GENERATOR_Y) - toCanvasY(GENERATOR_Y + GENERATOR_H), 8) : ctx.rect(toCanvasX(GENERATOR_X), toCanvasY(GENERATOR_Y + GENERATOR_H), toCanvasX(GENERATOR_X + GENERATOR_W) - toCanvasX(GENERATOR_X), toCanvasY(GENERATOR_Y) - toCanvasY(GENERATOR_Y + GENERATOR_H));
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colors.cyan;
+    ctx.font = '600 12px ' + colors.sans;
+    ctx.fillText('Generator', toCanvasX(GENERATOR_X + 0.1), toCanvasY(GENERATOR_Y + GENERATOR_H - 0.2));
+
+    // Draw generated points
+    stepData.generatedA.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 4, 0, Math.PI * 2);
+      ctx.fillStyle = colors.cyan;
+      ctx.fill();
+    });
+  }
+
+  // Determine current working model weights
+  let currentW = stepData.w;
+  if (stepData.mode === 'er_task_b' || stepData.mode === 'gr_task_b') {
+    // Re-simulate learning with replay ratio
+    const initialW = simulateLearning([0, 0, 0], getTaskData('A', TASK_A_RAW), 0.05); // Start from learned A
+    let combinedData = [...getTaskData('B', TASK_B_RAW)];
+    if (stepData.mode === 'er_task_b') {
+        const replayCount = Math.floor(N_POINTS_PER_TASK * replayRatio);
+        const sampledReplay = stepData.bufferA.slice(0, replayCount); // Simple sampling
+        combinedData = combinedData.concat(getTaskData('A', sampledReplay));
+    } else if (stepData.mode === 'gr_task_b') {
+        const replayCount = Math.floor(N_POINTS_PER_TASK * replayRatio);
+        const sampledReplay = generateData(TASK_A_RAW, replayCount, 0.5, mulberry32(123456)); // Regenerate for consistency
+        combinedData = combinedData.concat(getTaskData('A', sampledReplay));
+    }
+    currentW = simulateLearning(initialW, combinedData, 0.05);
+  }
+
+  // Draw Decision Boundary
+  if (currentW) {
+    ctx.strokeStyle = colors.purple;
+    ctx.lineWidth = 2.5;
+    // Line: w_x * x + w_y * y + b = 0
+    // If w_y is not zero: y = (-w_x * x - b) / w_y
+    // If w_y is zero: x = -b / w_x (vertical line)
+    if (Math.abs(currentW[1]) > 1e-6) {
+      const y1 = (-currentW[0] * (-WORLD_SIZE) - currentW[2]) / currentW[1];
+      const y2 = (-currentW[0] * WORLD_SIZE - currentW[2]) / currentW[1];
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(-WORLD_SIZE), toCanvasY(y1));
+      ctx.lineTo(toCanvasX(WORLD_SIZE), toCanvasY(y2));
+      ctx.stroke();
+    } else if (Math.abs(currentW[0]) > 1e-6) {
+      const x = -currentW[2] / currentW[0];
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(x), toCanvasY(-WORLD_SIZE));
+      ctx.lineTo(toCanvasX(x), toCanvasY(WORLD_SIZE));
+      ctx.stroke();
+    }
+  }
+
+  // Draw all task data points
+  [TASK_A_RAW, TASK_B_RAW, TASK_C_RAW].forEach((taskData, taskIdx) => {
+    const taskColor = [colors.blue, colors.red, colors.green][taskIdx];
+    const taskName = ['A', 'B', 'C'][taskIdx];
+
+    taskData.forEach(p => {
+      let fillColor = taskColor;
+      let strokeColor = 'transparent';
+      let lineWidth = 0;
+
+      // Highlight active points for current task
+      if (stepData.activePoints.includes(p)) {
+        strokeColor = 'white';
+        lineWidth = 2;
+      }
+
+      ctx.beginPath();
+      ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 5, 0, Math.PI * 2);
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      if (lineWidth > 0) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      }
+    });
+  });
+
+  // Display info numbers
+  let infoText = '';
+  if (currentW) {
+    infoText += `Model weights (wx, wy, b): (${currentW[0].toFixed(2)}, ${currentW[1].toFixed(2)}, ${currentW[2].toFixed(2)})\n`;
+  }
+  if (stepData.mode.startsWith('er_')) {
+    infoText += `Replay Buffer size: ${stepData.bufferA.length}\n`;
+  }
+  if (stepData.mode.startsWith('gr_')) {
+    infoText += `Generated data count: ${stepData.generatedA.length}\n`;
+  }
+  document.getElementById('infoNumbers').textContent = infoText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[currentStepIdx]));
+</script>
+</body>
+</html>

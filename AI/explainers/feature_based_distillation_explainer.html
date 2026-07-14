@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature-based Distillation: FitNets & Attention Transfer — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-top:4px;}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-teacher{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-student{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-fitnets{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-attention{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Feature-based Distillation</h1>
+  <div class="subtitle">FitNets, Attention Transfer, and other methods to mimic teacher's internal representations</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Knowledge Distillation</span>
+    <span class="tag tag-complexity">O(N) extra cost</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Feature-based Distillation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Knowledge distillation is a technique to train a smaller, faster "student" model by leveraging a larger, pre-trained "teacher" model. Traditional distillation focuses on matching the teacher's final output probabilities (soft targets). Feature-based distillation takes this a step further: it forces the student to mimic the teacher's *internal representations*, such as intermediate feature maps or attention mechanisms, thereby transferring deeper, richer knowledge about how the teacher processes information.</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a junior chef (student) to cook a complex dish. Simply giving them the final recipe (teacher's logits) might work, but they might not truly understand *why* certain steps are done. Feature-based distillation is like having the junior chef observe and mimic the senior chef's *intermediate techniques* – how they chop vegetables, how they stir the sauce, how they plate the dish. This deeper imitation helps the junior chef develop a more robust understanding and skill, rather than just copying the end result.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Feature-based distillation encourages the student model to learn a feature space similar to that of a powerful teacher, providing richer supervisory signals than just matching final predictions. This is especially effective when the student is significantly smaller or has a different architecture, helping it to build more robust and generalizable internal representations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The General Mechanism</h4>
+    <p>The core idea is to add an auxiliary loss term that measures the similarity between intermediate representations of the teacher and student models. This loss is typically an L2 (Mean Squared Error) distance. The total training objective becomes a weighted sum of the standard task loss (e.g., cross-entropy for classification) and this feature-matching loss:</p>
+    <div class="eq">$$L_{total} = L_{task}(y, \hat{y}_S) + \lambda L_{feature}(F_S, F_T)$$</div>
+    <p>where \(F_S\) and \(F_T\) are the student's and teacher's intermediate features, and \(\lambda\) is a hyperparameter balancing the two objectives.</p>
+
+    <h4>FitNets: Mimicking Intermediate Feature Maps (2015)</h4>
+    <p>The FitNets approach (Romero et al., 2015) proposes training a "thinner and deeper" student model by making its intermediate layers (called "guided" layers) mimic the intermediate feature maps of the teacher's "hint" layers. Since the student's layers might have different dimensions (e.g., fewer channels) than the teacher's, a small convolutional or linear "regressor" layer is often used to project the student's features into the teacher's feature space before computing the loss. The student learns to predict the teacher's features directly.</p>
+
+    <h4>Attention Transfer (AT): Matching Attention Maps (2017)</h4>
+    <p>Attention Transfer (Zagoruyko & Komodakis, 2017) argues that raw feature maps can be too high-dimensional and contain too much redundant information. Instead, it proposes distilling *attention maps* derived from the feature maps. An attention map typically captures the spatial importance or focus of a layer by summarizing its channels (e.g., by summing the squared values across channels: \(A(F) = \sum_{c} F_c^2\)). The student then learns to match these attention maps, effectively learning where the teacher focuses its "attention" in the input space.</p>
+
+    <h4>Design Decision: Why Features/Attention vs. Just Logits?</h4>
+    <p>While logits distillation (matching soft targets) is effective, it only supervises the final output. For very small student models or when the student's architecture is significantly different from the teacher's, matching only logits might not provide enough signal to guide the student's internal representation learning. Feature-based methods offer a richer, more direct form of supervision, guiding the student to learn *how* the teacher processes information step-by-step, which can lead to better generalization and higher accuracy for the student.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both FitNets and Attention Transfer operate on intermediate representations, not just final outputs. FitNets directly matches (possibly regressed) feature maps, while Attention Transfer matches derived "attention maps" that highlight salient spatial regions. This provides a stronger, more structured supervisory signal to the student's internal layers.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>FitNets Loss Formulation</h4>
+    <p>Let \(F_T \in \mathbb{R}^{C_T \times H_T \times W_T}\) be the feature map from a teacher's hint layer and \(F_S \in \mathbb{R}^{C_S \times H_S \times W_S}\) be the feature map from a student's guided layer. Typically, \(C_S < C_T\). To match dimensions, a regressor function \(R(\cdot)\) (e.g., a 1x1 convolution followed by BatchNorm and ReLU) is applied to \(F_S\), mapping it to the teacher's dimensions. The FitNets loss is then the squared L2 distance:</p>
+    <div class="eq">$$L_{FitNets}(F_S, F_T) = ||R(F_S) - F_T||_2^2$$</div>
+    <p>This loss is minimized during training, forcing \(R(F_S)\) to become a good approximation of \(F_T\). Since \(R\) is part of the student's graph, gradients flow back through \(R\) to update \(F_S\) and thus the student's preceding layers.</p>
+
+    <h4>Attention Transfer (AT) Loss Formulation</h4>
+    <p>For Attention Transfer, the first step is to compute attention maps from the feature maps. Given a feature map \(F \in \mathbb{R}^{C \times H \times W}\), an attention map \(A(F) \in \mathbb{R}^{H \times W}\) is typically computed by summing the squared feature values across all channels:</p>
+    <div class="eq">$$A(F)_{h,w} = \sum_{c=1}^C F_{c,h,w}^2$$</div>
+    <p>To make the magnitudes comparable, these attention maps are often normalized (e.g., by their L2 norm). The AT loss is then the squared L2 distance between the normalized attention maps of the student and teacher:</p>
+    <div class="eq">$$L_{AT}(F_S, F_T) = \left|\left| \frac{A(F_S)}{||A(F_S)||_2} - \frac{A(F_T)}{||A(F_T)||_2} \right|\right|_2^2$$</div>
+    <p>This encourages the student to learn similar spatial importance maps as the teacher, guiding its focus to the same regions of the input.</p>
+
+    <h4>Total Loss with Feature Distillation</h4>
+    <p>The feature distillation loss \(L_{feature}\) (either \(L_{FitNets}\) or \(L_{AT}\)) is combined with the standard task loss \(L_{task}\) (e.g., Cross-Entropy) and potentially a traditional knowledge distillation loss \(L_{KD}\) (matching soft targets) to form the total objective:</p>
+    <div class="eq">$$L_{total} = L_{task}(y, \hat{y}_S) + \alpha L_{KD}(T_{logits}, S_{logits}) + \lambda L_{feature}(F_S, F_T)$$</div>
+    <p>The hyperparameters \(\alpha\) and \(\lambda\) control the weighting of the different distillation components. This multi-objective optimization helps the student to learn both the final decision boundary and the internal reasoning process of the teacher.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Choosing the right "hint" and "guided" layers is crucial. Matching very early layers might force the student into overly rigid low-level features, while matching very late layers might be too close to logits distillation. Experimentation is key to finding the optimal layers and the appropriate value for the distillation weight \(\lambda\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize a simplified teacher-student setup. Step through the forward passes, see feature maps, and observe how FitNets and Attention Transfer calculate their respective distillation losses. Adjust the loss weight \(\lambda\) and switch between distillation modes live.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Feature Loss Weight (λ)</div>
+          <input type="range" id="lambdaSlider" min="0" max="1.0" step="0.05" value="0.5">
+          <div class="slider-value" id="lambdaValue">0.50</div>
+        </div>
+        <div class="toggle-row">
+          <input type="radio" id="fitnetsMode" name="distillMode" value="fitnets" checked>
+          <label for="fitnetsMode">FitNets (Feature Map Matching)</label>
+        </div>
+        <div class="toggle-row">
+          <input type="radio" id="attentionMode" name="distillMode" value="attention">
+          <label for="attentionMode">Attention Transfer (Attention Map Matching)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Teacher and Student Models</div>
+        <div class="info-desc" id="infoDesc">We have a larger Teacher model and a smaller Student model. Both process the same input image. We'll focus on a single intermediate layer from each.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Teacher components</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Student components</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Regressor / Aligned features</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Attention maps</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Loss value</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use feature-based distillation:</strong></p>
+    <ul>
+      <li>When training very compact or "thin-and-deep" student models where matching only soft targets (logits) might not provide sufficient supervisory signal.</li>
+      <li>To transfer a deeper understanding of the teacher's feature hierarchy and spatial reasoning.</li>
+      <li>When the student model has a different architecture from the teacher, making direct feature alignment challenging but beneficial (e.g., needing a regressor).</li>
+      <li>To improve the student's generalization capabilities, as it learns to mimic the well-regularized feature space of the teacher.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>If the student model is only slightly smaller than the teacher, and logits distillation already yields satisfactory results (feature distillation adds complexity and computational overhead).</li>
+      <li>When the teacher and student architectures are extremely dissimilar, making it difficult to find meaningful "hint" and "guided" layers or to design an effective regressor.</li>
+      <li>In memory-constrained environments, as storing and processing intermediate feature maps for both models can consume significant GPU memory.</li>
+      <li>If the teacher model itself is not well-regularized or produces suboptimal features, as the student might inherit these undesirable traits.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Feature-based distillation is a powerful extension of knowledge distillation, moving beyond final predictions to transfer the "how" of a teacher model's reasoning. By aligning internal representations, it imbues smaller student models with richer, more robust features, often leading to performance improvements that simple logits matching cannot achieve.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class FeatureDistillationLoss(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, mode='fitnets', lambda_weight=0.5):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.mode = mode</div>
+      <div class="code-line" id="cl8">        self.lambda_weight = lambda_weight</div>
+      <div class="code-line" id="cl9">        # For FitNets, student features might need a regressor to match teacher's shape</div>
+      <div class="code-line" id="cl10">        # Example: if teacher_channels=64, student_channels=32, spatial_dims match</div>
+      <div class="code-line" id="cl11">        # self.regressor = nn.Conv2d(student_channels, teacher_channels, kernel_size=1)</div>
+      <div class="code-line" id="cl12">        self.regressor = None # Placeholder, assume shapes match or regressor handled externally</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    def forward(self, student_features, teacher_features):</div>
+      <div class="code-line" id="cl15">        if self.regressor:</div>
+      <div class="code-line" id="cl16">            student_features = self.regressor(student_features)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">        if self.mode == 'fitnets':</div>
+      <div class="code-line" id="cl19">            # FitNets: Direct L2 loss on feature maps</div>
+      <div class="code-line" id="cl20">            loss = F.mse_loss(student_features, teacher_features)</div>
+      <div class="code-line" id="cl21">        elif self.mode == 'attention':</div>
+      <div class="code-line" id="cl22">            # Attention Transfer: Compute and match attention maps</div>
+      <div class="code-line" id="cl23">            def compute_attention_map(fmap):</div>
+      <div class="code-line" id="cl24">                # Sum of squares across channels, then normalize by L2 norm</div>
+      <div class="code-line" id="cl25">                attention = torch.sum(fmap**2, dim=1, keepdim=True) # (B, 1, H, W)</div>
+      <div class="code-line" id="cl26">                norm_attention = F.normalize(attention.view(attention.size(0), -1), p=2, dim=1)</div>
+      <div class="code-line" id="cl27">                return norm_attention.view_as(attention)</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">            student_attention = compute_attention_map(student_features)</div>
+      <div class="code-line" id="cl30">            teacher_attention = compute_attention_map(teacher_features)</div>
+      <div class="code-line" id="cl31">            loss = F.mse_loss(student_attention, teacher_attention)</div>
+      <div class="code-line" id="cl32">        else:</div>
+      <div class="code-line" id="cl33">            raise ValueError("Invalid distillation mode")</div>
+      <div class="code-line" id="cl34">        </div>
+      <div class="code-line" id="cl35">        return self.lambda_weight * loss</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># --- Training Loop Integration ---</div>
+      <div class="code-line" id="cl38">teacher_model = TeacherModel().eval() # Pre-trained, freeze weights</div>
+      <div class="code-line" id="cl39">student_model = StudentModel()</div>
+      <div class="code-line" id="cl40">optimizer = torch.optim.Adam(student_model.parameters(), lr=0.001)</div>
+      <div class="code-line" id="cl41">criterion_ce = nn.CrossEntropyLoss()</div>
+      <div class="code-line" id="cl42">distill_loss_fn = FeatureDistillationLoss(mode='attention', lambda_weight=0.1)</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl45">    for inputs, labels in dataloader:</div>
+      <div class="code-line" id="cl46">        optimizer.zero_grad()</div>
+      <div class="code-line" id="cl47"></div>
+      <div class="code-line" id="cl48">        # Teacher forward pass (no grad)</div>
+      <div class="code-line" id="cl49">        with torch.no_grad():</div>
+      <div class="code-line" id="cl50">            teacher_output, teacher_features = teacher_model(inputs)</div>
+      <div class="code-line" id="cl51">            # teacher_features are from a specific intermediate layer</div>
+      <div class="code-line" id="cl52"></div>
+      <div class="code-line" id="cl53">        # Student forward pass</div>
+      <div class="code-line" id="cl54">        student_output, student_features = student_model(inputs)</div>
+      <div class="code-line" id="cl55">        # student_features are from a corresponding intermediate layer</div>
+      <div class="code-line" id="cl56"></div>
+      <div class="code-line" id="cl57">        # Calculate losses</div>
+      <div class="code-line" id="cl58">        task_loss = criterion_ce(student_output, labels)</div>
+      <div class="code-line" id="cl59">        feature_distill_loss = distill_loss_fn(student_features, teacher_features)</div>
+      <div class="code-line" id="cl60">        </div>
+      <div class="code-line" id="cl61">        total_loss = task_loss + feature_distill_loss</div>
+      <div class="code-line" id="cl62">        </div>
+      <div class="code-line" id="cl63">        total_loss.backward()</div>
+      <div class="code-line" id="cl64">        optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG (for reproducible feature maps) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+// ── DATA & SIMULATION ──
+const INPUT_VAL = 0.75;
+
+// Teacher features: 2 channels, 3x3 spatial
+const T_CHANNELS = 2;
+const T_H = 3, T_W = 3;
+const T_FM_RAW = Array(T_CHANNELS).fill(0).map(() => Array(T_H * T_W).fill(0).map(() => (seededRng() * 2 - 1) * 0.8));
+
+// Student features: 1 channel, 3x3 spatial
+const S_CHANNELS = 1;
+const S_H = 3, S_W = 3;
+let S_FM_RAW = Array(S_CHANNELS).fill(0).map(() => Array(S_H * S_W).fill(0).map(() => (seededRng() * 2 - 1) * 0.6));
+
+// Regressor weights (1x1 conv from S_CHANNELS to T_CHANNELS)
+const REGRESSOR_WEIGHTS = Array(T_CHANNELS).fill(0).map(() => Array(S_CHANNELS).fill(0).map(() => (seededRng() * 2 - 1) * 0.5));
+
+function simulateForwardPass(inputVal, currentLambda, currentMode) {
+  // Simulate some "training" effect by making student features slightly closer to teacher's over time
+  // This is purely for visual progression, not a real training loop.
+  const progressFactor = Math.min(step / (steps.length - 1), 1); // 0 to 1
+  const targetS_FM = T_FM_RAW[0].map((v,i) => v * (0.5 + 0.5 * currentLambda)); // Student tries to match Teacher
+  S_FM_RAW = Array(S_CHANNELS).fill(0).map(() => Array(S_H * S_W).fill(0).map((_,i) => {
+    const initial = (seededRng() * 2 - 1) * 0.6; // Re-generate initial for each step to simulate noise
+    return initial * (1 - progressFactor) + targetS_FM[i] * progressFactor;
+  }));
+
+
+  const T_FM = T_FM_RAW;
+  const S_FM = S_FM_RAW;
+
+  // FitNets: Regressor application
+  const R_S_FM = Array(T_CHANNELS).fill(0).map((_, t_c) =>
+    Array(S_H * S_W).fill(0).map((_, idx) => {
+      let val = 0;
+      for (let s_c = 0; s_c < S_CHANNELS; s_c++) {
+        val += S_FM[s_c][idx] * REGRESSOR_WEIGHTS[t_c][s_c];
+      }
+      return val;
+    })
+  );
+
+  // FitNets Loss
+  let fitnetsLoss = 0;
+  for (let c = 0; c < T_CHANNELS; c++) {
+    for (let i = 0; i < T_H * T_W; i++) {
+      fitnetsLoss += (R_S_FM[c][i] - T_FM[c][i]) ** 2;
+    }
+  }
+  fitnetsLoss /= (T_CHANNELS * T_H * T_W); // MSE
+
+  // Attention Transfer: Compute Attention Maps
+  const computeAttentionMap = (fmap, channels, H, W) => {
+    const attention = Array(H * W).fill(0);
+    for (let c = 0; c < channels; c++) {
+      for (let i = 0; i < H * W; i++) {
+        attention[i] += fmap[c][i] ** 2;
+      }
+    }
+    // Normalize by L2 norm
+    const norm = Math.sqrt(attention.reduce((sum, val) => sum + val ** 2, 0));
+    return norm > 1e-6 ? attention.map(v => v / norm) : attention;
+  };
+
+  const T_AM = computeAttentionMap(T_FM, T_CHANNELS, T_H, T_W);
+  const S_AM = computeAttentionMap(S_FM, S_CHANNELS, S_H, S_W);
+
+  // Attention Transfer Loss
+  let attentionLoss = 0;
+  for (let i = 0; i < T_H * T_W; i++) {
+    attentionLoss += (S_AM[i] - T_AM[i]) ** 2;
+  }
+  attentionLoss /= (T_H * T_W); // MSE
+
+  const featureLoss = currentMode === 'fitnets' ? fitnetsLoss : attentionLoss;
+  const taskLoss = 0.8; // Placeholder for task loss
+  const totalLoss = taskLoss + currentLambda * featureLoss;
+
+  return {
+    T_FM, S_FM, R_S_FM,
+    T_AM, S_AM,
+    fitnetsLoss, attentionLoss, featureLoss,
+    taskLoss, totalLoss
+  };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Teacher and Student Models',
+    desc: 'We have a larger Teacher model and a smaller Student model. Both process the same input (a feature, here simplified to a single value). We\'ll focus on a single intermediate layer from each for distillation.',
+    codeLines: [38,39,40],
+    highlight: 'input'
+  },
+  {
+    phase: 'teacher', title: 'Teacher Forward Pass: Compute Hint Features',
+    desc: 'The Teacher model performs its forward pass, generating its intermediate feature maps (or "hint" features). These are typically high-dimensional and rich in information.',
+    codeLines: [48,49,50,51],
+    highlight: 't_fm'
+  },
+  {
+    phase: 'student', title: 'Student Forward Pass: Compute Guided Features',
+    desc: 'The Student model also performs its forward pass, generating its own intermediate feature maps (or "guided" features). Note that the student\'s features are typically lower-dimensional (fewer channels) and initially different from the teacher\'s.',
+    codeLines: [53,54,55],
+    highlight: 's_fm'
+  },
+  {
+    phase: 'fitnets', title: 'FitNets: Regress Student Features to Match Teacher',
+    desc: 'In FitNets mode, if the student\'s feature map has different dimensions (e.g., fewer channels) than the teacher\'s, a small regressor layer (e.g., a 1x1 convolution) is applied to the student\'s features to project them into the teacher\'s feature space.',
+    codeLines: [9,10,11,12,15,16],
+    highlight: 'r_s_fm',
+    mode: 'fitnets'
+  },
+  {
+    phase: 'fitnets', title: 'FitNets: Calculate Feature Map Loss',
+    desc: 'The FitNets loss is the Mean Squared Error (L2 distance) between the regressed student features and the teacher\'s hint features. This directly encourages the student to mimic the teacher\'s raw feature representations.',
+    codeLines: [18,19,20],
+    highlight: 'fitnets_loss',
+    mode: 'fitnets'
+  },
+  {
+    phase: 'attention', title: 'Attention Transfer: Compute Attention Maps',
+    desc: 'In Attention Transfer mode, we first compute "attention maps" from both teacher\'s and student\'s feature maps (e.g., sum of squares across channels, then normalized). These maps highlight salient spatial regions.',
+    codeLines: [22,23,24,25,26,27,29,30],
+    highlight: 'attention_maps',
+    mode: 'attention'
+  },
+  {
+    phase: 'attention', title: 'Attention Transfer: Calculate Attention Map Loss',
+    desc: 'The Attention Transfer loss is the Mean Squared Error (L2 distance) between the student\'s and teacher\'s attention maps. This encourages the student to focus on the same spatial regions as the teacher.',
+    codeLines: [31],
+    highlight: 'attention_loss',
+    mode: 'attention'
+  },
+  {
+    phase: 'result', title: 'Total Loss & Backpropagation',
+    desc: 'The feature distillation loss (either FitNets or AT) is added to the standard task loss (e.g., cross-entropy). The total loss is then backpropagated to update the student\'s weights, guiding it to learn better internal representations.',
+    codeLines: [35,41,42,58,59,61,63,64],
+    highlight: 'total_loss'
+  },
+  {
+    phase: 'result', title: 'Iterative Refinement',
+    desc: 'Over many training steps, the student\'s internal representations gradually align with the teacher\'s. This iterative refinement, driven by the feature loss, helps the student achieve better performance and generalization, often surpassing models trained with only task loss.',
+    codeLines: [44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64],
+    highlight: 'final'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentLambda = parseFloat(document.getElementById('lambdaSlider').value);
+let currentDistillMode = document.querySelector('input[name="distillMode"]:checked').value;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  // Reset initial student features for fresh simulation
+  seededRng = mulberry32(12345); // Reset RNG
+  S_FM_RAW = Array(S_CHANNELS).fill(0).map(() => Array(S_H * S_W).fill(0).map(() => (seededRng() * 2 - 1) * 0.6));
+  currentLambda = 0.5;
+  document.getElementById('lambdaSlider').value = currentLambda;
+  document.getElementById('lambdaValue').textContent = currentLambda.toFixed(2);
+  currentDistillMode = 'fitnets';
+  document.getElementById('fitnetsMode').checked = true;
+  render();
+}
+
+// ── SLIDER & TOGGLE HANDLERS ──
+document.getElementById('lambdaSlider').addEventListener('input', (e) => {
+  currentLambda = parseFloat(e.target.value);
+  document.getElementById('lambdaValue').textContent = currentLambda.toFixed(2);
+  render();
+});
+
+document.querySelectorAll('input[name="distillMode"]').forEach(radio => {
+  radio.addEventListener('change', (e) => {
+    currentDistillMode = e.target.value;
+    render();
+  });
+});
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', teacher: 'phase-teacher', student: 'phase-student',
+    fitnets: 'phase-fitnets', attention: 'phase-attention', result: 'phase-result'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.highlight, s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(highlight, stepMode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const fp = simulateForwardPass(INPUT_VAL, currentLambda, currentDistillMode);
+
+  const fmt = v => v.toFixed(3);
+  let infoNumbers = '';
+
+  // --- Layout Constants ---
+  const BOX_WIDTH = 120;
+  const BOX_HEIGHT = 120;
+  const GAP_X = 50;
+  const GAP_Y = 30;
+
+  const INPUT_X = W / 2 - BOX_WIDTH / 2;
+  const INPUT_Y = H * 0.05;
+
+  const T_FM_X = W * 0.2;
+  const T_FM_Y = H * 0.3;
+  const S_FM_X = W * 0.8 - BOX_WIDTH;
+  const S_FM_Y = H * 0.3;
+
+  const R_S_FM_X = W * 0.5 - BOX_WIDTH / 2;
+  const R_S_FM_Y = H * 0.45;
+
+  const T_AM_X = T_FM_X;
+  const T_AM_Y = H * 0.65;
+  const S_AM_X = S_FM_X;
+  const S_AM_Y = H * 0.65;
+
+  const LOSS_X = W / 2 - BOX_WIDTH / 2;
+  const LOSS_Y = H * 0.85;
+
+  // --- Drawing Helpers ---
+  function drawBox(x, y, label, content, bgColor, borderColor, highlightColor, isHighlight) {
+    ctx.globalAlpha = isHighlight ? 1 : 0.4;
+    ctx.fillStyle = bgColor;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    if (isHighlight) {
+      ctx.shadowColor = highlightColor;
+      ctx.shadowBlur = 15;
+    }
+    ctx.roundRect ? ctx.roundRect(x, y, BOX_WIDTH, BOX_HEIGHT, colors.radius) : ctx.rect(x, y, BOX_WIDTH, BOX_HEIGHT);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + BOX_WIDTH / 2, y - 8);
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = '11px ' + colors.mono;
+    ctx.fillText(content, x + BOX_WIDTH / 2, y + BOX_HEIGHT / 2 + 5);
+  }
+
+  function drawFeatureMap(x, y, H_dim, W_dim, channels, values, highlightColor, isHighlight, label = '') {
+    const cell_size = Math.min(BOX_WIDTH / W_dim, BOX_HEIGHT / H_dim);
+    const map_width = W_dim * cell_size;
+    const map_height = H_dim * cell_size;
+
+    ctx.globalAlpha = isHighlight ? 1 : 0.4;
+    
+    // Draw background for the whole feature map area
+    ctx.fillStyle = colors.bg2;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(x, y, map_width, map_height, colors.radius / 2) : ctx.rect(x, y, map_width, map_height);
+    ctx.fill();
+    ctx.stroke();
+
+    if (isHighlight) {
+      ctx.shadowColor = highlightColor;
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = highlightColor;
+      ctx.lineWidth = 2.5;
+      ctx.roundRect ? ctx.roundRect(x, y, map_width, map_height, colors.radius / 2) : ctx.rect(x, y, map_width, map_height);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Draw individual cells
+    for (let c = 0; c < channels; c++) {
+      for (let r = 0; r < H_dim; r++) {
+        for (let col = 0; col < W_dim; col++) {
+          const val = values[c][r * W_dim + col];
+          const cellX = x + col * cell_size;
+          const cellY = y + r * cell_size;
+          const alpha = 0.2 + Math.abs(val) * 0.8; // Intensity based on abs value
+          ctx.fillStyle = val > 0 ? `rgba(0,128,0,${alpha})` : `rgba(255,0,0,${alpha})`;
+          ctx.fillRect(cellX + 1, cellY + 1, cell_size - 2, cell_size - 2);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + map_width / 2, y - 8);
+    ctx.font = '11px ' + colors.mono;
+    ctx.fillText(`C:${channels} H:${H_dim} W:${W_dim}`, x + map_width / 2, y + map_height + 15);
+  }
+
+  function drawAttentionMap(x, y, H_dim, W_dim, values, highlightColor, isHighlight, label = '') {
+    const cell_size = Math.min(BOX_WIDTH / W_dim, BOX_HEIGHT / H_dim);
+    const map_width = W_dim * cell_size;
+    const map_height = H_dim * cell_size;
+
+    ctx.globalAlpha = isHighlight ? 1 : 0.4;
+    
+    ctx.fillStyle = colors.bg2;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(x, y, map_width, map_height, colors.radius / 2) : ctx.rect(x, y, map_width, map_height);
+    ctx.fill();
+    ctx.stroke();
+
+    if (isHighlight) {
+      ctx.shadowColor = highlightColor;
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = highlightColor;
+      ctx.lineWidth = 2.5;
+      ctx.roundRect ? ctx.roundRect(x, y, map_width, map_height, colors.radius / 2) : ctx.rect(x, y, map_width, map_height);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    for (let r = 0; r < H_dim; r++) {
+      for (let col = 0; col < W_dim; col++) {
+        const val = values[r * W_dim + col];
+        const cellX = x + col * cell_size;
+        const cellY = y + r * cell_size;
+        const alpha = Math.max(0.1, val * 2); // Intensity based on value
+        ctx.fillStyle = `rgba(128,0,128,${alpha})`; // Purple for attention
+        ctx.fillRect(cellX + 1, cellY + 1, cell_size - 2, cell_size - 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + map_width / 2, y - 8);
+    ctx.font = '11px ' + colors.mono;
+    ctx.fillText(`H:${H_dim} W:${W_dim}`, x + map_width / 2, y + map_height + 15);
+  }
+
+  function drawArrow(fromX, fromY, toX, toY, color, isHighlight) {
+    ctx.globalAlpha = isHighlight ? 1 : 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isHighlight ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    // Arrowhead
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.lineTo(toX - 8 * Math.cos(angle - Math.PI / 6), toY - 8 * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - 8 * Math.cos(angle + Math.PI / 6), toY - 8 * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // --- Draw Elements ---
+
+  // Input
+  drawBox(INPUT_X, INPUT_Y, 'Input X', fmt(INPUT_VAL), colors.blue_bg, colors.blue_border, colors.blue, highlight === 'input');
+
+  // Teacher FM
+  drawFeatureMap(T_FM_X, T_FM_Y, T_H, T_W, T_CHANNELS, fp.T_FM, colors.red, highlight === 't_fm' || highlight === 'fitnets_loss' || highlight === 'attention_maps');
+  ctx.fillStyle = colors.red;
+  ctx.font = '600 13px ' + colors.sans;
+  ctx.fillText('Teacher', T_FM_X + BOX_WIDTH / 2, T_FM_Y - 30);
+
+  // Student FM
+  drawFeatureMap(S_FM_X, S_FM_Y, S_H, S_W, S_CHANNELS, fp.S_FM, colors.green, highlight === 's_fm' || highlight === 'r_s_fm' || highlight === 'attention_maps');
+  ctx.fillStyle = colors.green;
+  ctx.font = '600 13px ' + colors.sans;
+  ctx.fillText('Student', S_FM_X + BOX_WIDTH / 2, S_FM_Y - 30);
+
+  // Regressed Student FM (FitNets)
+  if (stepMode === 'fitnets' || highlight === 'r_s_fm' || highlight === 'fitnets_loss' || highlight === 'total_loss') {
+    drawFeatureMap(R_S_FM_X, R_S_FM_Y, T_H, T_W, T_CHANNELS, fp.R_S_FM, colors.amber, highlight === 'r_s_fm' || highlight === 'fitnets_loss');
+    ctx.fillStyle = colors.amber;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.fillText('Regressed S-FM', R_S_FM_X + BOX_WIDTH / 2, R_S_FM_Y - 8);
+  }
+
+  // Teacher Attention Map
+  if (stepMode === 'attention' || highlight === 'attention_maps' || highlight === 'attention_loss' || highlight === 'total_loss') {
+    drawAttentionMap(T_AM_X, T_AM_Y, T_H, T_W, fp.T_AM, colors.purple, highlight === 'attention_maps' || highlight === 'attention_loss');
+    ctx.fillStyle = colors.red;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.fillText('Teacher AM', T_AM_X + BOX_WIDTH / 2, T_AM_Y - 8);
+  }
+
+  // Student Attention Map
+  if (stepMode === 'attention' || highlight === 'attention_maps' || highlight === 'attention_loss' || highlight === 'total_loss') {
+    drawAttentionMap(S_AM_X, S_AM_Y, S_H, S_W, fp.S_AM, colors.purple, highlight === 'attention_maps' || highlight === 'attention_loss');
+    ctx.fillStyle = colors.green;
+    ctx.font = '600 13px ' + colors.sans;
+    ctx.fillText('Student AM', S_AM_X + BOX_WIDTH / 2, S_AM_Y - 8);
+  }
+
+  // Loss Box
+  if (highlight === 'fitnets_loss' || highlight === 'attention_loss' || highlight === 'total_loss' || highlight === 'final') {
+    const lossVal = currentDistillMode === 'fitnets' ? fp.fitnetsLoss : fp.attentionLoss;
+    drawBox(LOSS_X, LOSS_Y,
+            currentDistillMode === 'fitnets' ? 'FitNets Loss' : 'Attention Loss',
+            `λ·L = ${fmt(currentLambda * lossVal)}`,
+            colors.cyan_bg, colors.cyan_border, colors.cyan, highlight === 'fitnets_loss' || highlight === 'attention_loss' || highlight === 'total_loss' || highlight === 'final');
+  }
+
+  // --- Draw Arrows ---
+
+  // Input to Teacher FM
+  drawArrow(INPUT_X + BOX_WIDTH / 2, INPUT_Y + BOX_HEIGHT, T_FM_X + BOX_WIDTH / 2, T_FM_Y, colors.red, highlight === 't_fm');
+  // Input to Student FM
+  drawArrow(INPUT_X + BOX_WIDTH / 2, INPUT_Y + BOX_HEIGHT, S_FM_X + BOX_WIDTH / 2, S_FM_Y, colors.green, highlight === 's_fm');
+
+  // Student FM to Regressed Student FM (FitNets)
+  if (stepMode === 'fitnets' || highlight === 'r_s_fm' || highlight === 'fitnets_loss' || highlight === 'total_loss') {
+    drawArrow(S_FM_X + BOX_WIDTH / 2, S_FM_Y + BOX_HEIGHT, R_S_FM_X + BOX_WIDTH / 2, R_S_FM_Y, colors.amber, highlight === 'r_s_fm');
+  }
+
+  // Teacher FM to FitNets Loss
+  if (stepMode === 'fitnets' || highlight === 'fitnets_loss' || highlight === 'total_loss') {
+    drawArrow(T_FM_X + BOX_WIDTH / 2, T_FM_Y + BOX_HEIGHT, LOSS_X + BOX_WIDTH / 2, LOSS_Y, colors.cyan, highlight === 'fitnets_loss');
+    drawArrow(R_S_FM_X + BOX_WIDTH / 2, R_S_FM_Y + BOX_HEIGHT, LOSS_X + BOX_WIDTH / 2, LOSS_Y, colors.cyan, highlight === 'fitnets_loss');
+  }
+
+  // Teacher FM to Teacher AM
+  if (stepMode === 'attention' || highlight === 'attention_maps' || highlight === 'attention_loss' || highlight === 'total_loss') {
+    drawArrow(T_FM_X + BOX_WIDTH / 2, T_FM_Y + BOX_HEIGHT, T_AM_X + BOX_WIDTH / 2, T_AM_Y, colors.purple, highlight === 'attention_maps');
+  }
+  // Student FM to Student AM
+  if (stepMode === 'attention' || highlight === 'attention_maps' || highlight === 'attention_loss' || highlight === 'total_loss') {
+    drawArrow(S_FM_X + BOX_WIDTH / 2, S_FM_Y + BOX_HEIGHT, S_AM_X + BOX_WIDTH / 2, S_AM_Y, colors.purple, highlight === 'attention_maps');
+  }
+
+  // Teacher AM to Attention Loss
+  if (stepMode === 'attention' || highlight === 'attention_loss' || highlight === 'total_loss') {
+    drawArrow(T_AM_X + BOX_WIDTH / 2, T_AM_Y + BOX_HEIGHT, LOSS_X + BOX_WIDTH / 2, LOSS_Y, colors.cyan, highlight === 'attention_loss');
+    drawArrow(S_AM_X + BOX_WIDTH / 2, S_AM_Y + BOX_HEIGHT, LOSS_X + BOX_WIDTH / 2, LOSS_Y, colors.cyan, highlight === 'attention_loss');
+  }
+
+  // Backprop (from Loss back to Student FM)
+  if (highlight === 'total_loss' || highlight === 'final') {
+    drawArrow(LOSS_X + BOX_WIDTH / 2, LOSS_Y, S_FM_X + BOX_WIDTH / 2, S_FM_Y + BOX_HEIGHT, colors.green, true);
+    ctx.fillStyle = colors.green;
+    ctx.font = '11px ' + colors.sans;
+    ctx.fillText('Backprop to Student', LOSS_X + BOX_WIDTH / 2 + 50, LOSS_Y - 20);
+  }
+
+  // --- Info Numbers ---
+  if (highlight !== 'input' && highlight !== 'final') {
+    infoNumbers += `Input value: ${fmt(INPUT_VAL)}\n`;
+    infoNumbers += `Teacher FM (avg): ${fmt(fp.T_FM.flat().reduce((a,b)=>a+b,0) / fp.T_FM.flat().length)}\n`;
+    infoNumbers += `Student FM (avg): ${fmt(fp.S_FM.flat().reduce((a,b)=>a+b,0) / fp.S_FM.flat().length)}\n`;
+    if (stepMode === 'fitnets') {
+      infoNumbers += `Regressed S-FM (avg): ${fmt(fp.R_S_FM.flat().reduce((a,b)=>a+b,0) / fp.R_S_FM.flat().length)}\n`;
+      infoNumbers += `FitNets Loss (L2): ${fmt(fp.fitnetsLoss)}\n`;
+    } else if (stepMode === 'attention') {
+      infoNumbers += `Teacher AM (avg): ${fmt(fp.T_AM.flat().reduce((a,b)=>a+b,0) / fp.T_AM.flat().length)}\n`;
+      infoNumbers += `Student AM (avg): ${fmt(fp.S_AM.flat().reduce((a,b)=>a+b,0) / fp.S_AM.flat().length)}\n`;
+      infoNumbers += `Attention Loss (L2): ${fmt(fp.attentionLoss)}\n`;
+    }
+    infoNumbers += `Task Loss: ${fmt(fp.taskLoss)}\n`;
+    infoNumbers += `Total Loss (Task + λ·Feature): ${fmt(fp.totalLoss)}`;
+  } else if (highlight === 'final') {
+    infoNumbers += `Final Total Loss: ${fmt(fp.totalLoss)}`;
+  }
+  document.getElementById('infoNumbers').textContent = infoNumbers;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].highlight, steps[step].mode));
+</script>
+</body>
+</html>
