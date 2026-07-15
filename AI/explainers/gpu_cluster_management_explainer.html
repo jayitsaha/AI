@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Cluster Management: SLURM &amp; Ray — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Job / resource table */
+.job-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;margin:0.75rem 0;}
+.job-table th{text-align:left;padding:6px 10px;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border2);white-space:nowrap;}
+.job-table td{padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.status-pill{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;padding:2px 8px;border-radius:20px;}
+.status-running{background:var(--green-bg);color:var(--green-mid);}
+.status-queued{background:var(--amber-bg);color:var(--amber-mid);}
+.status-done{background:var(--border);color:var(--text3);}
+.job-swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Metrics row */
+.metrics-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem;}
+.metric-tile{background:var(--bg2);border-radius:var(--radius);padding:10px 12px;text-align:center;}
+.metric-tile .m-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;}
+.metric-tile .m-value{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--text);margin-top:2px;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-schedule{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-run{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-ray{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11.5px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px dashed var(--border2);}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .metrics-row{grid-template-columns:1fr;}
+  .job-table{font-size:10px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>GPU Cluster Management: SLURM &amp; Ray</h1>
+  <div class="subtitle">Batch scheduling whole allocations vs. fine-grained distributed task execution</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">MLOps</span>
+    <span class="tag tag-category">Distributed Systems</span>
+    <span class="tag tag-complexity">O(jobs · log jobs) schedule</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding GPU Cluster Management</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A GPU cluster is a shared pool of machines, each with several GPUs, used by many people at once. Two very different pieces of software make this sharing possible: <strong>SLURM</strong>, a batch scheduler that decides which user's <em>job</em> gets which <em>whole slice</em> of GPUs and for how long, and <strong>Ray</strong>, a distributed runtime that runs <em>inside</em> a slice and breaks work into thousands of tiny <em>tasks</em> and long-lived <em>actors</em> spread across many GPUs at once.</p>
+    <p><strong>Analogy:</strong> SLURM is airport ground control — it books runway slots (whole jobs) for airlines (users) so nobody collides, using priority and a clever trick called backfill to squeeze small flights into gaps without delaying anyone important. Ray is the flight crew once you're airborne — hundreds of tiny coordinated tasks (drink service, navigation checks, radio calls) executed in parallel by dozens of crew members (worker processes), sharing a common supply closet (the object store) instead of everyone carrying their own copy of everything.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">SLURM answers "which user gets which GPUs, for how long" across a multi-tenant cluster; Ray answers "how do I split one allocation into thousands of parallel tasks with microsecond-scale coordination." In production they compose: <code>sbatch</code> reserves the nodes, then Ray starts <em>inside</em> that reservation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>SLURM: Controller, Priority Queue, Backfill</h4>
+    <p><code>slurmctld</code> (the controller) tracks every node's GPUs via generic resources (<code>gres=gpu:N</code>). Pending jobs sit in a priority queue ranked by a multifactor score (age waiting, fair-share history, job size, QoS). The scheduler tries jobs strictly in priority order — but a large, high-priority job that needs 26 free GPUs right now will block every lower-priority job behind it, even if the cluster has plenty of idle capacity for them individually. That wastes GPU-hours.</p>
+    <p>The fix is the <strong>EASY backfill</strong> algorithm: SLURM computes a projected start time for the top blocked job (based on when running jobs are expected to finish), then lets any lower-priority job start immediately <em>as long as its own finish time does not push past that reservation</em>. Short, small jobs slip into the gaps for free; the big job's promised start time is never violated.</p>
+    <h4>Ray: Head Node, Raylets, Object Store</h4>
+    <p>Once <code>sbatch</code> grants a node allocation, <code>ray start --head</code> launches the Global Control Store (cluster metadata) and a driver process; every other node runs a <strong>raylet</strong> — a local scheduler plus a per-node <strong>Plasma object store</strong> (shared memory). Ray distinguishes <strong>tasks</strong> (stateless functions, scheduled fresh each call, cheap to move anywhere) from <strong>actors</strong> (stateful classes pinned to one process/GPU for their whole lifetime — perfect for a loaded model replica). Scheduling is bottom-up: a task is tried on its local raylet first (sub-millisecond); only if no local resource is free does it escalate to the cluster-wide scheduler.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">SLURM schedules at the granularity of <em>whole jobs over minutes-to-hours</em>; Ray schedules at the granularity of <em>individual tasks over milliseconds</em>. Neither replaces the other — Ray typically runs <strong>inside</strong> a SLURM (or Kubernetes) allocation.</p>
+    </div>
+    <h4>Design Decision: Why Per-Node Object Stores, Not One Central Store?</h4>
+    <p>A single centralized store would force every task's inputs and outputs through one network hop, no matter where the task ran. Per-node Plasma stores mean a task reading data already produced on the <em>same</em> node gets a zero-copy shared-memory pointer — no serialization, no network. Only cross-node reads pay the network+copy cost, and Ray's scheduler is locality-aware, so it prefers placing tasks near their data.</p>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Cluster Utilization</h4>
+    <p>At any time \(t\), let \(R(t)\) be the set of running jobs and \(g_i\) the GPUs held by job \(i\), out of a cluster total \(G\):</p>
+    <div class="eq">$$U(t) = \frac{1}{G}\sum_{i \in R(t)} g_i$$</div>
+    <h4>The Backfill Guarantee</h4>
+    <p>Let \(\tau_{\text{top}}\) be the reserved start time computed for the highest-priority pending job (from the projected completion times of currently running jobs). A lower-priority candidate job \(q\), submitted at time \(t\) with estimated duration \(d_q\), is allowed to backfill <em>only if</em>:</p>
+    <div class="eq">$$t + d_q \le \tau_{\text{top}}$$</div>
+    <p><strong>Proof sketch that this never delays the top job:</strong> by construction, every backfilled job releases its GPUs at or before \(\tau_{\text{top}}\). Since the reservation already accounts for currently running jobs' completions, and backfilled jobs are required to vacate before \(\tau_{\text{top}}\), the set of GPUs reserved for the top job is guaranteed free at \(\tau_{\text{top}}\) regardless of how many small jobs backfilled around it.</p>
+    <h4>Ray Throughput &amp; Zero-Copy Speedup</h4>
+    <p>For \(N\) tasks completed over elapsed wall-clock time \(T\), task throughput is simply \(N/T\). Zero-copy locality gives a latency ratio between a same-node (shared memory) read and a cross-node (network + serialize) read:</p>
+    <div class="eq">$$\text{speedup} = \frac{L_{\text{remote}}}{L_{\text{local}}}$$</div>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Backfill only helps if job <strong>duration estimates</strong> (<code>--time</code> in SLURM) are accurate. Users who pad their time limits "just in case" shrink the gaps backfill can exploit, and jobs that <em>underestimate</em> get killed at the limit — both waste GPU-hours. Likewise, over-decomposing Ray work into millions of sub-millisecond tasks adds more scheduling overhead than it saves; the right task grain matters.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a 32-GPU (4 nodes × 8 GPUs) cluster: SLURM's priority + backfill scheduler fills it with competing jobs, then a Ray cluster launches inside one allocation to run fine-grained tasks and actors.</p>
+
+    <div class="viz-container">
+      <div class="metrics-row">
+        <div class="metric-tile"><div class="m-label">Queue Wait</div><div class="m-value" id="mWait">–</div></div>
+        <div class="metric-tile"><div class="m-label">GPU Util %</div><div class="m-value" id="mUtil">–</div></div>
+        <div class="metric-tile"><div class="m-label">Throughput</div><div class="m-value" id="mThroughput">–</div></div>
+      </div>
+
+      <div id="tableViz"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 11</div>
+        <div class="info-title" id="infoTitle">The Shared GPU Cluster</div>
+        <div class="info-desc" id="infoDesc">Four nodes, eight GPUs each.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Job A (running)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Job B (running)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Job C (backfill)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Job E (backfill)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Job F (backfill)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Job D / Ray actor</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to reach for SLURM:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Multi-tenant HPC/GPU clusters shared across teams needing fair-share &amp; accounting</li>
+      <li>Whole-node or whole-job batch workloads (training runs measured in hours)</li>
+      <li>Need for hard resource isolation and priority/QoS policy enforcement</li>
+    </ul>
+    <p><strong>When to reach for Ray:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Thousands of small, heterogeneous tasks (hyperparameter sweeps, data preprocessing, RL rollouts)</li>
+      <li>Stateful serving actors that must stay warm (loaded model replicas)</li>
+      <li>Need sub-millisecond scheduling latency and zero-copy data sharing between tasks</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 In Practice</div>
+      <p style="font-size:14px;margin:0;">Large-scale LLM training and serving stacks typically run <strong>both</strong>: <code>sbatch</code>/SLURM reserves the physical GPU allocation across nodes, and a Ray (or similar) runtime starts inside it to orchestrate the fine-grained parallel work. Neither tool alone covers both granularities well.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">#!/bin/bash</div>
+      <div class="code-line" id="cl1">#SBATCH --job-name=ray-on-slurm</div>
+      <div class="code-line" id="cl2">#SBATCH --nodes=4</div>
+      <div class="code-line" id="cl3">#SBATCH --gres=gpu:8          # 8 GPUs per node, 32 total</div>
+      <div class="code-line" id="cl4">#SBATCH --time=03:00:00</div>
+      <div class="code-line" id="cl5">#SBATCH --priority=95</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># --- SLURM allocates the 4-node, 32-GPU block above ---</div>
+      <div class="code-line" id="cl8">HEAD_NODE=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10"># Start the Ray head on node 0</div>
+      <div class="code-line" id="cl11">srun --nodes=1 --ntasks=1 -w "$HEAD_NODE" \</div>
+      <div class="code-line" id="cl12">  ray start --head --port=6379 --num-gpus=8 &amp;</div>
+      <div class="code-line" id="cl13">sleep 10</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># Start Ray workers on the remaining 3 nodes</div>
+      <div class="code-line" id="cl16">srun --nodes=3 --ntasks=3 --exclude="$HEAD_NODE" \</div>
+      <div class="code-line" id="cl17">  ray start --address="$HEAD_NODE:6379" --num-gpus=8 &amp;</div>
+      <div class="code-line" id="cl18">sleep 5</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">python3 train_and_serve.py</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># ---------------- train_and_serve.py ----------------</div>
+      <div class="code-line" id="cl23">import ray</div>
+      <div class="code-line" id="cl24">ray.init(address="auto")   # attach to the cluster above</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26">@ray.remote(num_gpus=0.5)</div>
+      <div class="code-line" id="cl27">def preprocess(shard_id):</div>
+      <div class="code-line" id="cl28">    # fine-grained task: one shard of data, ~ms lifetime</div>
+      <div class="code-line" id="cl29">    return load_and_tokenize(shard_id)</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">@ray.remote(num_gpus=1)</div>
+      <div class="code-line" id="cl32">class ModelServer:                # long-lived actor, pinned to 1 GPU</div>
+      <div class="code-line" id="cl33">    def __init__(self, ckpt):</div>
+      <div class="code-line" id="cl34">        self.model = load_model(ckpt)   # loaded once, reused forever</div>
+      <div class="code-line" id="cl35">    def infer(self, batch_ref):</div>
+      <div class="code-line" id="cl36">        batch = ray.get(batch_ref)      # zero-copy if same node</div>
+      <div class="code-line" id="cl37">        return self.model(batch)</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">shard_refs = [preprocess.remote(i) for i in range(48)]  # 48 tasks fan out</div>
+      <div class="code-line" id="cl40">servers = [ModelServer.remote(CKPT) for _ in range(4)]  # 4 pinned actors</div>
+      <div class="code-line" id="cl41">big_tensor = ray.put(load_shared_weights())  # object store, put once</div>
+      <div class="code-line" id="cl42">results = ray.get([s.infer.remote(big_tensor) for s in servers])</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// GROUND-TRUTH SIMULATION DATA
+// ══════════════════════════════════════════════════════════════
+const GPU_TOTAL = 32, NODES = 4, GPN = 8;
+
+// Each SLURM job: fixed GPU slot range (deterministic layout, never overlaps
+// in time since D only ever runs alone once everything else has finished).
+const JOBS = {
+  A: { id: "A", user: "alice", gpus: 8,  pri: 100, dur: 240, arrive: 0,  slot0: 0,  color: "blue"   },
+  B: { id: "B", user: "bob",   gpus: 6,  pri: 80,  dur: 120, arrive: 0,  slot0: 8,  color: "green"  },
+  C: { id: "C", user: "carol", gpus: 2,  pri: 60,  dur: 15,  arrive: 0,  slot0: 14, color: "amber"  },
+  E: { id: "E", user: "erin",  gpus: 3,  pri: 50,  dur: 45,  arrive: 0,  slot0: 16, color: "cyan"   },
+  F: { id: "F", user: "frank", gpus: 5,  pri: 70,  dur: 90,  arrive: 50, slot0: 19, color: "red"    },
+  D: { id: "D", user: "dave",  gpus: 26, pri: 95,  dur: 180, arrive: 0,  slot0: 0,  color: "purple" },
+};
+const JOB_ORDER = ["A","B","C","D","E","F"];
+
+// Ray-cluster ground truth (runs *inside* D's 26-GPU SLURM allocation)
+const RAY_TASKS_TOTAL = 48;
+const RAY_ACTORS_TOTAL = 4;
+const RAY_ELAPSED_MS = 320;              // wall clock to drain the 48-task fan-out
+const RAY_SCHED_LATENCY_MS = 8;          // avg local-scheduler decision latency
+const RAY_ACTIVE_GPUS = 24;              // of the 26 allocated, avg instantaneously busy
+const OBJ_SIZE_GB = 2.1;
+const LOCAL_LATENCY_MS = 0.8;            // shared-memory (Plasma) read
+const REMOTE_LATENCY_MS = 45;            // network + (de)serialize read
+
+// ══════════════════════════════════════════════════════════════
+// STEP TIMELINE  (t in minutes for SLURM steps)
+// running / queued / completed are arrays of job ids — status at time t
+// ══════════════════════════════════════════════════════════════
+const steps = [
+  {
+    phase: "setup", mode: "slurm-grid", t: 0, running: [], queued: [], completed: [],
+    title: "The Shared GPU Cluster",
+    desc: "Four physical nodes, eight GPUs each — \\(G = 32\\) GPUs total, shared by many users through a SLURM partition. Right now the cluster is completely idle and the job queue is empty.",
+    codeLines: [1,2,3,4,5]
+  },
+  {
+    phase: "setup", mode: "slurm-grid", t: 0, running: [], queued: ["A","D","B","C","E"], completed: [],
+    title: "Jobs Arrive in the SLURM Queue",
+    desc: "Five jobs are submitted at once, each requesting a slice via <code>--gres=gpu:N</code>: Alice wants 8 GPUs (priority 100), Dave wants 26 GPUs (priority 95), Bob wants 6 (priority 80), Carol wants 2 for just 15 minutes (priority 60), Erin wants 3 for 45 minutes (priority 50). The scheduler hasn't run yet — everyone waits.",
+    codeLines: [2,3]
+  },
+  {
+    phase: "schedule", mode: "slurm-grid", t: 0, running: ["A","B","C","E"], queued: ["D"], completed: [],
+    title: "Priority Order Meets a Wall — Then Backfill",
+    desc: "Alice's job (highest priority, 8 GPUs) starts immediately. Dave's 26-GPU job is next in priority, but only 24 GPUs are free — it must wait. Strict priority order would now block Bob, Carol and Erin behind Dave too, wasting idle capacity. Instead, SLURM's <strong>backfill</strong> pass checks: can each smaller job finish before Dave's reserved start? Yes for all three — they launch now, filling the gap.",
+    codeLines: [3,7]
+  },
+  {
+    phase: "schedule", mode: "slurm-timeline", t: 0, running: ["A","B","C","E"], queued: ["D"], completed: [],
+    title: "Why Dave's Job Is Never Delayed",
+    desc: "SLURM projects when enough GPUs will be free for Dave: Alice finishes at \\(t{=}240\\), which is the only running job overlapping Dave's need, so \\(\\tau_{\\text{top}} = 240\\) min. Bob (120 min), Carol (15 min) and Erin (45 min) all vacate their GPUs well before \\(t{=}240\\) — the backfill condition \\(t + d_q \\le \\tau_{\\text{top}}\\) holds for all three, so none of them can push Dave's start back.",
+    codeLines: [4]
+  },
+  {
+    phase: "run", mode: "slurm-grid", t: 50, running: ["A","B","F"], queued: ["D"], completed: ["C","E"],
+    title: "Short Jobs Finish — a New One Backfills",
+    desc: "Carol's job finished at \\(t{=}15\\), Erin's at \\(t{=}45\\), freeing 5 GPUs. At \\(t{=}50\\) Frank submits a new 5-GPU, 90-minute job — it backfills into the freed capacity immediately, since it will finish at \\(t{=}140\\), still comfortably before Dave's \\(\\tau_{\\text{top}}{=}240\\).",
+    codeLines: [3,7]
+  },
+  {
+    phase: "run", mode: "slurm-grid", t: 120, running: ["A","F"], queued: ["D"], completed: ["C","E","B"],
+    title: "Bob's Job Completes, Dave Still Waits",
+    desc: "At \\(t{=}120\\) minutes Bob's job finishes and releases 6 GPUs. Frank's job still has 20 minutes left. Dave has now been queued for 120 of his eventual 240-minute wait — the reservation guarantee means this wait is bounded and predictable, not indefinite.",
+    codeLines: [3]
+  },
+  {
+    phase: "run", mode: "slurm-grid", t: 240, running: ["D"], queued: [], completed: ["C","E","B","F","A"],
+    title: "Alice's Job Ends — Dave Finally Launches",
+    desc: "At \\(t{=}240\\) minutes Alice's job completes, and — exactly as projected — enough GPUs are now free for Dave's 26-GPU job to start immediately. Total queue wait for Dave: 240 minutes, known in advance from the very first scheduling pass.",
+    codeLines: [3,7]
+  },
+  {
+    phase: "ray", mode: "ray-intro", t: 240, running: ["D"], queued: [], completed: ["C","E","B","F","A"],
+    title: "Enter Ray: A Different Granularity",
+    desc: "Dave's 26-GPU SLURM allocation is just idle capacity from SLURM's point of view — one \"job.\" Inside it, <code>ray start --head</code> launches the Global Control Store on node 0, and <code>ray start --address=...</code> joins the other nodes as workers. Ray now owns fine-grained scheduling <em>within</em> this block.",
+    codeLines: [8,9,10,11,12,13,14,15,16,17,18]
+  },
+  {
+    phase: "ray", mode: "ray-tasks", t: 240, running: ["D"], queued: [], completed: ["C","E","B","F","A"],
+    title: "Fine-Grained Tasks &amp; Pinned Actors",
+    desc: "48 stateless preprocessing <strong>tasks</strong> fan out across the 26 Ray-managed GPUs, each scheduled locally in about " + RAY_SCHED_LATENCY_MS + " ms — three orders of magnitude faster than SLURM's minute-scale decisions. Four long-lived <strong>actors</strong> (model replicas) are pinned to specific GPUs for the whole run instead of being rescheduled per call.",
+    codeLines: [26,27,28,29,31,32,33,34,39,40]
+  },
+  {
+    phase: "ray", mode: "ray-objectstore", t: 240, running: ["D"], queued: [], completed: ["C","E","B","F","A"],
+    title: "The Object Store: Zero-Copy Sharing",
+    desc: "A " + OBJ_SIZE_GB.toFixed(1) + " GB shared-weights tensor is written once with <code>ray.put()</code> into the per-node Plasma object store. Tasks and actors on the <em>same</em> node read it via a shared-memory pointer (~" + LOCAL_LATENCY_MS + " ms); only cross-node reads pay a network + serialization cost (~" + REMOTE_LATENCY_MS + " ms) — Ray's locality-aware scheduler minimizes exactly those cross-node hops.",
+    codeLines: [36,41,42]
+  },
+  {
+    phase: "result", mode: "dashboard", t: 240, running: ["D"], queued: [], completed: ["C","E","B","F","A"],
+    title: "SLURM vs. Ray: Two Layers, One Cluster",
+    desc: "SLURM optimizes coarse-grained, multi-tenant fairness at minute-to-hour granularity; Ray optimizes fine-grained parallel throughput at millisecond granularity inside one allocation. Production LLM training/serving stacks run both, layered — never one instead of the other.",
+    codeLines: []
+  }
+];
+const totalSteps = steps.length;
+let step = 0;
+
+// ══════════════════════════════════════════════════════════════
+// LIVE METRIC COMPUTATION (derived from the ground-truth data above)
+// ══════════════════════════════════════════════════════════════
+function usedGpus(s) {
+  return s.running.reduce((sum, id) => sum + JOBS[id].gpus, 0);
+}
+function utilPct(s) {
+  return (usedGpus(s) / GPU_TOTAL * 100);
+}
+function queueWaitMinutes(s) {
+  if (s.queued.includes("D")) return s.t - JOBS.D.arrive;         // still waiting
+  if (s.completed.includes("A") && s.running.includes("D")) return 240; // dequeued, final wait
+  return 0;
+}
+function throughputJobsPerHour(s) {
+  const hours = s.t / 60;
+  if (hours <= 0) return 0;
+  return s.completed.length / hours;
+}
+function rayThroughputPerSec() {
+  return RAY_TASKS_TOTAL / (RAY_ELAPSED_MS / 1000);
+}
+function avgSlurmUtil() {
+  // average utilization across the four "steady state" operational snapshots
+  const idxs = [2,4,5,6];
+  const total = idxs.reduce((sum, i) => sum + utilPct(steps[i]), 0);
+  return total / idxs.length;
+}
+function rayUtilPct() {
+  return RAY_ACTIVE_GPUS / JOBS.D.gpus * 100;
+}
+function speedupLocalVsRemote() {
+  return REMOTE_LATENCY_MS / LOCAL_LATENCY_MS;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SECTION TOGGLE
+// ══════════════════════════════════════════════════════════════
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector(".section-toggle");
+  body.classList.toggle("collapsed");
+  toggle.classList.toggle("open");
+}
+
+// ══════════════════════════════════════════════════════════════
+// DOTS + NAV
+// ══════════════════════════════════════════════════════════════
+function initDots() {
+  const wrap = document.getElementById("progressDots");
+  wrap.innerHTML = "";
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i === 0 ? " active" : "");
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll(".dot");
+  dots.forEach((d, i) => {
+    d.className = "dot";
+    if (i < step) d.classList.add("done");
+    if (i === step) d.classList.add("active");
+  });
+}
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ══════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════
+function render() {
+  const s = steps[step];
+
+  document.getElementById("btnPrev").disabled = step === 0;
+  document.getElementById("btnNext").disabled = step === totalSteps - 1;
+
+  const phaseMap = { setup: "phase-setup", schedule: "phase-schedule", run: "phase-run", ray: "phase-ray", result: "phase-result" };
+  document.getElementById("infoPhase").className = "info-phase " + phaseMap[s.phase];
+  document.getElementById("infoPhase").textContent = s.phase.toUpperCase();
+  document.getElementById("infoStep").textContent = "Step " + (step + 1) + " of " + totalSteps;
+  document.getElementById("infoTitle").innerHTML = s.title;
+  document.getElementById("infoDesc").innerHTML = s.desc;
+
+  // Live metrics
+  let waitTxt, utilTxt, throughputTxt, numbersTxt;
+  if (s.mode.indexOf("ray") === 0 || s.mode === "dashboard") {
+    const wait = queueWaitMinutes(steps[6]); // Dave's final resolved wait, carried forward
+    waitTxt = wait + " min (D)";
+    if (s.mode === "dashboard") {
+      utilTxt = avgSlurmUtil().toFixed(1) + "% / " + rayUtilPct().toFixed(1) + "%";
+      throughputTxt = throughputJobsPerHour(steps[6]).toFixed(2) + " j/h / " + rayThroughputPerSec().toFixed(0) + " t/s";
+      numbersTxt = "SLURM avg util " + avgSlurmUtil().toFixed(1) + "% · Ray util " + rayUtilPct().toFixed(1) +
+        "% · SLURM throughput " + throughputJobsPerHour(steps[6]).toFixed(2) + " jobs/hr · Ray throughput " +
+        rayThroughputPerSec().toFixed(0) + " tasks/s · local-vs-remote object read speedup " + speedupLocalVsRemote().toFixed(0) + "x";
+    } else {
+      utilTxt = rayUtilPct().toFixed(1) + "%";
+      throughputTxt = rayThroughputPerSec().toFixed(0) + " tasks/s";
+      numbersTxt = "Ray tasks " + RAY_TASKS_TOTAL + " · actors " + RAY_ACTORS_TOTAL + " · sched latency " +
+        RAY_SCHED_LATENCY_MS + " ms · elapsed " + RAY_ELAPSED_MS + " ms · active GPUs " + RAY_ACTIVE_GPUS + "/" + JOBS.D.gpus +
+        " · object size " + OBJ_SIZE_GB.toFixed(1) + " GB · local read " + LOCAL_LATENCY_MS + " ms · remote read " + REMOTE_LATENCY_MS + " ms";
+    }
+  } else {
+    const wait = queueWaitMinutes(s);
+    waitTxt = wait + " min (D)";
+    utilTxt = utilPct(s).toFixed(1) + "%";
+    throughputTxt = throughputJobsPerHour(s).toFixed(2) + " j/h";
+    numbersTxt = "t=" + s.t + " min · GPUs used " + usedGpus(s) + "/" + GPU_TOTAL + " · running [" + s.running.join(",") +
+      "] · queued [" + s.queued.join(",") + "] · completed " + s.completed.length + " · Dave's queue wait so far: " + wait + " min";
+  }
+  document.getElementById("mWait").textContent = waitTxt;
+  document.getElementById("mUtil").textContent = utilTxt;
+  document.getElementById("mThroughput").textContent = throughputTxt;
+  document.getElementById("infoNumbers").textContent = numbersTxt;
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("infoCard"), {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll(".code-line").forEach(cl => cl.classList.remove("active"));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById("cl" + i);
+    if (el) el.classList.add("active");
+  });
+
+  renderTable(s);
+  drawCanvas(s);
+  updateDots();
+}
+
+// ══════════════════════════════════════════════════════════════
+// TABLE (queue / resource panel above the canvas)
+// ══════════════════════════════════════════════════════════════
+function jobStatus(s, id) {
+  if (s.running.includes(id)) return "running";
+  if (s.queued.includes(id)) return "queued";
+  if (s.completed.includes(id)) return "done";
+  return "not-submitted";
+}
+function renderTable(s) {
+  const el = document.getElementById("tableViz");
+  if (s.mode.indexOf("slurm") === 0) {
+    let visibleJobs = JOB_ORDER.filter(id => s.t >= JOBS[id].arrive && jobStatus(s, id) !== "not-submitted");
+    let html = "<table class=\"job-table\"><tr><th></th><th>Job</th><th>User</th><th>gres=gpu:N</th><th>Priority</th><th>Status</th><th>Wait / Runtime</th></tr>";
+    visibleJobs.forEach(id => {
+      const j = JOBS[id];
+      const st = jobStatus(s, id);
+      const pillClass = st === "running" ? "status-running" : (st === "queued" ? "status-queued" : "status-done");
+      const pillText = st === "running" ? "RUNNING" : (st === "queued" ? "QUEUED" : "DONE");
+      let waitCol = "–";
+      if (st === "queued") waitCol = (s.t - j.arrive) + " min waiting";
+      else if (st === "running") waitCol = "dur " + j.dur + " min";
+      else if (st === "done") waitCol = "completed";
+      html += "<tr><td><span class=\"job-swatch\" style=\"background:var(--" + j.color + "-mid)\"></span></td><td>" + id +
+        "</td><td>" + j.user + "</td><td>gpu:" + j.gpus + "</td><td>" + j.pri + "</td><td><span class=\"status-pill " +
+        pillClass + "\">" + pillText + "</span></td><td>" + waitCol + "</td></tr>";
+    });
+    html += "</table>";
+    el.innerHTML = html;
+  } else if (s.mode.indexOf("ray") === 0) {
+    el.innerHTML = "<table class=\"job-table\"><tr><th>Resource</th><th>Count</th><th>Detail</th></tr>" +
+      "<tr><td>Head node</td><td>1</td><td>Global Control Store + driver</td></tr>" +
+      "<tr><td>Worker nodes</td><td>" + (NODES - 1) + "</td><td>raylet + Plasma store each</td></tr>" +
+      "<tr><td>GPUs in allocation</td><td>" + JOBS.D.gpus + "</td><td>from Dave's SLURM job</td></tr>" +
+      "<tr><td>Pinned actors</td><td>" + RAY_ACTORS_TOTAL + "</td><td>model replicas, 1 GPU each</td></tr>" +
+      "<tr><td>Fan-out tasks</td><td>" + RAY_TASKS_TOTAL + "</td><td>~" + RAY_SCHED_LATENCY_MS + " ms sched latency each</td></tr></table>";
+  } else {
+    el.innerHTML = "<table class=\"job-table\"><tr><th>Metric</th><th>SLURM</th><th>Ray</th></tr>" +
+      "<tr><td>Queue wait (Dave)</td><td>" + queueWaitMinutes(steps[6]) + " min</td><td>" + RAY_SCHED_LATENCY_MS + " ms / task</td></tr>" +
+      "<tr><td>GPU utilization</td><td>" + avgSlurmUtil().toFixed(1) + "%</td><td>" + rayUtilPct().toFixed(1) + "%</td></tr>" +
+      "<tr><td>Throughput</td><td>" + throughputJobsPerHour(steps[6]).toFixed(2) + " jobs/hr</td><td>" + rayThroughputPerSec().toFixed(0) + " tasks/s</td></tr></table>";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// CANVAS DRAWING
+// ══════════════════════════════════════════════════════════════
+function slotOwner(s, slot) {
+  for (const id of s.running) {
+    const j = JOBS[id];
+    if (slot >= j.slot0 && slot < j.slot0 + j.gpus) return id;
+  }
+  return null;
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById("vizCanvas");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue("--" + name).trim();
+  const bg2 = col("bg2"), textC = col("text"), text2 = col("text2"), text3 = col("text3"), borderC = col("border2");
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (s.mode === "slurm-grid") drawSlurmGrid(ctx, W, H, s, col);
+  else if (s.mode === "slurm-timeline") drawTimeline(ctx, W, H, s, col);
+  else if (s.mode === "ray-intro") drawRayCluster(ctx, W, H, s, col, false);
+  else if (s.mode === "ray-tasks") drawRayCluster(ctx, W, H, s, col, true);
+  else if (s.mode === "ray-objectstore") drawObjectStore(ctx, W, H, s, col);
+  else if (s.mode === "dashboard") drawDashboard(ctx, W, H, s, col);
+}
+
+function drawSlurmGrid(ctx, W, H, s, col) {
+  const pad = 16;
+  const nodeW = (W - pad * 5) / 4, nodeH = H - pad * 2 - 26;
+  const cellCols = 2, cellRows = 4;
+  ctx.font = "600 11px \"DM Sans\", system-ui";
+  ctx.fillStyle = col("text2");
+  ctx.fillText("t = " + s.t + " min  |  util " + utilPct(s).toFixed(1) + "%  |  " + usedGpus(s) + "/" + GPU_TOTAL + " GPUs busy", pad, pad);
+
+  for (let n = 0; n < NODES; n++) {
+    const nx = pad + n * (nodeW + pad);
+    const ny = pad + 22;
+    ctx.strokeStyle = col("border2"); ctx.lineWidth = 1.5;
+    ctx.strokeRect(nx, ny, nodeW, nodeH);
+    ctx.fillStyle = col("text3"); ctx.font = "600 10px \"JetBrains Mono\", monospace";
+    ctx.fillText("node0" + n, nx + 6, ny + 13);
+
+    const cellPad = 6, top = ny + 20;
+    const cw = (nodeW - cellPad * (cellCols + 1)) / cellCols;
+    const ch = (nodeH - 20 - cellPad * (cellRows + 1)) / cellRows;
+    for (let slot = n * GPN; slot < (n + 1) * GPN; slot++) {
+      const local = slot - n * GPN;
+      const cx = local % cellCols, cy = Math.floor(local / cellCols);
+      const px = nx + cellPad + cx * (cw + cellPad);
+      const py = top + cellPad + cy * (ch + cellPad);
+      const owner = slotOwner(s, slot);
+      if (owner) {
+        ctx.fillStyle = col(JOBS[owner].color + "-mid");
+        ctx.globalAlpha = 0.85;
+      } else {
+        ctx.fillStyle = col("bg2");
+        ctx.globalAlpha = 1;
+      }
+      ctx.beginPath();
+      const r = 3;
+      ctx.moveTo(px + r, py);
+      ctx.arcTo(px + cw, py, px + cw, py + ch, r);
+      ctx.arcTo(px + cw, py + ch, px, py + ch, r);
+      ctx.arcTo(px, py + ch, px, py, r);
+      ctx.arcTo(px, py, px + cw, py, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = col("border");
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (owner) {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "700 9px \"JetBrains Mono\", monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(owner, px + cw / 2, py + ch / 2 + 3);
+        ctx.textAlign = "left";
+      }
+    }
+  }
+
+  // queued job strip at bottom
+  if (s.queued.length) {
+    ctx.font = "600 11px \"DM Sans\", system-ui";
+    ctx.fillStyle = col("amber-mid");
+    ctx.fillText("⏳ queued: " + s.queued.map(id => id + " (needs " + JOBS[id].gpus + " GPUs)").join(", "), pad, H - 6);
+  } else {
+    ctx.font = "600 11px \"DM Sans\", system-ui";
+    ctx.fillStyle = col("green-mid");
+    ctx.fillText("✓ queue empty", pad, H - 6);
+  }
+}
+
+function drawTimeline(ctx, W, H, s, col) {
+  const pad = { l: 60, r: 20, t: 30, b: 30 };
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const tMax = 260;
+  const toX = t => pad.l + (t / tMax) * pw;
+
+  ctx.font = "600 12px \"DM Sans\", system-ui";
+  ctx.fillStyle = col("text");
+  ctx.fillText("Reservation timeline — why backfilled jobs never delay Dave", pad.l, 16);
+
+  ctx.strokeStyle = col("border2"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+  [0, 60, 120, 180, 240].forEach(t => {
+    const x = toX(t);
+    ctx.beginPath(); ctx.moveTo(x, H - pad.b); ctx.lineTo(x, H - pad.b + 4); ctx.stroke();
+    ctx.fillStyle = col("text3"); ctx.font = "10px \"JetBrains Mono\", monospace";
+    ctx.fillText(t + "m", x - 8, H - pad.b + 16);
+  });
+
+  const rows = [
+    { id: "A", start: 0, end: 240 },
+    { id: "B", start: 0, end: 120 },
+    { id: "C", start: 0, end: 15 },
+    { id: "E", start: 0, end: 45 },
+    { id: "D", start: 240, end: 420, reserved: true }
+  ];
+  const rowH = (ph - 10) / rows.length;
+  rows.forEach((r, i) => {
+    const y = pad.t + i * rowH + 6;
+    const x1 = toX(Math.min(r.start, tMax)), x2 = toX(Math.min(r.end, tMax));
+    ctx.fillStyle = col("text2"); ctx.font = "600 11px \"JetBrains Mono\", monospace";
+    ctx.fillText(r.id, pad.l - 22, y + rowH / 2);
+    if (r.reserved) {
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = col("purple-mid"); ctx.lineWidth = 2;
+      ctx.strokeRect(x1, y, x2 - x1, rowH * 0.55);
+      ctx.setLineDash([]);
+      ctx.fillStyle = col("purple-mid"); ctx.globalAlpha = 0.15;
+      ctx.fillRect(x1, y, x2 - x1, rowH * 0.55);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = col(JOBS[r.id].color + "-mid");
+      ctx.fillRect(x1, y, Math.max(x2 - x1, 2), rowH * 0.55);
+    }
+  });
+
+  const rx = toX(240);
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = col("red-mid"); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(rx, pad.t); ctx.lineTo(rx, H - pad.b); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = col("red-mid"); ctx.font = "700 11px \"DM Sans\", system-ui";
+  ctx.fillText("τ_top = 240m", rx + 4, pad.t + 12);
+}
+
+function drawRayCluster(ctx, W, H, s, col, showTasks) {
+  const cx = W / 2, headY = 34;
+  ctx.fillStyle = col("cyan-mid");
+  ctx.beginPath();
+  const hw = 55, hh = 24;
+  ctx.moveTo(cx - hw / 2 + 8, headY - hh / 2);
+  ctx.lineTo(cx + hw / 2 - 8, headY - hh / 2);
+  ctx.lineTo(cx + hw / 2, headY);
+  ctx.lineTo(cx + hw / 2 - 8, headY + hh / 2);
+  ctx.lineTo(cx - hw / 2 + 8, headY + hh / 2);
+  ctx.lineTo(cx - hw / 2, headY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ffffff"; ctx.font = "700 10px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+  ctx.fillText("HEAD / GCS", cx, headY + 4);
+  ctx.textAlign = "left";
+
+  const workerY = 100;
+  const workerW = (W - 60) / NODES;
+  // node0 hosts head's own 8 GPUs too (still worker); D used slots 0-25 across 4 nodes
+  const nodeGpuCounts = [8, 8, 8, 2]; // Dave's 26 GPUs across the 4 physical nodes
+  const workerCenters = [];
+  for (let n = 0; n < NODES; n++) {
+    const wx = 30 + n * workerW + workerW / 2;
+    workerCenters.push(wx);
+    ctx.strokeStyle = col("border2"); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, headY + 14); ctx.lineTo(wx, workerY - 16); ctx.stroke();
+  }
+
+  const boxH = H - workerY - 30;
+  for (let n = 0; n < NODES; n++) {
+    const bw = workerW - 14;
+    const bx = 30 + n * workerW + 7;
+    const by = workerY - 12;
+    ctx.strokeStyle = col("cyan-border"); ctx.lineWidth = 1.5;
+    ctx.fillStyle = col("bg2");
+    ctx.fillRect(bx, by, bw, boxH);
+    ctx.strokeRect(bx, by, bw, boxH);
+    ctx.fillStyle = col("text3"); ctx.font = "600 9px \"JetBrains Mono\", monospace";
+    ctx.fillText("worker " + n + " · raylet", bx + 4, by + 12);
+
+    const gCount = nodeGpuCounts[n];
+    const cols4 = 2;
+    const cellPad = 4;
+    const cw = (bw - cellPad * (cols4 + 1)) / cols4;
+    const ch = 16;
+    const actorGpu = 0; // first gpu of every populated node acts as an actor slot (up to 4 total)
+    for (let g = 0; g < 8; g++) {
+      const gx = g % cols4, gy = Math.floor(g / cols4);
+      const px = bx + cellPad + gx * (cw + cellPad);
+      const py = by + 18 + cellPad + gy * (ch + cellPad);
+      const active = g < gCount;
+      const isActor = active && g === 0;
+      ctx.fillStyle = active ? (isActor ? col("purple-mid") : col("cyan-mid")) : col("border");
+      ctx.globalAlpha = active ? (isActor ? 0.95 : (showTasks ? 0.75 : 0.4)) : 0.4;
+      ctx.fillRect(px, py, cw, ch);
+      ctx.globalAlpha = 1;
+      if (active) {
+        ctx.fillStyle = "#ffffff"; ctx.font = "700 8px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+        ctx.fillText(isActor ? "ACT" : (showTasks ? "T" : "gpu"), px + cw / 2, py + ch / 2 + 3);
+        ctx.textAlign = "left";
+      }
+    }
+  }
+
+  if (showTasks) {
+    // draw small task packets streaming from head toward workers
+    const pts = [
+      [0.2, 0.35], [0.5, 0.25], [0.8, 0.4], [0.35, 0.55], [0.65, 0.6], [0.15, 0.7], [0.9, 0.65]
+    ];
+    ctx.fillStyle = col("amber-mid");
+    pts.forEach((p, i) => {
+      const wx = workerCenters[i % NODES];
+      const x = cx + (wx - cx) * p[0] + (i % 2 === 0 ? 10 : -10);
+      const y = headY + 20 + (workerY - headY - 20) * p[1];
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.font = "600 10px \"DM Sans\", system-ui"; ctx.fillStyle = col("amber-mid");
+    ctx.fillText("● in-flight task", 30, H - 6);
+    ctx.fillStyle = col("purple-mid");
+    ctx.fillText("■ ACT = pinned actor", 150, H - 6);
+  } else {
+    ctx.font = "600 10px \"DM Sans\", system-ui"; ctx.fillStyle = col("text3");
+    ctx.fillText("Ray cluster booting inside Dave's 26-GPU SLURM allocation — no tasks scheduled yet", 30, H - 6);
+  }
+}
+
+function drawObjectStore(ctx, W, H, s, col) {
+  const cx = W / 2, cy = H / 2 - 10;
+  const storeW = 130, storeH = 60;
+  ctx.fillStyle = col("purple-bg");
+  ctx.strokeStyle = col("purple-mid"); ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - storeH / 2, storeW / 2, 12, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.fillRect(cx - storeW / 2, cy - storeH / 2, storeW, storeH);
+  ctx.strokeRect(cx - storeW / 2, cy - storeH / 2, storeW, storeH);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + storeH / 2, storeW / 2, 12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = col("purple-bg"); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = col("purple-text"); ctx.font = "700 11px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+  ctx.fillText("Plasma object store", cx, cy - 6);
+  ctx.font = "600 10px \"JetBrains Mono\", monospace";
+  ctx.fillText(OBJ_SIZE_GB.toFixed(1) + " GB tensor (ray.put)", cx, cy + 12);
+  ctx.textAlign = "left";
+
+  const localX = cx - 200, remoteX = cx + 200, ty = cy;
+  ctx.fillStyle = col("green-mid");
+  ctx.beginPath(); ctx.arc(localX, ty, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.font = "700 9px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+  ctx.fillText("same", localX, ty - 3); ctx.fillText("node", localX, ty + 8);
+  ctx.textAlign = "left";
+
+  ctx.fillStyle = col("red-mid");
+  ctx.beginPath(); ctx.arc(remoteX, ty, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.font = "700 9px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+  ctx.fillText("other", remoteX, ty - 3); ctx.fillText("node", remoteX, ty + 8);
+  ctx.textAlign = "left";
+
+  ctx.strokeStyle = col("green-mid"); ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(localX + 22, ty); ctx.lineTo(cx - storeW / 2 - 4, ty); ctx.stroke();
+  ctx.fillStyle = col("green-mid"); ctx.font = "700 10px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+  ctx.fillText(LOCAL_LATENCY_MS + " ms (shared memory, zero-copy)", (localX + cx - storeW / 2) / 2, ty - 8);
+
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = col("red-mid"); ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cx + storeW / 2 + 4, ty); ctx.lineTo(remoteX - 22, ty); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = col("red-mid");
+  ctx.fillText(REMOTE_LATENCY_MS + " ms (network + copy)", (cx + storeW / 2 + remoteX) / 2, ty - 8);
+  ctx.textAlign = "left";
+
+  ctx.font = "600 11px \"DM Sans\", system-ui"; ctx.fillStyle = col("text2");
+  ctx.fillText("Zero-copy locality speedup: " + speedupLocalVsRemote().toFixed(0) + "x faster than a cross-node read", 20, H - 10);
+}
+
+function drawDashboard(ctx, W, H, s, col) {
+  const metrics = [
+    { label: "Queue wait → sched. latency", a: queueWaitMinutes(steps[6]), b: RAY_SCHED_LATENCY_MS / 1000 / 60, aUnit: "min", bUnit: "min", aText: queueWaitMinutes(steps[6]) + " min", bText: RAY_SCHED_LATENCY_MS + " ms" },
+    { label: "GPU utilization", a: avgSlurmUtil(), b: rayUtilPct(), aUnit: "%", bUnit: "%", aText: avgSlurmUtil().toFixed(1) + "%", bText: rayUtilPct().toFixed(1) + "%" },
+    { label: "Throughput", a: throughputJobsPerHour(steps[6]), b: rayThroughputPerSec(), aUnit: "j/h", bUnit: "t/s", aText: throughputJobsPerHour(steps[6]).toFixed(2) + " jobs/hr", bText: rayThroughputPerSec().toFixed(0) + " tasks/s" }
+  ];
+  const rowH = H / metrics.length;
+  const labelW = 190, barMaxW = W - labelW - 90;
+
+  metrics.forEach((m, i) => {
+    const y = i * rowH;
+    ctx.fillStyle = col("text"); ctx.font = "700 12px \"DM Sans\", system-ui";
+    ctx.fillText(m.label, 10, y + rowH / 2 - 12);
+
+    const maxVal = Math.max(m.a, m.b) || 1;
+    const aW = Math.max((m.a / maxVal) * barMaxW, 3);
+    const bW = Math.max((m.b / maxVal) * barMaxW, 3);
+
+    ctx.fillStyle = col("blue-mid");
+    ctx.fillRect(labelW, y + rowH / 2 - 8, aW, 12);
+    ctx.fillStyle = col("text2"); ctx.font = "600 10px \"JetBrains Mono\", monospace";
+    ctx.fillText("SLURM " + m.aText, labelW + aW + 6, y + rowH / 2 + 1);
+
+    ctx.fillStyle = col("cyan-mid");
+    ctx.fillRect(labelW, y + rowH / 2 + 8, bW, 12);
+    ctx.fillStyle = col("text2");
+    ctx.fillText("Ray " + m.bText, labelW + bW + 6, y + rowH / 2 + 17);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// KEYBOARD + INIT
+// ══════════════════════════════════════════════════════════════
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+initDots();
+render();
+window.addEventListener("resize", () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>
