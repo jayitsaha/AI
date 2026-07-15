@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark for Large-Scale Feature Computation — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Live stats panel (replaces matrix panel from the math-gold template) */
+.stats-row{display:flex;gap:10px;align-items:stretch;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.stat-chip{background:var(--bg2);border-radius:var(--radius);padding:8px 14px;min-width:118px;text-align:center;border-left:3px solid var(--text2);}
+.stat-chip .stat-label{font-family:var(--mono);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;}
+.stat-chip .stat-value{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text);}
+.stat-chip.hot{border-left-color:var(--red-mid);}
+.stat-chip.hot .stat-value{color:var(--red-mid);}
+.stat-chip.good{border-left-color:var(--green-mid);}
+.stat-chip.good .stat-value{color:var(--green-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-transform{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-shuffle{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-execute{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-skew{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .stat-chip{min-width:96px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Spark for Large-Scale Feature Computation</h1>
+  <div class="subtitle">Partitions, lazy DAGs, wide vs. narrow dependencies, shuffles, and skew — how a cluster turns raw events into ML features</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Distributed Systems</span>
+    <span class="tag tag-category">Feature Engineering / MLOps</span>
+    <span class="tag tag-complexity">Shuffle: O(n) network I/O</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Spark for Feature Computation</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Apache Spark is a distributed compute engine for processing datasets far too large for one machine. For ML, its most common job is <em>feature computation</em>: reading raw events (clicks, transactions, logs) at the scale of hundreds of millions or billions of rows, and turning them into per-entity feature vectors — "average spend per user last 30 days," "click-through rate per item," etc. — that are later written to a feature store or training table.</p>
+    <p><strong>Analogy:</strong> Imagine a warehouse with 500 million invoices that need to be sorted, cleaned, and summed up per customer. One clerk (a single machine) would take forever. Spark hires 20 teams of 4 clerks each (executors × cores), hands every team a stack of invoices (a <em>partition</em>), and lets them work in parallel. The catch: to compute "total spend per customer," clerks must first regroup invoices by customer name — that regrouping, where paperwork physically moves between teams, is the <em>shuffle</em>, and it is the most expensive step in the whole job.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Spark splits data into <strong>partitions</strong> and schedules one <strong>task</strong> per partition per <strong>core</strong>. Transformations that keep each partition self-contained (<code>map</code>, <code>filter</code>) are <strong>narrow</strong> and free to parallelize. Transformations that need data from <em>other</em> partitions (<code>groupBy</code>, <code>join</code>) are <strong>wide</strong> and force a <strong>shuffle</strong> — an all-to-all network exchange that is usually the bottleneck in feature pipelines.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Driver, Executors, and Partitions</h4>
+    <p>A Spark job has one <strong>driver</strong> process that holds the logical plan and coordinates work, and many <strong>executor</strong> processes (JVMs on cluster nodes) that actually run tasks. Each executor has a fixed number of <strong>cores</strong>, and each core runs one <strong>task</strong> at a time. The input dataset is split into <strong>partitions</strong> — contiguous chunks of rows — and Spark's goal is to keep <em>#partitions ≈ some multiple of total cores</em> so no core sits idle.</p>
+
+    <h4>Lazy Evaluation and the DAG</h4>
+    <p>Calling <code>.filter()</code> or <code>.map()</code> on a DataFrame does <em>not</em> touch data. Spark only records a <strong>logical plan</strong> — a directed acyclic graph (DAG) of transformations. Nothing executes until an <strong>action</strong> (<code>.write()</code>, <code>.collect()</code>, <code>.count()</code>) is called. This laziness lets Spark's <strong>Catalyst optimizer</strong> rewrite the whole chain first — pushing filters down, pruning unused columns, combining maps — before ever reading a byte, which is impossible if execution happens eagerly line by line.</p>
+
+    <h4>Narrow vs. Wide Dependencies</h4>
+    <p>When the DAG is turned into an execution plan, each edge is classified: a <strong>narrow dependency</strong> means each output partition depends on exactly one input partition (map, filter, union) — these can be pipelined into a single stage with zero data movement. A <strong>wide dependency</strong> means each output partition may depend on <em>every</em> input partition (groupByKey, reduceByKey, join, distinct, repartition) because rows with the same key can currently live anywhere. Wide dependencies force a <strong>stage boundary</strong>: Spark must materialize a shuffle before the next stage can start.</p>
+
+    <h4>Design Decision: Why Shuffle at All?</h4>
+    <p>An alternative would be broadcasting every partition to every other partition and filtering locally — but that is <em>O(n²)</em> in network traffic. Instead, Spark's shuffle hash-partitions each row by <code>hash(key) % numReducePartitions</code>, writes it to local disk in buckets, and reducers pull only the bucket meant for them. This is <em>O(n)</em> data movement, but it is still disk + network bound and typically 10–100× slower per byte than an in-partition map.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">A Spark job compiles to a graph of <strong>stages</strong>, where stage boundaries occur exactly at <strong>wide dependencies</strong>. Everything inside one stage runs as pipelined, shuffle-free tasks; everything between stages must pass through a shuffle write + shuffle read.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math of Cost & Skew</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Task Parallelism</h4>
+    <p>With \(P\) partitions and \(C\) total cores across the cluster, tasks run in <strong>waves</strong>:</p>
+    <div class="eq">$$\text{waves} = \left\lceil \frac{P}{C} \right\rceil$$</div>
+    <p>If every partition takes the same time \(t\) to process, an ideal stage finishes in \(\text{waves} \times t\). This is why Spark practitioners tune the partition count: too few partitions under-utilizes cores; too many adds scheduling overhead.</p>
+
+    <h4>Shuffle Volume</h4>
+    <p>For \(N\) rows with average serialized size \(b\) bytes after the map side, the shuffle write is:</p>
+    <div class="eq">$$\text{shuffle bytes} \approx N \times b$$</div>
+    <p>This must be written to disk by every mapper task and read back over the network by every reducer task — a full shuffle touches disk twice and the network once per byte, which is why minimizing shuffled columns (select only what you need <em>before</em> a groupBy) is one of the highest-leverage Spark optimizations.</p>
+
+    <h4>Skew: When One Key Dominates</h4>
+    <p>Hash partitioning assumes keys are roughly uniform. If a fraction \(f\) of rows share one hot key (a bot account, a default/null value, a viral item), that single reduce partition receives:</p>
+    <div class="eq">$$\text{rows}_{\text{skewed}} = f \times N_{\text{shuffled}} \qquad \text{skew ratio} = \frac{\text{rows}_{\text{skewed}}}{N_{\text{shuffled}} / P}$$</div>
+    <p>Because a stage only completes when its <em>slowest</em> task finishes (a classic straggler problem), stage latency becomes:</p>
+    <div class="eq">$$T_{\text{stage}} = \max\Big(\text{waves} \times t_{\text{avg}},\ t_{\text{skewed}}\Big)$$</div>
+    <p>Even with 79 idle, finished cores, the whole stage — and everything downstream — waits on that one task.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Adding more executors does <strong>not</strong> fix skew — every additional core still waits on the same oversized partition. The real fixes are <strong>salting</strong> (append a random suffix to the hot key, aggregate in two phases), <strong>broadcast joins</strong> (skip the shuffle entirely for small dimension tables), or Spark 3's <strong>Adaptive Query Execution (AQE)</strong>, which detects skewed partitions at runtime and automatically splits them into sub-tasks.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow one real feature-engineering job — clickstream events → per-user feature aggregates — from partitioning through a skewed shuffle to the final write, with every number computed live from the job's parameters.</p>
+
+    <div class="viz-container">
+      <!-- Live stats panel -->
+      <div id="statsPanel"></div>
+
+      <!-- Canvas -->
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Dataset & Partitions</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Driver</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Narrow transform</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Shuffle / wide dep</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Finished task</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Skewed / straggler</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan-mid)"></div> Output / result</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When Spark is the right tool for feature computation:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Raw source data exceeds single-machine memory/CPU (hundreds of millions to billions of rows)</li>
+      <li>Features require aggregations across the full history per entity (groupBy, window functions)</li>
+      <li>You need the same batch logic to run as a scheduled, fault-tolerant, re-runnable pipeline (lineage-based recovery — a lost partition is just recomputed from its DAG, not the whole job)</li>
+    </ul>
+    <p><strong>When NOT to reach for Spark:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Data fits comfortably in one machine's RAM — pandas/Polars/DuckDB will be faster with zero cluster overhead</li>
+      <li>You need sub-second, per-request feature lookups — that's an online feature store (Redis/DynamoDB), not a batch shuffle engine</li>
+      <li>Your keys are known to be extremely skewed and small in number — a simple broadcast join beats a full shuffle every time</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Mental Model</div>
+      <p style="font-size:14px;margin:0;">Read the physical plan (<code>.explain()</code>) and count the <strong>Exchange</strong> nodes — each one is a shuffle boundary and a stage split. Minimizing exchanges (filter early, select only needed columns, broadcast small tables, salt hot keys) is 90% of Spark feature-pipeline tuning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">from pyspark.sql import functions as F</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># 1. Read raw clickstream events: 500M rows, 200 input partitions</div>
+      <div class="code-line" id="cl3">events = spark.read.parquet("s3://logs/clickstream/")</div>
+      <div class="code-line" id="cl4">print(events.rdd.getNumPartitions())   # 200 -- NARROW so far, nothing has run</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># 2. Narrow transform: drop malformed rows (1:1 per partition)</div>
+      <div class="code-line" id="cl7">valid = events.filter(F.col("user_id").isNotNull() &amp; F.col("event_ts").isNotNull())</div>
+      <div class="code-line" id="cl8"></div>
+      <div class="code-line" id="cl9"># 3. Narrow transform: project raw event into a feature tuple (still 1:1)</div>
+      <div class="code-line" id="cl10">mapped = valid.select("user_id", F.col("amount").alias("spend"), "event_ts")</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12"># 4. Nothing has executed yet -- this is all still lazy DAG / lineage</div>
+      <div class="code-line" id="cl13">mapped.explain(True)   # shows logical plan, zero jobs run</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># 5. WIDE transform: groupBy triggers a shuffle -- new stage boundary</div>
+      <div class="code-line" id="cl16">features = mapped.groupBy("user_id").agg(</div>
+      <div class="code-line" id="cl17">    F.sum("spend").alias("total_spend"),</div>
+      <div class="code-line" id="cl18">    F.count("*").alias("num_events"))</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># 6. Shuffle: hash(user_id) % 200 assigns rows to reduce partitions</div>
+      <div class="code-line" id="cl21">#    -- one hot user_id (bot traffic) makes one reducer far bigger than the rest</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23"># 7. ACTION triggers the DAG scheduler to build stages and run tasks</div>
+      <div class="code-line" id="cl24">features.count()   # first action -- Stage 0 (read/filter/map) then Stage 1 (shuffle+agg)</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># 8. Mitigate skew: salt the hot key, aggregate twice, or enable AQE</div>
+      <div class="code-line" id="cl27">spark.conf.set("spark.sql.adaptive.enabled", "true")</div>
+      <div class="code-line" id="cl28">spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># 9. Write features out; driver collects task metrics, job marked complete</div>
+      <div class="code-line" id="cl31">features.write.mode("overwrite").parquet("s3://feature-store/user_features/")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// JOB PARAMETERS -- every number shown in the UI is derived from these
+// ══════════════════════════════════════════════════════════════
+const totalRows            = 500_000_000;   // raw clickstream events
+const numPartitions        = 200;           // input / map-side partitions
+const numExecutors         = 20;
+const coresPerExecutor     = 4;
+const totalCores           = numExecutors * coresPerExecutor;              // 80
+const partsPerExecutor     = numPartitions / numExecutors;                  // 10
+const rowsPerPartition     = totalRows / numPartitions;                     // 2.5M
+const processingRatePerCore = 5_000_000;    // rows/sec/core, steady-state map work
+const filterPassRate       = 0.92;          // 8% malformed rows dropped
+const rowsAfterFilter      = Math.round(totalRows * filterPassRate);
+const avgMappedRecordBytes = 120;           // bytes per (user_id, spend, ts) tuple
+const shuffleWriteBytes    = rowsAfterFilter * avgMappedRecordBytes;
+const numReducePartitions  = 200;           // groupBy default parallelism
+const avgReducerRows       = rowsAfterFilter / numReducePartitions;
+const hotKeyFraction       = 0.35;          // fraction of rows sharing ONE hot user_id (bot)
+const skewedReducerRows    = Math.round(hotKeyFraction * rowsAfterFilter);
+const skewRatio            = skewedReducerRows / avgReducerRows;
+const timePerAvgTask       = avgReducerRows / processingRatePerCore;
+const timePerSkewedTask    = skewedReducerRows / processingRatePerCore;
+const wavesStage0          = Math.ceil(numPartitions / totalCores);         // 3
+const wavesStage1          = Math.ceil((numReducePartitions - 1) / (totalCores - 1)); // remaining tasks around the straggler
+const idealStage0Time      = wavesStage0 * (rowsPerPartition / processingRatePerCore);
+const idealStage1Time      = wavesStage1 * timePerAvgTask;
+const stalledStage1Time    = Math.max(idealStage1Time, timePerSkewedTask);
+const skewSlowdown         = stalledStage1Time / idealStage1Time;
+
+// ── formatting helpers ──
+function fmtInt(n) { return Math.round(n).toLocaleString("en-US"); }
+function fmtBytes(n) {
+  if (n >= 1e9) return (n/1e9).toFixed(2) + " GB";
+  if (n >= 1e6) return (n/1e6).toFixed(2) + " MB";
+  return fmtInt(n) + " B";
+}
+function fmtSec(s) {
+  if (s >= 1) return s.toFixed(1) + "s";
+  return Math.round(s*1000) + "ms";
+}
+
+// ══════════════════════════════════════════════════════════════
+// STEPS
+// ══════════════════════════════════════════════════════════════
+const steps = [
+  {
+    phase: "setup", title: "The Dataset & Partitions",
+    desc: "The job reads " + fmtInt(totalRows) + " clickstream events, physically split into \\(" + numPartitions + "\\) partitions of about " + fmtInt(rowsPerPartition) + " rows each. The cluster has " + numExecutors + " executors \\(\\times\\) " + coresPerExecutor + " cores \\(= " + totalCores + "\\) parallel task slots, so \\(" + partsPerExecutor + "\\) partitions land on each executor. The driver holds the plan; no data has moved yet.",
+    canvasMode: "partitions",
+    stats: [["Rows","totalRows","chip"],["Partitions","numPartitions","chip"],["Executors","numExecutors","chip"],["Cores/exec","coresPerExecutor","chip"],["Rows/partition","rowsPerPartition","chip"]]
+  },
+  {
+    phase: "transform", title: "Narrow Transform: filter() drops bad rows",
+    desc: "\\(\\text{events.filter(...)}\\) removes malformed rows. Because this is a <strong>narrow dependency</strong>, each output partition depends on exactly one input partition — every one of the " + numPartitions + " partitions is filtered independently, in place, with zero network traffic. At an assumed " + Math.round(filterPassRate*100) + "% pass rate, row count drops from " + fmtInt(totalRows) + " to " + fmtInt(rowsAfterFilter) + ".",
+    canvasMode: "narrow_filter",
+    stats: [["Pass rate", Math.round(filterPassRate*100)+"%", "raw"],["Rows kept","rowsAfterFilter","chip"],["Rows dropped", fmtInt(totalRows-rowsAfterFilter), "raw"],["Network moved","0 B","raw"]]
+  },
+  {
+    phase: "transform", title: "Narrow Transform: select() maps to feature tuples",
+    desc: "\\(\\text{valid.select(user\\_id, spend, ts)}\\) projects each row into a compact tuple, averaging " + avgMappedRecordBytes + " bytes/record. Still narrow, still 1:1 per partition — Spark can <strong>pipeline</strong> read \\(\\to\\) filter \\(\\to\\) map into one stage with no intermediate materialization, because none of these operators need to see rows from any other partition.",
+    canvasMode: "narrow_map",
+    stats: [["Bytes/record","120 B","raw"],["Stage so far","Stage 0","raw"],["Shuffle needed","No","raw"],["Rows in flight","rowsAfterFilter","chip"]]
+  },
+  {
+    phase: "transform", title: "Lazy Evaluation: the DAG so far",
+    desc: "Nothing above has actually executed. Spark recorded a <strong>lineage graph</strong>: Read \\(\\to\\) Filter \\(\\to\\) Map, plus the pending GroupBy, Join and Write the code already describes. Catalyst can still rewrite this whole chain — reordering filters, pruning columns — before a single task is scheduled. Calling \\(\\text{.explain()}\\) shows this plan; only an <strong>action</strong> like \\(\\text{.count()}\\) or \\(\\text{.write()}\\) will trigger real computation.",
+    canvasMode: "lazy_dag",
+    stats: [["Jobs run so far","0","raw"],["Tasks run so far","0","raw"],["Plan nodes","6","raw"],["Materialized bytes","0 B","raw"]]
+  },
+  {
+    phase: "transform", title: "Wide Transform: groupBy(user_id) needs every partition",
+    desc: "\\(\\text{mapped.groupBy(\"user\\_id\").agg(...)}\\) is a <strong>wide dependency</strong>: the output partition for user 42 could receive rows currently sitting in <em>any</em> of the " + numPartitions + " input partitions, because rows are ordered by arrival time, not by key. Spark cannot compute this in place — it must insert a <strong>stage boundary</strong> and shuffle the data so all rows for the same key land together.",
+    canvasMode: "wide_groupby",
+    stats: [["Dependency","Wide","raw"],["Reduce partitions","numReducePartitions","chip"],["New stage","Stage 1","raw"],["Data movement","Required","raw"]]
+  },
+  {
+    phase: "shuffle", title: "The Shuffle: exchanging rows by hash(key)",
+    desc: "Every mapper writes its rows to disk in " + numReducePartitions + " hash buckets via \\(\\text{hash(user\\_id)} \\bmod " + numReducePartitions + "\\); every reducer then pulls only its bucket across the network. Total <strong>shuffle write</strong> \\(\\approx N \\times b = " + fmtInt(rowsAfterFilter) + " \\times " + avgMappedRecordBytes + "\\text{ B} = " + fmtBytes(shuffleWriteBytes) + "\\). This disk-write-then-network-read round trip is why shuffles are 10-100\\(\\times\\) slower per byte than the narrow stage before it.",
+    canvasMode: "shuffle",
+    stats: [["Shuffle write","shuffleWriteBytes","bytes"],["Buckets","numReducePartitions","chip"],["Hash fn","key % 200","raw"],["Cost/byte","10-100x map","raw"]]
+  },
+  {
+    phase: "execute", title: "Action Triggers Execution: DAG → Stages → Tasks",
+    desc: "\\(\\text{features.count()}\\) is the action. The DAG scheduler cuts the graph at the shuffle boundary into <strong>Stage 0</strong> (read+filter+map, " + numPartitions + " tasks) and <strong>Stage 1</strong> (shuffle-read+aggregate, " + numReducePartitions + " tasks). With " + totalCores + " cores, Stage 0 runs in \\(\\lceil " + numPartitions + "/" + totalCores + "\\rceil = " + wavesStage0 + "\\) waves \\(\\approx " + fmtSec(idealStage0Time) + "\\). If every reducer were average-sized, Stage 1 would similarly take about \\(" + fmtSec(idealStage1Time) + "\\).",
+    canvasMode: "stages_tasks",
+    stats: [["Stage 0 tasks","numPartitions","chip"],["Stage 1 tasks","numReducePartitions","chip"],["Stage 0 waves","wavesStage0","chip"],["Ideal Stage 1 time","idealStage1Time","sec"]]
+  },
+  {
+    phase: "skew", title: "Data Skew: one straggler stalls the stage",
+    desc: "One \\(\\text{user\\_id}\\) — a bot or service account — accounts for " + Math.round(hotKeyFraction*100) + "% of all rows. Its reducer gets \\(" + fmtInt(skewedReducerRows) + "\\) rows instead of the average \\(" + fmtInt(avgReducerRows) + "\\) — a <strong>" + skewRatio.toFixed(0) + "\\(\\times\\) skew ratio</strong>. That single task takes \\(" + fmtSec(timePerSkewedTask) + "\\) while the other 199 finish in waves totaling \\(" + fmtSec(idealStage1Time) + "\\). Because \\(T_{stage} = \\max(\\text{waves} \\times t_{avg},\\ t_{skewed})\\), the entire stage — and everything after it — waits \\(" + fmtSec(stalledStage1Time) + "\\): a <strong>" + skewSlowdown.toFixed(0) + "\\(\\times\\) slowdown</strong> with 79 cores sitting idle.",
+    canvasMode: "skew",
+    stats: [["Hot key share",Math.round(hotKeyFraction*100)+"%","raw"],["Skew ratio","skewRatio","ratio"],["Straggler time","timePerSkewedTask","sec"],["Stage slowdown","skewSlowdown","mult"]]
+  },
+  {
+    phase: "result", title: "Features Written, Job Complete",
+    desc: "\\(\\text{features.write.parquet(...)}\\) writes " + numReducePartitions + " output files of per-user aggregates to the feature store. The driver collects final task metrics (bytes read/written, task durations, the skewed task flagged in the UI) and marks the job successful. Because Spark kept the full lineage graph, if any executor had died mid-job, only its lost partitions would be recomputed from source — not the whole pipeline.",
+    canvasMode: "result",
+    stats: [["Output files","numReducePartitions","chip"],["Total shuffle","shuffleWriteBytes","bytes"],["Wall time (stalled)","stalledStage1Time+idealStage0Time","sec"],["Fault recovery","Lineage-based","raw"]]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// derived-value lookup used by the stats panel
+const derivedValues = {
+  totalRows, numPartitions, numExecutors, coresPerExecutor, partsPerExecutor,
+  rowsPerPartition, rowsAfterFilter, shuffleWriteBytes, numReducePartitions,
+  avgReducerRows, skewedReducerRows, skewRatio, timePerAvgTask, timePerSkewedTask,
+  wavesStage0, wavesStage1, idealStage0Time, idealStage1Time, stalledStage1Time,
+  skewSlowdown, "stalledStage1Time+idealStage0Time": stalledStage1Time + idealStage0Time
+};
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector(".section-toggle");
+  body.classList.toggle("collapsed");
+  toggle.classList.toggle("open");
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById("progressDots");
+  wrap.innerHTML = "";
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i === 0 ? " active" : "");
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll(".dot");
+  dots.forEach((d, i) => {
+    d.className = "dot";
+    if (i < step) d.classList.add("done");
+    if (i === step) d.classList.add("active");
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById("btnPrev").disabled = step === 0;
+  document.getElementById("btnNext").disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:"phase-setup", transform:"phase-transform", shuffle:"phase-shuffle", execute:"phase-execute", skew:"phase-skew", result:"phase-result"};
+  document.getElementById("infoPhase").className = "info-phase " + phaseMap[s.phase];
+  document.getElementById("infoPhase").textContent = s.phase.toUpperCase();
+  document.getElementById("infoStep").textContent = "Step " + (step+1) + " of " + totalSteps;
+  document.getElementById("infoTitle").textContent = s.title;
+  document.getElementById("infoDesc").innerHTML = s.desc;
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("infoCard"), {
+      delimiters: [
+        {left: "$$", right: "$$", display: true},
+        {left: "\\(", right: "\\)", display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll(".code-line").forEach(cl => cl.classList.remove("active"));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById("cl"+i);
+    if (el) el.classList.add("active");
+  });
+
+  renderStats(s.stats || []);
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── LIVE STATS PANEL ──
+function renderStats(list) {
+  const wrap = document.getElementById("statsPanel");
+  if (!list.length) { wrap.innerHTML = ""; return; }
+  let html = "<div class=\"stats-row\">";
+  list.forEach(([label, keyOrLiteral, kind]) => {
+    let val, cls = "";
+    if (kind === "chip") { val = fmtInt(derivedValues[keyOrLiteral]); }
+    else if (kind === "bytes") { val = fmtBytes(derivedValues[keyOrLiteral]); }
+    else if (kind === "sec") { val = fmtSec(derivedValues[keyOrLiteral]); }
+    else if (kind === "ratio") { val = derivedValues[keyOrLiteral].toFixed(1) + "x"; cls = "hot"; }
+    else if (kind === "mult") { val = derivedValues[keyOrLiteral].toFixed(1) + "x"; cls = "hot"; }
+    else { val = keyOrLiteral; }
+    if (label === "Network moved" || label === "Rows kept") cls = "good";
+    if (label === "Hot key share" || label === "Straggler time") cls = "hot";
+    html += "<div class=\"stat-chip " + cls + "\"><div class=\"stat-label\">" + label + "</div><div class=\"stat-value\">" + val + "</div></div>";
+  });
+  html += "</div>";
+  wrap.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CANVAS DRAWING
+// ══════════════════════════════════════════════════════════════
+function setupCanvas() {
+  const canvas = document.getElementById("vizCanvas");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, rect.width * dpr);
+  canvas.height = Math.max(1, rect.height * dpr);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr, dpr);
+  return { ctx, W: rect.width, H: rect.height };
+}
+
+function theme() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    bg2: g("--bg2"), text: g("--text"), text2: g("--text2"), text3: g("--text3"),
+    border: g("--border2"), surface: g("--surface"),
+    blue: g("--blue-mid"), blueBg: g("--blue-bg"),
+    purple: g("--purple-mid"), purpleBg: g("--purple-bg"),
+    red: g("--red-mid"), redBg: g("--red-bg"),
+    green: g("--green-mid"), greenBg: g("--green-bg"),
+    amber: g("--amber-mid"), amberBg: g("--amber-bg"),
+    cyan: g("--cyan-mid"), cyanBg: g("--cyan-bg")
+  };
+}
+
+// draw the driver box used at the top of most partition-grid views
+function drawDriver(ctx, W, T, label) {
+  const w = 130, h = 34, x = W/2 - w/2, y = 6;
+  ctx.fillStyle = T.blueBg; ctx.strokeStyle = T.blue; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = T.blue; ctx.font = "600 12px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+  ctx.fillText(label || "DRIVER", W/2, y + h/2 + 4);
+  ctx.textAlign = "left";
+  return y + h;
+}
+
+// draw the executor x partition grid; cellColorFn(execIdx, rowIdx) -> {fill, strip}
+function drawGrid(ctx, W, H, topY, cellColorFn, opts) {
+  opts = opts || {};
+  const cols = numExecutors, rows = partsPerExecutor;
+  const padL = 46, padR = 16, padT = topY + 22, padB = 34;
+  const gw = W - padL - padR, gh = H - padT - padB;
+  const cw = gw / cols, ch = gh / rows;
+
+  // executor labels (every 4th to avoid clutter)
+  ctx.font = "10px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+  for (let c = 0; c < cols; c++) {
+    if (c % 4 === 0) {
+      ctx.fillStyle = opts.text3;
+      ctx.fillText("E" + c, padL + c*cw + cw/2, padT - 8);
+    }
+  }
+  ctx.textAlign = "left";
+
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      const x = padL + c*cw, y = padT + r*ch;
+      const col = cellColorFn(c, r);
+      ctx.fillStyle = col.fill;
+      ctx.fillRect(x+1, y+1, cw-2, ch-2);
+      if (col.strip) {
+        ctx.fillStyle = col.strip;
+        ctx.fillRect(x+1, y+1, cw-2, Math.max(2, ch*0.28));
+      }
+      if (col.stroke) {
+        ctx.strokeStyle = col.stroke; ctx.lineWidth = 1.4;
+        ctx.strokeRect(x+1, y+1, cw-2, ch-2);
+      }
+    }
+    // executor separator every 1 column, heavier every 4
+    ctx.strokeStyle = opts.border; ctx.lineWidth = (c % 4 === 0) ? 1.2 : 0.4;
+    ctx.beginPath(); ctx.moveTo(padL + c*cw, padT); ctx.lineTo(padL + c*cw, padT + gh); ctx.stroke();
+  }
+  ctx.strokeStyle = opts.border; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(padL + cols*cw, padT); ctx.lineTo(padL + cols*cw, padT + gh); ctx.stroke();
+
+  return { padL, padT, gw, gh, cw, ch, cols, rows };
+}
+
+function drawCanvas(mode) {
+  const { ctx, W, H } = setupCanvas();
+  const T = theme();
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = T.bg2; ctx.fillRect(0, 0, W, H);
+
+  if (mode === "partitions") {
+    const topY = drawDriver(ctx, W, T, "DRIVER · plans job");
+    const grid = drawGrid(ctx, W, H, topY, () => ({ fill: T.blueBg, stroke: T.blue }), T);
+    ctx.fillStyle = T.text2; ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillText(numPartitions + " partitions across " + numExecutors + " executors (" + partsPerExecutor + " each), " + totalCores + " total cores", grid.padL, H - 8);
+  }
+
+  if (mode === "narrow_filter") {
+    const topY = drawDriver(ctx, W, T, "DRIVER · Stage 0");
+    const dropFrac = 1 - filterPassRate;
+    const grid = drawGrid(ctx, W, H, topY, () => ({ fill: T.purpleBg, strip: T.red }), T);
+    ctx.fillStyle = T.text2; ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillText("filter(): red strip = ~" + Math.round(dropFrac*100) + "% dropped per partition — no cross-partition movement", grid.padL, H - 8);
+    // small local arrows to emphasize 1:1
+    ctx.fillStyle = T.text3; ctx.font = "10px \"DM Sans\", system-ui";
+    ctx.fillText("↓ each partition transforms itself, in place", grid.padL, topY + 12);
+  }
+
+  if (mode === "narrow_map") {
+    const topY = drawDriver(ctx, W, T, "DRIVER · Stage 0 (pipelined)");
+    const grid = drawGrid(ctx, W, H, topY, () => ({ fill: T.amberBg, stroke: T.amber }), T);
+    ctx.fillStyle = T.text2; ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillText("select()/map(): still 1:1 -> read+filter+map fuse into ONE stage, zero shuffle", grid.padL, H - 8);
+  }
+
+  if (mode === "lazy_dag") {
+    drawDagFlow(ctx, W, H, T, false);
+  }
+
+  if (mode === "wide_groupby") {
+    const topY = drawDriver(ctx, W, T, "DRIVER · plans Stage 1");
+    const grid = drawGrid(ctx, W, H, topY, (c, r) => ({ fill: T.purpleBg, stroke: (r===0) ? T.red : "transparent" }), T);
+    // converging lines from the top row of every 2nd executor into a central shuffle exchange node
+    const midX = grid.padL + grid.gw/2, midY = grid.padT + grid.gh + 14;
+    ctx.strokeStyle = T.red; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.2;
+    for (let c = 0; c < grid.cols; c += 2) {
+      const x = grid.padL + c*grid.cw + grid.cw/2, y = grid.padT;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(midX, midY); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = T.redBg; ctx.strokeStyle = T.red; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(midX-90, midY-2, 180, 26, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = T.red; ctx.font = "600 11px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+    ctx.fillText("groupBy(user_id) needs ALL partitions", midX, midY + 15);
+    ctx.textAlign = "left";
+  }
+
+  if (mode === "shuffle") {
+    drawShuffle(ctx, W, H, T);
+  }
+
+  if (mode === "stages_tasks") {
+    drawStageGantt(ctx, W, H, T, false);
+  }
+
+  if (mode === "skew") {
+    drawStageGantt(ctx, W, H, T, true);
+  }
+
+  if (mode === "result") {
+    const topY = drawDriver(ctx, W, T, "DRIVER · job complete ✓");
+    const grid = drawGrid(ctx, W, H, topY, () => ({ fill: T.cyanBg, stroke: T.cyan }), T);
+    ctx.fillStyle = T.text2; ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillText(numReducePartitions + " parquet files written to the feature store; task metrics collected by the driver", grid.padL, H - 8);
+    // file icons row
+    ctx.font = "16px system-ui";
+    for (let i = 0; i < 12; i++) {
+      ctx.fillText("▤", grid.padL + i*(grid.gw/12), grid.padT + grid.gh + 8);
+    }
+  }
+}
+
+function drawDagFlow(ctx, W, H, T, executed) {
+  const nodes = [
+    { name: "Read", done: true }, { name: "Filter", done: true }, { name: "Map", done: true },
+    { name: "GroupBy\n(shuffle)", done: false }, { name: "Join\n(shuffle)", done: false }, { name: "Write", done: false }
+  ];
+  const n = nodes.length;
+  const pad = 30, boxW = (W - pad*2 - (n-1)*24) / n, boxH = 60, y = H/2 - boxH/2;
+  ctx.font = "11px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+  ctx.fillStyle = T.text2;
+  ctx.fillText("Lazy DAG (logical plan only) — nothing below has executed", W/2, y - 24);
+  nodes.forEach((node, i) => {
+    const x = pad + i * (boxW + 24);
+    ctx.setLineDash(node.done ? [] : [5,4]);
+    ctx.fillStyle = node.done ? T.greenBg : T.bg2;
+    ctx.strokeStyle = node.done ? T.green : T.text3;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, 8); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = node.done ? T.green : T.text2;
+    const lines = node.name.split("\n");
+    lines.forEach((ln, li) => ctx.fillText(ln, x + boxW/2, y + boxH/2 + li*13 - (lines.length-1)*6 + 4));
+    if (i < n - 1) {
+      const ax = x + boxW, ay = y + boxH/2;
+      ctx.strokeStyle = T.text3; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + 20, ay); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax+20, ay); ctx.lineTo(ax+14, ay-4); ctx.lineTo(ax+14, ay+4); ctx.closePath();
+      ctx.fillStyle = T.text3; ctx.fill();
+    }
+  });
+  ctx.textAlign = "left";
+  ctx.fillStyle = T.text3; ctx.font = "10px \"JetBrains Mono\", monospace";
+  ctx.fillText("solid/green = already valid lineage nodes  ·  dashed = pending, unexecuted", pad, H - 14);
+}
+
+function drawShuffle(ctx, W, H, T) {
+  const midX = W/2;
+  const leftX = 40, rightX = W - 40;
+  const topY = 34, botY = H - 40;
+  const nSrc = 20, nDst = 20;
+  ctx.font = "11px \"DM Sans\", system-ui"; ctx.textAlign = "center";
+  ctx.fillStyle = T.text2;
+  ctx.fillText("MAP-SIDE (write shuffle files)", leftX, topY - 14);
+  ctx.fillText("REDUCE-SIDE (read shuffle files)", rightX, topY - 14);
+  ctx.textAlign = "left";
+
+  const srcPts = [], dstPts = [];
+  for (let i = 0; i < nSrc; i++) srcPts.push(topY + (botY-topY) * (i/(nSrc-1)));
+  for (let i = 0; i < nDst; i++) dstPts.push(topY + (botY-topY) * (i/(nDst-1)));
+
+  // crossing lines colored by a pseudo hash-bucket palette
+  const palette = [T.blue, T.purple, T.amber, T.cyan, T.green];
+  ctx.globalAlpha = 0.5;
+  for (let i = 0; i < nSrc; i++) {
+    for (let k = 0; k < 3; k++) {
+      const j = (i * 7 + k * 3) % nDst;
+      ctx.strokeStyle = palette[(i + k) % palette.length];
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(leftX, srcPts[i]); ctx.lineTo(rightX, dstPts[j]); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  srcPts.forEach(y => { ctx.fillStyle = T.blue; ctx.beginPath(); ctx.arc(leftX, y, 3.5, 0, 7); ctx.fill(); });
+  dstPts.forEach(y => { ctx.fillStyle = T.red; ctx.beginPath(); ctx.arc(rightX, y, 3.5, 0, 7); ctx.fill(); });
+
+  // shuffle bytes banner
+  ctx.fillStyle = T.redBg; ctx.strokeStyle = T.red; ctx.lineWidth = 1.4;
+  const bw = 230, bh = 34, bx = midX - bw/2, by = H/2 - bh/2;
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = T.red; ctx.font = "700 13px \"JetBrains Mono\", monospace"; ctx.textAlign = "center";
+  ctx.fillText(fmtBytes(shuffleWriteBytes) + " shuffled", midX, by + bh/2 + 5);
+  ctx.textAlign = "left";
+  ctx.fillStyle = T.text3; ctx.font = "10px \"DM Sans\", system-ui";
+  ctx.fillText("hash(user_id) % " + numReducePartitions + " picks the destination bucket for every row", 20, H - 10);
+}
+
+function drawStageGantt(ctx, W, H, T, showSkew) {
+  const padL = 90, padT = 40, padR = 20, padB = 34;
+  const rows = numExecutors; // one lane per executor (4 cores bundled)
+  const rowH = (H - padT - padB) / rows;
+  const timeScaleMax = showSkew ? timePerSkewedTask * 1.15 : Math.max(idealStage1Time, idealStage0Time) * 1.3;
+  const toX = t => padL + (t / timeScaleMax) * (W - padL - padR);
+
+  ctx.font = "10px \"JetBrains Mono\", monospace";
+  ctx.fillStyle = T.text2;
+  ctx.fillText(showSkew ? "Stage 1 (shuffle read + aggregate) — WITH skew" : "Stage 0 → Stage 1 task timeline (ideal, no skew)", padL, 18);
+
+  // axis
+  ctx.strokeStyle = T.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB); ctx.lineTo(W - padR, H - padB); ctx.stroke();
+  const ticks = 5;
+  for (let i = 0; i <= ticks; i++) {
+    const t = timeScaleMax * i / ticks;
+    const x = toX(t);
+    ctx.strokeStyle = T.border; ctx.beginPath(); ctx.moveTo(x, H-padB); ctx.lineTo(x, H-padB+5); ctx.stroke();
+    ctx.fillStyle = T.text3; ctx.fillText(fmtSec(t), x - 12, H - padB + 18);
+  }
+
+  for (let r = 0; r < rows; r++) {
+    const y = padT + r * rowH;
+    if (r % 4 === 0) { ctx.fillStyle = T.text3; ctx.fillText("E" + r, 8, y + rowH/2 + 4); }
+
+    if (!showSkew) {
+      // even distribution across waves
+      let waves = wavesStage1;
+      for (let w = 0; w < waves; w++) {
+        const t0 = w * timePerAvgTask, t1 = Math.min((w+1)*timePerAvgTask, idealStage1Time);
+        if (t0 >= idealStage1Time) break;
+        ctx.fillStyle = T.greenBg; ctx.strokeStyle = T.green; ctx.lineWidth = 1;
+        ctx.fillRect(toX(t0), y + rowH*0.18, toX(t1)-toX(t0), rowH*0.64);
+        ctx.strokeRect(toX(t0), y + rowH*0.18, toX(t1)-toX(t0), rowH*0.64);
+      }
+    } else {
+      if (r === 0) {
+        // the straggler: one long red bar
+        ctx.fillStyle = T.amberBg; ctx.strokeStyle = T.amber; ctx.lineWidth = 1.4;
+        ctx.fillRect(toX(0), y + rowH*0.15, toX(timePerSkewedTask)-toX(0), rowH*0.7);
+        ctx.strokeRect(toX(0), y + rowH*0.15, toX(timePerSkewedTask)-toX(0), rowH*0.7);
+        ctx.fillStyle = T.amber; ctx.font = "600 10px \"DM Sans\", system-ui";
+        ctx.fillText("straggler: " + fmtInt(skewedReducerRows) + " rows, " + fmtSec(timePerSkewedTask), toX(timePerSkewedTask) + 6, y + rowH/2 + 4);
+      } else {
+        // others finish fast then sit idle (hatched) until the straggler ends
+        const busyEnd = Math.min(timePerAvgTask * Math.ceil(199/79), idealStage1Time);
+        ctx.fillStyle = T.greenBg; ctx.strokeStyle = T.green; ctx.lineWidth = 1;
+        ctx.fillRect(toX(0), y + rowH*0.18, toX(busyEnd)-toX(0), rowH*0.64);
+        ctx.strokeRect(toX(0), y + rowH*0.18, toX(busyEnd)-toX(0), rowH*0.64);
+        ctx.fillStyle = T.border;
+        ctx.fillRect(toX(busyEnd), y + rowH*0.18, toX(timePerSkewedTask)-toX(busyEnd), rowH*0.64);
+      }
+    }
+  }
+  ctx.font = "10px \"DM Sans\", system-ui"; ctx.fillStyle = T.text3;
+  if (showSkew) {
+    ctx.fillText("grey = idle, finished cores waiting on the straggler before the next stage can start", padL, H - 6);
+  } else {
+    ctx.fillText("green bars = tasks completing in waves across " + totalCores + " cores", padL, H - 6);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener("resize", () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

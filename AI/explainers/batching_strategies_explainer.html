@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inference Batching Strategies — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Metrics chips (batching numbers) */
+.metrics-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:1rem 0;}
+.metric-chip{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-family:var(--mono);font-size:12px;color:var(--text2);text-align:center;min-width:110px;}
+.metric-chip b{display:block;font-size:16px;color:var(--text);font-family:var(--sans);font-weight:700;margin-top:2px;}
+.metric-chip.hl{background:var(--green-bg);border-color:var(--green-border);}
+.metric-chip.hl b{color:var(--green-mid);}
+.metric-chip.warn{background:var(--red-bg);border-color:var(--red-border);}
+.metric-chip.warn b{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-static{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-dynamic{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-continuous{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .metric-chip{min-width:90px;font-size:11px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Inference Batching Strategies</h1>
+  <div class="subtitle">Static, dynamic, and adaptive (continuous) batching for model serving</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">ML Systems</span>
+    <span class="tag tag-category">LLM Serving</span>
+    <span class="tag tag-complexity">Latency vs Throughput</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Inference Batching</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> A GPU is most efficient when it processes many inputs at once — matrix multiplies scale sublinearly with batch size, so running 8 requests together can cost only slightly more than running 1. <em>Batching</em> is the scheduling policy that decides when incoming requests get grouped together and sent to the model. The catch: requests don't arrive all at once — they trickle in randomly over time — so the scheduler must trade off "wait for more requests to fill the batch" against "answer this request now."</p>
+    <p><strong>Analogy:</strong> Think of an elevator. <em>Static batching</em> is an elevator that only moves once exactly 8 people are inside — if only 3 people show up, everyone waits, possibly forever. <em>Dynamic batching</em> is an elevator that leaves once it's full OR after 10 seconds, whichever comes first — bounded wait, better utilization. <em>Continuous (adaptive) batching</em> is like a paternoster lift with no doors — people step on and off different floors continuously, and no one waits for anyone else's ride to finish, even though many people are in the shaft at once.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Static and dynamic batching fire a batch as one atomic unit — every request in it starts and finishes together. Continuous batching (used by vLLM, TensorRT-LLM, Orca, TGI) schedules at the level of a single decode <em>iteration</em>: a finished sequence frees its slot immediately, and a queued request is admitted into that slot on the very next iteration — no one waits for the whole batch to drain.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Each Strategy Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Static Batching</h4>
+    <p>The server accumulates requests in a queue until exactly \(B\) of them are present, then runs one forward pass on all \(B\) together. Simple, and it maximizes GPU utilization per pass — but the first request in the queue must wait for \(B-1\) more requests to show up. At low traffic that wait can be unbounded.</p>
+
+    <h4>Dynamic Batching</h4>
+    <p>Same idea, but with an escape hatch: the batch fires when it reaches max size \(B\) <em>or</em> a timeout \(T\) elapses since the oldest queued request arrived — whichever happens first. This caps worst-case latency at \(T\) while still batching aggressively under load. Almost every production serving stack (TF Serving, Triton, TorchServe) implements this.</p>
+
+    <h4>Adaptive / Continuous Batching</h4>
+    <p>Static and dynamic batching assume every request in a batch takes the same amount of compute and finishes at the same time — true for fixed-shape vision/tabular models, false for autoregressive LLM generation where one prompt might need 5 tokens and another 500. Continuous batching (a.k.a. <em>iteration-level scheduling</em>, introduced by the Orca paper and used in vLLM/TGI/TensorRT-LLM) treats the GPU as a fixed number of "slots." At every decode step, any slot whose sequence just finished is immediately refilled from the queue, while every other slot advances its own sequence by one token. The batch composition is fluid — new requests join mid-flight without waiting for the whole cohort to finish.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Continuous batching decouples <strong>admission</strong> (when a request starts) from <strong>completion</strong> (when a request finishes) at the granularity of one model step, instead of one whole batch. This is what makes it dramatically better for variable-length generative workloads.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Expected Queueing Wait (Static Batching)</h4>
+    <p>Requests arrive as a Poisson process with rate \(\lambda\). To fill a batch of size \(B\), the server waits for \(B-1\) more arrivals after the first request. Since inter-arrival times are exponential with mean \(1/\lambda\), the expected wait for the <em>first</em> request in the batch is:</p>
+    <div class="eq">$$\mathbb{E}[\text{wait}] = \frac{B-1}{\lambda}, \qquad \mathbb{E}[\text{latency}] = \frac{B-1}{\lambda} + T_{\text{proc}}(B)$$</div>
+    <p>where \(T_{\text{proc}}(B) \approx T_0 + kB\) is the (mildly batch-size-dependent) forward-pass time. As \(\lambda \to 0\) (low load), wait time diverges — this is the static-batching latency cliff.</p>
+
+    <h4>Dynamic Batching Bounds the Wait</h4>
+    <div class="eq">$$\mathbb{E}[\text{wait}] = \min\!\left(\frac{B-1}{\lambda},\; T_{\text{timeout}}\right)$$</div>
+    <p>The timeout \(T_{\text{timeout}}\) is a knob: smaller values bound tail latency tighter at the cost of smaller (less GPU-efficient) batches under low load.</p>
+
+    <h4>Continuous Batching Throughput</h4>
+    <p>With \(S\) concurrent slots and mean per-token service time \(\bar{s}\), the system behaves like an \(M/M/S/S\)-style loss-free server as long as slots are refilled instantly on completion. Steady-state GPU utilization and max sustainable throughput are:</p>
+    <div class="eq">$$\rho = \frac{\lambda \cdot \bar{s} \cdot \bar{L}}{S}, \qquad \text{Throughput}_{\max} \approx \frac{S}{\bar{s}}$$</div>
+    <p>where \(\bar{L}\) is the mean number of decode steps per request. Because slots refill immediately rather than waiting for the slowest sequence in a cohort, \(\rho\) stays high even when request lengths are highly variable — the key structural advantage over static/dynamic batching for LLMs.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Continuous batching isn't free — it requires the model's KV cache to support per-sequence, variable-length memory (paged attention, etc.), because slots now hold sequences at different generation lengths simultaneously. Static/dynamic batching can assume a single fixed tensor shape for the whole batch; continuous batching cannot.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Requests arrive on a live simulated timeline. Step through static, dynamic, and continuous batching and watch latency, throughput, and GPU utilization update — all computed live from the same underlying arrival process.</p>
+
+    <div class="viz-container">
+      <div id="metricsViz" class="metrics-row"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Serving Problem</div>
+        <div class="info-desc" id="infoDesc">Requests arrive randomly over time.</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Queued / waiting</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Batch firing / processing</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Completed</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Starved / GPU idle</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Continuous slot busy</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use each:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li><strong>Static batching</strong> — offline/batch scoring jobs where all inputs are known ahead of time and latency doesn't matter (nightly recommendation scoring, bulk embeddings).</li>
+      <li><strong>Dynamic batching</strong> — online serving of fixed-shape models (image classifiers, embedding models, small transformers) with a latency SLA; Triton/TF-Serving-style deployments.</li>
+      <li><strong>Continuous / adaptive batching</strong> — autoregressive LLM serving where output length is unknown ahead of time and requests have wildly different generation lengths; this is the default in vLLM, TGI, TensorRT-LLM, and Orca-style schedulers.</li>
+    </ul>
+    <p><strong>Watch out for:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Static batching can starve requests indefinitely under low load — there's no bound on tail latency.</li>
+      <li>Dynamic batching's timeout is a direct latency/throughput dial — tune it per SLA, not once globally.</li>
+      <li>Continuous batching needs paged/chunked KV-cache memory management or it will fragment GPU memory as sequences of different lengths coexist.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Hierarchy</div>
+      <p style="font-size:14px;margin:0;"><strong>Static</strong> (fires on count only) ⊂ <strong>Dynamic</strong> (fires on count OR timeout) ⊂ <strong>Continuous</strong> (fires — refills — every single iteration, per-slot). Each generalizes the previous by shrinking the unit of scheduling from "whole batch" down to "one iteration."</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0"># --- Static batching ---</div>
+      <div class="code-line" id="cl1">def static_batch(queue, B):</div>
+      <div class="code-line" id="cl2">    batch = []</div>
+      <div class="code-line" id="cl3">    while len(batch) &lt; B:</div>
+      <div class="code-line" id="cl4">        batch.append(queue.pop())     # blocks until B requests arrive</div>
+      <div class="code-line" id="cl5">    return run_model(batch)            # fires ONLY when full</div>
+      <div class="code-line" id="cl6"></div>
+      <div class="code-line" id="cl7"># --- Dynamic batching ---</div>
+      <div class="code-line" id="cl8">def dynamic_batch(queue, B, timeout_ms):</div>
+      <div class="code-line" id="cl9">    batch = []</div>
+      <div class="code-line" id="cl10">    deadline = now() + timeout_ms</div>
+      <div class="code-line" id="cl11">    while len(batch) &lt; B and now() &lt; deadline:</div>
+      <div class="code-line" id="cl12">        if queue:</div>
+      <div class="code-line" id="cl13">            batch.append(queue.pop())</div>
+      <div class="code-line" id="cl14">    return run_model(batch)             # fires on B OR timeout</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16"># --- Continuous (adaptive) batching ---</div>
+      <div class="code-line" id="cl17">def continuous_batching_loop(queue, slots):</div>
+      <div class="code-line" id="cl18">    while True:</div>
+      <div class="code-line" id="cl19">        for slot in slots:</div>
+      <div class="code-line" id="cl20">            if slot.is_free() and queue:</div>
+      <div class="code-line" id="cl21">                slot.assign(queue.pop())     # admit mid-flight, no wait</div>
+      <div class="code-line" id="cl22">        active = [s for s in slots if s.busy]</div>
+      <div class="code-line" id="cl23">        step_decode(active)                   # ONE token per active seq</div>
+      <div class="code-line" id="cl24">        for slot in active:</div>
+      <div class="code-line" id="cl25">            if slot.sequence.is_finished():</div>
+      <div class="code-line" id="cl26">                emit(slot.sequence)</div>
+      <div class="code-line" id="cl27">                slot.free()                    # refilled next iteration</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// UTILITIES: seeded RNG + arrival-process generation
+// ============================================================
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Poisson-process arrivals: lambda in requests/sec, n requests, times returned in ms.
+function genArrivals(lambdaPerSec, n, seed) {
+  var rng = mulberry32(seed);
+  var lambdaMs = lambdaPerSec / 1000;
+  var t = 0;
+  var arr = [];
+  for (var i = 0; i < n; i++) {
+    var u = rng();
+    var dt = -Math.log(1 - u) / lambdaMs;
+    t += dt;
+    arr.push(t);
+  }
+  return arr;
+}
+
+function fmt1(x) { return (Math.round(x * 10) / 10).toFixed(1); }
+function fmt0(x) { return Math.round(x).toString(); }
+function pct(x) { return Math.round(x * 100) + "%"; }
+
+// ============================================================
+// SIMULATIONS
+// ============================================================
+
+// Fixed forward-pass ("processing") time as a function of batch size.
+function procStatic(B) { return 15 + 4 * B; }
+
+// Static batching: fire only when exactly B requests have queued.
+// Trailing group that never reaches B is returned with fire=null, complete=null (starved).
+function simStatic(arrivals, B) {
+  var out = [];
+  for (var i = 0; i < arrivals.length; i += B) {
+    var group = arrivals.slice(i, i + B);
+    if (group.length === B) {
+      var fireTime = group[group.length - 1];
+      var complete = fireTime + procStatic(B);
+      for (var j = 0; j < group.length; j++) {
+        out.push({ arrival: group[j], fire: fireTime, complete: complete, batchSize: B, starved: false });
+      }
+    } else {
+      for (var k = 0; k < group.length; k++) {
+        out.push({ arrival: group[k], fire: null, complete: null, batchSize: group.length, starved: true });
+      }
+    }
+  }
+  return out;
+}
+
+// Dynamic batching: fire at min(time batch fills to B, timeout after oldest queued request).
+function simDynamic(arrivals, B, timeoutMs) {
+  var out = [];
+  var i = 0;
+  while (i < arrivals.length) {
+    var startWait = arrivals[i];
+    var j = i;
+    while ((j - i + 1) < B && (j + 1) < arrivals.length && (arrivals[j + 1] - startWait) <= timeoutMs) {
+      j++;
+    }
+    var group = arrivals.slice(i, j + 1);
+    var fireTime = Math.max(startWait + timeoutMs, group[group.length - 1]);
+    if (group.length === B) fireTime = Math.min(fireTime, Math.max(group[group.length - 1], startWait));
+    fireTime = Math.max(fireTime, group[group.length - 1]);
+    var complete = fireTime + procStatic(group.length);
+    for (var k = 0; k < group.length; k++) {
+      out.push({ arrival: group[k], fire: fireTime, complete: complete, batchSize: group.length, starved: false });
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
+// Continuous (iteration-level) batching: S slots, tick-based decode loop.
+// Returns per-request results plus a per-tick history of slot ownership (for the slot-grid viz).
+function simContinuous(arrivals, S, tickMs, seed) {
+  var rng = mulberry32(seed);
+  var serviceTicks = arrivals.map(function () { return 4 + Math.floor(rng() * 18); });
+  var slots = new Array(S).fill(null);
+  var results = new Array(arrivals.length).fill(null);
+  var util = [];
+  var history = [];
+  var time = 0, queueIdx = 0, tick = 0;
+  var maxTicks = 400;
+  while ((queueIdx < arrivals.length || slots.some(function (s) { return s; })) && tick < maxTicks) {
+    for (var s = 0; s < S; s++) {
+      if (!slots[s] && queueIdx < arrivals.length && arrivals[queueIdx] <= time) {
+        slots[s] = { reqIdx: queueIdx, remaining: serviceTicks[queueIdx] };
+        queueIdx++;
+      }
+    }
+    var busy = slots.filter(function (s) { return s; }).length;
+    util.push(busy / S);
+    history.push(slots.map(function (s) { return s ? s.reqIdx : -1; }));
+    for (var s2 = 0; s2 < S; s2++) {
+      if (slots[s2]) {
+        slots[s2].remaining--;
+        if (slots[s2].remaining <= 0) {
+          results[slots[s2].reqIdx] = { arrival: arrivals[slots[s2].reqIdx], complete: time + tickMs, latency: (time + tickMs) - arrivals[slots[s2].reqIdx] };
+          slots[s2] = null;
+        }
+      }
+    }
+    time += tickMs;
+    tick++;
+  }
+  return { results: results, util: util, history: history, ticksUsed: tick, totalTimeMs: time };
+}
+
+function avgLatencyOf(records, key) {
+  var sum = 0, n = 0;
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    if (!r) continue;
+    var lat = key ? r[key] : (r.complete != null ? r.complete - r.arrival : null);
+    if (lat != null) { sum += lat; n++; }
+  }
+  return n ? sum / n : 0;
+}
+
+// ============================================================
+// PRECOMPUTE ALL SIMULATION DATA ONCE (deterministic, live-computed)
+// ============================================================
+var arrivalsHigh = genArrivals(7, 20, 11);
+var arrivalsLow = genArrivals(1.4, 14, 22);
+var arrivalsLLM = genArrivals(7, 26, 33);
+
+var staticHigh = simStatic(arrivalsHigh, 4);
+var staticLow = simStatic(arrivalsLow, 4);
+var dynamicLow = simDynamic(arrivalsLow, 4, 150);
+var dynamicHigh = simDynamic(arrivalsHigh, 4, 150);
+
+var contSim = simContinuous(arrivalsLLM, 4, 25, 44);
+
+// Tradeoff sweep across arrival rates (static vs dynamic)
+var tradeoffLambdas = [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 13, 16];
+var tradeoffStatic = [];
+var tradeoffDynamic = [];
+tradeoffLambdas.forEach(function (lam, idx) {
+  var arr = genArrivals(lam, 50, 100 + idx);
+  var st = simStatic(arr, 4);
+  var dy = simDynamic(arr, 4, 150);
+  tradeoffStatic.push(avgLatencyOf(st));
+  tradeoffDynamic.push(avgLatencyOf(dy));
+});
+
+// Apples-to-apples comparison at a single fixed load (lambda = 7 req/s)
+var cmpArr = genArrivals(7, 30, 500);
+var cmpStatic = simStatic(cmpArr, 4);
+var cmpDynamic = simDynamic(cmpArr, 4, 150);
+var cmpContinuous = simContinuous(cmpArr, 4, 25, 501);
+
+function summarize(records) {
+  var lat = avgLatencyOf(records);
+  var completeTimes = records.map(function (r) { return r.complete; }).filter(function (x) { return x != null; });
+  var lastT = completeTimes.length ? Math.max.apply(null, completeTimes) : 1;
+  var firstT = records.length ? records[0].arrival : 0;
+  var thr = completeTimes.length / ((lastT - firstT) / 1000);
+  var busyTime = completeTimes.length * procStatic(4);
+  var util = Math.min(1, busyTime / (lastT - firstT));
+  return { lat: lat, thr: thr, util: util };
+}
+function summarizeContinuous(sim) {
+  var lat = avgLatencyOf(sim.results, "latency");
+  var thr = sim.results.filter(function (r) { return r; }).length / (sim.totalTimeMs / 1000);
+  var util = sim.util.reduce(function (a, b) { return a + b; }, 0) / sim.util.length;
+  return { lat: lat, thr: thr, util: util };
+}
+
+var CMP = {
+  staticS: summarize(cmpStatic),
+  dynamicS: summarize(cmpDynamic),
+  continuousS: summarizeContinuous(cmpContinuous)
+};
+// score = higher throughput & utilization, lower latency -> combine
+function scoreOf(m) { return (m.thr * m.util * 1000) / (m.lat + 1); }
+CMP.staticScore = scoreOf(CMP.staticS);
+CMP.dynamicScore = scoreOf(CMP.dynamicS);
+CMP.continuousScore = scoreOf(CMP.continuousS);
+
+var contHighSummary = summarizeContinuous(contSim);
+var staticHighSummary = summarize(staticHigh);
+var staticLowSummary = summarize(staticLow);
+var dynamicLowSummary = summarize(dynamicLow);
+
+// ============================================================
+// STEPS
+// ============================================================
+var steps = [
+  {
+    phase: "setup", title: "The Serving Problem: Requests Arrive Randomly",
+    desc: "Inference requests don't arrive on a schedule — they form a random (Poisson) arrival process with rate \\(\\lambda\\). Here \\(\\lambda = 7\\) requests/sec. The scheduler's job is to decide, at every moment, whether to batch waiting requests together or run them now. Every batching strategy is a different answer to that question.",
+    codeLines: [],
+    canvasMode: "arrivals",
+    metricsFn: function () {
+      var n = arrivalsHigh.length;
+      var diffs = [];
+      for (var i = 1; i < n; i++) diffs.push(arrivalsHigh[i] - arrivalsHigh[i - 1]);
+      var meanGap = diffs.reduce(function (a, b) { return a + b; }, 0) / diffs.length;
+      return chips([
+        ["Requests", n, ""],
+        ["Arrival rate λ", "7.0", "req/s"],
+        ["Mean gap (actual)", fmt0(meanGap), "ms"]
+      ]);
+    }
+  },
+  {
+    phase: "static", title: "Static Batching at High Load",
+    desc: "Batch size \\(B=4\\). The server waits until exactly 4 requests have queued, then fires one forward pass costing \\(T_{proc}(4) = 15 + 4\\cdot4 = 31\\)ms. At high load (\\(\\lambda=7\\)/s) batches fill quickly, so average latency stays low even though every request still waits for its batch-mates.",
+    codeLines: [0, 1, 2, 3, 4, 5],
+    canvasMode: "static-high",
+    metricsFn: function () {
+      return chips([
+        ["Avg latency", fmt0(staticHighSummary.lat), "ms"],
+        ["Throughput", fmt1(staticHighSummary.thr), "req/s"],
+        ["GPU util", pct(staticHighSummary.util), ""]
+      ]);
+    }
+  },
+  {
+    phase: "static", title: "Static Batching at Low Load (Latency Cliff)",
+    desc: "Same \\(B=4\\), but now \\(\\lambda=1.4\\)/s — a quiet period. The batch takes much longer to fill, so \\(\\mathbb{E}[\\text{wait}]=(B-1)/\\lambda\\) grows large. Worse: the last 1-3 requests in this simulated window never see a 4th arrival — they are <strong>starved</strong>, waiting indefinitely. This is the fundamental failure mode of static batching under variable load.",
+    codeLines: [1, 2, 3, 4],
+    canvasMode: "static-low",
+    metricsFn: function () {
+      var starved = staticLow.filter(function (r) { return r.starved; }).length;
+      return chips([
+        ["Avg latency", fmt0(staticLowSummary.lat), "ms"],
+        ["GPU util", pct(staticLowSummary.util), ""],
+        ["Starved requests", starved, "", starved > 0 ? "warn" : ""]
+      ]);
+    }
+  },
+  {
+    phase: "dynamic", title: "Dynamic Batching: Max-Batch OR Timeout",
+    desc: "Add a timeout \\(T=150\\)ms: the batch fires when it reaches \\(B=4\\) <em>or</em> 150ms have elapsed since the oldest queued request, whichever comes first. Using the identical low-load arrivals from the previous step, nothing starves anymore — every request is bounded by \\(T_{timeout}\\) even in a lull.",
+    codeLines: [7, 8, 9, 10, 11, 12, 13, 14],
+    canvasMode: "dynamic",
+    metricsFn: function () {
+      return chips([
+        ["Avg latency", fmt0(dynamicLowSummary.lat), "ms", "hl"],
+        ["Max latency", fmt0(Math.max.apply(null, dynamicLow.map(function (r) { return r.complete - r.arrival; }))), "ms"],
+        ["Starved requests", 0, "", "hl"]
+      ]);
+    }
+  },
+  {
+    phase: "dynamic", title: "Dynamic Batching Smooths the Latency Curve",
+    desc: "Sweeping the arrival rate \\(\\lambda\\) from 0.5 to 16 req/s and simulating both policies at every point: static batching's latency explodes as \\(\\lambda \\to 0\\) (approaching the unbounded starvation seen above), while dynamic batching's latency is capped near the 150ms timeout across the entire low-load region, only dropping below it once arrivals are frequent enough to fill \\(B\\) organically.",
+    codeLines: [7, 8, 11, 14],
+    canvasMode: "dynamic-tradeoff",
+    metricsFn: function () {
+      var crossI = 0;
+      for (var i = 0; i < tradeoffLambdas.length; i++) { if (tradeoffStatic[i] <= tradeoffDynamic[i] + 1) { crossI = i; break; } }
+      return chips([
+        ["λ points simulated", tradeoffLambdas.length, ""],
+        ["Static @ λ=0.5", fmt0(tradeoffStatic[0]), "ms", "warn"],
+        ["Dynamic @ λ=0.5", fmt0(tradeoffDynamic[0]), "ms", "hl"]
+      ]);
+    }
+  },
+  {
+    phase: "continuous", title: "Continuous (Adaptive) Batching: LLM-Style Scheduling",
+    desc: "Now the workload changes: each request is an LLM generation with a random output length between 4 and 22 tokens — nothing like the fixed-shape requests above. With \\(S=4\\) GPU \"slots\" and one decode tick \\(\\approx 25\\)ms, static/dynamic batching would force every sequence in a cohort to wait for the slowest one to finish. Continuous batching instead lets each slot run independently.",
+    codeLines: [16, 17, 18, 19, 20, 21],
+    canvasMode: "continuous-setup",
+    metricsFn: function () {
+      return chips([
+        ["Slots (S)", 4, ""],
+        ["Requests", arrivalsLLM.length, ""],
+        ["Tick duration", 25, "ms"]
+      ]);
+    }
+  },
+  {
+    phase: "continuous", title: "Slots Fill and Drain Mid-Flight",
+    desc: "The grid below shows all 4 slots across decode iterations (ticks). Each color-coded band is one request occupying a slot. The moment a band ends (a sequence finishes), the slot is refilled by the next queued request on the very next tick — no gap, no waiting for the other 3 slots. That's the entire mechanism of iteration-level scheduling.",
+    codeLines: [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+    canvasMode: "continuous-mechanics",
+    metricsFn: function () {
+      return chips([
+        ["Avg latency", fmt0(contHighSummary.lat), "ms"],
+        ["Throughput", fmt1(contHighSummary.thr), "req/s"],
+        ["GPU util", pct(contHighSummary.util), "", "hl"]
+      ]);
+    }
+  },
+  {
+    phase: "result", title: "Throughput vs Latency vs GPU Utilization — All Three",
+    desc: "All three strategies simulated on the <em>same</em> arrival stream (\\(\\lambda=7\\)/s, variable-length requests). Static batching has the highest GPU utilization per fired batch but the worst tail behavior; dynamic batching bounds latency; continuous batching wins on all three axes simultaneously once request lengths vary, because it never blocks a fast slot behind a slow one.",
+    codeLines: [],
+    canvasMode: "tradeoff-all",
+    metricsFn: function () {
+      return chips([
+        ["Static lat/thr/util", fmt0(CMP.staticS.lat) + "/" + fmt1(CMP.staticS.thr) + "/" + pct(CMP.staticS.util), ""],
+        ["Dynamic lat/thr/util", fmt0(CMP.dynamicS.lat) + "/" + fmt1(CMP.dynamicS.thr) + "/" + pct(CMP.dynamicS.util), ""],
+        ["Continuous lat/thr/util", fmt0(CMP.continuousS.lat) + "/" + fmt1(CMP.continuousS.thr) + "/" + pct(CMP.continuousS.util), "hl"]
+      ]);
+    }
+  },
+  {
+    phase: "result", title: "Choosing a Batching Strategy",
+    desc: "Combining latency, throughput, and utilization into one live-computed \"fitness\" score \\(\\left(\\frac{\\text{throughput} \\times \\text{util}}{\\text{latency}}\\right)\\) from the previous step's numbers, the highlighted strategy below scores highest for this variable-length workload. For fixed-shape, latency-insensitive batch jobs, static batching's simplicity still wins; for interactive fixed-shape serving, dynamic batching is the standard; for LLM generation, continuous batching dominates.",
+    codeLines: [],
+    canvasMode: "takeaway",
+    metricsFn: function () {
+      var best = "Static";
+      var bs = CMP.staticScore, label = "static";
+      if (CMP.dynamicScore > bs) { bs = CMP.dynamicScore; best = "Dynamic"; label = "dynamic"; }
+      if (CMP.continuousScore > bs) { bs = CMP.continuousScore; best = "Continuous"; label = "continuous"; }
+      return chips([
+        ["Static score", fmt1(CMP.staticScore), "", label === "static" ? "hl" : ""],
+        ["Dynamic score", fmt1(CMP.dynamicScore), "", label === "dynamic" ? "hl" : ""],
+        ["Continuous score", fmt1(CMP.continuousScore), "", label === "continuous" ? "hl" : ""]
+      ]);
+    }
+  }
+];
+
+function chips(list) {
+  var html = "";
+  list.forEach(function (item) {
+    var cls = item[3] ? (" " + item[3]) : "";
+    html += "<div class=\"metric-chip" + cls + "\">" + item[0] + "<b>" + item[1] + (item[2] ? (" " + item[2]) : "") + "</b></div>";
+  });
+  return html;
+}
+
+var step = 0;
+var totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  var body = el.nextElementSibling;
+  var toggle = el.querySelector(".section-toggle");
+  body.classList.toggle("collapsed");
+  toggle.classList.toggle("open");
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  var wrap = document.getElementById("progressDots");
+  wrap.innerHTML = "";
+  for (var i = 0; i < totalSteps; i++) {
+    var d = document.createElement("div");
+    d.className = "dot" + (i === 0 ? " active" : "");
+    d.onclick = (function (idx) { return function () { goTo(idx); }; })(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  var dots = document.querySelectorAll(".dot");
+  dots.forEach(function (d, i) {
+    d.className = "dot";
+    if (i < step) d.classList.add("done");
+    if (i === step) d.classList.add("active");
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  var next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  var s = steps[step];
+
+  document.getElementById("btnPrev").disabled = step === 0;
+  document.getElementById("btnNext").disabled = step === totalSteps - 1;
+
+  var phaseMap = { setup: "phase-setup", static: "phase-static", dynamic: "phase-dynamic", continuous: "phase-continuous", result: "phase-result" };
+  document.getElementById("infoPhase").className = "info-phase " + phaseMap[s.phase];
+  document.getElementById("infoPhase").textContent = s.phase.toUpperCase();
+  document.getElementById("infoStep").textContent = "Step " + (step + 1) + " of " + totalSteps;
+  document.getElementById("infoTitle").textContent = s.title;
+  document.getElementById("infoDesc").innerHTML = s.desc;
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("infoCard"), {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll(".code-line").forEach(function (cl) { cl.classList.remove("active"); });
+  (s.codeLines || []).forEach(function (i) {
+    var el = document.getElementById("cl" + i);
+    if (el) el.classList.add("active");
+  });
+
+  document.getElementById("metricsViz").innerHTML = s.metricsFn ? s.metricsFn() : "";
+
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ============================================================
+// CANVAS DRAWING
+// ============================================================
+function setupCanvas() {
+  var canvas = document.getElementById("vizCanvas");
+  var ctx = canvas.getContext("2d");
+  var dpr = window.devicePixelRatio || 1;
+  var rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  return { ctx: ctx, W: rect.width, H: rect.height };
+}
+
+function themeColors() {
+  var cs = getComputedStyle(document.documentElement);
+  function v(name) { return cs.getPropertyValue(name).trim(); }
+  return {
+    bg2: v("--bg2"), text: v("--text"), text2: v("--text2"), text3: v("--text3"),
+    blueMid: v("--blue-mid"), greenMid: v("--green-mid"), redMid: v("--red-mid"),
+    amberMid: v("--amber-mid"), purpleMid: v("--purple-mid"), cyanMid: v("--cyan-mid"),
+    border2: v("--border2")
+  };
+}
+
+function drawCanvas(mode) {
+  var setup = setupCanvas();
+  var ctx = setup.ctx, W = setup.W, H = setup.H;
+  var C = themeColors();
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "11px \"DM Sans\", system-ui";
+
+  if (mode === "arrivals") drawArrivals(ctx, W, H, C);
+  else if (mode === "static-high") drawBatchTimeline(ctx, W, H, C, arrivalsHigh, staticHigh, "Static batching, λ=7/s (high load)");
+  else if (mode === "static-low") drawBatchTimeline(ctx, W, H, C, arrivalsLow, staticLow, "Static batching, λ=1.4/s (low load)");
+  else if (mode === "dynamic") drawBatchTimeline(ctx, W, H, C, arrivalsLow, dynamicLow, "Dynamic batching, λ=1.4/s, timeout=150ms");
+  else if (mode === "dynamic-tradeoff") drawTradeoffLine(ctx, W, H, C);
+  else if (mode === "continuous-setup") drawContinuousSetup(ctx, W, H, C);
+  else if (mode === "continuous-mechanics") drawSlotGrid(ctx, W, H, C);
+  else if (mode === "tradeoff-all") drawTradeoffAll(ctx, W, H, C);
+  else if (mode === "takeaway") drawTakeaway(ctx, W, H, C);
+}
+
+function axes(ctx, pad, W, H, C, xLabel, yLabel) {
+  ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+  ctx.fillStyle = C.text3;
+  if (xLabel) ctx.fillText(xLabel, W - pad.r - 40, H - pad.b + 30);
+  if (yLabel) ctx.fillText(yLabel, pad.l - 15, pad.t + 5);
+}
+
+function drawArrivals(ctx, W, H, C) {
+  var pad = { l: 40, r: 20, t: 30, b: 40 };
+  var tMax = arrivalsHigh[arrivalsHigh.length - 1] * 1.05;
+  var toX = function (t) { return pad.l + (t / tMax) * (W - pad.l - pad.r); };
+  var yMid = pad.t + (H - pad.t - pad.b) / 2;
+  ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, yMid); ctx.lineTo(W - pad.r, yMid); ctx.stroke();
+  ctx.fillStyle = C.text3;
+  ctx.fillText("time (ms) →", W - pad.r - 55, H - pad.b + 20);
+  arrivalsHigh.forEach(function (t, i) {
+    var x = toX(t);
+    ctx.beginPath(); ctx.moveTo(x, yMid - 18); ctx.lineTo(x, yMid + 18); ctx.strokeStyle = C.border2; ctx.lineWidth = 1; ctx.globalAlpha = 0.5; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(x, yMid, 6, 0, Math.PI * 2);
+    ctx.fillStyle = C.blueMid; ctx.fill();
+    ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+  ctx.fillStyle = C.text2; ctx.font = "600 12px \"DM Sans\", system-ui";
+  ctx.fillText("Each dot = one inference request arriving (Poisson process, λ=7/s)", pad.l, pad.t);
+}
+
+function drawBatchTimeline(ctx, W, H, C, arrivals, records, caption) {
+  var pad = { l: 40, r: 20, t: 34, b: 40 };
+  var tMax = Math.max.apply(null, arrivals) * 1.15;
+  var toX = function (t) { return pad.l + (t / tMax) * (W - pad.l - pad.r); };
+  var rowH = (H - pad.t - pad.b) / 2;
+  var yQueue = pad.t + rowH * 0.5;
+  var yProc = pad.t + rowH * 1.6;
+
+  ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+  ctx.fillStyle = C.text3;
+  ctx.fillText("time (ms) →", W - pad.r - 55, H - pad.b + 20);
+
+  // group dividers + processing bars
+  var seen = {};
+  records.forEach(function (r) {
+    if (r.fire == null) return;
+    var key = r.fire.toFixed(2);
+    if (seen[key]) return;
+    seen[key] = true;
+    var x0 = toX(r.fire), x1 = toX(r.complete);
+    ctx.fillStyle = C.amberMid; ctx.globalAlpha = 0.28;
+    ctx.fillRect(x0, yProc - 10, Math.max(2, x1 - x0), 20);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = C.amberMid; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, yProc - 14); ctx.lineTo(x0, yProc + 14); ctx.stroke();
+  });
+
+  // request dots: queued position vs completed position
+  records.forEach(function (r) {
+    var xArr = toX(r.arrival);
+    if (r.starved) {
+      ctx.beginPath(); ctx.arc(xArr, yQueue, 6, 0, Math.PI * 2);
+      ctx.fillStyle = C.redMid; ctx.fill();
+      ctx.strokeStyle = "white"; ctx.lineWidth = 1.5; ctx.stroke();
+      return;
+    }
+    ctx.beginPath(); ctx.arc(xArr, yQueue, 5, 0, Math.PI * 2);
+    ctx.fillStyle = C.text3; ctx.fill();
+    ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke();
+    // connecting line arrival -> processed row
+    var xComplete = toX(r.complete);
+    ctx.strokeStyle = C.border2; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(xArr, yQueue + 6); ctx.lineTo(xComplete, yProc - 12); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(xComplete, yProc, 5, 0, Math.PI * 2);
+    ctx.fillStyle = C.greenMid; ctx.fill();
+    ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke();
+  });
+
+  ctx.fillStyle = C.text2; ctx.font = "600 11px \"DM Sans\", system-ui";
+  ctx.fillText("queued (arrival)", pad.l, yQueue - 14);
+  ctx.fillText("fired batch → completed", pad.l, yProc - 20);
+  ctx.font = "11px \"DM Sans\", system-ui"; ctx.fillStyle = C.text3;
+  ctx.fillText(caption, pad.l, pad.t - 14);
+}
+
+function drawTradeoffLine(ctx, W, H, C) {
+  var pad = { l: 46, r: 20, t: 30, b: 40 };
+  var xMax = tradeoffLambdas[tradeoffLambdas.length - 1];
+  var yMax = Math.max(Math.max.apply(null, tradeoffStatic), Math.max.apply(null, tradeoffDynamic)) * 1.1;
+  var toX = function (lam) { return pad.l + (lam / xMax) * (W - pad.l - pad.r); };
+  var toY = function (v) { return pad.t + (1 - v / yMax) * (H - pad.t - pad.b); };
+  axes(ctx, pad, W, H, C, "arrival rate λ (req/s) →", "latency (ms)");
+
+  function drawLine(vals, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    tradeoffLambdas.forEach(function (lam, i) {
+      var x = toX(lam), y = toY(vals[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    tradeoffLambdas.forEach(function (lam, i) {
+      ctx.beginPath(); ctx.arc(toX(lam), toY(vals[i]), 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = color; ctx.fill();
+    });
+  }
+  drawLine(tradeoffStatic, C.redMid);
+  drawLine(tradeoffDynamic, C.purpleMid);
+
+  ctx.font = "600 12px \"DM Sans\", system-ui";
+  ctx.fillStyle = C.redMid; ctx.fillText("static (B=4)", pad.l + 10, pad.t + 14);
+  ctx.fillStyle = C.purpleMid; ctx.fillText("dynamic (B=4, timeout=150ms)", pad.l + 10, pad.t + 30);
+}
+
+function drawContinuousSetup(ctx, W, H, C) {
+  var pad = { l: 40, r: 20, t: 34, b: 40 };
+  var tMax = Math.max.apply(null, arrivalsLLM) * 1.1;
+  var toX = function (t) { return pad.l + (t / tMax) * (W - pad.l - pad.r); };
+  ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+  ctx.fillStyle = C.text3;
+  ctx.fillText("time (ms) →", W - pad.r - 55, H - pad.b + 20);
+
+  var rng = mulberry32(44);
+  var lens = arrivalsLLM.map(function () { return 4 + Math.floor(rng() * 18); });
+  var maxLen = Math.max.apply(null, lens);
+  var rowH = (H - pad.t - pad.b - 20) / arrivalsLLM.length;
+  arrivalsLLM.forEach(function (t, i) {
+    var y = pad.t + 10 + i * rowH;
+    var x = toX(t);
+    var barLen = (lens[i] / maxLen) * 90;
+    ctx.fillStyle = C.purpleMid; ctx.globalAlpha = 0.25 + 0.5 * (lens[i] / maxLen);
+    ctx.fillRect(x, y, barLen, Math.max(2, rowH - 3));
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(x, y + rowH / 2, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = C.blueMid; ctx.fill();
+  });
+  ctx.fillStyle = C.text2; ctx.font = "600 12px \"DM Sans\", system-ui";
+  ctx.fillText("Each request's output length varies (bar width = decode tokens needed)", pad.l, pad.t - 14);
+}
+
+function drawSlotGrid(ctx, W, H, C) {
+  var pad = { l: 60, r: 20, t: 34, b: 40 };
+  var maxTicksShown = Math.min(70, contSim.history.length);
+  var S = contSim.history[0].length;
+  var cellW = (W - pad.l - pad.r) / maxTicksShown;
+  var cellH = (H - pad.t - pad.b) / S;
+  var palette = [C.blueMid, C.greenMid, C.amberMid, C.purpleMid, C.redMid, C.cyanMid];
+
+  for (var row = 0; row < S; row++) {
+    ctx.fillStyle = C.text3; ctx.font = "10px \"DM Sans\", system-ui";
+    ctx.fillText("slot " + (row + 1), 4, pad.t + row * cellH + cellH / 2 + 3);
+  }
+  for (var tick = 0; tick < maxTicksShown; tick++) {
+    var slotState = contSim.history[tick];
+    for (var s = 0; s < S; s++) {
+      var reqIdx = slotState[s];
+      var x = pad.l + tick * cellW;
+      var y = pad.t + s * cellH;
+      if (reqIdx === -1) {
+        ctx.fillStyle = C.bg2; ctx.fillRect(x, y, cellW - 1, cellH - 1);
+      } else {
+        ctx.fillStyle = palette[reqIdx % palette.length];
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(x, y, cellW - 1, cellH - 1);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  ctx.strokeStyle = C.border2; ctx.lineWidth = 1;
+  ctx.strokeRect(pad.l, pad.t, maxTicksShown * cellW, S * cellH);
+  ctx.fillStyle = C.text2; ctx.font = "600 12px \"DM Sans\", system-ui";
+  ctx.fillText("Each column = one decode iteration. Color change = slot refilled instantly.", pad.l, pad.t - 14);
+  ctx.fillStyle = C.text3; ctx.font = "10px \"DM Sans\", system-ui";
+  ctx.fillText("iterations →", pad.l + maxTicksShown * cellW / 2 - 25, H - pad.b + 16);
+}
+
+function drawTradeoffAll(ctx, W, H, C) {
+  var pad = { l: 46, r: 20, t: 34, b: 46 };
+  var groups = [
+    { name: "Latency (ms, lower=better)", vals: [CMP.staticS.lat, CMP.dynamicS.lat, CMP.continuousS.lat], invert: true },
+    { name: "Throughput (req/s)", vals: [CMP.staticS.thr, CMP.dynamicS.thr, CMP.continuousS.thr], invert: false },
+    { name: "GPU util (%)", vals: [CMP.staticS.util * 100, CMP.dynamicS.util * 100, CMP.continuousS.util * 100], invert: false }
+  ];
+  var colors = [C.redMid, C.purpleMid, C.greenMid];
+  var labels = ["Static", "Dynamic", "Continuous"];
+  var groupW = (W - pad.l - pad.r) / groups.length;
+  var maxBarH = H - pad.t - pad.b;
+
+  groups.forEach(function (g, gi) {
+    var gx = pad.l + gi * groupW;
+    var maxV = Math.max.apply(null, g.vals) * 1.15 || 1;
+    var barW = groupW / (labels.length + 1.2);
+    g.vals.forEach(function (v, i) {
+      var h = (v / maxV) * (maxBarH - 20);
+      var x = gx + (i + 0.6) * barW;
+      var y = pad.t + (maxBarH - 20) - h + 20;
+      ctx.fillStyle = colors[i];
+      ctx.fillRect(x, y, barW * 0.8, h);
+      ctx.fillStyle = C.text; ctx.font = "10px \"DM Sans\", system-ui";
+      ctx.fillText(fmt1(v), x, y - 4);
+    });
+    ctx.fillStyle = C.text2; ctx.font = "600 11px \"DM Sans\", system-ui";
+    ctx.fillText(g.name, gx, H - pad.b + 16);
+  });
+
+  ctx.font = "600 11px \"DM Sans\", system-ui";
+  labels.forEach(function (l, i) {
+    ctx.fillStyle = colors[i];
+    ctx.fillText(l, pad.l + i * 90, pad.t - 12);
+  });
+}
+
+function drawTakeaway(ctx, W, H, C) {
+  var best = "static", bestScore = CMP.staticScore;
+  if (CMP.dynamicScore > bestScore) { best = "dynamic"; bestScore = CMP.dynamicScore; }
+  if (CMP.continuousScore > bestScore) { best = "continuous"; bestScore = CMP.continuousScore; }
+
+  var boxes = [
+    { key: "static", label: "Static", sub: "offline / bulk scoring", color: C.redMid, x: 0.12 },
+    { key: "dynamic", label: "Dynamic", sub: "fixed-shape online serving", color: C.purpleMid, x: 0.44 },
+    { key: "continuous", label: "Continuous", sub: "LLM generation serving", color: C.greenMid, x: 0.76 }
+  ];
+  var boxW = W * 0.22, boxH = 90;
+  var yTop = H / 2 - boxH / 2;
+
+  ctx.font = "600 13px \"DM Sans\", system-ui";
+  ctx.fillStyle = C.text2;
+  ctx.fillText("Best fit for this variable-length workload:", 20, 26);
+
+  boxes.forEach(function (b) {
+    var x = W * b.x - boxW / 2;
+    var isBest = b.key === best;
+    ctx.lineWidth = isBest ? 3 : 1.5;
+    ctx.strokeStyle = b.color;
+    ctx.fillStyle = b.color;
+    ctx.globalAlpha = isBest ? 0.16 : 0.06;
+    ctx.fillRect(x, yTop, boxW, boxH);
+    ctx.globalAlpha = 1;
+    ctx.strokeRect(x, yTop, boxW, boxH);
+    ctx.font = "700 14px \"DM Sans\", system-ui";
+    ctx.fillStyle = b.color;
+    ctx.fillText(b.label, x + 12, yTop + 32);
+    ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillStyle = C.text2;
+    ctx.fillText(b.sub, x + 12, yTop + 52);
+    if (isBest) {
+      ctx.font = "700 11px \"DM Sans\", system-ui";
+      ctx.fillStyle = b.color;
+      ctx.fillText("★ highest score", x + 12, yTop + 72);
+    }
+  });
+}
+
+// ── KEYBOARD ──
+document.addEventListener("keydown", function (e) {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener("resize", function () { drawCanvas(steps[step].canvasMode); });
+</script>
+</body>
+</html>
