@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distributed Data Parallel (DDP): Gradients All-Reduce — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-forward{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-backward{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-sync{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-update{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Distributed Data Parallel (DDP): Gradients All-Reduce</h1>
+  <div class="subtitle">Efficiently synchronizing gradients across multiple devices for faster, larger model training</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Distributed Systems</span>
+    <span class="tag tag-complexity">O(log N) communication</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Distributed Data Parallel (DDP)</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Distributed Data Parallel (DDP) is a strategy for training deep learning models across multiple GPUs or even multiple machines. Instead of fitting a massive dataset onto a single device, DDP replicates the entire model on each device and distributes different subsets of a mini-batch to each replica. Each device then performs its forward and backward pass independently. The crucial step is then to synchronize the gradients computed by each replica before the optimizer updates the model weights. This synchronization is done via an efficient communication primitive called <em>all-reduce</em>.</p>
+    <p><strong>Analogy:</strong> Imagine a team of chefs (GPUs) all working from the same recipe book (model weights). Each chef gets a different basket of ingredients (subset of data). They all cook their dishes (forward pass), taste them, and figure out how to improve the recipe (compute gradients) based on their own dish. Instead of each chef just changing their own recipe book, they all gather, compare their suggested improvements, average them out, and then *all* update their recipe books with the *exact same averaged improvements*. This ensures everyone's recipe book stays identical, and the overall recipe improves based on the full range of ingredients.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">DDP is a form of <strong>data parallelism</strong> where each device holds a full copy of the model and processes a distinct slice of the data. The core challenge is keeping all model replicas perfectly synchronized, which is solved by efficiently averaging gradients across all devices using an <strong>all-reduce</strong> operation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How DDP Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Problem: Diverging Weights</h4>
+    <p>If each GPU simply computed its gradients on its local data and updated its local copy of the model weights, the models on different GPUs would quickly diverge. They would learn different things from their different data subsets, leading to inconsistent predictions and poor overall training.</p>
+
+    <h4>The Solution: Global Gradient Synchronization</h4>
+    <p>DDP ensures that all model replicas remain identical throughout training. This is achieved by making sure that every GPU applies the *exact same* weight update at the end of each iteration. This requires averaging the gradients computed by all GPUs after the backward pass, and then broadcasting this average back to all GPUs.</p>
+
+    <h4>The DDP Training Loop Steps</h4>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Model Replication:</strong> At the start, every participating process (typically one per GPU) gets an identical copy of the full model's initial weights.</li>
+      <li><strong>Data Distribution:</strong> For each training mini-batch, the full batch is split into smaller, non-overlapping sub-batches. Each process receives one unique sub-batch.</li>
+      <li><strong>Local Forward Pass:</strong> Each process computes the model's output and the loss on its assigned local sub-batch.</li>
+      <li><strong>Local Backward Pass:</strong> Each process computes the gradients of the loss with respect to its local model weights. These gradients are, at this point, *local* to each device.</li>
+      <li><strong>Gradient Synchronization (All-Reduce):</strong> This is the core DDP step. All locally computed gradients for each parameter are exchanged, summed across all processes, and then the resulting average is broadcast back to all processes. After this step, every process has the exact same set of global, averaged gradients.</li>
+      <li><strong>Local Optimizer Step:</strong> Each process then updates its *local* copy of the model weights using the globally averaged gradients. Because all processes now have the same gradients, and started with identical weights, they will remain perfectly synchronized.</li>
+    </ol>
+    <p>This process is repeated for every mini-batch. The key is that the "all-reduce" step makes the distributed training mathematically equivalent to training on one large batch on a single device, but much faster due to parallel computation.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The <strong>all-reduce</strong> operation is fundamental: it takes a tensor from each process, computes their sum (or average), and then returns the *same result* to *all processes*. This ensures global consensus on gradients, keeping all model replicas identical.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The All-Reduce Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Single-Device Gradient Update</h4>
+    <p>On a single device, a model with weights \(w\) is updated using Stochastic Gradient Descent (SGD) with a learning rate \(\eta\) and a mini-batch \(X_{batch}\):</p>
+    <div class="eq">$$w_{t+1} = w_t - \eta \cdot \nabla L(w_t, X_{batch})$$</div>
+    <p>where \(\nabla L(w_t, X_{batch})\) is the gradient of the loss function \(L\) with respect to weights \(w_t\), computed over the entire mini-batch \(X_{batch}\).</p>
+
+    <h4>Distributed Gradient Update with All-Reduce</h4>
+    <p>In DDP, assume we have \(N\) devices (or processes), and the full mini-batch \(X_{batch}\) is split into \(N\) non-overlapping sub-batches \(X_1, X_2, \dots, X_N\). Each device \(k\) computes its local gradient \(\nabla L(w_t, X_k)\). The all-reduce operation then computes the average gradient \(\nabla L_{avg}\) across all devices:</p>
+    <div class="eq">$$\nabla L_{avg} = \frac{1}{N} \sum_{k=1}^N \nabla L(w_t, X_k)$$</div>
+    <p>Since the gradient operator is linearity, this average gradient is mathematically equivalent to the gradient computed over the entire batch \(X_{batch}\) on a single device:</p>
+    <div class="eq">$$\frac{1}{N} \sum_{k=1}^N \nabla L(w_t, X_k) = \nabla L\left(w_t, \bigcup_{k=1}^N X_k\right) = \nabla L(w_t, X_{batch})$$</div>
+    <p>Thus, each device \(k\) updates its weights using this global average gradient:</p>
+    <div class="eq">$$w_{t+1}^{(k)} = w_t^{(k)} - \eta \cdot \nabla L_{avg}$$</div>
+    <p>Because all devices start with identical weights \(w_t^{(k)}\) and apply the same \(\nabla L_{avg}\), their weights \(w_{t+1}^{(k)}\) will remain identical, ensuring perfect synchronization.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Communication Bottleneck</div>
+      <p style="font-size:14px;margin:0;">The primary overhead in DDP is the <strong>communication cost</strong> of the all-reduce operation. As models grow (more parameters, thus more gradients) and the number of devices increases, this communication can become the bottleneck. Efficient implementations (like NCCL's ring all-reduce) are crucial to minimize this latency.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize the DDP workflow for a small model with 3 parameters. Adjust the number of devices to see how the all-reduce operation scales.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Number of Devices (N)</div>
+          <input type="range" id="numDevicesSlider" min="2" max="6" step="1" value="4">
+          <div class="slider-value" id="numDevicesValue">4</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Adjust N to see how the DDP process adapts.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Model Replication & Data Distribution</div>
+        <div class="info-desc" id="infoDesc">Each device (GPU) gets an identical copy of the model weights (\(w_1, w_2, w_3\)). The overall mini-batch is split, and each device receives a unique local data sub-batch.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Model weights</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Local gradients</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> All-reduced gradient component</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Averaged gradients</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Data batch</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use DDP:</strong></p>
+    <ul>
+      <li>Training large models or on massive datasets that don't fit on a single GPU.</li>
+      <li>When you have multiple GPUs on a single machine or across multiple machines.</li>
+      <li>To significantly speed up training time compared to single-device training, while maintaining mathematical equivalence.</li>
+      <li>When the model itself fits on a single GPU (if not, consider model parallelism).</li>
+    </ul>
+    <p><strong>When to be cautious or consider alternatives:</strong></p>
+    <ul>
+      <li>For very small models or datasets where the communication overhead of all-reduce might outweigh the benefits of parallel computation.</li>
+      <li>If the model is too large to fit on a single GPU, DDP alone is not enough; you might need <strong>model parallelism</strong> (splitting the model layers across devices) or <strong>pipeline parallelism</strong>.</li>
+      <li>When dealing with highly heterogeneous hardware or network latency, as communication efficiency is paramount.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">DDP is the de-facto standard for scalable deep learning training. Its efficiency stems from replicating the model (minimizing data transfer during forward pass) and using optimized collective communication primitives (all-reduce) to synchronize gradients, making distributed training feel like single-device training to the user.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch DDP)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.optim as optim</div>
+      <div class="code-line" id="cl3">from torch.nn.parallel import DistributedDataParallel as DDP</div>
+      <div class="code-line" id="cl4">import torch.distributed as dist</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># 1. Initialize distributed environment (e.g., via torch.run)</div>
+      <div class="code-line" id="cl7">dist.init_process_group(backend="nccl") # or "gloo" for CPU/multi-node</div>
+      <div class="code-line" id="cl8">rank = dist.get_rank()                  # current process's global rank</div>
+      <div class="code-line" id="cl9">world_size = dist.get_world_size()      # total number of processes</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11"># 2. Prepare model (send to GPU, wrap with DDP)</div>
+      <div class="code-line" id="cl12">model = MyModel().to(rank)              # MyModel is your neural network</div>
+      <div class="code-line" id="cl13">ddp_model = DDP(model, device_ids=[rank]) # DDP handles replication and hooks</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># 3. Prepare data (each rank gets a shard of the dataset)</div>
+      <div class="code-line" id="cl16">train_sampler = torch.utils.data.distributed.DistributedSampler(</div>
+      <div class="code-line" id="cl17">    dataset, num_replicas=world_size, rank=rank)</div>
+      <div class="code-line" id="cl18">train_loader = torch.utils.data.DataLoader(</div>
+      <div class="code-line" id="cl19">    dataset, batch_size=32, sampler=train_sampler)</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># 4. Optimizer and Loss Function</div>
+      <div class="code-line" id="cl22">optimizer = optim.AdamW(ddp_model.parameters(), lr=1e-4)</div>
+      <div class="code-line" id="cl23">criterion = nn.CrossEntropyLoss()</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25"># 5. Training loop</div>
+      <div class="code-line" id="cl26">for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl27">    train_sampler.set_epoch(epoch) # ensure data shuffling is different each epoch</div>
+      <div class="code-line" id="cl28">    for batch_idx, (data, target) in enumerate(train_loader):</div>
+      <div class="code-line" id="cl29">        data, target = data.to(rank), target.to(rank)</div>
+      <div class="code-line" id="cl30">        optimizer.zero_grad()</div>
+      <div class="code-line" id="cl31">        output = ddp_model(data)                  # Forward pass</div>
+      <div class="code-line" id="cl32">        loss = criterion(output, target)</div>
+      <div class="code-line" id="cl33">        loss.backward()                           # Local backward pass</div>
+      <div class="code-line" id="cl34">                                                  # DDP automatically triggers all-reduce</div>
+      <div class="code-line" id="cl35">                                                  # on gradients after `loss.backward()`</div>
+      <div class="code-line" id="cl36">        optimizer.step()                          # Apply averaged gradients</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38">dist.destroy_process_group() # Clean up distributed environment</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let seededRng = mulberry32(42); // Initialize here, reset in initializeDeviceData
+function randRange(lo, hi) { return lo + (hi - lo) * seededRng(); }
+
+// ── DATA GENERATION ──
+const NUM_PARAMS = 3; // Number of parameters per model
+const INITIAL_WEIGHTS = Array.from({length: NUM_PARAMS}, () => randRange(0.1, 0.9));
+
+function generateDeviceData(numDevices) {
+  const data = [];
+  for (let i = 0; i < numDevices; i++) {
+    const localGrads = [];
+    for (let p = 0; p < NUM_PARAMS; p++) {
+      // Simulate slightly different local gradients
+      localGrads.push(INITIAL_WEIGHTS[p] * randRange(0.8, 1.2) + randRange(-0.1, 0.1));
+    }
+    data.push({
+      id: i,
+      weights: [...INITIAL_WEIGHTS], // Each device starts with same weights
+      localGrads: localGrads,
+      dataBatch: Array.from({length: 2}, () => randRange(0.1, 0.9)) // Placeholder data batch
+    });
+  }
+  return data;
+}
+
+function calculateAllReducedGrads(deviceData, numDevices) {
+  const summedGrads = new Array(NUM_PARAMS).fill(0);
+  for (const device of deviceData) {
+    for (let p = 0; p < NUM_PARAMS; p++) {
+      summedGrads[p] += device.localGrads[p];
+    }
+  }
+  return summedGrads.map(g => g / numDevices);
+}
+
+let currentDeviceData = [];
+let allReducedGrads = [];
+let numDevices = 4; // Default
+let currentStep = 0;
+const totalSteps = 8;
+
+// ── STEPS DEFINITION ──
+const steps = [
+  {
+    phase: 'setup', title: 'Model Replication & Data Distribution',
+    desc: 'Each device (GPU) gets an identical copy of the model weights (e.g., \\(w_1, w_2, w_3\\)). The overall mini-batch is split, and each device receives a unique local data sub-batch (amber dots). All weights are initially identical.',
+    codeLines: [11,12,13,15,16,17,18,19],
+    mode: 'setup'
+  },
+  {
+    phase: 'forward', title: 'Local Forward Pass',
+    desc: 'Each device performs a forward pass using its local model weights and its assigned data sub-batch. This computation happens in parallel across all devices. The results (e.g., predictions, loss) are computed locally.',
+    codeLines: [31,32],
+    mode: 'forward'
+  },
+  {
+    phase: 'backward', title: 'Local Backward Pass: Gradients Computed',
+    desc: 'After the forward pass, each device computes the gradients of the loss with respect to its local model weights. These gradients (red blocks) are unique to each device because they are based on different data sub-batches. Notice they are slightly different across devices.',
+    codeLines: [33],
+    mode: 'backward'
+  },
+  {
+    phase: 'sync', title: 'All-Reduce: Summing Local Gradients',
+    desc: 'The all-reduce operation begins. For each parameter, local gradients are collected from all devices and summed. This animation simplifies the communication to a central aggregator, but in reality, optimized topologies (like ring-all-reduce) are used.',
+    codeLines: [34,35],
+    mode: 'all_reduce_sum'
+  },
+  {
+    phase: 'sync', title: 'All-Reduce: Averaging & Broadcasting',
+    desc: 'After summing, the total gradient for each parameter is divided by the number of devices (N) to get the average gradient. This average is then broadcast back to all devices, ensuring every device receives the same global gradient values (green blocks).',
+    codeLines: [34,35],
+    mode: 'all_reduce_avg_broadcast'
+  },
+  {
+    phase: 'update', title: 'Local Optimizer Step with Averaged Gradients',
+    desc: 'With the globally averaged gradients, each device now applies its optimizer step (e.g., SGD) to update its local model weights. Since all devices started with identical weights and use the same averaged gradients, their weights will remain synchronized.',
+    codeLines: [36],
+    mode: 'optimizer_step'
+  },
+  {
+    phase: 'result', title: 'Synchronized Models, Ready for Next Iteration',
+    desc: 'All model replicas are now perfectly synchronized and ready for the next training iteration. The weights are identical across all devices, and the process repeats for the next mini-batch. This is mathematically equivalent to single-device training on a larger batch.',
+    codeLines: [30],
+    mode: 'synchronized'
+  },
+  {
+    phase: 'result', title: 'Ring All-Reduce (Advanced Optimization)',
+    desc: 'For large models and many devices, a common optimization is the "ring all-reduce". Each device sends a chunk of its gradients to its neighbor, receives a chunk, sums it, and passes it on. This happens N-1 times to sum, then N-1 times to broadcast, minimizing communication hops and latency.',
+    codeLines: [],
+    mode: 'ring_all_reduce'
+  }
+];
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() { currentStep = 0; numDevices = 4; document.getElementById('numDevicesSlider').value = numDevices; updateSliderLabel(); initializeDeviceData(); render(); }
+
+// ── SLIDER ──
+const numDevicesSlider = document.getElementById('numDevicesSlider');
+numDevicesSlider.addEventListener('input', () => {
+  numDevices = parseInt(numDevicesSlider.value);
+  updateSliderLabel();
+  initializeDeviceData(); // Re-initialize data for new numDevices
+  render();
+});
+
+function updateSliderLabel() {
+  document.getElementById('numDevicesValue').textContent = numDevices;
+}
+
+// ── INITIALIZE DEVICE DATA ──
+function initializeDeviceData() {
+  seededRng = mulberry32(42); // Reset RNG for consistent data on device change
+  currentDeviceData = generateDeviceData(numDevices);
+  allReducedGrads = calculateAllReducedGrads(currentDeviceData, numDevices);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStep];
+
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', forward:'phase-forward', backward:'phase-backward', sync:'phase-sync', update:'phase-update', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const theme = {
+    text: col('--text'), text2: col('--text2'), text3: col('--text3'),
+    border: col('--border2'), bg2: col('--bg2'),
+    blue: col('--blue-mid'), green: col('--green-mid'), red: col('--red-mid'),
+    amber: col('--amber-mid'), purple: col('--purple-mid'), cyan: col('--cyan-mid')
+  };
+
+  const deviceWidth = (W / numDevices) * 0.8;
+  const deviceSpacing = (W - (deviceWidth * numDevices)) / (numDevices + 1);
+
+  // Draw devices
+  currentDeviceData.forEach((device, i) => {
+    const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+    const y = H * 0.1;
+    const h = H * 0.8;
+
+    ctx.fillStyle = theme.surface;
+    ctx.strokeStyle = theme.border;
+    ctx.lineWidth = 2;
+    ctx.roundRect ? ctx.roundRect(x, y, deviceWidth, h, theme.radius) : ctx.rect(x, y, deviceWidth, h);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '600 14px ' + theme.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(`Device ${i}`, x + deviceWidth / 2, y + 25);
+
+    // Draw model weights (always visible)
+    const paramHeight = (h - 60) / NUM_PARAMS;
+    device.weights.forEach((wVal, pIdx) => {
+      const paramY = y + 40 + pIdx * paramHeight;
+      ctx.fillStyle = theme.blue;
+      ctx.roundRect ? ctx.roundRect(x + deviceWidth * 0.1, paramY, deviceWidth * 0.8, 20, 5) : ctx.rect(x + deviceWidth * 0.1, paramY, deviceWidth * 0.8, 20);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.font = '500 11px ' + theme.mono;
+      ctx.fillText(`w${pIdx+1}: ${wVal.toFixed(2)}`, x + deviceWidth / 2, paramY + 14);
+    });
+
+    // Draw data batch (amber dots)
+    if (mode === 'setup' || mode === 'forward' || mode === 'backward' || mode === 'optimizer_step' || mode === 'synchronized') {
+      ctx.fillStyle = theme.amber;
+      device.dataBatch.forEach((dVal, dIdx) => {
+        ctx.beginPath();
+        ctx.arc(x + deviceWidth * (0.2 + dIdx * 0.6 / device.dataBatch.length), y + h - 25, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.fillStyle = theme.text3;
+      ctx.font = '10px ' + theme.sans;
+      ctx.fillText(`Data Batch`, x + deviceWidth / 2, y + h - 8);
+    }
+  });
+
+  // Mode-specific drawing
+  if (mode === 'forward') {
+    currentDeviceData.forEach((device, i) => {
+      const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+      const y = H * 0.1;
+      const h = H * 0.8;
+      ctx.strokeStyle = theme.cyan;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x + deviceWidth / 2, y + 40);
+      ctx.lineTo(x + deviceWidth / 2, y + h - 40);
+      ctx.stroke();
+      ctx.fillStyle = theme.cyan;
+      ctx.font = '600 12px ' + theme.sans;
+      ctx.fillText('Forward Pass', x + deviceWidth / 2, y + h / 2);
+    });
+  }
+  else if (mode === 'backward' || mode === 'all_reduce_sum' || mode === 'all_reduce_avg_broadcast' || mode === 'optimizer_step' || mode === 'synchronized') {
+    currentDeviceData.forEach((device, i) => {
+      const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+      const y = H * 0.1;
+      const h = H * 0.8;
+
+      device.localGrads.forEach((gVal, pIdx) => {
+        const gradX = x + deviceWidth * 0.1 + (deviceWidth * 0.8) * (pIdx / NUM_PARAMS);
+        const gradY = y + h * 0.75;
+        const gradSize = deviceWidth * 0.8 / NUM_PARAMS - 5;
+
+        // Local Gradients
+        ctx.fillStyle = theme.red;
+        ctx.roundRect ? ctx.roundRect(gradX, gradY, gradSize, 20, 3) : ctx.rect(gradX, gradY, gradSize, 20);
+        ctx.fill();
+        ctx.fillStyle = 'white';
+        ctx.font = '500 10px ' + theme.mono;
+        ctx.fillText(`g${pIdx+1}:${gVal.toFixed(2)}`, gradX + gradSize / 2, gradY + 14);
+      });
+      ctx.fillStyle = theme.text3;
+      ctx.font = '10px ' + theme.sans;
+      ctx.fillText('Local Gradients', x + deviceWidth / 2, y + h * 0.75 + 35);
+    });
+  }
+
+  if (mode === 'all_reduce_sum') {
+    // Animate gradients moving to center
+    const centerX = W / 2;
+    const centerY = H / 2;
+
+    currentDeviceData.forEach((device, i) => {
+      const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+      const y = H * 0.1;
+      const h = H * 0.8;
+
+      device.localGrads.forEach((gVal, pIdx) => {
+        const gradX = x + deviceWidth * 0.1 + (deviceWidth * 0.8) * (pIdx / NUM_PARAMS);
+        const gradY = y + h * 0.75;
+        const gradSize = deviceWidth * 0.8 / NUM_PARAMS - 5;
+
+        // Draw animated gradient moving
+        ctx.beginPath();
+        ctx.moveTo(gradX + gradSize / 2, gradY + 10);
+        ctx.lineTo(centerX + (pIdx - (NUM_PARAMS - 1) / 2) * (gradSize + 10), centerY);
+        ctx.strokeStyle = theme.red;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = theme.purple; // Change color to indicate it's part of the sum
+        ctx.beginPath();
+        ctx.arc(centerX + (pIdx - (NUM_PARAMS - 1) / 2) * (gradSize + 10), centerY, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    });
+
+    // Show summing text
+    ctx.fillStyle = theme.purple;
+    ctx.font = '600 16px ' + theme.sans;
+    ctx.fillText('Summing Gradients...', centerX, centerY + 40);
+  }
+  else if (mode === 'all_reduce_avg_broadcast') {
+    const centerX = W / 2;
+    const centerY = H / 2;
+
+    // Show averaged gradients at center
+    allReducedGrads.forEach((avgG, pIdx) => {
+      const gradSize = deviceWidth * 0.8 / NUM_PARAMS - 5;
+      const gradX = centerX + (pIdx - (NUM_PARAMS - 1) / 2) * (gradSize + 10);
+      ctx.fillStyle = theme.green;
+      ctx.beginPath();
+      ctx.arc(gradX, centerY, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.font = '600 10px ' + theme.mono;
+      ctx.fillText(`g${pIdx+1}avg:${avgG.toFixed(2)}`, gradX, centerY + 3);
+    });
+
+    // Animate broadcast back to devices
+    currentDeviceData.forEach((device, i) => {
+      const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+      const y = H * 0.1;
+      const h = H * 0.8;
+
+      allReducedGrads.forEach((avgG, pIdx) => {
+        const gradSize = deviceWidth * 0.8 / NUM_PARAMS - 5;
+        const targetGradX = x + deviceWidth * 0.1 + (deviceWidth * 0.8) * (pIdx / NUM_PARAMS) + gradSize / 2;
+        const targetGradY = y + h * 0.75 + 10;
+
+        ctx.beginPath();
+        ctx.moveTo(centerX + (pIdx - (NUM_PARAMS - 1) / 2) * (gradSize + 10), centerY);
+        ctx.lineTo(targetGradX, targetGradY);
+        ctx.strokeStyle = theme.green;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = theme.green;
+        ctx.beginPath();
+        ctx.arc(targetGradX, targetGradY, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    });
+    ctx.fillStyle = theme.purple;
+    ctx.font = '600 16px ' + theme.sans;
+    ctx.fillText('Broadcasting Average...', centerX, centerY + 40);
+  }
+  else if (mode === 'optimizer_step') {
+    currentDeviceData.forEach((device, i) => {
+      const x = deviceSpacing + i * (deviceWidth + deviceSpacing);
+      const y = H * 0.1;
+      const h = H * 0.8;
+
+      // Draw updated weights
+      device.weights.forEach((wVal, pIdx) => {
+        const paramY = y + 40 + pIdx * ((h - 60) / NUM_PARAMS);
+        const newW = wVal - 0.05 * allReducedGrads[pIdx]; // Simulate update
+        ctx.fillStyle = theme.green;
+        ctx.roundRect ? ctx.roundRect(x + deviceWidth * 0.1, paramY, deviceWidth * 0.8, 20, 5) : ctx.rect(x + deviceWidth * 0.1, paramY, deviceWidth * 0.8, 20);
+        ctx.fill();
+        ctx.fillStyle = 'white';
+        ctx.font = '500 11px ' + theme.mono;
+        ctx.fillText(`w${pIdx+1}: ${newW.toFixed(2)}`, x + deviceWidth / 2, paramY + 14);
+      });
+      ctx.fillStyle = theme.text;
+      ctx.font = '600 12px ' + theme.sans;
+      ctx.fillText('Weights Updated', x + deviceWidth / 2, y + h * 0.5 + 40);
+    });
+  }
+  else if (mode === 'ring_all_reduce') {
+    const ringRadius = Math.min(W, H) * 0.4;
+    const ringCenterX = W / 2;
+    const ringCenterY = H / 2;
+
+    // Draw devices in a ring
+    currentDeviceData.forEach((device, i) => {
+      const angle = (i / numDevices) * 2 * Math.PI - Math.PI / 2;
+      const x = ringCenterX + ringRadius * Math.cos(angle);
+      const y = ringCenterY + ringRadius * Math.sin(angle);
+      const deviceSize = Math.min(deviceWidth * 0.7, 80);
+
+      ctx.fillStyle = theme.surface;
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = 2;
+      ctx.roundRect ? ctx.roundRect(x - deviceSize / 2, y - deviceSize / 2, deviceSize, deviceSize, theme.radius) : ctx.rect(x - deviceSize / 2, y - deviceSize / 2, deviceSize, deviceSize);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = theme.text;
+      ctx.font = '600 12px ' + theme.sans;
+      ctx.textAlign = 'center';
+      ctx.fillText(`Device ${i}`, x, y - deviceSize / 2 + 18);
+
+      // Draw gradients as small blocks inside device
+      device.localGrads.forEach((gVal, pIdx) => {
+        const gradBlockSize = (deviceSize * 0.6) / NUM_PARAMS;
+        const gradBlockX = x - deviceSize * 0.3 + pIdx * gradBlockSize;
+        const gradBlockY = y + deviceSize * 0.1;
+        ctx.fillStyle = theme.red;
+        ctx.roundRect ? ctx.roundRect(gradBlockX, gradBlockY, gradBlockSize - 2, 10, 2) : ctx.rect(gradBlockX, gradBlockY, gradBlockSize - 2, 10);
+        ctx.fill();
+      });
+    });
+
+    // Draw ring communication arrows
+    ctx.strokeStyle = theme.purple;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    currentDeviceData.forEach((device, i) => {
+      const angle1 = (i / numDevices) * 2 * Math.PI - Math.PI / 2;
+      const angle2 = ((i + 1) % numDevices / numDevices) * 2 * Math.PI - Math.PI / 2;
+      const x1 = ringCenterX + ringRadius * Math.cos(angle1);
+      const y1 = ringCenterY + ringRadius * Math.sin(angle1);
+      const x2 = ringCenterX + ringRadius * Math.cos(angle2);
+      const y2 = ringCenterY + ringRadius * Math.sin(angle2);
+
+      const arrowLength = 15;
+      const arrowAngle = Math.atan2(y2 - y1, x2 - x1);
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      // Draw arrowhead
+      ctx.save();
+      ctx.translate(x2, y2);
+      ctx.rotate(arrowAngle);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-arrowLength, arrowLength / 2);
+      ctx.lineTo(-arrowLength, -arrowLength / 2);
+      ctx.closePath();
+      ctx.fillStyle = theme.purple;
+      ctx.fill();
+      ctx.restore();
+    });
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = theme.purple;
+    ctx.font = '600 14px ' + theme.sans;
+    ctx.fillText('Ring All-Reduce Communication', ringCenterX, H * 0.05);
+  }
+
+  document.getElementById('infoNumbers').textContent = generateInfoNumbers();
+  ctx.textAlign = 'left';
+}
+
+function generateInfoNumbers() {
+  let info = '';
+  info += `Number of Devices (N): ${numDevices}\n`;
+  info += `Number of Parameters: ${NUM_PARAMS}\n`;
+
+  info += `\nInitial Weights:\n`;
+  INITIAL_WEIGHTS.forEach((w, pIdx) => {
+    info += `  w${pIdx+1}: ${w.toFixed(3)}\n`;
+  });
+
+  if (currentStep >= 2 && currentStep < 7) { // Show local grads from backward pass onwards
+    info += `\nLocal Gradients:\n`;
+    currentDeviceData.forEach((device, dIdx) => {
+      info += `  Device ${dIdx}: [${device.localGrads.map(g => g.toFixed(3)).join(', ')}]\n`;
+    });
+  }
+
+  if (currentStep >= 4 && currentStep < 7) { // Show all-reduced grads from avg/broadcast onwards
+    info += `\nAveraged Gradients:\n`;
+    info += `  [${allReducedGrads.map(g => g.toFixed(3)).join(', ')}]\n`;
+  }
+
+  if (currentStep >= 5 && currentStep < 7) { // Show updated weights
+    info += `\nUpdated Weights (per device):\n`;
+    currentDeviceData.forEach((device, dIdx) => {
+      const updatedWeights = device.weights.map((w, pIdx) => (w - 0.05 * allReducedGrads[pIdx]).toFixed(3)); // Simulate update
+      info += `  Device ${dIdx}: [${updatedWeights.join(', ')}]\n`;
+    });
+  }
+  return info;
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initializeDeviceData();
+updateSliderLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[currentStep].mode));
+</script>
+</body>
+</html>

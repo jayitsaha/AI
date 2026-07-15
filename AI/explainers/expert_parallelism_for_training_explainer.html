@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expert Parallelism for Training — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-routing{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-balance{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-summary{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-metrics{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.device{width:20px;height:16px;}
+.legend-swatch.input-token{width:10px;height:10px;border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Expert Parallelism for Training</h1>
+  <div class="subtitle">Scaling models with Mixture-of-Experts (MoE) routing and distributed sparse computation</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Distributed Systems</span>
+    <span class="tag tag-complexity">O(batch_size * k) FLOPs</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Expert Parallelism</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Expert parallelism is a technique to scale very large neural networks, particularly Mixture-of-Experts (MoE) models, beyond the memory limits of single devices. Instead of every part of the model processing every input, inputs are dynamically routed to a small, specialized subset of "experts." Each expert is typically a small feed-forward network (FFN) or a layer, and these experts are distributed across many devices (GPUs).</p>
+    <p><strong>Analogy:</strong> Imagine a massive consulting firm with hundreds of specialized consultants (experts). When a client (input token) arrives, a receptionist (router) quickly assesses their needs and sends them to the 2-4 most relevant consultants. Only those few consultants work on the client's problem, while the vast majority remain idle. This allows the firm to offer a huge range of expertise (model capacity) without every client needing to pay for every consultant's time (computation cost).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Expert parallelism enables models with <strong>trillions of parameters</strong> by activating only a sparse subset of "expert" sub-networks for each input. This significantly increases model capacity without proportionally increasing computation or memory footprint per example, making it ideal for scaling large language models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Mixture-of-Experts Layer</h4>
+    <p>At its core, expert parallelism is typically implemented within a Mixture-of-Experts (MoE) layer. An MoE layer replaces a standard feed-forward network (FFN) in a Transformer block. It consists of:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>A Gating Network (Router):</strong> This is a small neural network (e.g., a linear layer followed by a softmax) that takes the input token representation and outputs a probability distribution over all available experts.</li>
+      <li><strong>Multiple Experts:</strong> These are typically identical FFNs. For each input token, the gating network selects the top-\(k\) experts (e.g., \(k=1\) or \(k=2\)) based on the probabilities.</li>
+      <li><strong>Aggregation:</strong> The outputs from the selected experts are combined (usually a weighted sum, where weights are the gating network's probabilities) to produce the final output for the token.</li>
+    </ol>
+    <p>The key insight for parallelism is that only the selected \(k\) experts perform computation for a given token. If you have \(N\) experts distributed across \(D\) devices, each device only needs to store \(N/D\) experts and process the tokens routed to them.</p>
+
+    <h4>Distributed Execution Flow</h4>
+    <p>During a forward pass in an MoE layer:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Input tokens arrive at the MoE layer.</li>
+      <li>Each token is passed to the <strong>gating network</strong>, which is typically replicated on all devices or itself sharded.</li>
+      <li>The gating network computes scores for all experts and selects the top-\(k\) experts for each token.</li>
+      <li>Tokens are then <strong>routed</strong> to their chosen experts. This involves sending the token data to the device(s) where the selected experts reside.</li>
+      <li>The selected experts compute their outputs in parallel.</li>
+      <li>Expert outputs are sent back to the original device (or a central aggregation point) and combined.</li>
+    </ol>
+    <p>The backward pass follows a similar distributed pattern, ensuring gradients are computed and propagated only through the activated experts.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Expert parallelism leverages <strong>sparse activation</strong>. While the total number of parameters can be enormous, the computational cost per token remains relatively low (proportional to \(k\), not \(N\)), enabling much larger models without prohibitive training/inference times.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Gating Function</h4>
+    <p>For an input token \(x\), the gating network \(G\) (often a simple linear layer followed by softmax) computes a score for each of \(N\) experts:</p>
+    <div class="eq">$$P(i \mid x) = \operatorname{softmax}(W_g x)_i$$</div>
+    <p>where \(W_g\) is the weight matrix of the gating network. The top-\(k\) experts are chosen based on these probabilities. The output of the MoE layer for input \(x\) is then a weighted sum of the selected experts' outputs:</p>
+    <div class="eq">$$y = \sum_{j=1}^k P(e_j \mid x) \cdot E_{e_j}(x)$$</div>
+    <p>where \(E_{e_j}(x)\) is the output of the \(j\)-th selected expert for input \(x\), and \(P(e_j \mid x)\) is its corresponding gating probability.</p>
+
+    <h4>Load Balancing Objective</h4>
+    <p>A crucial challenge is ensuring that experts are utilized evenly. Without proper load balancing, some experts might become "hot" (receive most tokens) while others become "cold" (receive few or none), leading to inefficient use of resources and potential model degradation. This is often addressed with an auxiliary loss term:</p>
+    <div class="eq">$$L_{balance} = \alpha \cdot \sum_{i=1}^N \sum_{j=1}^N \left( \frac{\sum_{t=1}^{B} \mathbb{I}(\text{expert } i \text{ chosen for token } t)}{B} - \frac{\sum_{t=1}^{B} \mathbb{I}(\text{expert } j \text{ chosen for token } t)}{B} \right)^2$$</div>
+    <p>This loss penalizes the variance in expert usage across a batch \(B\), encouraging the gating network to distribute tokens more uniformly. Other approaches use a "router z-loss" to encourage sparse, confident routing decisions. The \(\alpha\) hyperparameter controls the strength of this regularization.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The communication overhead of routing tokens between devices can become a bottleneck. If the experts are very small, or if the network topology is slow, the benefits of sparse computation can be negated by the cost of data movement. Careful expert placement and efficient all-to-all communication primitives are essential.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how input tokens are routed to a subset of experts distributed across multiple devices. Adjust the number of experts and active experts per token to see the impact on computation and load balancing.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Total Experts (N)</div>
+          <input type="range" id="numExpertsSlider" min="4" max="16" step="1" value="8">
+          <div class="slider-value" id="numExpertsValue">8</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Active Experts per Token (k)</div>
+          <input type="range" id="activeExpertsSlider" min="1" max="4" step="1" value="2">
+          <div class="slider-value" id="activeExpertsValue">2</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="loadBalanceToggle" checked>
+          <label for="loadBalanceToggle">Simulate load balancing (evenly distribute tokens)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Model & Devices</div>
+        <div class="info-desc" id="infoDesc">We begin with a large model that uses a Mixture-of-Experts (MoE) layer. Here, 8 experts are distributed across 4 devices (GPUs).</div>
+        <div class="info-metrics" id="infoMetrics"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch input-token" style="background:var(--blue-mid)"></div> Input Token</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Router / Gating Network</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Expert (active)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Expert (inactive)</div>
+        <div class="legend-item"><div class="legend-swatch device" style="background:var(--green-bg);border:1px solid var(--green-border);"></div> Device (GPU)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Expert Parallelism:</strong></p>
+    <ul>
+      <li>Training extremely large models (trillions of parameters) that cannot fit on a single node.</li>
+      <li>When you need massive model capacity but want to keep per-token computation manageable.</li>
+      <li>For models where different parts of the input benefit from specialized processing (e.g., different tokens in an LLM).</li>
+      <li>When you have a large cluster of GPUs available for distribution.</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>For smaller models where standard data or model parallelism is sufficient.</li>
+      <li>When communication bandwidth between devices is extremely limited, as routing introduces significant communication.</li>
+      <li>If the gating network struggles with load balancing, leading to expert collapse or uneven utilization.</li>
+      <li>If your model architecture is not naturally amenable to sparse activation (e.g., dense convolutional networks).</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 MoE vs. Other Parallelism</div>
+      <p style="font-size:14px;margin:0;">Unlike <strong>Data Parallelism</strong> (same model, different data) or <strong>Model Parallelism</strong> (different parts of one model on different devices), Expert Parallelism distributes <em>distinct sub-networks</em> (experts) and dynamically routes data to them. It's often combined with other parallelism strategies (e.g., data parallelism over batches, model parallelism within each expert).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Simplified PyTorch MoE Layer)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class Expert(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, dim, hidden_dim):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.net = nn.Sequential(</div>
+      <div class="code-line" id="cl8">            nn.Linear(dim, hidden_dim),</div>
+      <div class="code-line" id="cl9">            nn.ReLU(),</div>
+      <div class="code-line" id="cl10">            nn.Linear(hidden_dim, dim)</div>
+      <div class="code-line" id="cl11">        )</div>
+      <div class="code-line" id="cl12">    def forward(self, x):</div>
+      <div class="code-line" id="cl13">        return self.net(x)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">class MoELayer(nn.Module):</div>
+      <div class="code-line" id="cl16">    def __init__(self, dim, num_experts, k_experts, hidden_dim=2048):</div>
+      <div class="code-line" id="cl17">        super().__init__()</div>
+      <div class="code-line" id="cl18">        self.num_experts = num_experts</div>
+      <div class="code-line" id="cl19">        self.k_experts = k_experts</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">        # Gating network (router)</div>
+      <div class="code-line" id="cl22">        self.gate = nn.Linear(dim, num_experts)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">        # Experts (typically on different devices in real setup)</div>
+      <div class="code-line" id="cl25">        self.experts = nn.ModuleList([Expert(dim, hidden_dim) for _ in range(num_experts)])</div>
+      <div class="code-line" id="cl26">        # In a real distributed system, experts would be placed on different GPUs.</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">    def forward(self, x): # x: (batch_size, seq_len, dim)</div>
+      <div class="code-line" id="cl29">        batch_size, seq_len, dim = x.shape</div>
+      <div class="code-line" id="cl30">        flat_x = x.view(-1, dim) # (tokens, dim)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">        # 1. Compute expert scores and probabilities</div>
+      <div class="code-line" id="cl33">        gate_logits = self.gate(flat_x) # (tokens, num_experts)</div>
+      <div class="code-line" id="cl34">        gate_probs = F.softmax(gate_logits, dim=-1)</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">        # 2. Select top-k experts for each token</div>
+      <div class="code-line" id="cl37">        top_k_probs, top_k_indices = torch.topk(gate_probs, self.k_experts, dim=-1)</div>
+      <div class="code-line" id="cl38">        # top_k_probs: (tokens, k_experts), top_k_indices: (tokens, k_experts)</div>
+      <div class="code-line" id="cl39"></div>
+      <div class="code-line" id="cl40">        # 3. Create output tensor and dispatch tokens to experts</div>
+      <div class="code-line" id="cl41">        output = torch.zeros_like(flat_x)</div>
+      <div class="code-line" id="cl42">        # Simplified dispatch: in real systems, tokens are physically sent to expert devices</div>
+      <div class="code-line" id="cl43">        for i, expert_idx in enumerate(top_k_indices.flatten()):</div>
+      <div class="code-line" id="cl44">            token_idx = i // self.k_experts</div>
+      <div class="code-line" id="cl45">            expert_output = self.experts[expert_idx](flat_x[token_idx])</div>
+      <div class="code-line" id="cl46">            output[token_idx] += top_k_probs.flatten()[i] * expert_output</div>
+      <div class="code-line" id="cl47"></div>
+      <div class="code-line" id="cl48">        # (Optional) Add load balancing loss here during training</div>
+      <div class="code-line" id="cl49">        # e.g., using top_k_indices to count expert usage and compute variance</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">        return output.view(batch_size, seq_len, dim)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL STATE ──
+let currentStep = 0;
+const totalSteps = 8; // Number of interactive steps
+let numExperts = 8;
+let activeExpertsPerToken = 2;
+let numDevices = 4; // Fixed for this example
+let loadBalanceEnabled = true;
+
+// ── HELPER FUNCTIONS ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+    greenBg: g('--green-bg'), greenBorder: g('--green-border'),
+    textInactive: g('--text3'),
+    deviceColors: [g('--green-mid'), g('--blue-mid'), g('--purple-mid'), g('--amber-mid')] // For devices
+  };
+}
+
+// Seeded random number generator for reproducible routing
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(123); // Seed for reproducibility
+
+// Simulate routing for a batch of tokens
+function simulateRouting(numTokens, numExperts, kExperts, loadBalance) {
+  const routing = []; // Array of {tokenIdx, expertIdx}
+  const expertLoads = new Array(numExperts).fill(0);
+  const localRng = mulberry32(123 + currentStep + numExperts * 100 + kExperts * 10 + (loadBalance ? 1 : 0)); // New seed for each simulation
+
+  for (let t = 0; t < numTokens; t++) {
+    const expertChoices = [];
+    if (loadBalance) {
+      // Prioritize experts with lower current load
+      const expertScores = new Array(numExperts).fill(0).map((_, i) => ({
+        idx: i,
+        score: localRng() - expertLoads[i] * 0.1 // Random + penalize high load
+      }));
+      expertScores.sort((a, b) => b.score - a.score);
+      for (let i = 0; i < kExperts; i++) {
+        expertChoices.push(expertScores[i].idx);
+      }
+    } else {
+      // Simple random choice (can be unbalanced)
+      const availableExperts = Array.from({length: numExperts}, (_, i) => i);
+      for (let i = 0; i < kExperts; i++) {
+        const randIdx = Math.floor(localRng() * availableExperts.length);
+        expertChoices.push(availableExperts.splice(randIdx, 1)[0]);
+      }
+    }
+
+    for (const expertIdx of expertChoices) {
+      routing.push({ tokenIdx: t, expertIdx });
+      expertLoads[expertIdx]++;
+    }
+  }
+  return { routing, expertLoads };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Model & Devices',
+    desc: `We're training a large model using a Mixture-of-Experts (MoE) layer. Here, <b>numExperts experts</b> are distributed across <b>${numDevices} devices (GPUs)</b>. Each device holds numExperts / ${numDevices} experts. Initially, no computation is happening.`,
+    canvasMode: 'init',
+    codeLines: [15,16,17,18,19,24,25,26]
+  },
+  {
+    phase: 'setup', title: 'Input Tokens Arrive',
+    desc: `A batch of <b>4 input tokens</b> needs processing. In a standard model, each token would pass through the entire (large) FFN layer. In MoE, they first go to the gating network.`,
+    canvasMode: 'input_tokens',
+    codeLines: [28,29,30]
+  },
+  {
+    phase: 'routing', title: 'Gating Network (Router)',
+    desc: `Each input token is passed to the <b>gating network</b> (router). This small network (often a linear layer + softmax) computes a score for every expert, indicating how relevant each expert is for that specific token.`,
+    canvasMode: 'router_active',
+    codeLines: [21,22,32,33,34]
+  },
+  {
+    phase: 'routing', title: 'Selecting Top-k Experts',
+    desc: `Based on the gating network's scores, the router selects the <b>top-k experts</b> for each token. Here, we've chosen <b>k = activeExpertsPerToken</b>. Only these selected experts will perform computation for their assigned tokens.`,
+    canvasMode: 'select_k',
+    codeLines: [36,37,38]
+  },
+  {
+    phase: 'routing', title: 'Routing & Sparse Activation',
+    desc: `Tokens are now physically routed to the devices hosting their selected experts. Notice how only a small subset of experts (purple) become active, while most remain idle (grey). This is <b>sparse activation</b>.`,
+    canvasMode: 'routing',
+    codeLines: [40,41,42,43,44,45,46]
+  },
+  {
+    phase: 'balance', title: 'Expert Load Balancing',
+    desc: `Without careful routing, some experts can become overloaded ("hot") while others are underutilized ("cold"). Our simulation includes a <b>load balancing mechanism</b> to distribute tokens more evenly across experts.`,
+    canvasMode: 'load_balance',
+    codeLines: [48,49]
+  },
+  {
+    phase: 'summary', title: 'Benefits: High Capacity, Low Cost',
+    desc: `By activating only a few experts per token, MoE layers allow models to have <b>enormous total parameter counts (high capacity)</b> without increasing the computational cost per token. This is key for scaling large language models.`,
+    canvasMode: 'summary',
+    codeLines: []
+  },
+  {
+    phase: 'summary', title: 'The Full MoE Pipeline',
+    desc: `This entire process (gating, routing, expert computation, aggregation) happens for every MoE layer in the model. During backpropagation, gradients flow only through the activated experts and the gating network.`,
+    canvasMode: 'full_pipeline',
+    codeLines: [28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51]
+  }
+];
+
+// ── UI WIRING ──
+const pSlider = document.getElementById('numExpertsSlider');
+const kSlider = document.getElementById('activeExpertsSlider');
+const loadBalanceToggle = document.getElementById('loadBalanceToggle');
+
+pSlider.addEventListener('input', () => {
+  numExperts = parseInt(pSlider.value);
+  document.getElementById('numExpertsValue').textContent = numExperts;
+  // Ensure k is not greater than N
+  if (activeExpertsPerToken > numExperts) {
+    activeExpertsPerToken = numExperts;
+    kSlider.value = numExperts;
+    document.getElementById('activeExpertsValue').textContent = numExperts;
+  }
+  kSlider.max = numExperts; // Update max for k slider
+  render();
+});
+
+kSlider.addEventListener('input', () => {
+  activeExpertsPerToken = parseInt(kSlider.value);
+  document.getElementById('activeExpertsValue').textContent = activeExpertsPerToken;
+  render();
+});
+
+loadBalanceToggle.addEventListener('change', () => {
+  loadBalanceEnabled = loadBalanceToggle.checked;
+  render();
+});
+
+// ── RENDER FUNCTION ──
+function render() {
+  const s = steps[currentStep];
+
+  // Update slider values and max based on current state
+  pSlider.value = numExperts;
+  document.getElementById('numExpertsValue').textContent = numExperts;
+  kSlider.max = numExperts;
+  kSlider.value = activeExpertsPerToken;
+  document.getElementById('activeExpertsValue').textContent = activeExpertsPerToken;
+  loadBalanceToggle.checked = loadBalanceEnabled;
+
+  // Update info card
+  document.getElementById('infoPhase').className = 'info-phase phase-' + s.phase;
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc.replace(/numExperts/g, numExperts).replace(/activeExpertsPerToken/g, activeExpertsPerToken);
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Update controls
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  // Draw canvas
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+  const infoMetrics = document.getElementById('infoMetrics');
+  infoMetrics.textContent = ''; // Clear metrics
+
+  // Layout constants
+  const tokenRadius = 10;
+  const routerHeight = 40;
+  const expertWidth = 40, expertHeight = 30;
+  const devicePadding = 15;
+  const deviceGap = 10;
+  const tokensX = W * 0.1;
+  const routerX = W * 0.3;
+  const expertsX = W * 0.6;
+  const outputX = W * 0.9;
+  const numTokens = 4; // Fixed batch size for visualization
+
+  // Calculate expert positions and device assignments
+  const expertsPerDevice = numExperts / numDevices;
+  if (expertsPerDevice % 1 !== 0) {
+    // If experts don't divide evenly, adjust numDevices or numExperts for visual clarity
+    // For this explainer, we'll just force numExperts to be a multiple of numDevices
+    numExperts = Math.max(numDevices, Math.ceil(numExperts / numDevices) * numDevices);
+    pSlider.value = numExperts; // Update slider if forced
+    document.getElementById('numExpertsValue').textContent = numExperts;
+  }
+
+  const expertPositions = [];
+  const devicePositions = [];
+  const expertDeviceMap = []; // expertIdx -> deviceIdx
+
+  let currentY = H * 0.1;
+  for (let d = 0; d < numDevices; d++) {
+    const deviceExperts = [];
+    let deviceMaxY = currentY;
+    for (let e = 0; e < expertsPerDevice; e++) {
+      const expertIdx = d * expertsPerDevice + e;
+      const expY = currentY + expertHeight / 2 + (expertHeight + 10) * e;
+      expertPositions.push({ x: expertsX, y: expY, idx: expertIdx });
+      expertDeviceMap[expertIdx] = d;
+      deviceExperts.push(expertIdx);
+      deviceMaxY = Math.max(deviceMaxY, expY + expertHeight / 2);
+    }
+    devicePositions.push({
+      x: expertsX - devicePadding,
+      y: currentY - devicePadding,
+      width: expertWidth + 2 * devicePadding,
+      height: (deviceMaxY - (currentY - devicePadding)) + devicePadding,
+      idx: d,
+      experts: deviceExperts
+    });
+    currentY = deviceMaxY + deviceGap + devicePadding;
+  }
+
+  // Draw devices first
+  devicePositions.forEach(dev => {
+    ctx.fillStyle = colors.greenBg;
+    ctx.strokeStyle = colors.greenBorder;
+    ctx.lineWidth = 1.5;
+    ctx.roundRect ? ctx.roundRect(dev.x, dev.y, dev.width, dev.height, colors.radius) : ctx.rect(dev.x, dev.y, dev.width, dev.height);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colors.greenMid;
+    ctx.font = '600 12px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(`GPU ${dev.idx}`, dev.x + dev.width / 2, dev.y + 18);
+  });
+
+  // Draw experts
+  expertPositions.forEach(exp => {
+    ctx.fillStyle = colors.textInactive; // Default to inactive
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(exp.x, exp.y - expertHeight / 2, expertWidth, expertHeight, colors.radius / 2) : ctx.rect(exp.x, exp.y - expertHeight / 2, expertWidth, expertHeight);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 11px ' + colors.mono;
+    ctx.textAlign = 'center';
+    ctx.fillText(`E${exp.idx}`, exp.x + expertWidth / 2, exp.y + 4);
+  });
+
+  // Draw router
+  const routerY = H / 2 - routerHeight / 2;
+  ctx.fillStyle = colors.amberMid;
+  ctx.strokeStyle = colors.amberMid;
+  ctx.lineWidth = 1;
+  ctx.roundRect ? ctx.roundRect(routerX, routerY, expertWidth, routerHeight, colors.radius) : ctx.rect(routerX, routerY, expertWidth, routerHeight);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'white';
+  ctx.font = '600 11px ' + colors.sans;
+  ctx.textAlign = 'center';
+  ctx.fillText('Router', routerX + expertWidth / 2, routerY + routerHeight / 2 + 4);
+
+  // --- Mode-specific drawing ---
+  if (mode === 'init') {
+    // Only devices and experts drawn as inactive
+  } else if (mode === 'input_tokens') {
+    // Draw input tokens
+    for (let i = 0; i < numTokens; i++) {
+      const tokenY = H / 2 - (numTokens / 2 - i - 0.5) * (tokenRadius * 3);
+      ctx.beginPath();
+      ctx.arc(tokensX, tokenY, tokenRadius, 0, Math.PI * 2);
+      ctx.fillStyle = colors.blueMid;
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = 'white';
+      ctx.font = '600 10px ' + colors.mono;
+      ctx.fillText(`T${i}`, tokensX, tokenY + 3);
+    }
+  } else if (mode === 'router_active') {
+    // Draw input tokens
+    for (let i = 0; i < numTokens; i++) {
+      const tokenY = H / 2 - (numTokens / 2 - i - 0.5) * (tokenRadius * 3);
+      ctx.beginPath();
+      ctx.arc(tokensX, tokenY, tokenRadius, 0, Math.PI * 2);
+      ctx.fillStyle = colors.blueMid;
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = 'white';
+      ctx.font = '600 10px ' + colors.mono;
+      ctx.fillText(`T${i}`, tokensX, tokenY + 3);
+
+      // Arrow to router
+      ctx.strokeStyle = colors.text2;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tokensX + tokenRadius, tokenY);
+      ctx.lineTo(routerX, routerY + routerHeight / 2);
+      ctx.stroke();
+      drawArrowhead(ctx, tokensX + tokenRadius, tokenY, routerX, routerY + routerHeight / 2, colors.text2);
+    }
+    // Highlight router
+    ctx.fillStyle = colors.amberMid;
+    ctx.strokeStyle = colors.amberMid;
+    ctx.lineWidth = 2;
+    ctx.roundRect ? ctx.roundRect(routerX, routerY, expertWidth, routerHeight, colors.radius) : ctx.rect(routerX, routerY, expertWidth, routerHeight);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'white';
+    ctx.font = '600 11px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('Router', routerX + expertWidth / 2, routerY + routerHeight / 2 + 4);
+
+  } else if (mode === 'select_k' || mode === 'routing' || mode === 'load_balance' || mode === 'summary' || mode === 'full_pipeline') {
+    // Draw input tokens
+    for (let i = 0; i < numTokens; i++) {
+      const tokenY = H / 2 - (numTokens / 2 - i - 0.5) * (tokenRadius * 3);
+      ctx.beginPath();
+      ctx.arc(tokensX, tokenY, tokenRadius, 0, Math.PI * 2);
+      ctx.fillStyle = colors.blueMid;
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = 'white';
+      ctx.font = '600 10px ' + colors.mono;
+      ctx.fillText(`T${i}`, tokensX, tokenY + 3);
+
+      // Arrow to router
+      ctx.strokeStyle = colors.text2;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tokensX + tokenRadius, tokenY);
+      ctx.lineTo(routerX, routerY + routerHeight / 2);
+      ctx.stroke();
+      drawArrowhead(ctx, tokensX + tokenRadius, tokenY, routerX, routerY + routerHeight / 2, colors.text2);
+    }
+
+    // Highlight router (active)
+    ctx.fillStyle = colors.amberMid;
+    ctx.strokeStyle = colors.amberMid;
+    ctx.lineWidth = 2;
+    ctx.roundRect ? ctx.roundRect(routerX, routerY, expertWidth, routerHeight, colors.radius) : ctx.rect(routerX, routerY, expertWidth, routerHeight);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'white';
+    ctx.font = '600 11px ' + colors.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText('Router', routerX + expertWidth / 2, routerY + routerHeight / 2 + 4);
+
+    // Simulate routing
+    const { routing, expertLoads } = simulateRouting(numTokens, numExperts, activeExpertsPerToken, loadBalanceEnabled);
+
+    // Draw routing lines and highlight active experts
+    const activeExpertIndices = new Set(routing.map(r => r.expertIdx));
+    let totalActiveExperts = 0;
+    expertPositions.forEach(exp => {
+      const isActive = activeExpertIndices.has(exp.idx);
+      if (isActive) {
+        totalActiveExperts++;
+        ctx.fillStyle = colors.purpleMid;
+        ctx.strokeStyle = colors.purpleMid;
+        ctx.lineWidth = 2;
+        ctx.roundRect ? ctx.roundRect(exp.x, exp.y - expertHeight / 2, expertWidth, expertHeight, colors.radius / 2) : ctx.rect(exp.x, exp.y - expertHeight / 2, expertWidth, expertHeight);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'white';
+        ctx.font = '600 11px ' + colors.mono;
+        ctx.textAlign = 'center';
+        ctx.fillText(`E${exp.idx}`, exp.x + expertWidth / 2, exp.y + 4);
+
+        // Draw line from router to active expert
+        ctx.strokeStyle = colors.purpleMid;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(routerX + expertWidth, routerY + routerHeight / 2);
+        ctx.lineTo(exp.x, exp.y);
+        ctx.stroke();
+        drawArrowhead(ctx, routerX + expertWidth, routerY + routerHeight / 2, exp.x, exp.y, colors.purpleMid);
+      }
+    });
+
+    if (mode === 'routing' || mode === 'load_balance' || mode === 'summary' || mode === 'full_pipeline') {
+      // Draw output aggregation
+      const outputY = H / 2;
+      ctx.strokeStyle = colors.cyanMid;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      expertPositions.forEach(exp => {
+        if (activeExpertIndices.has(exp.idx)) {
+          ctx.moveTo(exp.x + expertWidth, exp.y);
+          ctx.lineTo(outputX, outputY);
+        }
+      });
+      ctx.stroke();
+      drawArrowhead(ctx, outputX - 10, outputY, outputX, outputY, colors.cyanMid);
+
+      ctx.fillStyle = colors.cyanMid;
+      ctx.font = '600 11px ' + colors.sans;
+      ctx.textAlign = 'center';
+      ctx.fillText('Output', outputX, outputY + 4);
+    }
+
+
+    // Metrics display
+    let metricsText = `Total Experts (N): ${numExperts}\n`;
+    metricsText += `Active Experts per Token (k): ${activeExpertsPerToken}\n`;
+    metricsText += `Devices: ${numDevices}\n`;
+    metricsText += `Experts per Device: ${numExperts / numDevices}\n`;
+    metricsText += `Active Experts this step: ${totalActiveExperts}\n`;
+
+    const maxLoad = Math.max(...expertLoads);
+    const minLoad = Math.min(...expertLoads);
+    const expectedLoadPerExpert = (numTokens * activeExpertsPerToken) / numExperts;
+    const loadVariance = expertLoads.reduce((acc, load) => acc + Math.pow(load - expectedLoadPerExpert, 2), 0) / numExperts;
+    metricsText += `Expert Load (min/max): ${minLoad}/${maxLoad}\n`;
+    metricsText += `Load Variance: ${loadVariance.toFixed(2)}`;
+
+    infoMetrics.textContent = metricsText;
+  }
+
+  ctx.textAlign = 'left'; // Reset text alignment
+}
+
+// Draw arrowhead helper
+function drawArrowhead(ctx, fromX, fromY, toX, toY, color) {
+  const headlen = 8;
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(idx) {
+  currentStep = idx;
+  render();
+}
+function reset() {
+  currentStep = 0;
+  numExperts = 8;
+  activeExpertsPerToken = 2;
+  loadBalanceEnabled = true;
+  render();
+}
+
+// ── PROGRESS DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIALIZATION ──
+document.addEventListener('DOMContentLoaded', () => {
+  initDots();
+  render();
+  window.addEventListener('resize', () => drawCanvas(steps[currentStep].canvasMode));
+});
+</script>
+</body>
+</html>
