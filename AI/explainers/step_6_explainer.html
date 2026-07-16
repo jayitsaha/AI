@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML System Design Step 6 — Training: Loss & Label Construction — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:26px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:0.35rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Stat chips (live numbers) */
+.stat-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:0 0 1rem;}
+.stat-chip{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;font-family:var(--mono);text-align:center;min-width:104px;}
+.stat-chip .stat-label{display:block;font-size:9.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;}
+.stat-chip .stat-value{display:block;font-size:15px;font-weight:700;color:var(--text);}
+.stat-chip.pos .stat-value{color:var(--green-mid);}
+.stat-chip.neg .stat-value{color:var(--red-mid);}
+.stat-chip.warn .stat-value{color:var(--amber-mid);}
+.stat-chip.info .stat-value{color:var(--blue-mid);}
+.stat-chip.mix .stat-value{color:var(--purple-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-data{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-sample{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-balance{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-loss{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:20px;}
+  .stat-chip{min-width:84px;padding:6px 10px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>ML System Design — Step 6: Training</h1>
+  <div class="subtitle">Loss function choice &amp; training-data construction: labels, sampling, negatives</div>
+  <div class="tags">
+    <span class="tag tag-foundational">ML System Design</span>
+    <span class="tag tag-category">Training Pipeline</span>
+    <span class="tag tag-category">Ranking / RecSys</span>
+    <span class="tag tag-complexity">Step 6 of 9</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding the Problem</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> By the time you reach "Training" in an ML system design interview, the architecture is usually settled — the hard, high-leverage decisions left are (1) how you turn raw interaction logs into a supervised training set (which events are positive labels, how negatives get manufactured, how imbalance gets corrected) and (2) which loss function you optimize. These two choices decide what the model actually learns far more than swapping one architecture for another does.</p>
+    <p><strong>Analogy:</strong> Training a sommelier by only showing wines they said "I loved this" teaches nothing — there is no contrast to calibrate against. What you show as the "not loved" examples matters enormously: random bottles from the cellar teach "does this even resemble wine I like," while bottles that looked similar but were passed over teach "what is the fine-grained thing that actually makes the difference." Negative construction defines the question the model is being asked to answer.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">The label-construction and negative-sampling strategy silently redefine what the loss function is estimating. The same pointwise binary cross-entropy loss, $$\mathcal{L}_{BCE} = -\frac{1}{N}\sum_i\big[y_i\log \hat p_i + (1-y_i)\log(1-\hat p_i)\big]$$ trained on random negatives learns "does this look clickable at all," while trained on hard negatives it learns "is this clickable versus its closest competitors." Same formula, different model.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>From logs to labels</h4>
+    <p>Raw logs record impressions: a user was shown an item, and either clicked/converted or did not. A <em>positive</em> label is usually defined as click, add-to-cart, purchase, or long dwell time — but implicit feedback is noisy: a click can be misleading (clickbait), and a non-click doesn't mean "irrelevant," it can mean "never truly seen" (position bias — items shown lower get fewer clicks regardless of quality).</p>
+
+    <h4>Negative sampling strategies</h4>
+    <p>Un-clicked impressions are not automatically good negatives — how you pick them changes the difficulty of the learning problem:</p>
+    <ul>
+      <li><strong>Random negatives</strong> — sample uniformly from un-clicked items. Cheap, but usually too easy: the model reaches high accuracy quickly by learning coarse popularity cues without learning fine-grained relevance.</li>
+      <li><strong>Hard negatives</strong> — items the current model scores highly but the user did not click. These sit near the decision boundary and keep gradient signal alive long after random negatives have stopped contributing much. Overused, they risk promoting false negatives (items the user would have liked but never saw).</li>
+      <li><strong>In-batch negatives</strong> — reuse other examples' positive items within the same minibatch as free negatives for every other row. For a batch of size B this turns B labeled positives into B(B−1) negative pairs at zero extra labeling cost — the standard trick for large-scale retrieval / two-tower models.</li>
+    </ul>
+
+    <h4>Class-imbalance reweighting</h4>
+    <p>Click-through rates are typically low, so positives are a small minority. Left uncorrected, a loss dominated by negatives pushes predicted probabilities toward zero for everything. Inverse-frequency class weights ($$w_{pos}=\tfrac{N}{2N_{pos}},\ w_{neg}=\tfrac{N}{2N_{neg}}$$), oversampling positives, or focal loss all rebalance the gradient contribution of each class.</p>
+
+    <h4>Choosing the loss family</h4>
+    <p>Pointwise (BCE) treats every example independently and produces a calibrated probability, but ignores relative ordering between candidates. Pairwise (BPR / hinge) directly optimizes "is the positive ranked above this negative," matching ranking metrics better but yielding uncalibrated scores. Listwise (softmax cross-entropy / ListNet / LambdaRank) optimizes the ordering of an entire candidate list at once — closest to metrics like NDCG, but the most expensive per training instance.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Design decision: where in the funnel?</div>
+      <p style="font-size:14px;margin:0;">Retrieval / matching stages (millions of candidates) favor <strong>in-batch negatives + pairwise or listwise contrastive loss</strong> — cheap negatives at scale matter more than calibration. Ranking stages (a few hundred already-relevant candidates) favor <strong>pointwise or listwise loss with hard or human-labeled negatives</strong> — precision on a small set matters more than throughput.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Pointwise: Binary Cross-Entropy</h4>
+    <div class="eq">$$\mathcal{L}_{BCE} = -\frac{1}{N}\sum_{i=1}^{N} w_{y_i}\big[y_i\log \hat p_i + (1-y_i)\log(1-\hat p_i)\big]$$</div>
+    <p>The gradient with respect to the logit is \(\hat p_i - y_i\) — its magnitude shrinks to near zero once an example is confidently and correctly classified. This is exactly why easy random negatives stop teaching anything after a few epochs: their gradient vanishes, while hard negatives (where \(\hat p_i\) stays near 0.5) keep contributing signal.</p>
+
+    <h4>Pairwise: Bayesian Personalized Ranking (BPR)</h4>
+    <p>BPR assumes the model believes the positive item \(i^+\) is preferred over a sampled negative \(i^-\) with probability \(\sigma(s_{i^+}-s_{i^-})\). Maximizing the likelihood of the observed preference gives:</p>
+    <div class="eq">$$\mathcal{L}_{BPR} = -\log \sigma(s_{i^+} - s_{i^-})$$</div>
+    <p>Minimizing this directly maximizes the pairwise AUC of the ranking — it never needs a calibrated probability, only the correct relative order of scores.</p>
+
+    <h4>Listwise: Softmax Cross-Entropy (Plackett–Luce)</h4>
+    <div class="eq">$$\mathcal{L}_{list} = -\log \frac{e^{s_{i^+}}}{\sum_{j \in \text{list}} e^{s_j}}$$</div>
+    <p>This is the negative log-likelihood of the Plackett–Luce ranking model restricted to "who is first." Its gradient pushes the positive's score up <em>relative to every other candidate in the list simultaneously</em> — a strictly stronger signal per step than a single pairwise comparison.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common pitfall</div>
+      <p style="font-size:14px;margin:0;">In-batch negatives are <strong>not</strong> i.i.d. samples from the true negative distribution — their difficulty depends entirely on batch composition, and popular items appear as negatives disproportionately often, biasing the model against popular-but-relevant items. Production systems correct this with a log-frequency term inside the softmax (the "sampled softmax correction" used in YouTube's two-tower retrieval model).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through building a training set from 30 toy impression logs — from raw unlabeled events to three fully-specified losses, with every number computed live from a seeded toy model.</p>
+
+    <div class="viz-container">
+      <div class="stat-row" id="statRow"></div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-data" id="infoPhase">DATA</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Raw Impression Logs</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Unlabeled / dimmed</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Positive (click)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Random negative</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Hard negative</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> In-batch / boundary</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Use pointwise BCE when:</strong></p>
+    <ul>
+      <li>You need a calibrated probability (e.g. for pacing, pricing, or thresholding downstream)</li>
+      <li>Labels are abundant and roughly balanced after reweighting</li>
+      <li>Simplicity and independent per-example computation matter (easy to shard, cache, debug)</li>
+    </ul>
+    <p><strong>Use pairwise BPR when:</strong></p>
+    <ul>
+      <li>Only relative order matters (top-K ranking), not calibrated scores</li>
+      <li>You can cheaply sample (positive, negative) pairs, e.g. from implicit feedback</li>
+      <li>You want a loss more robust to overall base-rate shifts than BCE</li>
+    </ul>
+    <p><strong>Use listwise loss when:</strong></p>
+    <ul>
+      <li>You have the full candidate list per query/user (typical at the ranking stage, not retrieval)</li>
+      <li>Your offline metric is list-based (NDCG, MRR) — listwise loss correlates with it far better than pointwise</li>
+      <li>You can afford the extra compute of a softmax over the whole list per training step</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Interview one-liner</div>
+      <p style="font-size:14px;margin:0;">"Positives come from clicks/conversions with position-bias correction; negatives are random early on and hard-mined or in-batch as the model improves; the loss is pointwise for calibration at the ranking stage and pairwise/listwise with in-batch negatives for the retrieval stage — and class weights keep the rare positive class from being drowned out." That sentence covers Step 6 end-to-end.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># 1. Raw impression logs: (features, clicked)</div>
+      <div class="code-line" id="cl3">logs = load_impression_logs()   # p_score, popularity, clicked</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># 2. Positive labels = clicked events</div>
+      <div class="code-line" id="cl6">positives = [x for x in logs if x.clicked]</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># 3a. Random negative sampling</div>
+      <div class="code-line" id="cl9">negatives = [x for x in logs if not x.clicked]</div>
+      <div class="code-line" id="cl10">random_negs = sample(negatives, k=len(positives))</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12"># 3b. Hard negative mining (high model score, still not clicked)</div>
+      <div class="code-line" id="cl13">hard_negs = sorted(negatives, key=lambda x: -x.model_prob)[:len(positives)]</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15"># 3c. In-batch negatives (retrieval / two-tower)</div>
+      <div class="code-line" id="cl16">batch_scores = user_emb @ item_emb.T           # (B, B)</div>
+      <div class="code-line" id="cl17">labels = np.eye(len(batch_scores))              # diagonal = true pairs</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19"># 4. Class-imbalance reweighting</div>
+      <div class="code-line" id="cl20">n_pos, n_neg = len(positives), len(negatives)</div>
+      <div class="code-line" id="cl21">w_pos = len(logs) / (2 * n_pos)</div>
+      <div class="code-line" id="cl22">w_neg = len(logs) / (2 * n_neg)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24"># 5a. Pointwise BCE</div>
+      <div class="code-line" id="cl25">def bce(p, y, w):</div>
+      <div class="code-line" id="cl26">    return -w * (y*np.log(p) + (1-y)*np.log(1-p))</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28"># 5b. Pairwise BPR</div>
+      <div class="code-line" id="cl29">def bpr(s_pos, s_neg):</div>
+      <div class="code-line" id="cl30">    return -np.log(sigmoid(s_pos - s_neg))</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32"># 5c. Listwise softmax cross-entropy</div>
+      <div class="code-line" id="cl33">def listwise(scores, true_idx):</div>
+      <div class="code-line" id="cl34">    probs = softmax(scores)</div>
+      <div class="code-line" id="cl35">    return -np.log(probs[true_idx])</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Deterministic toy data generation (seeded PRNG => reproducible,
+// same values every load, distinct per canvas step)
+// ============================================================
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
+function shuffle(arr, rngFn) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rngFn() * (i + 1));
+    const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+  }
+  return a;
+}
+function softmax(row) {
+  const m = Math.max.apply(null, row);
+  const exps = row.map(v => Math.exp(v - m));
+  const s = exps.reduce((a, b) => a + b, 0);
+  return exps.map(e => e / s);
+}
+
+// 30 toy impression logs: 2 features in [0,1] (personalization score, popularity)
+const rng = mulberry32(42);
+const N_LOGS = 30;
+const logs = [];
+for (let i = 0; i < N_LOGS; i++) {
+  const pScore = rng();
+  const pop = rng();
+  const trueLogit = 5 * (0.55 * pScore + 0.35 * pop) - 3.2;   // low base rate, like real CTR
+  const trueProb = sigmoid(trueLogit);
+  const clicked = rng() < trueProb;
+  const modelLogit = 4 * (0.5 * pScore + 0.5 * pop) - 2.0 + (rng() - 0.5) * 0.7; // imperfect model
+  const modelProb = sigmoid(modelLogit);
+  logs.push({ id: i, pScore, pop, clicked, modelLogit, modelProb });
+}
+const positives = logs.filter(d => d.clicked);
+const negatives = logs.filter(d => !d.clicked);
+
+// Random negatives: deterministic shuffle with independent seed
+const rngShuffle = mulberry32(7);
+const randomNegs = shuffle(negatives, rngShuffle).slice(0, Math.min(9, negatives.length));
+
+// Hard negatives: highest model-predicted probability among the un-clicked
+const hardNegs = negatives.slice().sort((a, b) => b.modelProb - a.modelProb).slice(0, Math.min(9, negatives.length));
+const avgProbHard = hardNegs.reduce((a, d) => a + d.modelProb, 0) / hardNegs.length;
+const avgProbRandom = randomNegs.reduce((a, d) => a + d.modelProb, 0) / randomNegs.length;
+
+// In-batch retrieval example: 6 users x 6 items toy affinity scores (diagonal = true pair)
+const batchLabels = ["I1", "I2", "I3", "I4", "I5", "I6"];
+const batchScores = [
+  [8.2, 1.1, 2.3, 0.5, 1.8, 0.9],
+  [1.4, 7.6, 0.8, 2.1, 1.0, 1.6],
+  [2.0, 1.2, 6.9, 1.5, 0.7, 2.4],
+  [0.6, 2.5, 1.1, 7.3, 1.9, 0.8],
+  [1.7, 0.9, 1.6, 1.2, 8.0, 1.3],
+  [1.0, 1.8, 2.2, 0.7, 1.4, 7.5]
+];
+
+// Class-imbalance weights
+const nPos = positives.length, nNeg = negatives.length;
+const wPos = N_LOGS / (2 * nPos);
+const wNeg = N_LOGS / (2 * nNeg);
+
+// BCE over a positive/negative set
+function bceLossSet(posArr, negArr) {
+  const all = posArr.map(d => ({ p: d.modelProb, y: 1 })).concat(negArr.map(d => ({ p: d.modelProb, y: 0 })));
+  const losses = all.map(d => d.y === 1 ? -Math.log(Math.max(d.p, 1e-6)) : -Math.log(Math.max(1 - d.p, 1e-6)));
+  return losses.reduce((a, b) => a + b, 0) / losses.length;
+}
+const bceExamplePos = positives.slice(0, 4);
+const bceExampleNeg = negatives.slice(0, 4);
+const bceExamples = bceExamplePos.map(d => ({ ...d, y: 1 })).concat(bceExampleNeg.map(d => ({ ...d, y: 0 })));
+const avgBceExample = bceLossSet(bceExamplePos, bceExampleNeg);
+const bceRandomFull = bceLossSet(positives, randomNegs);
+const bceHardFull = bceLossSet(positives, hardNegs);
+
+// BPR over pairs (positive, hard negative)
+const bprPairs = positives.slice(0, Math.min(4, positives.length)).map((p, i) => {
+  const neg = hardNegs[i % hardNegs.length];
+  const margin = p.modelLogit - neg.modelLogit;
+  const loss = -Math.log(sigmoid(margin));
+  return { pos: p, neg, margin, loss };
+});
+const avgBprLoss = bprPairs.reduce((a, d) => a + d.loss, 0) / bprPairs.length;
+
+// Listwise loss across the 6 in-batch rows (diagonal = true item)
+const listwiseLosses = batchScores.map((row, i) => {
+  const probs = softmax(row);
+  return -Math.log(Math.max(probs[i], 1e-9));
+});
+const avgListwiseLoss = listwiseLosses.reduce((a, b) => a + b, 0) / listwiseLosses.length;
+const row0Probs = softmax(batchScores[0]);
+
+// ============================================================
+// STEPS
+// ============================================================
+const steps = [
+  {
+    phase: "data", title: "Raw Impression Logs",
+    desc: "30 impressions were logged: a user was shown an item with features personalization score and popularity. No labels are assigned yet — every dot is grey. This raw log is all a system has before Step 6 begins; everything else in this walkthrough is derived from it.",
+    codeLines: [2, 3],
+    canvasMode: "rawlogs",
+    stats: () => [
+      { label: "Impressions", value: N_LOGS, cls: "info" },
+      { label: "Features", value: "2 (p_score, pop)", cls: "" },
+      { label: "Labels assigned", value: "0", cls: "warn" }
+    ]
+  },
+  {
+    phase: "data", title: "Positive Labels = Clicks",
+    desc: "Positive labels come from an explicit signal — here, a click. Everything else stays unlabeled for now. Notice positives cluster toward high personalization-score + high popularity, but not perfectly: implicit feedback is noisy.",
+    codeLines: [5, 6],
+    canvasMode: "positives",
+    stats: () => [
+      { label: "Positives", value: nPos, cls: "pos" },
+      { label: "Un-clicked", value: nNeg, cls: "" },
+      { label: "Positive rate", value: (100 * nPos / N_LOGS).toFixed(1) + "%", cls: "warn" }
+    ]
+  },
+  {
+    phase: "sample", title: "Random Negative Sampling",
+    desc: "Sample " + randomNegs.length + " un-clicked items uniformly at random to pair against the " + nPos + " positives. Cheap and unbiased with respect to position — but scattered everywhere in feature space, so many are \"obviously\" negative and stop contributing gradient almost immediately.",
+    codeLines: [8, 9, 10],
+    canvasMode: "random_neg",
+    stats: () => [
+      { label: "Positives kept", value: nPos, cls: "pos" },
+      { label: "Random negs", value: randomNegs.length, cls: "neg" },
+      { label: "Avg model p(neg)", value: avgProbRandom.toFixed(3), cls: "" }
+    ]
+  },
+  {
+    phase: "sample", title: "Hard Negative Mining",
+    desc: "Instead of random un-clicked items, pick the ones the current model scores highest — i.e. closest to its own decision boundary (dashed line where predicted probability = 0.5). These are the confusing cases that keep the gradient \\(\\hat p - y\\) large, forcing the model to learn a sharper distinction than random negatives ever would.",
+    codeLines: [12, 13],
+    canvasMode: "hard_neg",
+    stats: () => [
+      { label: "Hard negs", value: hardNegs.length, cls: "warn" },
+      { label: "Avg model p(hard)", value: avgProbHard.toFixed(3), cls: "warn" },
+      { label: "Avg model p(random)", value: avgProbRandom.toFixed(3), cls: "" }
+    ]
+  },
+  {
+    phase: "sample", title: "In-Batch Negatives (Retrieval)",
+    desc: "In a training batch of 6 (user, clicked-item) pairs, every OTHER user's clicked item is a free negative for this user — 6 labels become 6×6 − 6 = 30 negative pairs at zero extra labeling cost. This is the standard trick behind large-scale two-tower retrieval models. The diagonal (green) is the true pair; the rest of the grid are free negatives.",
+    codeLines: [15, 16, 17],
+    canvasMode: "inbatch_neg",
+    stats: () => [
+      { label: "Batch size", value: 6, cls: "info" },
+      { label: "True pairs", value: 6, cls: "pos" },
+      { label: "Free negatives", value: 30, cls: "mix" }
+    ]
+  },
+  {
+    phase: "balance", title: "Class-Imbalance Reweighting",
+    desc: "Raw counts are lopsided: " + nPos + " positives vs " + nNeg + " negatives. Left uncorrected, the loss is dominated by the negative class and predictions collapse toward 0. Inverse-frequency weights \\(w_{pos}=\\tfrac{N}{2N_{pos}}\\), \\(w_{neg}=\\tfrac{N}{2N_{neg}}\\) rescale each class's contribution so the effective weighted mass is equal.",
+    codeLines: [19, 20, 21, 22],
+    canvasMode: "imbalance",
+    stats: () => [
+      { label: "w_pos", value: wPos.toFixed(2), cls: "pos" },
+      { label: "w_neg", value: wNeg.toFixed(2), cls: "neg" },
+      { label: "Imbalance ratio", value: "1 : " + (nNeg / nPos).toFixed(1), cls: "warn" }
+    ]
+  },
+  {
+    phase: "loss", title: "Pointwise Loss: Binary Cross-Entropy",
+    desc: "For 8 example impressions (4 clicked, 4 not), plot \\(-\\log \\hat p\\) for label=1 (blue curve) and \\(-\\log(1-\\hat p)\\) for label=0 (red curve), and mark each example's actual model prediction on its curve. BCE punishes confident wrong predictions harshly but gives almost no gradient once a prediction is already confidently correct.",
+    codeLines: [24, 25, 26],
+    canvasMode: "bce",
+    stats: () => [
+      { label: "Avg BCE (sample)", value: avgBceExample.toFixed(3), cls: "info" },
+      { label: "BCE + random negs", value: bceRandomFull.toFixed(3), cls: "" },
+      { label: "BCE + hard negs", value: bceHardFull.toFixed(3), cls: "warn" }
+    ]
+  },
+  {
+    phase: "loss", title: "Pairwise Loss: BPR",
+    desc: "Pair each positive with a hard negative and compute the score margin \\(s_{i^+} - s_{i^-}\\). BPR loss \\(-\\log\\sigma(\\text{margin})\\) falls toward 0 as the positive is scored further above the negative — it only cares about relative order, never a calibrated probability.",
+    codeLines: [28, 29, 30],
+    canvasMode: "bpr",
+    stats: () => [
+      { label: "Pairs", value: bprPairs.length, cls: "info" },
+      { label: "Avg margin", value: (bprPairs.reduce((a, d) => a + d.margin, 0) / bprPairs.length).toFixed(2), cls: "" },
+      { label: "Avg BPR loss", value: avgBprLoss.toFixed(3), cls: "mix" }
+    ]
+  },
+  {
+    phase: "loss", title: "Listwise Loss: Softmax Cross-Entropy",
+    desc: "For one query (row 1 of the in-batch grid), take a softmax over all 6 candidate scores and read off the probability mass on the true item (green bar). The listwise loss \\(-\\log p_{true}\\) pushes the true item's score up relative to ALL 5 competitors at once — strictly more signal per step than one pairwise comparison.",
+    codeLines: [32, 33, 34, 35],
+    canvasMode: "listwise",
+    stats: () => [
+      { label: "p(true item)", value: row0Probs[0].toFixed(3), cls: "pos" },
+      { label: "Listwise loss (row 1)", value: listwiseLosses[0].toFixed(3), cls: "info" },
+      { label: "Avg over batch", value: avgListwiseLoss.toFixed(3), cls: "mix" }
+    ]
+  },
+  {
+    phase: "result", title: "Putting It Together",
+    desc: "No single number here is directly comparable across loss families (different scales, different objectives) — but the pattern matters: hard negatives raise pointwise loss because they're genuinely harder to separate, while pairwise/listwise losses trained on in-batch negatives scale to far more implicit comparisons per label. Retrieval stages lean pairwise/listwise + in-batch; ranking stages lean pointwise/listwise + hard negatives.",
+    codeLines: [],
+    canvasMode: "summary",
+    stats: () => [
+      { label: "BCE (random)", value: bceRandomFull.toFixed(2), cls: "" },
+      { label: "BCE (hard)", value: bceHardFull.toFixed(2), cls: "warn" },
+      { label: "BPR (hard)", value: avgBprLoss.toFixed(2), cls: "mix" },
+      { label: "Listwise", value: avgListwiseLoss.toFixed(2), cls: "info" }
+    ]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector(".section-toggle");
+  body.classList.toggle("collapsed");
+  toggle.classList.toggle("open");
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById("progressDots");
+  wrap.innerHTML = "";
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i === 0 ? " active" : "");
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll(".dot");
+  dots.forEach((d, i) => {
+    d.className = "dot";
+    if (i < step) d.classList.add("done");
+    if (i === step) d.classList.add("active");
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById("btnPrev").disabled = step === 0;
+  document.getElementById("btnNext").disabled = step === totalSteps - 1;
+
+  const phaseMap = { data: "phase-data", sample: "phase-sample", balance: "phase-balance", loss: "phase-loss", result: "phase-result" };
+  document.getElementById("infoPhase").className = "info-phase " + phaseMap[s.phase];
+  document.getElementById("infoPhase").textContent = s.phase.toUpperCase();
+  document.getElementById("infoStep").textContent = "Step " + (step + 1) + " of " + totalSteps;
+  document.getElementById("infoTitle").textContent = s.title;
+  document.getElementById("infoDesc").innerHTML = s.desc;
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("infoCard"), {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll(".code-line").forEach(cl => cl.classList.remove("active"));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById("cl" + i);
+    if (el) el.classList.add("active");
+  });
+
+  renderStats(s.stats ? s.stats() : []);
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── STAT CHIPS ──
+function renderStats(chips) {
+  const row = document.getElementById("statRow");
+  row.innerHTML = chips.map(c =>
+    '<div class="stat-chip ' + (c.cls || "") + '"><span class="stat-label">' + c.label + '</span><span class="stat-value">' + c.value + '</span></div>'
+  ).join("");
+}
+
+// ============================================================
+// CANVAS DRAWING
+// ============================================================
+function drawCanvas(mode) {
+  const canvas = document.getElementById("vizCanvas");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const cs = getComputedStyle(document.documentElement);
+  const C = {
+    text: cs.getPropertyValue("--text").trim(),
+    text2: cs.getPropertyValue("--text2").trim(),
+    text3: cs.getPropertyValue("--text3").trim(),
+    border: cs.getPropertyValue("--border2").trim(),
+    blue: cs.getPropertyValue("--blue-mid").trim(),
+    green: cs.getPropertyValue("--green-mid").trim(),
+    red: cs.getPropertyValue("--red-mid").trim(),
+    amber: cs.getPropertyValue("--amber-mid").trim(),
+    purple: cs.getPropertyValue("--purple-mid").trim(),
+    cyan: cs.getPropertyValue("--cyan-mid").trim()
+  };
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "11px \"DM Sans\", system-ui";
+
+  const pad = { l: 46, r: 20, t: 22, b: 38 };
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const toX01 = v => pad.l + v * pw;
+  const toY01 = v => pad.t + (1 - v) * ph;
+
+  function drawScatterAxes(xLabel, yLabel) {
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+    ctx.fillStyle = C.text3;
+    ctx.fillText(xLabel, W - pad.r - 60, H - pad.b + 28);
+    ctx.fillText(yLabel, pad.l - 36, pad.t + 4);
+    for (let v = 0; v <= 1.001; v += 0.25) {
+      const cx = toX01(v), cy = toY01(v);
+      ctx.beginPath(); ctx.moveTo(cx, H - pad.b); ctx.lineTo(cx, H - pad.b + 4); ctx.stroke();
+      ctx.fillText(v.toFixed(2), cx - 10, H - pad.b + 17);
+      ctx.beginPath(); ctx.moveTo(pad.l - 4, cy); ctx.lineTo(pad.l, cy); ctx.stroke();
+      ctx.fillText(v.toFixed(2), pad.l - 34, cy + 3);
+    }
+  }
+  function dot(px, py, r, fillColor, alpha, ring) {
+    ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor; ctx.fill();
+    if (ring) { ctx.strokeStyle = ring; ctx.lineWidth = 1.5; ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+
+  if (mode === "rawlogs") {
+    drawScatterAxes("popularity", "p_score");
+    logs.forEach(d => {
+      dot(toX01(d.pop), toY01(d.pScore), 6, "transparent", 1, C.text3);
+    });
+    ctx.fillStyle = C.text2;
+    ctx.fillText("Every impression is unlabeled so far — label construction hasn't happened yet", pad.l + 4, pad.t - 4);
+  }
+
+  if (mode === "positives") {
+    drawScatterAxes("popularity", "p_score");
+    logs.forEach(d => {
+      if (d.clicked) dot(toX01(d.pop), toY01(d.pScore), 7, C.green, 1, "white");
+      else dot(toX01(d.pop), toY01(d.pScore), 5, "transparent", 0.35, C.text3);
+    });
+    ctx.fillStyle = C.text2;
+    ctx.fillText(nPos + " of " + N_LOGS + " impressions clicked → positive labels (green)", pad.l + 4, pad.t - 4);
+  }
+
+  if (mode === "random_neg") {
+    drawScatterAxes("popularity", "p_score");
+    const negIds = new Set(randomNegs.map(d => d.id));
+    logs.forEach(d => {
+      if (d.clicked) dot(toX01(d.pop), toY01(d.pScore), 6, C.green, 0.85, "white");
+      else if (negIds.has(d.id)) dot(toX01(d.pop), toY01(d.pScore), 7, C.red, 1, "white");
+      else dot(toX01(d.pop), toY01(d.pScore), 4, "transparent", 0.15, C.text3);
+    });
+    ctx.fillStyle = C.text2;
+    ctx.fillText("Random negatives (red) scattered across the whole feature space", pad.l + 4, pad.t - 4);
+  }
+
+  if (mode === "hard_neg") {
+    drawScatterAxes("popularity", "p_score");
+    // model decision boundary: 0.5*pop + 0.5*pScore = 0.5  =>  pop + pScore = 1
+    ctx.strokeStyle = C.purple; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(toX01(1), toY01(0)); ctx.lineTo(toX01(0), toY01(1)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = C.purple;
+    ctx.fillText("model boundary (p=0.5)", toX01(0.55), toY01(0.5) - 8);
+
+    const hardIds = new Set(hardNegs.map(d => d.id));
+    logs.forEach(d => {
+      if (d.clicked) dot(toX01(d.pop), toY01(d.pScore), 6, C.green, 0.85, "white");
+      else if (hardIds.has(d.id)) dot(toX01(d.pop), toY01(d.pScore), 7, C.amber, 1, "white");
+      else dot(toX01(d.pop), toY01(d.pScore), 4, "transparent", 0.15, C.text3);
+    });
+    ctx.fillStyle = C.text2;
+    ctx.fillText("Hard negatives (amber) cluster near the boundary — harder to separate", pad.l + 4, pad.t - 4);
+  }
+
+  if (mode === "inbatch_neg") {
+    const gpad = { l: 70, r: 30, t: 40, b: 30 };
+    const gw = W - gpad.l - gpad.r, gh = H - gpad.t - gpad.b;
+    const cell = Math.min(gw, gh) / 6;
+    const gx0 = gpad.l, gy0 = gpad.t;
+    let maxScore = 0;
+    batchScores.forEach(row => row.forEach(v => { if (v > maxScore) maxScore = v; }));
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < 6; c++) {
+        const val = batchScores[r][c];
+        const x = gx0 + c * cell, y = gy0 + r * cell;
+        const isDiag = r === c;
+        const t = val / maxScore;
+        ctx.fillStyle = isDiag ? C.green : C.purple;
+        ctx.globalAlpha = isDiag ? 0.85 : 0.15 + t * 0.35;
+        ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 1, y + 1, cell - 2, cell - 2);
+        ctx.fillStyle = isDiag ? "white" : C.text2;
+        ctx.font = "10px var(--mono)";
+        ctx.fillText(val.toFixed(1), x + cell / 2 - 10, y + cell / 2 + 4);
+      }
+    }
+    ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillStyle = C.text3;
+    for (let i = 0; i < 6; i++) {
+      ctx.fillText("U" + (i + 1), gx0 - 24, gy0 + i * cell + cell / 2 + 4);
+      ctx.fillText(batchLabels[i], gx0 + i * cell + cell / 2 - 8, gy0 - 10);
+    }
+    ctx.fillStyle = C.text2;
+    ctx.fillText("Diagonal = true (user, item) pair · off-diagonal = free in-batch negatives", gx0, H - 8);
+  }
+
+  if (mode === "imbalance") {
+    const bw = 70, gap = 40;
+    const groups = [
+      { label: "Raw pos", n: nPos, color: C.green },
+      { label: "Raw neg", n: nNeg, color: C.red },
+      { label: "Weighted pos", n: nPos * wPos, color: C.green },
+      { label: "Weighted neg", n: nNeg * wNeg, color: C.red }
+    ];
+    const maxN = Math.max.apply(null, groups.map(g => g.n)) * 1.15;
+    const baseY = H - pad.b;
+    const totalW = groups.length * bw + (groups.length - 1) * gap;
+    let x0 = (W - totalW) / 2;
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l - 10, pad.t); ctx.lineTo(pad.l - 10, baseY); ctx.lineTo(W - pad.r, baseY); ctx.stroke();
+    groups.forEach((g, i) => {
+      const barH = (g.n / maxN) * (baseY - pad.t - 20);
+      const x = x0 + i * (bw + gap);
+      ctx.fillStyle = g.color; ctx.globalAlpha = i < 2 ? 0.55 : 0.9;
+      ctx.fillRect(x, baseY - barH, bw, barH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = g.color; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x, baseY - barH, bw, barH);
+      ctx.fillStyle = C.text;
+      ctx.font = "600 12px \"DM Sans\", system-ui";
+      ctx.fillText(g.n.toFixed(1), x + bw / 2 - 12, baseY - barH - 8);
+      ctx.font = "11px \"DM Sans\", system-ui";
+      ctx.fillStyle = C.text2;
+      ctx.fillText(g.label, x + bw / 2 - 24, baseY + 16);
+    });
+    ctx.fillStyle = C.text3;
+    ctx.fillText("Reweighting equalizes effective class mass despite unequal raw counts", pad.l - 6, pad.t - 4);
+  }
+
+  if (mode === "bce") {
+    const xMin = 0.02, xMax = 0.98, yMin = 0, yMax = 4.5;
+    const tX = p => pad.l + (p - xMin) / (xMax - xMin) * pw;
+    const tY = l => pad.t + (1 - (l - yMin) / (yMax - yMin)) * ph;
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+    ctx.fillStyle = C.text3;
+    ctx.fillText("predicted p̂", W - pad.r - 60, H - pad.b + 28);
+    ctx.fillText("loss", pad.l - 34, pad.t + 4);
+
+    ctx.strokeStyle = C.blue; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const p = xMin + (xMax - xMin) * i / 60;
+      const l = Math.min(-Math.log(p), yMax);
+      const px = tX(p), py = tY(l);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = C.red; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const p = xMin + (xMax - xMin) * i / 60;
+      const l = Math.min(-Math.log(1 - p), yMax);
+      const px = tX(p), py = tY(l);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    bceExamples.forEach(d => {
+      const p = d.modelProb;
+      const l = d.y === 1 ? -Math.log(Math.max(p, 1e-6)) : -Math.log(Math.max(1 - p, 1e-6));
+      dot(tX(p), tY(Math.min(l, yMax)), 6, d.y === 1 ? C.green : C.amber, 1, "white");
+    });
+    ctx.fillStyle = C.blue; ctx.fillText("−log p̂ (y=1)", tX(0.15), tY(3.2));
+    ctx.fillStyle = C.red; ctx.fillText("−log(1−p̂) (y=0)", tX(0.62), tY(3.2));
+  }
+
+  if (mode === "bpr") {
+    const xMin = -6, xMax = 6, yMin = 0, yMax = 6.5;
+    const tX = m => pad.l + (m - xMin) / (xMax - xMin) * pw;
+    const tY = l => pad.t + (1 - (l - yMin) / (yMax - yMin)) * ph;
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+    ctx.fillStyle = C.text3;
+    ctx.fillText("margin s+ − s−", W - pad.r - 78, H - pad.b + 28);
+    ctx.fillText("loss", pad.l - 34, pad.t + 4);
+    // zero line
+    ctx.strokeStyle = C.border; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(tX(0), pad.t); ctx.lineTo(tX(0), H - pad.b); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = C.cyan; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const m = xMin + (xMax - xMin) * i / 60;
+      const l = Math.min(-Math.log(sigmoid(m)), yMax);
+      const px = tX(m), py = tY(l);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    bprPairs.forEach(pr => {
+      dot(tX(pr.margin), tY(Math.min(pr.loss, yMax)), 6, C.purple, 1, "white");
+    });
+    ctx.fillStyle = C.cyan;
+    ctx.fillText("−log σ(margin)", tX(-5), tY(5.6));
+  }
+
+  if (mode === "listwise") {
+    const items = batchLabels;
+    const trueIdx = 0;
+    const bw2 = pw / (items.length * 1.6);
+    const gap2 = bw2 * 0.6;
+    const totalW = items.length * bw2 + (items.length - 1) * gap2;
+    let x0 = pad.l + (pw - totalW) / 2;
+    const baseY = H - pad.b;
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l - 10, pad.t); ctx.lineTo(pad.l - 10, baseY); ctx.lineTo(W - pad.r, baseY); ctx.stroke();
+    items.forEach((label, i) => {
+      const p = row0Probs[i];
+      const barH = p * (baseY - pad.t - 24);
+      const x = x0 + i * (bw2 + gap2);
+      const isTrue = i === trueIdx;
+      ctx.fillStyle = isTrue ? C.green : C.purple;
+      ctx.globalAlpha = isTrue ? 0.9 : 0.45;
+      ctx.fillRect(x, baseY - barH, bw2, barH);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.text;
+      ctx.font = "600 11px \"DM Sans\", system-ui";
+      ctx.fillText(p.toFixed(2), x + bw2 / 2 - 12, baseY - barH - 8);
+      ctx.font = "11px \"DM Sans\", system-ui";
+      ctx.fillStyle = C.text2;
+      ctx.fillText(label, x + bw2 / 2 - 8, baseY + 16);
+    });
+    ctx.fillStyle = C.text3;
+    ctx.fillText("Softmax over U1's 6 candidates — I1 (green) is the true clicked item", pad.l - 6, pad.t - 4);
+  }
+
+  if (mode === "summary") {
+    const items = [
+      { label: "BCE\n+random", v: bceRandomFull, color: C.red },
+      { label: "BCE\n+hard", v: bceHardFull, color: C.amber },
+      { label: "BPR\n+hard", v: avgBprLoss, color: C.purple },
+      { label: "Listwise\n(in-batch)", v: avgListwiseLoss, color: C.cyan }
+    ];
+    const maxV = Math.max.apply(null, items.map(d => d.v)) * 1.25;
+    const bw3 = 72, gap3 = 32;
+    const totalW = items.length * bw3 + (items.length - 1) * gap3;
+    let x0 = (W - totalW) / 2;
+    const baseY = H - pad.b;
+    ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l - 10, pad.t); ctx.lineTo(pad.l - 10, baseY); ctx.lineTo(W - pad.r, baseY); ctx.stroke();
+    items.forEach((d, i) => {
+      const barH = (d.v / maxV) * (baseY - pad.t - 30);
+      const x = x0 + i * (bw3 + gap3);
+      ctx.fillStyle = d.color; ctx.globalAlpha = 0.85;
+      ctx.fillRect(x, baseY - barH, bw3, barH);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.text;
+      ctx.font = "600 12px \"DM Sans\", system-ui";
+      ctx.fillText(d.v.toFixed(2), x + bw3 / 2 - 14, baseY - barH - 8);
+      ctx.font = "10.5px \"DM Sans\", system-ui";
+      ctx.fillStyle = C.text2;
+      const lines = d.label.split("\n");
+      lines.forEach((ln, li) => ctx.fillText(ln, x + bw3 / 2 - ctx.measureText(ln).width / 2, baseY + 16 + li * 12));
+    });
+    ctx.fillStyle = C.text3;
+    ctx.font = "11px \"DM Sans\", system-ui";
+    ctx.fillText("Each bar is its own loss's scale — pick the loss+sampling combo that matches the funnel stage", pad.l - 6, pad.t - 4);
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener("resize", () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

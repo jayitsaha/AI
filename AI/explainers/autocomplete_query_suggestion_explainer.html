@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autocomplete / Query Suggestion — Interactive System Design Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/10;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-intro{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-typing{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-ranking{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-typo{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-personalize{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-latency{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-phase.phase-live{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-summary{background:var(--blue-bg);color:var(--blue-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;}
+.stat-chip{font-family:var(--mono);font-size:11px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:4px 10px;color:var(--text);}
+.stat-chip b{color:var(--purple-mid);}
+
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Autocomplete / Query Suggestion</h1>
+  <div class="subtitle">System design: ranking completions from a trie of query popularity in under 100ms</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">ML System Design</span>
+    <span class="tag tag-category">Search / RecSys</span>
+    <span class="tag tag-complexity">O(p + k log n)</span>
+    <span class="tag tag-advanced">Latency-critical</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Autocomplete</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Autocomplete (a.k.a. "query suggestion" or "typeahead") predicts what a user is about to search for, character by character, and offers a ranked shortlist of completions before they finish typing. Google, Amazon, and every app search bar you have ever used runs a version of this.</p>
+    <p><strong>Analogy:</strong> Think of a librarian who has memorized every question ever asked at the front desk, sorted alphabetically on cue cards. The moment you say "wea—", she instantly flips to the "wea" drawer and hands you the five most commonly asked follow-ups, favoring ones asked recently and ones <em>you personally</em> ask a lot — even correcting for stutters ("wetaher" instead of "weather").</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Autocomplete is a <strong>read-heavy, latency-critical ranking problem</strong> solved offline: a trie (prefix tree) indexes historical queries, each node caches its own precomputed top-\(k\) — so a keystroke is a \(O(|prefix|)\) walk plus an \(O(k)\) lookup, not a live scan of millions of logs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Index: A Trie of Historical Queries</h4>
+    <p>Every distinct query ever issued (e.g. "weather nyc") is inserted character-by-character into a trie. Each terminal node stores a <strong>popularity weight</strong> — usually a blend of raw frequency and recency decay — and every internal node stores an aggregate ("marginal") weight equal to the sum of all completions beneath it. In production the trie is <em>compressed</em> (radix/PATRICIA-style): any chain of nodes with a single child collapses into one edge labeled with a multi-character string, which shrinks both memory and the number of hops per keystroke.</p>
+    <h4>Serving a Keystroke</h4>
+    <p>On each keystroke the client debounces briefly, then the server walks the compressed trie following the typed prefix. If a node is reached exactly, its precomputed top-\(k\) list is already sitting in a cache (this is the "marginal-count" trick — the ranking is precomputed offline/periodically per node, never recomputed by scanning the subtree online). If the prefix diverges from every stored path — a typo — the system falls back to an approximate-match structure (BK-tree or a Levenshtein automaton) that finds completions within edit distance \(\le 2\).</p>
+    <h4>Design Decision: Why precompute per-node top-k?</h4>
+    <p>A subtree can contain millions of leaf queries. Re-scanning it on every keystroke is \(O(n)\) and would blow any latency budget. Precomputing (and periodically refreshing) each node's top-\(k\) makes serving \(O(k)\) regardless of subtree size — the classic "push work to write-time, keep read-time cheap" trade-off.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The trie guarantees that all completions sharing a prefix live in one contiguous subtree, so ranking reduces to a bounded merge of at most a few precomputed lists — never a full-corpus search.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: Why It Works — Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Ranking Score</h4>
+    <p>Each candidate completion \(c\) with historical frequency \(f_c\) and recency \(r_c \in [0,1]\) (1 = very recent / trending) gets a base score:</p>
+    <div class="eq">$$\text{score}(c) = f_c \cdot \big(0.5 + 0.5\, r_c\big)$$</div>
+    <p>Recency never zeroes out an old-but-popular query, but it can roughly double the weight of a currently trending one — enough to reorder the top-\(k\).</p>
+    <h4>Personalization Blend</h4>
+    <p>Given a user's personal query history \(p_c\), the personalized score linearly blends normalized global popularity, personal affinity, and recency:</p>
+    <div class="eq">$$\text{score}_{\text{pers}}(c) = 0.5\cdot \frac{f_c}{f_{\max}} + 0.3\cdot \frac{p_c}{p_{\max}} + 0.2\cdot r_c$$</div>
+    <h4>Typo Tolerance via Edit Distance</h4>
+    <p>When the typed string \(t\) has no exact trie path, we compute Levenshtein distance to nearby candidates via the classic DP recurrence:</p>
+    <div class="eq">$$D_{i,j} = \min\big(D_{i-1,j}+1,\; D_{i,j-1}+1,\; D_{i-1,j-1}+\mathbb{1}[t_i \ne c_j]\big)$$</div>
+    <p>Any candidate with \(D_{|t|,|c|} \le \tau\) (typically \(\tau = 2\)) is admitted into the ranking pool, so a transposed pair of letters still surfaces the intended query.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Running full Levenshtein against the <em>entire</em> corpus on every keystroke is too slow. Production systems only fuzzy-match against a small candidate shortlist (e.g. queries near the matched trie prefix, or a BK-tree radius query) — never a linear scan.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through a live query-suggestion pipeline over an 18-query trie: typing narrows the prefix path, scores re-rank by frequency × recency, a typo triggers edit-distance fallback, personalization re-orders results, and the full latency budget is tallied.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-intro" id="infoPhase">INTRO</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Query Trie</div>
+        <div class="info-desc" id="infoDesc">Loading…</div>
+        <div class="info-stats" id="infoStats"></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Matched prefix path</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Trie node / query</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Top-ranked suggestion</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Recency / trending boost</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Typo / edit-distance path</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to reach for this design:</strong></p>
+    <ul>
+      <li>Search bars, command palettes, e-commerce SKU search — anywhere users type incrementally</li>
+      <li>Query volume is high enough that precomputing top-k per prefix beats live scanning</li>
+      <li>Sub-100ms p99 latency is a hard product requirement</li>
+    </ul>
+    <p><strong>Pitfalls to avoid:</strong></p>
+    <ul>
+      <li>Recomputing top-k on the read path instead of precomputing offline/streaming</li>
+      <li>Fuzzy-matching the entire corpus instead of a bounded candidate shortlist</li>
+      <li>Ignoring personalization privacy — cache personal re-ranks client-side or per-user, not globally</li>
+      <li>Stale tries — without a streaming counter update, trending queries surface hours late</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Mental Model</div>
+      <p style="font-size:14px;margin:0;">Autocomplete = <strong>trie</strong> (fast prefix narrowing) + <strong>precomputed ranking</strong> (frequency × recency, refreshed offline) + <strong>fallback layer</strong> (typo tolerance, personalization) — all wrapped in a latency budget tight enough to feel instant.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">class TrieNode:</div>
+      <div class="code-line" id="cl1">    def __init__(self):</div>
+      <div class="code-line" id="cl2">        self.children = {}      # edge label -&gt; TrieNode (compressed)</div>
+      <div class="code-line" id="cl3">        self.is_word = False</div>
+      <div class="code-line" id="cl4">        self.freq = 0</div>
+      <div class="code-line" id="cl5">        self.recency = 0.0</div>
+      <div class="code-line" id="cl6">        self.top_k_cache = []   # precomputed offline, refreshed periodically</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8">def score(freq, recency):</div>
+      <div class="code-line" id="cl9">    return freq * (0.5 + 0.5 * recency)</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">def serve(prefix, user_history=None, k=5):</div>
+      <div class="code-line" id="cl12">    node = walk_compressed_trie(root, prefix)   # O(len(prefix))</div>
+      <div class="code-line" id="cl13">    if node is None:                            # no exact path -&gt; typo fallback</div>
+      <div class="code-line" id="cl14">        candidates = bk_tree.query(prefix, max_dist=2)</div>
+      <div class="code-line" id="cl15">        return rank(candidates, user_history, k)</div>
+      <div class="code-line" id="cl16">    results = node.top_k_cache                 # O(k), precomputed</div>
+      <div class="code-line" id="cl17">    if user_history:</div>
+      <div class="code-line" id="cl18">        results = personalize(results, user_history)</div>
+      <div class="code-line" id="cl19">    return results[:k]</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># Offline / streaming job (Kafka + batch MapReduce)</div>
+      <div class="code-line" id="cl22">def refresh_top_k_cache(trie):</div>
+      <div class="code-line" id="cl23">    for node in post_order(trie):               # bottom-up so parents reuse children</div>
+      <div class="code-line" id="cl24">        merged = merge_children_top_k(node)      # O(k) per node via heap merge</div>
+      <div class="code-line" id="cl25">        node.top_k_cache = sorted(merged, key=lambda c: -score(c.freq, c.recency))[:K]</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// DATA: the query log powering the trie
+// ============================================================================
+const QUERIES = [
+  {q:"weather", freq:950, recency:0.90},
+  {q:"weather today", freq:820, recency:0.95},
+  {q:"weather forecast", freq:700, recency:0.70},
+  {q:"weather nyc", freq:340, recency:0.98},
+  {q:"weather radar", freq:410, recency:0.60},
+  {q:"wedding dress", freq:610, recency:0.50},
+  {q:"wedding venues", freq:540, recency:0.55},
+  {q:"wedding invitations", freq:300, recency:0.40},
+  {q:"weight loss tips", freq:480, recency:0.65},
+  {q:"weight loss calculator", freq:260, recency:0.50},
+  {q:"weight watchers", freq:230, recency:0.45},
+  {q:"west elm furniture", freq:190, recency:0.30},
+  {q:"westworld season 5", freq:150, recency:0.20},
+  {q:"restaurant near me", freq:880, recency:0.80},
+  {q:"recipe for pancakes", freq:420, recency:0.55},
+  {q:"news today", freq:900, recency:0.85},
+  {q:"nba scores", freq:530, recency:0.75},
+  {q:"netflix new releases", freq:470, recency:0.60}
+];
+
+// A specific user's personal search history (counts), used for personalization step
+const PERSONAL_HISTORY = { "weather nyc": 22, "weather radar": 14, "weather today": 3 };
+
+// Real per-keystroke latency budget (ms), summed live in JS, never hardcoded as a total
+const LATENCY_BUDGET = [
+  {name:"Client debounce", ms:30, color:"blue"},
+  {name:"Network RTT", ms:18, color:"cyan"},
+  {name:"Prefix cache (Redis)", ms:4, color:"green"},
+  {name:"Trie walk + top-k merge", ms:6, color:"purple"},
+  {name:"Typo fallback (conditional)", ms:14, color:"red"},
+  {name:"Personalization re-rank", ms:9, color:"amber"},
+  {name:"Render", ms:5, color:"blue"}
+];
+const P99_TARGET_MS = 100;
+
+// ============================================================================
+// TRIE: build + compress (PATRICIA-style radix trie) + weight aggregation
+// ============================================================================
+function makeNode() {
+  return { children:{}, isWord:false, freq:0, recency:0, query:null, subtreeWeight:0, x:0, y:0, edge:"" };
+}
+
+function buildTrie(list) {
+  const root = makeNode();
+  list.forEach(item => {
+    let node = root;
+    for (const ch of item.q) {
+      if (!node.children[ch]) node.children[ch] = makeNode();
+      node = node.children[ch];
+    }
+    node.isWord = true;
+    node.freq = item.freq;
+    node.recency = item.recency;
+    node.query = item.q;
+  });
+  return root;
+}
+
+// Collapse single-child, non-word chains into one multi-character edge label.
+function compress(node) {
+  const keys = Object.keys(node.children);
+  keys.forEach(k => {
+    let child = node.children[k];
+    let label = k;
+    while (Object.keys(child.children).length === 1 && !child.isWord) {
+      const nk = Object.keys(child.children)[0];
+      child = child.children[nk];
+      label += nk;
+    }
+    delete node.children[k];
+    child.edge = label;
+    node.children[label] = child;
+    compress(child);
+  });
+}
+
+// Aggregate a "marginal weight" per node = sum of freq of every query beneath it.
+function computeWeights(node) {
+  let total = node.isWord ? node.freq : 0;
+  Object.values(node.children).forEach(c => { total += computeWeights(c); });
+  node.subtreeWeight = total;
+  return total;
+}
+
+// Assign x (leaf order) / y (depth) for a readable tree layout.
+let __leafCounter = 0;
+function layout(node, depth) {
+  node.y = depth;
+  const kids = Object.values(node.children);
+  if (kids.length === 0) { node.x = __leafCounter++; return node.x; }
+  let sum = 0;
+  kids.forEach(c => { sum += layout(c, depth + 1); });
+  node.x = sum / kids.length;
+  return node.x;
+}
+
+const TRIE_ROOT = buildTrie(QUERIES);
+compress(TRIE_ROOT);
+computeWeights(TRIE_ROOT);
+__leafCounter = 0;
+layout(TRIE_ROOT, 0);
+const LEAF_COUNT = __leafCounter;
+
+// Walk the compressed trie following a typed prefix; returns the matched path
+// (list of {node, edgeLabel, matchedLen}) and the node reached (or null on mismatch).
+function matchPath(prefix) {
+  const path = [{ node: TRIE_ROOT, edgeLabel:"", matchedLen:0 }];
+  let node = TRIE_ROOT;
+  let remaining = prefix;
+  while (remaining.length > 0) {
+    const key = Object.keys(node.children).find(k => k[0] === remaining[0]);
+    if (!key) return { path, node:null, ok:false };
+    const child = node.children[key];
+    let i = 0;
+    const lim = Math.min(key.length, remaining.length);
+    while (i < lim && key[i] === remaining[i]) i++;
+    path.push({ node: child, edgeLabel: key, matchedLen: i });
+    if (i < key.length) {
+      // ran out of prefix inside this edge, or mismatched partway
+      remaining = remaining.slice(i);
+      return { path, node: (remaining.length === 0 ? child : null), ok: remaining.length === 0 };
+    }
+    remaining = remaining.slice(i);
+    node = child;
+  }
+  return { path, node, ok:true };
+}
+
+function collectLeaves(node, out) {
+  out = out || [];
+  if (node.isWord) out.push({ q: node.query, freq: node.freq, recency: node.recency });
+  Object.values(node.children).forEach(c => collectLeaves(c, out));
+  return out;
+}
+
+function baseScore(freq, recency) { return freq * (0.5 + 0.5 * recency); }
+
+function rankTopK(items, k, scorer) {
+  return items.slice().sort((a, b) => scorer(b) - scorer(a)).slice(0, k);
+}
+
+// Real Levenshtein DP (used for the typo-tolerance step) — returns {matrix, dist}
+function levenshtein(a, b) {
+  const n = a.length, m = b.length;
+  const D = Array.from({length:n+1}, () => new Array(m+1).fill(0));
+  for (let i=0;i<=n;i++) D[i][0] = i;
+  for (let j=0;j<=m;j++) D[0][j] = j;
+  for (let i=1;i<=n;i++) {
+    for (let j=1;j<=m;j++) {
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      D[i][j] = Math.min(D[i-1][j]+1, D[i][j-1]+1, D[i-1][j-1]+cost);
+    }
+  }
+  return { matrix: D, dist: D[n][m] };
+}
+
+// ============================================================================
+// STEPS
+// ============================================================================
+const steps = [
+  {
+    phase:"intro", title:"The Query Trie",
+    desc:`Every historical query is inserted into a compressed trie (radix tree). Each leaf stores a raw frequency; each internal node aggregates a "marginal weight" \\(= \\sum\\) of all completions beneath it. This 18-query corpus compresses down to ${Object.keys(TRIE_ROOT.children).length} top-level branches.`,
+    prefix:"", canvasMode:"full-trie",
+    stats:() => [["Total queries", QUERIES.length], ["Leaf nodes", LEAF_COUNT], ["Root branches", Object.keys(TRIE_ROOT.children).length]]
+  },
+  {
+    phase:"typing", title:'Typing "w"',
+    desc:'The trie walk consumes one character and drops into the "w" subtree. All 13 w-prefixed queries are now candidates; everything else (restaurant, news, nba, netflix, recipe) is pruned instantly — no scan required.',
+    prefix:"w", canvasMode:"prefix",
+    stats:() => { const r = matchPath("w"); const n = r.node ? collectLeaves(r.node).length : 0; return [["Prefix", '"w"'], ["Candidates remaining", n], ["Trie hops", 1]]; }
+  },
+  {
+    phase:"typing", title:'Typing "we"',
+    desc:'One more keystroke, one more hop down the compressed edge. The candidate set does not shrink yet (all w-queries share "we"), but the matched path visibly extends — this is O(1) additional work per keystroke regardless of corpus size.',
+    prefix:"we", canvasMode:"prefix",
+    stats:() => { const r = matchPath("we"); const n = r.node ? collectLeaves(r.node).length : 0; return [["Prefix", '"we"'], ["Candidates remaining", n], ["Trie hops", 1]]; }
+  },
+  {
+    phase:"ranking", title:'Typing "wea" — Marginal Counts',
+    desc:"The path now diverges into the weather* branch only (wedding, weight, west are pruned). Rather than re-scanning this subtree's 5 leaves from scratch, the server reads a precomputed top-k cache stored ON the node — the \\(\\href{}{}\\)\"marginal count\" trick that keeps serving O(k) even if this subtree held millions of queries.",
+    prefix:"wea", canvasMode:"prefix",
+    stats:() => { const r = matchPath("wea"); const n = r.node ? collectLeaves(r.node).length : 0; return [["Prefix", '"wea"'], ["Candidates remaining", n], ["Lookup cost", "O(k), cached"]]; }
+  },
+  {
+    phase:"ranking", title:"Frequency × Recency Re-ranking",
+    desc:'At prefix "weath", raw frequency alone would rank "weather" > "weather today" > "weather forecast" > "weather radar" > "weather nyc". Applying \\(\\text{score}=f\\cdot(0.5+0.5r)\\), the recency-heavy "weather nyc" (\\(r=0.98\\), currently trending) jumps ahead of the lower-recency "weather forecast" despite having less than half its raw frequency.',
+    prefix:"weath", canvasMode:"score-breakdown",
+    stats:() => [["Prefix", '"weath"'], ["Formula", "f · (0.5 + 0.5r)"], ["Reordered by recency", "yes"]]
+  },
+  {
+    phase:"typo", title:"Typo Tolerance via Edit Distance",
+    desc:'The user fat-fingers "wetaher" (a transposed "ta"/"at"). The trie walk breaks after "we" — there is no child starting with "t" beyond that point along the weather path. A Levenshtein DP against nearby candidates computes distance 2 to "weather" (within the \\(\\tau=2\\) threshold), so it is still surfaced — while farther candidates like "wedding" are correctly rejected.',
+    prefix:"wetaher", canvasMode:"typo",
+    stats:() => { const d = levenshtein("wetaher","weather").dist; return [["Typed", '"wetaher"'], ["Edit distance to weather", d], ["Threshold τ", 2], ["Admitted?", d<=2 ? "yes" : "no"]]; }
+  },
+  {
+    phase:"personalize", title:"Personalization Re-ranking",
+    desc:"Back to a clean prefix \"wea\" — but now for a specific user whose history shows heavy searching of \"weather nyc\" (22×) and \"weather radar\" (14×). Blending \\(0.5\\) global + \\(0.3\\) personal + \\(0.2\\) recency pulls \"weather nyc\" from a mid-pack global rank up to #1 for this user, without changing the global ranking anyone else sees.",
+    prefix:"wea", canvasMode:"personalize",
+    stats:() => [["Prefix", '"wea"'], ["User's top personal query", "weather nyc (22×)"], ["Blend", "0.5 global + 0.3 personal + 0.2 recency"]]
+  },
+  {
+    phase:"latency", title:"The Latency Budget",
+    desc:() => { const total = LATENCY_BUDGET.reduce((s,x)=>s+x.ms,0); return `Every stage of the pipeline eats into a p99 budget of ${P99_TARGET_MS}ms — beyond that, users perceive the UI as laggy. Summing the actual stage costs live gives ${total}ms, leaving ${P99_TARGET_MS-total}ms of headroom. The typo fallback is the single most expensive conditional stage — it only fires when the fast trie path misses.`; },
+    prefix:"", canvasMode:"latency",
+    stats:() => { const total = LATENCY_BUDGET.reduce((s,x)=>s+x.ms,0); return [["Stages", LATENCY_BUDGET.length], ["Total (measured)", total+"ms"], ["p99 target", P99_TARGET_MS+"ms"], ["Headroom", (P99_TARGET_MS-total)+"ms"]]; }
+  },
+  {
+    phase:"live", title:"Live Typing Simulation",
+    desc:'Watch the full pipeline run in real time: as "weather ny" is typed character-by-character, the trie path lights up incrementally and the ranked suggestion list re-sorts on every single keystroke — exactly what happens client-side in a real search box.',
+    prefix:"", canvasMode:"live",
+    stats:() => [["Simulated text", "weather ny"], ["Update trigger", "every keystroke"], ["Mode", "auto-playing"]]
+  },
+  {
+    phase:"summary", title:"System Architecture Recap",
+    desc:"End-to-end: client debounces keystrokes → edge/CDN cache serves hot prefixes → a sharded trie-ranking service (sharded by prefix range) resolves the walk → a typo-fallback service (BK-tree) catches misses → a personalization ranker re-orders per user → response. Offline, a nightly MapReduce job rebuilds per-node top-k caches from query logs; a streaming counter (Kafka) nudges hot/trending prefixes in near real time between rebuilds.",
+    prefix:"", canvasMode:"architecture",
+    stats:() => [["Sharding key", "prefix range"], ["Offline refresh", "nightly batch"], ["Online refresh", "streaming counters"]]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let liveTimer = null;
+let liveIndex = 0;
+const LIVE_TEXT = "weather ny";
+
+// ============================================================================
+// SECTION TOGGLE
+// ============================================================================
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector(".section-toggle");
+  body.classList.toggle("collapsed");
+  toggle.classList.toggle("open");
+}
+
+// ============================================================================
+// DOTS / NAV
+// ============================================================================
+function initDots() {
+  const wrap = document.getElementById("progressDots");
+  wrap.innerHTML = "";
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i === 0 ? " active" : "");
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll(".dot").forEach((d, i) => {
+    d.className = "dot";
+    if (i < step) d.classList.add("done");
+    if (i === step) d.classList.add("active");
+  });
+}
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ============================================================================
+// RENDER
+// ============================================================================
+function render() {
+  const s = steps[step];
+  clearLiveTimer();
+
+  document.getElementById("btnPrev").disabled = step === 0;
+  document.getElementById("btnNext").disabled = step === totalSteps - 1;
+
+  const phaseMap = {intro:"phase-intro", typing:"phase-typing", ranking:"phase-ranking", typo:"phase-typo", personalize:"phase-personalize", latency:"phase-latency", live:"phase-live", summary:"phase-summary"};
+  document.getElementById("infoPhase").className = "info-phase " + phaseMap[s.phase];
+  document.getElementById("infoPhase").textContent = s.phase.toUpperCase();
+  document.getElementById("infoStep").textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById("infoTitle").textContent = s.title;
+  const descText = typeof s.desc === "function" ? s.desc() : s.desc;
+  document.getElementById("infoDesc").innerHTML = descText;
+
+  const statsWrap = document.getElementById("infoStats");
+  statsWrap.innerHTML = "";
+  (typeof s.stats === "function" ? s.stats() : []).forEach(([label, val]) => {
+    const chip = document.createElement("div");
+    chip.className = "stat-chip";
+    chip.innerHTML = `${label}: <b>${val}</b>`;
+    statsWrap.appendChild(chip);
+  });
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(document.getElementById("infoCard"), {
+      delimiters: [
+        {left: "$$", right: "$$", display: true},
+        {left: "\\(", right: "\\)", display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll(".code-line").forEach(cl => cl.classList.remove("active"));
+
+  drawCanvas(s.canvasMode, s.prefix || "");
+
+  if (s.canvasMode === "live") startLiveSim();
+
+  updateDots();
+}
+
+function clearLiveTimer() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  liveIndex = 0;
+}
+
+function startLiveSim() {
+  liveIndex = 0;
+  drawCanvas("live", LIVE_TEXT.slice(0, liveIndex));
+  liveTimer = setInterval(() => {
+    liveIndex = (liveIndex + 1) % (LIVE_TEXT.length + 3);
+    const shown = LIVE_TEXT.slice(0, Math.min(liveIndex, LIVE_TEXT.length));
+    drawCanvas("live", shown);
+  }, 450);
+}
+
+// ============================================================================
+// CANVAS DRAWING
+// ============================================================================
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function setupCanvas() {
+  const canvas = document.getElementById("vizCanvas");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: rect.width, H: rect.height };
+}
+
+function drawCanvas(mode, prefix) {
+  const { ctx, W, H } = setupCanvas();
+  const C = {
+    bg2: cssVar("--bg2"), text: cssVar("--text"), text2: cssVar("--text2"), text3: cssVar("--text3"),
+    blue: cssVar("--blue-mid"), green: cssVar("--green-mid"), red: cssVar("--red-mid"),
+    amber: cssVar("--amber-mid"), purple: cssVar("--purple-mid"), cyan: cssVar("--cyan-mid"),
+    border: cssVar("--border2"), surface: cssVar("--surface")
+  };
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "12px 'DM Sans', system-ui";
+
+  if (mode === "full-trie") drawTrieView(ctx, W, H, C, "", false);
+  else if (mode === "prefix") drawTrieView(ctx, W, H, C, prefix, false);
+  else if (mode === "score-breakdown") drawScoreBreakdown(ctx, W, H, C, prefix);
+  else if (mode === "typo") drawTypo(ctx, W, H, C);
+  else if (mode === "personalize") drawPersonalize(ctx, W, H, C, prefix);
+  else if (mode === "latency") drawLatency(ctx, W, H, C);
+  else if (mode === "live") drawTrieView(ctx, W, H, C, prefix, true);
+  else if (mode === "architecture") drawArchitecture(ctx, W, H, C);
+}
+
+// ---- Trie tree view (used by full-trie / prefix / live modes) ----
+function drawTrieView(ctx, W, H, C, prefix, liveMode) {
+  const pad = { l: 20, r: 20, t: 24, b: 60 };
+  const gw = W - pad.l - pad.r, gh = H - pad.t - pad.b;
+  const maxDepth = 5;
+  const xOf = x => pad.l + (LEAF_COUNT <= 1 ? gw/2 : (x / (LEAF_COUNT - 1)) * gw);
+  const yOf = y => pad.t + Math.min(y, maxDepth) / maxDepth * gh;
+
+  const m = matchPath(prefix);
+  const matchedNodes = new Set(m.path.map(p => p.node));
+
+  // draw edges
+  function drawEdges(node) {
+    Object.entries(node.children).forEach(([label, child]) => {
+      const onPath = matchedNodes.has(child) && matchedNodes.has(node);
+      ctx.beginPath();
+      ctx.moveTo(xOf(node.x), yOf(node.y));
+      ctx.lineTo(xOf(child.x), yOf(child.y));
+      ctx.strokeStyle = onPath ? C.purple : C.border;
+      ctx.lineWidth = onPath ? 3 : 1.4;
+      ctx.globalAlpha = onPath || node.y === 0 || matchedNodes.has(node) ? 1 : 0.55;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // edge label
+      const mx = (xOf(node.x) + xOf(child.x)) / 2, my = (yOf(node.y) + yOf(child.y)) / 2;
+      ctx.fillStyle = onPath ? C.purple : C.text3;
+      ctx.font = (onPath ? "700 " : "400 ") + "11px 'JetBrains Mono', monospace";
+      const shown = label.length > 9 ? label.slice(0,8) + "…" : label;
+      ctx.fillText(`"${shown}"`, mx + 5, my - 4);
+      drawEdges(child);
+    });
+  }
+  drawEdges(TRIE_ROOT);
+
+  // draw nodes
+  function drawNodes(node) {
+    const cx = xOf(node.x), cy = yOf(node.y);
+    const isMatched = matchedNodes.has(node);
+    const r = node === TRIE_ROOT ? 9 : (node.isWord ? 7 : 5);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.fillStyle = node.isWord ? (isMatched ? C.green : C.blue) : (isMatched ? C.purple : C.surface);
+    ctx.globalAlpha = isMatched || node.y===0 ? 1 : 0.7;
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = isMatched ? C.purple : C.border;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (node.isWord && (isMatched || prefix === "")) {
+      ctx.fillStyle = C.text2;
+      ctx.font = "10px 'DM Sans', system-ui";
+      const label = node.query.length > 16 ? node.query.slice(0,15)+"…" : node.query;
+      ctx.fillText(label, cx - 14, cy + 18);
+    }
+    Object.values(node.children).forEach(drawNodes);
+  }
+  drawNodes(TRIE_ROOT);
+
+  // ranked suggestion panel (bottom strip)
+  const targetNode = m.ok && m.node ? m.node : null;
+  const candidates = targetNode ? collectLeaves(targetNode) : (m.node ? [] : []);
+  const top = rankTopK(candidates, 5, c => baseScore(c.freq, c.recency));
+  drawSuggestionStrip(ctx, W, H, C, top, prefix, liveMode);
+}
+
+function drawSuggestionStrip(ctx, W, H, C, top, prefix, liveMode) {
+  const y0 = H - 52;
+  ctx.fillStyle = C.text3;
+  ctx.font = "11px 'JetBrains Mono', monospace";
+  const label = liveMode ? `typed: "${prefix}"` : (prefix ? `prefix: "${prefix}"` : "no prefix typed yet — full trie shown");
+  ctx.fillText(label, 16, y0 - 8);
+
+  if (!top.length) {
+    ctx.fillStyle = C.text3;
+    ctx.fillText("(no candidates matched)", 16, y0 + 14);
+    return;
+  }
+  const maxScore = Math.max(...top.map(c => baseScore(c.freq, c.recency)));
+  const bw = (W - 32) / top.length - 6;
+  top.forEach((c, i) => {
+    const x = 16 + i * ((W-32)/top.length);
+    const sc = baseScore(c.freq, c.recency);
+    const h = 34 * (sc / maxScore);
+    ctx.fillStyle = i === 0 ? C.green : C.blue;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(x, y0 + 40 - h, bw, h);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C.text2;
+    ctx.font = "9px 'DM Sans', system-ui";
+    const t = c.q.length > 12 ? c.q.slice(0,11)+"…" : c.q;
+    ctx.fillText(t, x, y0 + 52);
+  });
+}
+
+// ---- Score breakdown (frequency x recency) ----
+function drawScoreBreakdown(ctx, W, H, C, prefix) {
+  const m = matchPath(prefix);
+  const cands = m.node ? collectLeaves(m.node) : [];
+  const byFreq = cands.slice().sort((a,b) => b.freq - a.freq);
+  const byScore = rankTopK(cands, cands.length, c => baseScore(c.freq, c.recency));
+
+  ctx.fillStyle = C.text;
+  ctx.font = "700 13px 'DM Sans', system-ui";
+  ctx.fillText(`Ranking for prefix "${prefix}" — raw frequency vs frequency × recency`, 16, 22);
+
+  const colW = (W - 48) / 2;
+  drawRankColumn(ctx, 16, 40, colW, H-60, byFreq, C, "By raw frequency", C.blue, c => c.freq);
+  drawRankColumn(ctx, 32 + colW, 40, colW, H-60, byScore, C, "By score = f·(0.5+0.5r)", C.green, c => baseScore(c.freq, c.recency));
+
+  // arrow indicating reorder
+  ctx.strokeStyle = C.amber;
+  ctx.fillStyle = C.amber;
+  ctx.beginPath();
+  ctx.moveTo(16 + colW + 4, H/2);
+  ctx.lineTo(30 + colW - 4, H/2);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(30 + colW - 4, H/2 - 4);
+  ctx.lineTo(30 + colW + 2, H/2);
+  ctx.lineTo(30 + colW - 4, H/2 + 4);
+  ctx.fill();
+}
+
+function drawRankColumn(ctx, x, y, w, h, items, C, title, color, scorer) {
+  ctx.fillStyle = C.text2;
+  ctx.font = "700 11px 'DM Sans', system-ui";
+  ctx.fillText(title, x, y);
+  const rowH = Math.min(30, (h-20) / Math.max(items.length,1));
+  const maxV = Math.max(...items.map(scorer), 1);
+  items.forEach((c, i) => {
+    const ry = y + 14 + i * rowH;
+    const barW = (w - 90) * (scorer(c) / maxV);
+    ctx.fillStyle = i === 0 ? color : C.text3;
+    ctx.globalAlpha = i === 0 ? 1 : 0.55;
+    ctx.fillRect(x + 84, ry, Math.max(barW,2), rowH - 8);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C.text;
+    ctx.font = "10px 'JetBrains Mono', monospace";
+    const label = c.q.length > 13 ? c.q.slice(0,12)+"…" : c.q;
+    ctx.fillText(`${i+1}. ${label}`, x, ry + rowH - 10);
+  });
+}
+
+// ---- Typo tolerance: DP edit-distance grid + candidate distances ----
+function drawTypo(ctx, W, H, C) {
+  const typed = "wetaher";
+  const target = "weather";
+  const { matrix, dist } = levenshtein(typed, target);
+
+  ctx.fillStyle = C.text;
+  ctx.font = "700 13px 'DM Sans', system-ui";
+  ctx.fillText(`Edit-distance DP: "${typed}" vs "${target}"  →  distance = ${dist}`, 16, 20);
+
+  // grid
+  const n = typed.length, mlen = target.length;
+  const cell = Math.min(30, (W - 140) / (mlen + 2));
+  const gx = 60, gy = 36;
+  ctx.font = "10px 'JetBrains Mono', monospace";
+  // column headers (target chars)
+  for (let j = 0; j <= mlen; j++) {
+    ctx.fillStyle = C.text3;
+    ctx.fillText(j === 0 ? "" : target[j-1], gx + (j+1)*cell + cell/3, gy - 6);
+  }
+  for (let i = 0; i <= n; i++) {
+    ctx.fillStyle = C.text3;
+    ctx.fillText(i === 0 ? "" : typed[i-1], gx - 14, gy + (i+1)*cell + cell/1.6);
+    for (let j = 0; j <= mlen; j++) {
+      const v = matrix[i][j];
+      const onFinal = (i === n && j === mlen);
+      ctx.fillStyle = onFinal ? C.red : C.bg2;
+      ctx.globalAlpha = onFinal ? 0.9 : 1;
+      ctx.fillRect(gx + j*cell, gy + i*cell, cell-2, cell-2);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = onFinal ? "#fff" : C.text2;
+      ctx.font = (onFinal ? "700 " : "400 ") + "10px 'JetBrains Mono', monospace";
+      ctx.fillText(String(v), gx + j*cell + cell/3, gy + i*cell + cell/1.6);
+    }
+  }
+
+  // candidate shortlist with distances
+  const shortlist = ["weather", "wedding dress", "weight loss tips", "west elm furniture"];
+  let ly = gy + (n+1)*cell + 26;
+  ctx.font = "700 11px 'DM Sans', system-ui";
+  ctx.fillStyle = C.text2;
+  ctx.fillText("Candidate shortlist (edit distance from typed text):", 16, ly);
+  shortlist.forEach((cand, i) => {
+    const d = levenshtein(typed, cand).dist;
+    const admitted = d <= 2;
+    const ry = ly + 18 + i * 18;
+    ctx.fillStyle = admitted ? C.green : C.text3;
+    ctx.font = (admitted ? "700 " : "400 ") + "11px 'JetBrains Mono', monospace";
+    ctx.fillText(`${admitted ? "✓" : "✗"} ${cand}  —  d=${d}`, 20, ry);
+  });
+}
+
+// ---- Personalization ----
+function drawPersonalize(ctx, W, H, C, prefix) {
+  const m = matchPath(prefix);
+  const cands = m.node ? collectLeaves(m.node) : [];
+  const maxFreq = Math.max(...cands.map(c => c.freq), 1);
+  const maxPersonal = Math.max(...Object.values(PERSONAL_HISTORY), 1);
+  const personalScore = c => 0.5*(c.freq/maxFreq) + 0.3*((PERSONAL_HISTORY[c.q]||0)/maxPersonal) + 0.2*c.recency;
+
+  const globalRank = rankTopK(cands, cands.length, c => baseScore(c.freq, c.recency));
+  const persRank = rankTopK(cands, cands.length, personalScore);
+
+  ctx.fillStyle = C.text;
+  ctx.font = "700 13px 'DM Sans', system-ui";
+  ctx.fillText(`Global ranking vs personalized ranking for prefix "${prefix}"`, 16, 22);
+
+  const colW = (W - 48) / 2;
+  drawRankColumn(ctx, 16, 40, colW, H-60, globalRank, C, "Global (everyone)", C.blue, c => baseScore(c.freq, c.recency));
+  drawRankColumn(ctx, 32 + colW, 40, colW, H-60, persRank, C, "Personalized (this user)", C.green, personalScore);
+
+  ctx.fillStyle = C.amber;
+  ctx.font = "10px 'DM Sans', system-ui";
+  ctx.fillText("history: weather nyc ×22, weather radar ×14", 16, H - 8);
+}
+
+// ---- Latency budget stacked bar ----
+function drawLatency(ctx, W, H, C) {
+  const total = LATENCY_BUDGET.reduce((s,x) => s+x.ms, 0);
+  const colorMap = { blue:C.blue, cyan:C.cyan, green:C.green, purple:C.purple, red:C.red, amber:C.amber };
+
+  ctx.fillStyle = C.text;
+  ctx.font = "700 13px 'DM Sans', system-ui";
+  ctx.fillText(`Per-keystroke latency budget — measured total: ${total}ms  (p99 target: ${P99_TARGET_MS}ms)`, 16, 22);
+
+  const barX = 16, barY = 50, barW = W - 32, barH = 46;
+  const scale = barW / Math.max(total, P99_TARGET_MS);
+
+  // target marker
+  const targetX = barX + P99_TARGET_MS * scale;
+  ctx.strokeStyle = C.text2;
+  ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(targetX, barY-8); ctx.lineTo(targetX, barY+barH+8); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = C.text2;
+  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.fillText("p99 target", targetX - 24, barY - 12);
+
+  let x = barX;
+  LATENCY_BUDGET.forEach(seg => {
+    const w = seg.ms * scale;
+    ctx.fillStyle = colorMap[seg.color];
+    ctx.fillRect(x, barY, w, barH);
+    ctx.strokeStyle = C.surface;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, barY, w, barH);
+    x += w;
+  });
+
+  // legend below
+  let ly = barY + barH + 28;
+  let lx = 16;
+  LATENCY_BUDGET.forEach(seg => {
+    ctx.fillStyle = colorMap[seg.color];
+    ctx.fillRect(lx, ly - 9, 9, 9);
+    ctx.fillStyle = C.text2;
+    ctx.font = "10px 'DM Sans', system-ui";
+    const label = `${seg.name} (${seg.ms}ms)`;
+    ctx.fillText(label, lx + 13, ly);
+    lx += ctx.measureText(label).width + 34;
+    if (lx > W - 140) { lx = 16; ly += 18; }
+  });
+
+  ctx.fillStyle = total <= P99_TARGET_MS ? C.green : C.red;
+  ctx.font = "700 12px 'DM Sans', system-ui";
+  ctx.fillText(total <= P99_TARGET_MS ? `Within budget — ${P99_TARGET_MS-total}ms headroom` : `Over budget by ${total-P99_TARGET_MS}ms`, 16, H - 10);
+}
+
+// ---- System architecture pipeline ----
+function drawArchitecture(ctx, W, H, C) {
+  const stages = [
+    {name:"Client", detail:"debounce ~30ms"},
+    {name:"Edge / CDN cache", detail:"hot prefixes"},
+    {name:"Trie service", detail:"sharded by prefix"},
+    {name:"Typo fallback", detail:"BK-tree, d≤2"},
+    {name:"Personalization", detail:"per-user blend"},
+    {name:"Response", detail:"top-5 JSON"}
+  ];
+  const n = stages.length;
+  const boxW = Math.min(140, (W - 40) / n - 10);
+  const boxH = 64;
+  const gap = (W - 32 - boxW*n) / (n-1);
+  const y = H/2 - boxH/2 - 20;
+
+  stages.forEach((s, i) => {
+    const x = 16 + i * (boxW + gap);
+    ctx.fillStyle = C.surface;
+    ctx.strokeStyle = i === 2 ? C.purple : C.border;
+    ctx.lineWidth = i === 2 ? 2.4 : 1.4;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, boxW, boxH, 8) : ctx.rect(x, y, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = C.text;
+    ctx.font = "700 11px 'DM Sans', system-ui";
+    ctx.fillText(s.name, x + 8, y + 24);
+    ctx.fillStyle = C.text3;
+    ctx.font = "9px 'JetBrains Mono', monospace";
+    ctx.fillText(s.detail, x + 8, y + 42);
+
+    if (i < n - 1) {
+      const ax = x + boxW, ay = y + boxH/2;
+      ctx.strokeStyle = C.text3;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax + gap - 6, ay);
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax + gap - 6, ay - 4);
+      ctx.lineTo(ax + gap, ay);
+      ctx.lineTo(ax + gap - 6, ay + 4);
+      ctx.fillStyle = C.text3;
+      ctx.fill();
+    }
+  });
+
+  // offline path
+  const offY = y + boxH + 46;
+  ctx.strokeStyle = C.amber;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath();
+  ctx.moveTo(16 + 2*(boxW+gap) + boxW/2, y + boxH);
+  ctx.lineTo(16 + 2*(boxW+gap) + boxW/2, offY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = C.amber;
+  ctx.font = "700 11px 'DM Sans', system-ui";
+  ctx.fillText("Offline: nightly MapReduce rebuilds top-k caches", 16, offY + 20);
+  ctx.fillStyle = C.text3;
+  ctx.font = "10px 'DM Sans', system-ui";
+  ctx.fillText("Streaming: Kafka counters nudge trending prefixes between rebuilds", 16, offY + 38);
+}
+
+// ============================================================================
+// KEYBOARD
+// ============================================================================
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "r" || e.key === "R") reset();
+});
+
+// ============================================================================
+// INIT
+// ============================================================================
+initDots();
+render();
+window.addEventListener("resize", () => drawCanvas(steps[step].canvasMode, steps[step].prefix || (steps[step].canvasMode === "live" ? LIVE_TEXT.slice(0, liveIndex) : "")));
+</script>
+</body>
+</html>
