@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAE (Generalized Advantage Estimation): λ-weighted advantage — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-td{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-kstep{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-gae{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-explore{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{height:2px;width:16px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Generalized Advantage Estimation (GAE)</h1>
+  <div class="subtitle">λ-weighted advantage: balancing bias and variance in policy gradients</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Reinforcement Learning</span>
+    <span class="tag tag-complexity">O(T) per trajectory</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding GAE</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> In Reinforcement Learning, policy gradient methods need to estimate how "good" an action is. This is often done using an <em>advantage function</em>, \(A(s_t, a_t)\), which tells us if taking action \(a_t\) in state \(s_t\) was better or worse than average. GAE (Schulman et al., 2015) is a method to estimate this advantage function by combining multiple k-step TD (Temporal Difference) estimates, weighted by a factor \(\lambda\). It's a sweet spot between high-variance Monte Carlo estimates and high-bias one-step TD estimates.</p>
+    <p><strong>Analogy:</strong> Imagine you're evaluating a chef's dish. A <em>1-step TD estimate</em> is like asking: "Was the last ingredient good?" (high bias, low variance). A <em>Monte Carlo estimate</em> is like: "Was the whole meal good?" (low bias, high variance, as many things could go wrong). GAE is like asking: "Was the last ingredient good? And the one before that, but a little less important? And the one before that, even less so?" It combines short-term critiques with decaying importance, giving a balanced assessment.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">GAE computes the advantage at time \(t\) as a weighted sum of k-step TD errors \(\delta_{t+l}^V\), where weights decay exponentially by \((\gamma\lambda)^l\). The formula is: $$\hat{A}_t^{GAE(\gamma, \lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}^V$$ where \(\delta_t^V = R_t + \gamma V(s_{t+1}) - V(s_t)\) is the 1-step TD error.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Need for Advantage Estimation</h4>
+    <p>Policy gradient methods optimize a policy \(\pi(a|s)\) by nudging actions that lead to high returns. The gradient typically involves a term like \(G_t - V(s_t)\), where \(G_t\) is the total discounted return from state \(s_t\). This quantity, \(G_t - V(s_t)\), is the true advantage. However, \(G_t\) is a Monte Carlo estimate, which has high variance. Using \(R_t + \gamma V(s_{t+1}) - V(s_t)\) (the 1-step TD error, \(\delta_t^V\)) as the advantage has low variance but high bias, as it only looks one step ahead.</p>
+
+    <h4>Combining k-step Estimates</h4>
+    <p>GAE bridges this gap. Instead of just a 1-step or a full Monte Carlo estimate, we can consider k-step returns. For example, a 2-step return \(R_t + \gamma R_{t+1} + \gamma^2 V(s_{t+2})\) leads to a 2-step advantage estimate. Each k-step estimate provides a different trade-off between bias and variance. The brilliance of GAE is to form a weighted average of these different k-step advantage estimates, where the weights are controlled by \(\lambda\).</p>
+    <p>Specifically, the GAE formula can be derived from a weighted sum of k-step returns, but it's more conveniently expressed as a weighted sum of 1-step TD errors (\(\delta_t^V\)) that occur at future timesteps.</p>
+
+    <h4>The Role of \(\lambda\)</h4>
+    <p>The parameter \(\lambda \in [0, 1]\) controls the decay rate of the weights.
+    <ul>
+      <li>If \(\lambda = 0\), GAE reduces to the 1-step TD error, \(\hat{A}_t^{GAE(\gamma, 0)} = \delta_t^V\), which is a high-bias, low-variance estimate.</li>
+      <li>If \(\lambda = 1\), GAE approaches a Monte Carlo-like estimate of the advantage, \(\hat{A}_t^{GAE(\gamma, 1)} = \sum_{l=0}^{\infty} \gamma^l \delta_{t+l}^V = G_t - V(s_t)\), which is low-bias but high-variance.</li>
+    </ul>
+    For intermediate values of \(\lambda\), GAE offers a continuum of bias-variance trade-offs, allowing practitioners to tune the estimator for optimal performance.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">GAE is an exponentially-weighted average of the k-step advantage functions, where the k-step advantage is defined as \(\hat{A}_t^{(k)} = \sum_{l=0}^{k-1} \gamma^l \delta_{t+l}^V\). This formulation allows for efficient, recursive computation and provides a smooth interpolation between pure TD and Monte Carlo methods.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Defining the TD Error</h4>
+    <p>The foundation of GAE is the 1-step TD error (or Bellman error), which is an unbiased estimate of the advantage if \(V(s)\) is the true value function:</p>
+    <div class="eq">$$\delta_t^V = R_t + \gamma V(s_{t+1}) - V(s_t)$$</div>
+    <p>This \(\delta_t^V\) can be seen as a 1-step advantage estimate, \(\hat{A}_t^{(1)}\).</p>
+
+    <h4>k-step Advantage Estimates</h4>
+    <p>We can generalize this to k-step advantage estimates. A k-step return is \(G_t^{(k)} = R_t + \gamma R_{t+1} + \dots + \gamma^{k-1} R_{t+k-1} + \gamma^k V(s_{t+k})\). The k-step advantage is then:</p>
+    <div class="eq">$$\hat{A}_t^{(k)} = G_t^{(k)} - V(s_t)$$</div>
+    <p>The crucial insight is that these k-step advantages can be recursively expressed in terms of TD errors:</p>
+    <div class="eq">$$\hat{A}_t^{(k)} = \delta_t^V + \gamma \delta_{t+1}^V + \dots + \gamma^{k-1} \delta_{t+k-1}^V = \sum_{l=0}^{k-1} \gamma^l \delta_{t+l}^V$$</div>
+    <p>This identity is key because it allows us to build longer-term advantage estimates from local TD errors.</p>
+
+    <h4>The GAE(\(\lambda\)) Formula</h4>
+    <p>GAE combines these k-step advantage estimates by taking an exponential average, where the weights are \((1-\lambda)\lambda^{k-1}\) for the k-step advantage. The resulting formula, expressed directly in terms of TD errors, is:</p>
+    <div class="eq">$$\hat{A}_t^{GAE(\gamma, \lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}^V$$</div>
+    <p>In practice, the sum is truncated to the end of a trajectory or a fixed horizon. This form allows for a numerically stable and efficient backward pass computation through a trajectory, as shown in the code trace.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">GAE critically depends on accurate value function estimates, \(V(s_t)\). If the value function is poorly estimated (e.g., early in training), then the \(\delta_t^V\) terms will be biased, and GAE will propagate this bias. It's not a magic bullet for poor value estimation, but rather a way to effectively utilize a given value function to estimate advantages.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow a short trajectory (5 steps) and see how GAE calculates the advantage at step \(t=0\). Adjust \(\gamma\) and \(\lambda\) to observe their impact on the weights and the final advantage value.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Discount Factor γ</div>
+          <input type="range" id="gammaSlider" min="0" max="0.99" step="0.01" value="0.95">
+          <div class="slider-value" id="gammaValue">0.95</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">GAE Lambda λ</div>
+          <input type="range" id="lambdaSlider" min="0" max="0.99" step="0.01" value="0.9">
+          <div class="slider-value" id="lambdaValue">0.90</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Weights decay by (γλ)</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Trajectory & Value Estimates</div>
+        <div class="info-desc" id="infoDesc">We observe a 5-step trajectory starting from \(s_0\), yielding rewards \(R_t\) and transitioning through states \(s_1\) to \(s_5\). A neural network estimates the value \(V(s_t)\) for each state. Our goal is to calculate the advantage of action \(a_0\) in state \(s_0\).</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> V(s)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> R</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> δ (TD Error)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> GAE Weight (\((\gamma\lambda)^l\))</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--red-mid)"></div> GAE Advantage</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use GAE:</strong></p>
+    <ul>
+      <li>In policy gradient methods (e.g., PPO, A2C) where advantage estimates are critical for stable and efficient learning.</li>
+      <li>When you need to balance the bias of 1-step TD estimates with the variance of Monte Carlo estimates.</li>
+      <li>When you have a reasonably good value function estimate, \(V(s)\), from which to bootstrap.</li>
+    </ul>
+    <p><strong>Choosing \(\lambda\):</strong></p>
+    <ul>
+      <li>A common default is \(\lambda=0.95\), which provides a good balance for many tasks.</li>
+      <li>Lower \(\lambda\) values (closer to 0) will result in more biased but lower variance estimates, relying more heavily on the learned value function. This can be useful when the value function is very accurate.</li>
+      <li>Higher \(\lambda\) values (closer to 1) will result in lower biased but higher variance estimates, incorporating more future rewards and potentially less reliance on the current value function estimate. This can be useful when the trajectory is short or rewards are sparse.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 GAE in Practice</div>
+      <p style="font-size:14px;margin:0;">GAE is almost universally adopted in modern policy gradient algorithms because it significantly improves their stability and sample efficiency. It's a standard component that allows agents to learn faster and achieve better performance across a wide range of environments, from continuous control to complex game-playing.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python/NumPy)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">def compute_gae(rewards, values, gamma, lambda_):</div>
+      <div class="code-line" id="cl3">    """</div>
+      <div class="code-line" id="cl4">    Computes Generalized Advantage Estimation (GAE).</div>
+      <div class="code-line" id="cl5">    Args:</div>
+      <div class="code-line" id="cl6">        rewards (np.ndarray): Rewards R_t for t = 0 to T-1. Shape (T,).</div>
+      <div class="code-line" id="cl7">        values (np.ndarray): Value estimates V(s_t) for t = 0 to T. Shape (T+1,).</div>
+      <div class="code-line" id="cl8">        gamma (float): Discount factor.</div>
+      <div class="code-line" id="cl9">        lambda_ (float): GAE parameter.</div>
+      <div class="code-line" id="cl10">    Returns:</div>
+      <div class="code-line" id="cl11">        np.ndarray: GAE advantage estimates A_t for t = 0 to T-1. Shape (T,).</div>
+      <div class="code-line" id="cl12">        np.ndarray: TD errors delta_t for t = 0 to T-1. Shape (T,).</div>
+      <div class="code-line" id="cl13">    """</div>
+      <div class="code-line" id="cl14">    T = len(rewards)</div>
+      <div class="code-line" id="cl15">    advantages = np.zeros(T)</div>
+      <div class="code-line" id="cl16">    delta_t = np.zeros(T)</div>
+      <div class="code-line" id="cl17"></div>
+      <div class="code-line" id="cl18">    # Step 1: Compute 1-step TD errors (deltas)</div>
+      <div class="code-line" id="cl19">    for t in range(T):</div>
+      <div class="code-line" id="cl20">        delta_t[t] = rewards[t] + gamma * values[t+1] - values[t]</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    # Step 2: Compute GAE advantages backwards</div>
+      <div class="code-line" id="cl23">    gae_sum = 0</div>
+      <div class="code-line" id="cl24">    for t in reversed(range(T)):</div>
+      <div class="code-line" id="cl25">        gae_sum = delta_t[t] + gamma * lambda_ * gae_sum</div>
+      <div class="code-line" id="cl26">        advantages[t] = gae_sum</div>
+      <div class="code-line" id="cl27">    </div>
+      <div class="code-line" id="cl28">    return advantages, delta_t</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># --- Example Usage ---</div>
+      <div class="code-line" id="cl31"># rewards = np.array([2.0, 3.0, 1.0, 5.0, 0.0])</div>
+      <div class="code-line" id="cl32"># values = np.array([10.0, 12.0, 15.0, 13.0, 11.0, 10.0])</div>
+      <div class="code-line" id="cl33"># gamma = 0.95</div>
+      <div class="code-line" id="cl34"># lambda_ = 0.9</div>
+      <div class="code-line" id="cl35"># gae_advantages, td_errors = compute_gae(rewards, values, gamma, lambda_)</div>
+      <div class="code-line" id="cl36"># print("TD Errors:", td_errors)</div>
+      <div class="code-line" id="cl37"># print("GAE Advantages:", gae_advantages)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA ──
+const rewards_data = [2.0, 3.0, 1.0, 5.0, 0.0]; // R_0 to R_4
+const values_data = [10.0, 12.0, 15.0, 13.0, 11.0, 10.0]; // V(s_0) to V(s_5)
+const T_horizon = rewards_data.length; // 5 steps
+
+// ── GAE CALCULATION (JavaScript implementation of the Python code) ──
+function computeGAE(rewards, values, gamma, lambda_) {
+  const T = rewards.length;
+  const advantages = new Array(T).fill(0);
+  const delta_t = new Array(T).fill(0);
+
+  // Compute TD errors (deltas)
+  for (let t = 0; t < T; t++) {
+    delta_t[t] = rewards[t] + gamma * values[t + 1] - values[t];
+  }
+
+  // Compute GAE advantages backwards
+  let gae_sum = 0;
+  for (let t = T - 1; t >= 0; t--) {
+    gae_sum = delta_t[t] + gamma * lambda_ * gae_sum;
+    advantages[t] = gae_sum;
+  }
+  
+  return { advantages, delta_t };
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Trajectory & Value Estimates',
+    desc: `We observe a 5-step trajectory starting from \(s_0\), yielding rewards \(R_t\) and transitioning through states \(s_1\) to \(s_5\). A neural network estimates the value \(V(s_t)\) for each state. Our goal is to calculate the advantage of action \(a_0\) in state \(s_0\).`,
+    codeLines: [],
+    canvasMode: 'trajectory_only',
+    highlightT: 0
+  },
+  {
+    phase: 'td', title: 'Compute 1-step TD Errors (\(\\delta_t\\))',
+    desc: `The 1-step TD error, \(\\delta_t^V = R_t + \\gamma V(s_{t+1}) - V(s_t)\\), measures the discrepancy between the immediate reward plus discounted next state value, and the current state value. It's a simple, local estimate of advantage. We'll focus on \(\\delta_0\).`,
+    codeLines: [18,19,20],
+    canvasMode: 'td_errors',
+    highlightT: 0
+  },
+  {
+    phase: 'kstep', title: '1-step Advantage (\(\\hat{A}_t^{(1)}\))',
+    desc: `The 1-step TD error \(\\delta_t^V\) itself serves as a 1-step advantage estimate, \(\\hat{A}_t^{(1)}\). It's a high-bias, low-variance estimate because it relies heavily on the accuracy of \(V(s_{t+1})\).`,
+    codeLines: [],
+    canvasMode: 'kstep_1',
+    highlightT: 0
+  },
+  {
+    phase: 'kstep', title: '2-step Advantage (\(\\hat{A}_t^{(2)}\))',
+    desc: `A 2-step advantage estimate, \(\\hat{A}_t^{(2)}\), incorporates rewards from two steps. It can be written as \(\\delta_t^V + \\gamma \\delta_{t+1}^V\\). This reduces bias but increases variance compared to \(\\hat{A}_t^{(1)}\).`,
+    codeLines: [],
+    canvasMode: 'kstep_2',
+    highlightT: 0
+  },
+  {
+    phase: 'kstep', title: 'k-step Advantages (\(\\hat{A}_t^{(k)}\))',
+    desc: `We can generalize this to k-step advantages: \(\\hat{A}_t^{(k)} = \\sum_{l=0}^{k-1} \\gamma^l \\delta_{t+l}^V\\). Each choice of \(k\) gives a different bias-variance trade-off. Monte Carlo advantage is effectively \(\\hat{A}_t^{(\\infty)}\).`,
+    codeLines: [],
+    canvasMode: 'kstep_all',
+    highlightT: 0
+  },
+  {
+    phase: 'gae', title: 'GAE: λ-Weighted TD Errors',
+    desc: `GAE combines these by taking a weighted sum of future TD errors: \(\\hat{A}_t^{GAE} = \\sum_{l=0}^{T-t-1} (\\gamma\\lambda)^l \\delta_{t+l}^V\\). The weights \((\\gamma\\lambda)^l\) decay exponentially. This balance gives a better advantage estimate.`,
+    codeLines: [22,23,24,25,26],
+    canvasMode: 'gae_weighted',
+    highlightT: 0
+  },
+  {
+    phase: 'explore', title: 'Interactive λ and γ',
+    desc: `Adjust the \(\\lambda\) and \(\\gamma\) sliders. See how changing them affects the exponential decay of the weights and, consequently, the final GAE advantage at \(t=0\). Higher \(\\lambda\) puts more weight on future \(\\delta\)s.`,
+    codeLines: [22,23,24,25,26],
+    canvasMode: 'gae_interactive',
+    highlightT: 0
+  },
+  {
+    phase: 'explore', title: 'GAE with λ = 0 (TD(0))',
+    desc: `When \(\\lambda = 0\), the weights \((\\gamma\\lambda)^l\) become \([1, 0, 0, \dots]\). GAE simplifies to \(\\hat{A}_t^{GAE} = \\delta_t^V\\), the 1-step TD error. This is a very biased but low-variance estimate.`,
+    codeLines: [22,23,24,25,26],
+    canvasMode: 'gae_lambda0',
+    highlightT: 0
+  },
+  {
+    phase: 'explore', title: 'GAE with λ = 1 (Monte Carlo-like)',
+    desc: `When \(\\lambda = 1\), the weights become \([1, \\gamma, \\gamma^2, \dots]\). GAE then approximates a Monte Carlo advantage estimate, \(\\hat{A}_t^{GAE} = G_t - V(s_t)\\). This is low-bias but high-variance.`,
+    codeLines: [22,23,24,25,26],
+    canvasMode: 'gae_lambda1',
+    highlightT: 0
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentGamma = parseFloat(document.getElementById('gammaSlider').value);
+let currentLambda = parseFloat(document.getElementById('lambdaSlider').value);
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { 
+  step = 0; 
+  document.getElementById('gammaSlider').value = 0.95;
+  document.getElementById('lambdaSlider').value = 0.9;
+  currentGamma = 0.95;
+  currentLambda = 0.9;
+  updateSliderLabels();
+  render(); 
+}
+
+// ── SLIDER HANDLERS ──
+function updateSliderLabels() {
+  currentGamma = parseFloat(document.getElementById('gammaSlider').value);
+  currentLambda = parseFloat(document.getElementById('lambdaSlider').value);
+  document.getElementById('gammaValue').textContent = currentGamma.toFixed(2);
+  document.getElementById('lambdaValue').textContent = currentLambda.toFixed(2);
+  document.getElementById('sliderHint').textContent = `Weights decay by (γλ) = ${(currentGamma * currentLambda).toFixed(2)}`;
+  if (steps[step].canvasMode.startsWith('gae_') || steps[step].canvasMode.startsWith('kstep_')) {
+    drawCanvas(steps[step].canvasMode, steps[step].highlightT);
+  }
+}
+document.getElementById('gammaSlider').addEventListener('input', updateSliderLabels);
+document.getElementById('lambdaSlider').addEventListener('input', updateSliderLabels);
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup: 'phase-setup', td: 'phase-td', kstep: 'phase-kstep',
+    gae: 'phase-gae', explore: 'phase-explore'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Slider visibility
+  const sliderPanel = document.getElementById('sliderPanel');
+  if (s.canvasMode.includes('interactive') || s.canvasMode.includes('lambda')) {
+    sliderPanel.style.display = 'flex';
+  } else {
+    sliderPanel.style.display = 'none';
+  }
+  // Special overrides for lambda=0, lambda=1 steps
+  if (s.canvasMode === 'gae_lambda0') {
+    document.getElementById('lambdaSlider').value = 0;
+    document.getElementById('lambdaSlider').disabled = true;
+  } else if (s.canvasMode === 'gae_lambda1') {
+    document.getElementById('lambdaSlider').value = 0.99; // Can't set to 1.0 due to step=0.01
+    document.getElementById('lambdaSlider').disabled = true;
+  } else {
+    document.getElementById('lambdaSlider').disabled = false;
+  }
+  document.getElementById('gammaSlider').disabled = (s.canvasMode === 'gae_lambda0' || s.canvasMode === 'gae_lambda1');
+  updateSliderLabels(); // Update labels after potentially changing slider values
+
+  // Canvas
+  drawCanvas(s.canvasMode, s.highlightT);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), amber: g('--amber-mid'),
+    red: g('--red-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode, highlightT) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const colors = getColors();
+
+  // Constants for layout
+  const numSteps = T_horizon; // R_0 to R_4
+  const nodeRadius = 10;
+  const hPad = 40, vPad = 30;
+  const stepWidth = (W - 2 * hPad) / (numSteps);
+
+  // Vertical sections
+  const timelineY = H * 0.2;
+  const deltaY = H * 0.45;
+  const gaeY = H * 0.7;
+
+  // Calculate TD errors and GAE advantages based on current sliders
+  const { advantages, delta_t } = computeGAE(rewards_data, values_data, currentGamma, currentLambda);
+
+  // Max value for scaling bars
+  const allDeltaValues = [...delta_t];
+  const allGAEValues = [...advantages]; // advantages for all t
+  const maxAbsCombined = Math.max(...allDeltaValues.map(Math.abs), ...allGAEValues.map(Math.abs), 1);
+  const maxValHeight = H * 0.1; // Max height for delta/GAE bars
+
+  // --- Draw Timeline (States, Rewards, Values) ---
+  ctx.font = '12px ' + colors.sans;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (let t = 0; t <= numSteps; t++) { // Iterate up to s_5 (numSteps+1 states)
+    const x = hPad + t * stepWidth;
+
+    // Draw state node
+    ctx.beginPath();
+    ctx.arc(x, timelineY, nodeRadius, 0, Math.PI * 2);
+    ctx.fillStyle = colors.blue;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = 'white';
+    ctx.fillText(`s${t}`, x, timelineY);
+
+    // Draw V(s_t) label
+    ctx.fillStyle = colors.text2;
+    ctx.fillText(`V(s${t})=${values_data[t].toFixed(1)}`, x, timelineY - 25);
+
+    if (t < numSteps) { // Draw R_t and arrows for transitions
+      // Arrow
+      ctx.strokeStyle = colors.text3;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + nodeRadius, timelineY);
+      ctx.lineTo(x + stepWidth - nodeRadius, timelineY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + stepWidth - nodeRadius - 5, timelineY - 5);
+      ctx.lineTo(x + stepWidth - nodeRadius, timelineY);
+      ctx.lineTo(x + stepWidth - nodeRadius - 5, timelineY + 5);
+      ctx.stroke();
+
+      // R_t label
+      const midX = x + stepWidth / 2;
+      ctx.fillStyle = colors.green;
+      ctx.font = '600 13px ' + colors.sans;
+      ctx.fillText(`R${t}=${rewards_data[t].toFixed(1)}`, midX, timelineY + 25);
+    }
+  }
+
+  // --- Draw TD Errors (\(\delta_t\)) ---
+  ctx.font = '12px ' + colors.mono;
+  ctx.textAlign = 'center';
+
+  let infoNumbers = `TD Errors (δ):\n`;
+  for (let t = 0; t < numSteps; t++) {
+    const x = hPad + t * stepWidth;
+    const deltaVal = delta_t[t];
+    const barHeight = (Math.abs(deltaVal) / maxAbsCombined) * maxValHeight;
+    const barY = deltaY + (deltaVal < 0 ? 0 : -barHeight);
+
+    ctx.fillStyle = colors.amber;
+    ctx.globalAlpha = 0.6;
+    if (mode === 'td_errors' && t === highlightT) {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = colors.amber;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - (stepWidth / 4), deltaY - maxValHeight - 5, stepWidth / 2, maxValHeight * 2 + 10); // Highlight box
+    }
+    if (mode === 'kstep_1' && t === highlightT) ctx.globalAlpha = 1;
+    if (mode === 'kstep_2' && (t === highlightT || t === highlightT + 1)) ctx.globalAlpha = 1;
+    if (mode === 'kstep_all' && t < highlightT + 3) ctx.globalAlpha = 1;
+
+
+    ctx.fillRect(x - (stepWidth / 4), barY, stepWidth / 2, barHeight);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = colors.text;
+    ctx.fillText(`δ${t}=${deltaVal.toFixed(2)}`, x, deltaY + (deltaVal < 0 ? 20 : -15));
+    infoNumbers += `δ${t}: ${deltaVal.toFixed(2)}\n`;
+  }
+  document.getElementById('infoNumbers').textContent = infoNumbers;
+
+
+  // --- Draw GAE Calculation ---
+  ctx.font = '12px ' + colors.mono;
+  ctx.textAlign = 'center';
+  const gaeStartT = highlightT; // Always calculate GAE for t=0
+
+  let gaeInfo = `GAE Advantage (A${gaeStartT}):\n`;
+  let kstepInfo = `k-step Advantages (A${gaeStartT}):\n`;
+  let currentK = 0;
+  if (mode === 'kstep_1') currentK = 1;
+  else if (mode === 'kstep_2') currentK = 2;
+  else if (mode === 'kstep_all') currentK = 3; // Max k to show
+
+  let k_step_advantage_val = 0;
+  let totalGAE = 0;
+
+  for (let l = 0; l < numSteps - gaeStartT; l++) {
+    const t_eff = gaeStartT + l; // Effective timestep for delta
+    const x = hPad + t_eff * stepWidth;
+    const deltaVal = delta_t[t_eff];
+    const weight = Math.pow(currentGamma * currentLambda, l);
+    const weightedDelta = deltaVal * weight;
+
+    const barHeight = (Math.abs(deltaVal) / maxAbsCombined) * maxValHeight;
+    const barY = gaeY + (deltaVal < 0 ? 0 : -barHeight);
+
+    // Draw delta bars (faded for GAE, potentially highlighted for k-step)
+    ctx.fillStyle = colors.amber;
+    ctx.globalAlpha = 0.2; // Default faded
+    if (mode.startsWith('kstep_') && l < currentK) {
+        ctx.globalAlpha = 0.7; // Highlight contributing deltas
+    }
+    ctx.fillRect(x - (stepWidth / 4), barY, stepWidth / 2, barHeight);
+    ctx.globalAlpha = 1;
+
+    // Draw GAE weights (line or bar overlay)
+    ctx.fillStyle = colors.purple;
+    ctx.globalAlpha = 0.7;
+    const weightBarHeight = weight * maxValHeight; // Scale weight for visualization
+    const weightBarY = gaeY - weightBarHeight;
+
+    if (mode === 'gae_weighted' || mode === 'gae_interactive' || mode.includes('lambda')) {
+      ctx.fillRect(x - (stepWidth / 4), weightBarY - 5, stepWidth / 2, 5); // Small bar for weight
+      ctx.fillText(`w=${weight.toFixed(2)}`, x, gaeY - weightBarHeight - 15);
+    }
+    ctx.globalAlpha = 1;
+
+    // Accumulate for k-step advantage
+    if (mode.startsWith('kstep_') && l < currentK) {
+        k_step_advantage_val += Math.pow(currentGamma, l) * deltaVal;
+    }
+
+    if (mode === 'gae_weighted' || mode === 'gae_interactive' || mode.includes('lambda')) {
+      totalGAE += weightedDelta;
+      gaeInfo += `  + δ${t_eff} (${deltaVal.toFixed(2)}) * w${l} (${weight.toFixed(2)}) = ${weightedDelta.toFixed(2)}\n`;
+    }
+  }
+
+  // Draw final GAE result or k-step result
+  if (mode === 'gae_weighted' || mode === 'gae_interactive' || mode.includes('lambda')) {
+    const gaeBarHeight = (Math.abs(advantages[gaeStartT]) / maxAbsCombined) * maxValHeight;
+    const gaeBarY = gaeY + (advantages[gaeStartT] < 0 ? 0 : -gaeBarHeight);
+
+    ctx.fillStyle = colors.red;
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(hPad - (stepWidth / 2), gaeBarY, stepWidth, gaeBarHeight);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.fillText(`GAE(A${gaeStartT}) = ${advantages[gaeStartT].toFixed(2)}`, hPad + stepWidth / 2, gaeY + (advantages[gaeStartT] < 0 ? 40 : -35));
+    gaeInfo += `Total GAE(A${gaeStartT}): ${advantages[gaeStartT].toFixed(2)}`;
+    document.getElementById('infoNumbers').textContent = gaeInfo;
+  } else if (mode.startsWith('kstep_')) {
+    const kstepAdvantageBarHeight = (Math.abs(k_step_advantage_val) / maxAbsCombined) * maxValHeight;
+    const kstepAdvantageBarY = gaeY + (k_step_advantage_val < 0 ? 0 : -kstepAdvantageBarHeight);
+
+    ctx.fillStyle = colors.red;
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(hPad - (stepWidth / 2), kstepAdvantageBarY, stepWidth, kstepAdvantageBarHeight);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 14px ' + colors.sans;
+    ctx.fillText(`A(${currentK}) = ${k_step_advantage_val.toFixed(2)}`, hPad + stepWidth / 2, gaeY + (k_step_advantage_val < 0 ? 40 : -35));
+    kstepInfo += `A(${currentK}): ${k_step_advantage_val.toFixed(2)}\n`;
+    document.getElementById('infoNumbers').textContent = kstepInfo;
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+updateSliderLabels(); // Initial update for slider values and labels
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode, steps[step].highlightT));
+</script>
+</body>
+</html>
