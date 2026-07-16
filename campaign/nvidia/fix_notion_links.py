@@ -30,7 +30,13 @@ for i in range(START,END):
     correct=f"{BASE}{sg}_explainer.html"
     file_ok=os.path.exists(os.path.join(AI,"AI","explainers",f"{sg}_explainer.html"))
     try:
-        r=api("GET",f"https://api.notion.com/v1/blocks/{pid}/children?page_size=100")
+        results=[]; cur=None
+        while True:  # paginate ALL blocks (pages can exceed 100) so we never miss an existing embed
+            u=f"https://api.notion.com/v1/blocks/{pid}/children?page_size=100"+(f"&start_cursor={cur}" if cur else "")
+            r=api("GET",u); results+=r["results"]
+            if not r.get("has_more"): break
+            cur=r["next_cursor"]
+        r={"results":results}
     except Exception as e:
         err+=1; continue
     emb=[b for b in r["results"] if b["type"]=="embed" and "explainer" in (b.get("embed",{}).get("url") or "")]
