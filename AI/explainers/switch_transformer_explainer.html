@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Switch Transformer: k=1, Auxiliary Loss — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Readout row */
+.readout-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0.75rem 0;font-family:var(--mono);font-size:11px;}
+.readout-chip{padding:6px 10px;border-radius:var(--radius);background:var(--bg2);color:var(--text2);border:1px solid var(--border);}
+.readout-chip.hot{background:var(--red-bg);color:var(--red-mid);border-color:var(--red-border);font-weight:600;}
+.readout-chip.good{background:var(--green-bg);color:var(--green-mid);border-color:var(--green-border);font-weight:600;}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:16px;border-radius:var(--radius-lg);margin:1rem 0;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:56px;text-align:right;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-routing{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-balance{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-explore{background:var(--purple-bg);color:var(--purple-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Switch Transformer: k=1, Auxiliary Loss</h1>
+  <div class="subtitle">Efficiently scaling model capacity with Mixture-of-Experts and load balancing</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Transformer</span>
+    <span class="tag tag-complexity">O(1) compute/token</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Switch Transformer &amp; Auxiliary Loss</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> The Switch Transformer is an architecture that replaces the traditional feed-forward network (FFN) layers in a Transformer with a "Mixture-of-Experts" (MoE) layer. Instead of every input token passing through the same FFN, each token is dynamically routed to one (or a few) specialized FFNs, called "experts." This allows for a massive increase in model capacity (more experts = more parameters) without increasing the computational cost per token, as each token only activates a small subset of the total parameters.</p>
+    <p><strong>k=1:</strong> In the simplest and most common Switch Transformer setup, each token is routed to exactly one expert (hence "k=1"). A small "router" network learns to assign each token to the expert it deems most suitable. This sparse activation is key to efficiency.</p>
+    <p><strong>The Problem:</strong> Without intervention, some experts might become "popular" and handle disproportionately many tokens, while others remain underutilized or "cold." This leads to imbalanced computation, inefficient hardware usage, and poor learning for the cold experts.</p>
+    <p><strong>The Solution: Auxiliary Loss:</strong> To combat this, the Switch Transformer introduces an "auxiliary loss" (also called a load balancing loss). This is an additional loss term added during training that explicitly encourages the router to distribute tokens evenly across all experts. It acts as a regularization mechanism, penalizing situations where experts are overloaded or underloaded, forcing the model to make efficient use of its expanded capacity.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Switch Transformers use a Mixture-of-Experts layer to scale model capacity without increasing per-token compute. The <strong>auxiliary loss</strong> is crucial for ensuring that these experts are utilized efficiently and evenly, preventing a few experts from hogging all the tokens while others sit idle.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Switch Transformer &amp; Auxiliary Loss Work</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Mixture-of-Experts (MoE) Layer</h4>
+    <p>In a standard Transformer, after self-attention, each token's representation passes through an identical FFN. In a Switch Transformer, this is replaced by:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Router Network:</strong> For each token \(x_i\), a small neural network (the router) computes a score for each of \(N\) available experts. This typically involves a linear projection followed by a softmax: \(s_j = \text{softmax}(W_{router} x_i)\).</li>
+      <li><strong>Expert Selection (k=1):</strong> The token \(x_i\) is then assigned to the expert \(E_j\) with the highest score \(s_j\).</li>
+      <li><strong>Expert Computation:</strong> The selected expert \(E_j\) processes the token \(x_i\). Each expert is a standard FFN.</li>
+      <li><strong>Output:</strong> The output from the chosen expert is then scaled by its routing probability \(s_j\) and passed on.</li>
+    </ol>
+    <p>This sparse activation means that for a given input sequence, only a fraction of the total parameters are ever activated, making very large models feasible for training and inference.</p>
+
+    <h4>The Need for Load Balancing</h4>
+    <p>A naive router might quickly learn that certain experts are "better" at processing certain types of tokens (e.g., expert 1 for nouns, expert 2 for verbs). This specialization is good, but if one expert becomes too specialized or generally useful, the router will send most tokens to it. This leads to:</p>
+    <ul>
+      <li><strong>Underutilized Experts:</strong> Many experts remain "cold," their parameters barely updated, wasting computational capacity.</li>
+      <li><strong>Overloaded Experts:</strong> A few "hot" experts become bottlenecks, slowing down training and inference.</li>
+      <li><strong>Training Instability:</strong> Gradients can become noisy or sparse, hindering optimization.</li>
+    </ul>
+
+    <h4>The Auxiliary Loss Mechanism</h4>
+    <p>The auxiliary loss directly addresses this imbalance. It's a regularization term (scaled by a hyperparameter \(\beta\)) that is added to the main model loss. It works by:</p>
+    <ul>
+      <li><strong>Encouraging Uniform Probabilities:</strong> It penalizes the router if it consistently assigns high routing probabilities to a small subset of experts.</li>
+      <li><strong>Encouraging Uniform Load:</strong> It penalizes experts that receive significantly more or fewer tokens than average.</li>
+    </ul>
+    <p>By minimizing this term, the model is forced to distribute tokens more evenly, ensuring all experts are actively trained and utilized, leading to more stable and efficient learning.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The auxiliary loss is a crucial component of Switch Transformers, acting as a <strong>load balancer</strong>. It ensures that despite the router's ability to specialize, all experts are kept active and contribute to the model's learning, preventing mode collapse and maximizing hardware efficiency.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math Behind Load Balancing</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Router's Output</h4>
+    <p>For each input token \(x_i\) (where \(i \in \{1, \dots, T\}\) for a sequence of length \(T\)), the router computes raw scores \(e_{ij}\) for each expert \(j \in \{1, \dots, N\}\). These are then converted into probabilities via a softmax function:</p>
+    <div class="eq">$$P_{ij} = \frac{\exp(e_{ij})}{\sum_{k=1}^N \exp(e_{ik})}$$</div>
+    <p>For k=1 routing, the token \(x_i\) is sent to expert \(j^* = \operatorname{argmax}_j (P_{ij})\). Let \(M_{ij}\) be a binary mask where \(M_{ij}=1\) if token \(i\) is routed to expert \(j\), and \(0\) otherwise.</p>
+
+    <h4>The Auxiliary Loss Formulation</h4>
+    <p>The core idea of the auxiliary loss is to minimize the product of the average routing probability for an expert and the fraction of tokens actually routed to that expert. This encourages both terms to be uniform across experts. The formulation from the original Switch Transformer paper is:</p>
+    <div class="eq">$$L_{\text{aux}} = \alpha \sum_{j=1}^N \left( \frac{1}{T} \sum_{i=1}^T P_{ij} \right) \cdot \left( \frac{1}{T} \sum_{i=1}^T M_{ij} \right)$$</div>
+    <p>Here, \(\left( \frac{1}{T} \sum_{i=1}^T P_{ij} \right)\) is the average routing probability for expert \(j\), and \(\left( \frac{1}{T} \sum_{i=1}^T M_{ij} \right)\) is the fraction of tokens dispatched to expert \(j\) (its "load"). The coefficient \(\alpha\) is a hyperparameter controlling the strength of this regularization.</p>
+    <p>This loss term can be understood as minimizing the covariance between the router's output probabilities and the actual expert usage. If an expert is overused (high load) and the router also assigns high probabilities to it, this term will be large. The router learns to reduce this by either lowering probabilities to busy experts or diverting tokens to less busy ones.</p>
+
+    <h4>Total Loss and Practical Considerations</h4>
+    <p>The total loss optimized during training is a sum of the main task loss (e.g., language modeling loss) and the auxiliary loss:</p>
+    <div class="eq">$$L_{\text{total}} = L_{\text{main}} + \beta L_{\text{aux}}$$</div>
+    <p>Where \(\beta\) is typically set to a small value (e.g., 0.01) to ensure load balancing without overly interfering with the primary task. The auxiliary loss is only applied to the router weights, not the expert weights. This ensures that experts still learn their specialized functions based on the tokens they receive.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Setting the auxiliary loss weight \(\beta\) too high can lead to the router prioritizing load balancing over optimal token routing for the main task, potentially hurting model performance. Conversely, too low a \(\beta\) might not prevent expert imbalance effectively. Finding the right balance is crucial.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize 12 tokens being routed to 4 experts. Observe how a naive router can lead to imbalance, and how the auxiliary loss (controlled by the slider) pushes for a more even distribution.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Auxiliary Loss Weight (β)</div>
+          <input type="range" id="betaSlider" min="0" max="5" step="0.1" value="0">
+          <div class="slider-value" id="betaValue">0.0</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="readout-row" id="readoutRow"></div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The System: Tokens &amp; Experts</div>
+        <div class="info-desc" id="infoDesc">We have 12 input tokens (circles) and 4 experts (rectangles). Each token needs to be routed to exactly one expert (k=1). Experts are specialized FFNs.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Token</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Expert</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Preferred route</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Overloaded expert</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Balanced route</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Switch Transformers:</strong></p>
+    <ul>
+      <li>When you need extremely large model capacity (billions to trillions of parameters) without a proportional increase in computational cost per inference token.</li>
+      <li>For tasks where sparse activation is beneficial (e.g., language models, vision models with diverse inputs).</li>
+      <li>When leveraging specialized hardware (like TPUs or GPUs with high memory bandwidth) that can efficiently handle sparse operations.</li>
+    </ul>
+    <p><strong>Role of Auxiliary Loss:</strong></p>
+    <ul>
+      <li>Absolutely critical for successful training of MoE models. Without it, experts quickly become imbalanced, leading to poor performance and inefficient resource usage.</li>
+      <li>Acts as a regularizer, forcing the model to explore and utilize the full diversity of its expert ensemble.</li>
+      <li>Its weight (\(\beta\)) is a key hyperparameter to tune: too low, and experts become imbalanced; too high, and routing decisions might be suboptimal for the main task.</li>
+    </ul>
+    <p><strong>When NOT to use (or use with caution):</strong></p>
+    <ul>
+      <li>Small models or datasets: The overhead of the router and managing multiple experts might outweigh the benefits.</li>
+      <li>When latency is extremely critical and you cannot tolerate the slight additional overhead of routing decisions.</li>
+      <li>If the underlying task data is not naturally diverse enough to benefit from expert specialization.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Switch Transformers with k=1 routing and auxiliary loss represent a powerful paradigm for scaling deep learning models. They demonstrate that strategic sparsity, coupled with intelligent load balancing, can unlock unprecedented model sizes and capabilities without breaking the computational budget.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace — PyTorch MoE Layer &amp; Auxiliary Loss</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4">class Expert(nn.Module):</div>
+      <div class="code-line" id="cl5">    def __init__(self, dim, hidden_dim):</div>
+      <div class="code-line" id="cl6">        super().__init__()</div>
+      <div class="code-line" id="cl7">        self.net = nn.Sequential(</div>
+      <div class="code-line" id="cl8">            nn.Linear(dim, hidden_dim),</div>
+      <div class="code-line" id="cl9">            nn.ReLU(),</div>
+      <div class="code-line" id="cl10">            nn.Linear(hidden_dim, dim)</div>
+      <div class="code-line" id="cl11">        )</div>
+      <div class="code-line" id="cl12">    def forward(self, x):</div>
+      <div class="code-line" id="cl13">        return self.net(x)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">class SwitchFFN(nn.Module):</div>
+      <div class="code-line" id="cl16">    def __init__(self, dim, num_experts, aux_loss_weight=0.01):</div>
+      <div class="code-line" id="cl17">        super().__init__()</div>
+      <div class="code-line" id="cl18">        self.num_experts = num_experts</div>
+      <div class="code-line" id="cl19">        self.aux_loss_weight = aux_loss_weight</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">        self.router = nn.Linear(dim, num_experts) # Router: input to expert scores</div>
+      <div class="code-line" id="cl22">        self.experts = nn.ModuleList([Expert(dim, dim*4) for _ in range(num_experts)])</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24">    def forward(self, x):</div>
+      <div class="code-line" id="cl25">        # x: (batch_size, seq_len, dim)</div>
+      <div class="code-line" id="cl26">        flat_x = x.view(-1, x.shape[-1]) # (tokens, dim)</div>
+      <div class="code-line" id="cl27">        token_count = flat_x.shape[0]</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">        router_logits = self.router(flat_x) # (tokens, num_experts)</div>
+      <div class="code-line" id="cl30">        routing_probs = F.softmax(router_logits, dim=-1) # (tokens, num_experts)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">        # k=1 routing: select top-1 expert for each token</div>
+      <div class="code-line" id="cl33">        route_weights, selected_experts = torch.max(routing_probs, dim=-1)</div>
+      <div class="code-line" id="cl34">        # route_weights: (tokens,), selected_experts: (tokens,)</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">        # Prepare output tensor</div>
+      <div class="code-line" id="cl37">        output = torch.zeros_like(flat_x)</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">        # Auxiliary Loss Calculation</div>
+      <div class="code-line" id="cl40">        # 1. Expert load: fraction of tokens routed to each expert</div>
+      <div class="code-line" id="cl41">        expert_load = F.one_hot(selected_experts, num_classes=self.num_experts).float().sum(0) / token_count</div>
+      <div class="code-line" id="cl42">        # 2. Expert probability sum: average routing probability for each expert</div>
+      <div class="code-line" id="cl43">        expert_prob_sum = routing_probs.sum(0) / token_count</div>
+      <div class="code-line" id="cl44">        # Auxiliary loss: sum of (prob_sum * load) over experts</div>
+      <div class="code-line" id="cl45">        aux_loss = (expert_prob_sum * expert_load).sum() * self.aux_loss_weight</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">        # Dispatch tokens to experts and aggregate results</div>
+      <div class="code-line" id="cl48">        for i, expert in enumerate(self.experts):</div>
+      <div class="code-line" id="cl49">            # Select tokens for current expert 'i'</div>
+      <div class="code-line" id="cl50">            expert_mask = (selected_experts == i)</div>
+      <div class="code-line" id="cl51">            if expert_mask.any():</div>
+      <div class="code-line" id="cl52">                # Tokens for this expert</div>
+      <div class="code-line" id="cl53">                tokens_for_expert = flat_x[expert_mask]</div>
+      <div class="code-line" id="cl54">                # Routing weights for these tokens</div>
+      <div class="code-line" id="cl55">                weights_for_expert = route_weights[expert_mask].unsqueeze(1)</div>
+      <div class="code-line" id="cl56">                # Apply expert and scale by routing weight</div>
+      <div class="code-line" id="cl57">                expert_output = expert(tokens_for_expert) * weights_for_expert</div>
+      <div class="code-line" id="cl58">                # Place results back into the output tensor</div>
+      <div class="code-line" id="cl59">                output[expert_mask] = expert_output</div>
+      <div class="code-line" id="cl60">        </div>
+      <div class="code-line" id="cl61">        # Reshape back to (batch_size, seq_len, dim)</div>
+      <div class="code-line" id="cl62">        output = output.view(x.shape)</div>
+      <div class="code-line" id="cl63">        return output, aux_loss</div>
+      <div class="code-line" id="cl64"></div>
+      <div class="code-line" id="cl65"># Example usage:</div>
+      <div class="code-line" id="cl66"># dim = 512; num_experts = 4; batch_size = 2; seq_len = 10</div>
+      <div class="code-line" id="cl67"># model = SwitchFFN(dim, num_experts)</div>
+      <div class="code-line" id="cl68"># input_tensor = torch.randn(batch_size, seq_len, dim)</div>
+      <div class="code-line" id="cl69"># output, aux_loss = model(input_tensor)</div>
+      <div class="code-line" id="cl70"># total_loss = main_task_loss + aux_loss</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function softmax(arr) {
+  const maxVal = Math.max(...arr);
+  const exps = arr.map(v => Math.exp(v - maxVal));
+  const sumExps = exps.reduce((a, b) => a + b, 0);
+  return exps.map(v => v / sumExps);
+}
+
+function fmt(v, digits = 2) {
+  if (Number.isNaN(v)) return 'NaN';
+  if (!Number.isFinite(v)) return v > 0 ? '∞' : '-∞';
+  return v.toFixed(digits);
+}
+
+// ── FIXED DATA FOR VIZ ──
+const N_TOKENS = 12;
+const N_EXPERTS = 4;
+const TOKEN_COLORS = [
+  '#AFA9EC', '#85B7EB', '#97C459', '#EF9F27', '#E24B4A', '#26C6DA',
+  '#B5D4F4', '#C0DD97', '#FAC775', '#F7C1C1', '#CECBF6', '#B2EBF2'
+];
+const EXPERT_COLORS = ['#185FA5', '#3B6D11', '#854F0B', '#A32D2D'];
+
+// Seeded random for reproducible "raw_scores"
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345); // Fixed seed
+const initialRawScores = Array.from({ length: N_TOKENS }, () => {
+  const scores = Array.from({ length: N_EXPERTS }, () => seededRng() * 3 - 1.5); // Scores between -1.5 and 1.5
+  // Introduce a slight bias for some tokens to make imbalance more pronounced initially
+  if (seededRng() < 0.3) { // 30% chance for a token to strongly prefer expert 0
+    scores[0] += seededRng() * 2;
+  } else if (seededRng() < 0.2) { // 20% chance for expert 1
+    scores[1] += seededRng() * 1.5;
+  }
+  return scores;
+});
+
+// ── SIMULATION LOGIC ──
+function simulateRouting(rawScores, beta, numExperts, numTokens, iterations = 5) {
+  let currentScores = rawScores.map(s => [...s]); // Deep copy
+  const avgLoadTarget = 1.0 / numExperts; // Target fraction of tokens per expert
+
+  // Simulate a few steps of gradient descent for the router to balance
+  for (let iter = 0; iter < iterations; iter++) {
+    const routingProbs = currentScores.map(s => softmax(s));
+    const selectedExperts = routingProbs.map(p => p.indexOf(Math.max(...p)));
+
+    // Calculate actual expert load (fraction of tokens routed)
+    const expertLoad = new Array(numExperts).fill(0);
+    selectedExperts.forEach(expIdx => expertLoad[expIdx]++);
+    const expertLoadFraction = expertLoad.map(count => count / numTokens);
+
+    // If beta is 0, no adjustment needed (naive routing)
+    if (beta === 0) break;
+
+    // Adjust scores based on expert load (simulating gradient descent)
+    // The penalty pushes scores away from overloaded experts, towards underloaded ones.
+    const loadPenalty = expertLoadFraction.map(load => load - avgLoadTarget);
+    currentScores = currentScores.map(tokenScores =>
+      tokenScores.map((score, expIdx) => score - beta * loadPenalty[expIdx])
+    );
+  }
+
+  // Final calculation after simulation
+  const finalRoutingProbs = currentScores.map(s => softmax(s));
+  const finalSelectedExperts = finalRoutingProbs.map(p => p.indexOf(Math.max(...p)));
+
+  const finalExpertLoad = new Array(numExperts).fill(0);
+  finalSelectedExperts.forEach(expIdx => finalExpertLoad[expIdx]++);
+
+  const finalExpertProbSum = new Array(numExperts).fill(0);
+  finalRoutingProbs.forEach(p => p.forEach((prob, expIdx) => finalExpertProbSum[expIdx] += prob));
+  const finalExpertProbAvg = finalExpertProbSum.map(sum => sum / numTokens);
+
+  // Calculate auxiliary loss for the final state
+  const finalAuxLoss = finalExpertProbAvg.reduce((sum, prob, expIdx) => sum + prob * (finalExpertLoad[expIdx] / numTokens), 0);
+
+  return {
+    rawScores, // The original scores
+    finalScores: currentScores, // Scores after beta adjustment
+    finalRoutingProbs,
+    finalSelectedExperts,
+    finalExpertLoad,
+    finalAuxLoss
+  };
+}
+
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The System: Tokens & Experts',
+    desc: `We have ${N_TOKENS} input tokens (circles) and ${N_EXPERTS} experts (rectangles). Each token needs to be routed to exactly one expert (k=1). Experts are specialized feed-forward networks (FFNs) within the Transformer block.`,
+    beta: 0,
+    showScores: false,
+    showRouting: false,
+    showAuxLoss: false,
+    interactive: false,
+    codeLines: []
+  },
+  {
+    phase: 'routing', title: 'Raw Token Preferences (Router Logits)',
+    desc: `The router network takes each token's representation and computes "raw scores" (logits) for each expert. These scores reflect the router's initial preference. A higher score means a stronger preference. Here, some tokens have a clear favorite.`,
+    beta: 0,
+    showScores: true,
+    showRouting: false,
+    showAuxLoss: false,
+    interactive: false,
+    codeLines: [26,27,28,29]
+  },
+  {
+    phase: 'routing', title: 'Naive Routing (β=0): Imbalance',
+    desc: `Without any load balancing (Auxiliary Loss Weight \\(\\beta=0\\)), each token is simply routed to its top-scoring expert. Observe how some experts (like Expert 0) become heavily overloaded, while others are underutilized. This is inefficient!`,
+    beta: 0,
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: false,
+    interactive: false,
+    codeLines: [30,31,32,33,34]
+  },
+  {
+    phase: 'balance', title: 'Measuring Imbalance: Auxiliary Loss',
+    desc: `The auxiliary loss \\(L_{\\text{aux}} = \\alpha \\sum (\\text{AvgProb}_j \\cdot \\text{Load}_j)\\) penalizes this imbalance. It's high when a few experts have both high average routing probabilities and high actual load. Our goal is to minimize this value.`,
+    beta: 0,
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: false,
+    codeLines: [39,40,41,42,43,44,45]
+  },
+  {
+    phase: 'balance', title: 'Auxiliary Loss Applied (β=1.0)',
+    desc: `Now, with \\(\\beta=1.0\\), the auxiliary loss starts influencing the router. The router adjusts its scores, slightly penalizing routes to overloaded experts and encouraging routes to underutilized ones. This shifts token assignments.`,
+    beta: 1.0,
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: false,
+    codeLines: [29,30,31,32,33,34,39,40,41,42,43,44,45]
+  },
+  {
+    phase: 'balance', title: 'Achieving Balanced Routing',
+    desc: `After router adjustment, tokens are re-routed. Notice how the token distribution is now much more even across experts. The auxiliary loss successfully forced the router to utilize all experts, leading to better hardware efficiency.`,
+    beta: 1.0,
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: false,
+    codeLines: [47,48,49,50,51,52,53,54,55,56,57,58,59]
+  },
+  {
+    phase: 'explore', title: 'Interactive: Adjust Auxiliary Loss Weight (β)',
+    desc: `Drag the slider to change \\(\\beta\\), the weight of the auxiliary loss. As \\(\\beta\\) increases, the router prioritizes load balancing more aggressively, leading to a more uniform expert load. Observe how \\(L_{\\text{aux}}\\) decreases as \\(\\beta\\) grows.`,
+    beta: 1.0, // Initial value for interaction
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: true,
+    codeLines: [19,45]
+  },
+  {
+    phase: 'explore', title: 'High Beta: Strong Balancing',
+    desc: `At high \\(\\beta\\) values, the auxiliary loss dominates. The router will ensure a near-perfect distribution of tokens, even if it means sending a token to an expert it has a slightly lower "raw" preference for. This can sometimes be too aggressive.`,
+    beta: 5.0,
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: true,
+    codeLines: [19,45]
+  },
+  {
+    phase: 'explore', title: 'Summary: Balanced vs. Naive',
+    desc: `The auxiliary loss is a critical regularization term. It ensures that the massive capacity of a Mixture-of-Experts model is fully utilized, preventing mode collapse and improving training efficiency and stability.`,
+    beta: 0, // Reset for comparison
+    showScores: true,
+    showRouting: true,
+    showAuxLoss: true,
+    interactive: true,
+    codeLines: []
+  }
+];
+
+let currentStepIdx = 0;
+const totalSteps = steps.length;
+let currentBeta = parseFloat(document.getElementById('betaSlider').value);
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStepIdx) d.classList.add('done');
+    if (i === currentStepIdx) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStepIdx + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStepIdx = next;
+  render();
+}
+function goTo(i) { currentStepIdx = i; render(); }
+function reset() {
+  currentStepIdx = 0;
+  document.getElementById('betaSlider').value = 0;
+  currentBeta = 0;
+  updateBetaLabel();
+  render();
+}
+
+// ── SLIDER ──
+const betaSlider = document.getElementById('betaSlider');
+betaSlider.addEventListener('input', () => {
+  currentBeta = parseFloat(betaSlider.value);
+  updateBetaLabel();
+  if (steps[currentStepIdx].interactive) renderCanvas(); // Only re-render canvas if in interactive step
+});
+function updateBetaLabel() {
+  document.getElementById('betaValue').textContent = currentBeta.toFixed(1);
+}
+
+// ── READOUT CHIPS ──
+function renderReadout(expertLoad, auxLoss) {
+  const wrap = document.getElementById('readoutRow');
+  let html = `<div class="readout-chip">Auxiliary Loss: <span style="color:var(--purple-mid);font-weight:600;">${fmt(auxLoss, 4)}</span></div>`;
+  expertLoad.forEach((load, i) => {
+    const isOverloaded = load > (N_TOKENS / N_EXPERTS);
+    html += `<div class="readout-chip ${isOverloaded ? 'hot' : 'good'}">Expert ${i} Load: <span style="font-weight:600;">${load}</span></div>`;
+  });
+  wrap.innerHTML = html;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStepIdx];
+
+  document.getElementById('btnPrev').disabled = currentStepIdx === 0;
+  document.getElementById('btnNext').disabled = currentStepIdx === totalSteps - 1;
+
+  const phaseMap = { setup: 'phase-setup', routing: 'phase-routing', balance: 'phase-balance', explore: 'phase-explore' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStepIdx + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Set slider value for non-interactive steps, or enable for interactive
+  betaSlider.disabled = !s.interactive;
+  if (!s.interactive) {
+    betaSlider.value = s.beta;
+    currentBeta = s.beta;
+    updateBetaLabel();
+  } else if (currentStepIdx === totalSteps - 1) { // Last step, reset beta to 0 for comparison
+    betaSlider.value = 0;
+    currentBeta = 0;
+    updateBetaLabel();
+  }
+
+  renderCanvas();
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function renderCanvas() {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const s = steps[currentStepIdx];
+  const beta = s.interactive ? currentBeta : s.beta;
+
+  const simResult = simulateRouting(initialRawScores, beta, N_EXPERTS, N_TOKENS);
+  const expertLoad = simResult.finalExpertLoad;
+  const auxLoss = simResult.finalAuxLoss;
+
+  // Render readout chips
+  if (s.showAuxLoss) {
+    renderReadout(expertLoad, auxLoss);
+  } else {
+    document.getElementById('readoutRow').innerHTML = ''; // Clear readout if not showing
+  }
+
+  // Layout constants
+  const tokenRadius = 14;
+  const expertWidth = 80;
+  const expertHeight = 60;
+  const tokenStartX = W * 0.15;
+  const expertStartX = W * 0.75;
+  const tokenYStep = (H - tokenRadius * 2 * 1.5) / (N_TOKENS - 1);
+  const expertYStep = (H - expertHeight * 1.5) / (N_EXPERTS - 1);
+
+  // Draw Experts
+  const expertPositions = [];
+  for (let i = 0; i < N_EXPERTS; i++) {
+    const x = expertStartX;
+    const y = (expertYStep * i) + (expertHeight / 2) + (expertHeight * 0.25);
+    expertPositions.push({ x, y });
+
+    ctx.fillStyle = c.green;
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x - expertWidth / 2, y - expertHeight / 2, expertWidth, expertHeight, 8) : ctx.rect(x - expertWidth / 2, y - expertHeight / 2, expertWidth, expertHeight);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.font = '600 12px ' + c.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(`Expert ${i}`, x, y + 4);
+
+    // Draw load indicator
+    if (s.showRouting) {
+      const loadFraction = expertLoad[i] / N_TOKENS;
+      const loadBarHeight = expertHeight * 0.8;
+      const loadBarWidth = 8;
+      const loadBarX = x + expertWidth / 2 + 10;
+      const loadBarY = y - loadBarHeight / 2;
+      ctx.fillStyle = c.bg2;
+      ctx.fillRect(loadBarX, loadBarY, loadBarWidth, loadBarHeight);
+      ctx.strokeStyle = c.border;
+      ctx.strokeRect(loadBarX, loadBarY, loadBarWidth, loadBarHeight);
+
+      const filledHeight = loadBarHeight * loadFraction;
+      ctx.fillStyle = expertLoad[i] > (N_TOKENS / N_EXPERTS) ? c.red : c.purple;
+      ctx.fillRect(loadBarX, loadBarY + loadBarHeight - filledHeight, loadBarWidth, filledHeight);
+
+      ctx.fillStyle = c.text3;
+      ctx.font = '10px ' + c.sans;
+      ctx.fillText(`${expertLoad[i]}/${N_TOKENS}`, loadBarX + loadBarWidth / 2, loadBarY + loadBarHeight + 12);
+    }
+  }
+
+  // Draw Tokens and Routes
+  for (let i = 0; i < N_TOKENS; i++) {
+    const x = tokenStartX;
+    const y = (tokenYStep * i) + tokenRadius * 1.5;
+
+    // Draw Token
+    ctx.fillStyle = TOKEN_COLORS[i % TOKEN_COLORS.length];
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, tokenRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.font = '600 10px ' + c.sans;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${i}`, x, y + 4);
+
+    if (s.showScores) {
+      const routingProbs = simResult.finalRoutingProbs[i];
+      const topExpertIdx = routingProbs.indexOf(Math.max(...routingProbs));
+      const topExpertPos = expertPositions[topExpertIdx];
+
+      // Draw routing arrow
+      if (s.showRouting) {
+        ctx.strokeStyle = (beta > 0 && topExpertIdx !== simResult.rawScores[i].indexOf(Math.max(...simResult.rawScores[i]))) ? c.purple : c.amber;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + tokenRadius, y);
+        ctx.lineTo(topExpertPos.x - expertWidth / 2 - 5, topExpertPos.y);
+        ctx.stroke();
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(topExpertPos.x - expertWidth / 2 - 5, topExpertPos.y);
+        ctx.lineTo(topExpertPos.x - expertWidth / 2 - 15, topExpertPos.y - 5);
+        ctx.moveTo(topExpertPos.x - expertWidth / 2 - 5, topExpertPos.y);
+        ctx.lineTo(topExpertPos.x - expertWidth / 2 - 15, topExpertPos.y + 5);
+        ctx.stroke();
+      }
+
+      // Draw preference score (small text next to token)
+      const rawScores = simResult.rawScores[i];
+      const scoresToDisplay = s.showRouting ? simResult.finalScores[i] : rawScores;
+      ctx.fillStyle = c.text2;
+      ctx.font = '10px ' + c.mono;
+      ctx.textAlign = 'left';
+      scoresToDisplay.forEach((score, expIdx) => {
+        const scoreX = x + tokenRadius + 5;
+        const scoreY = y - (N_EXPERTS / 2 - expIdx) * 12;
+        ctx.fillText(`${expIdx}: ${fmt(score, 1)}`, scoreX, scoreY);
+      });
+    }
+  }
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', renderCanvas);
+</script>
+</body>
+</html>

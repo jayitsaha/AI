@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streaming LLM: Attention Sink — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-naive{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-sink{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-compare{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Streaming LLM: Attention Sink</h1>
+  <div class="subtitle">Extending LLM context windows by keeping initial tokens as stable attention targets</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Transformers</span>
+    <span class="tag tag-complexity">O(1) extra memory</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Streaming LLM &amp; Attention Sink</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Large Language Models (LLMs) operate with a fixed-size "context window." To handle conversations or documents longer than this window, "streaming LLMs" use techniques like sliding window attention to discard older tokens as new ones arrive, keeping the active context within limits. The "attention sink" mechanism is an empirical discovery: the first few tokens (e.g., system prompt, initial greeting) are disproportionately important and should *never* be discarded, even if they are old. They act as stable anchor points for attention.</p>
+    <p><strong>Analogy:</strong> Imagine you're writing a long story, but your notepad only has 10 lines. As you write new lines, the oldest one at the top gets erased to make room. This works for a while, but if the first few lines set up the entire plot or character (e.g., "Once upon a time, in a land far away..."), losing them would make the rest of the story incoherent. An "attention sink" is like dedicating the first 2 lines of your notepad to *always* be those crucial opening sentences, no matter how many new lines you write. Only the lines *after* those fixed ones get erased.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Attention sink tokens are a small, fixed set of initial tokens (often from the prompt) that are always retained in the KV cache, even when a sliding window mechanism would normally discard them. They provide stable "anchor points" for subsequent tokens to attend to, preventing attention dilution and performance degradation in long-context streaming inference.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The KV Cache: Memory for Attention</h4>
+    <p>In a Transformer's self-attention mechanism, each token generates a Query (Q), Key (K), and Value (V) vector. To generate a new token, its Query vector attends to the Key vectors of all preceding tokens to compute attention scores. These scores are then used to weight the Value vectors, producing the context vector for the new token. For efficient generation, the Keys and Values of previously generated tokens are stored in a "KV cache" (also called past_key_values) so they don't need to be recomputed for every new token.</p>
+    <h4>The Problem: Naive Sliding Window Attention</h4>
+    <p>When the sequence length exceeds the maximum context window size (e.g., 4096 tokens), the KV cache becomes too large. A common strategy for "streaming" is to implement a sliding window: as a new token is generated, the oldest token's KV entry is simply discarded to keep the cache size constant. This is simple, but it has a critical flaw: the initial prompt tokens (e.g., "User: Hello! What is the capital of France?") are often the most important for establishing context and persona. When these are discarded, later tokens lose their stable attention targets, leading to reduced coherence and quality, sometimes called "attention dilution" or "context drift."</p>
+    <h4>The Attention Sink Solution</h4>
+    <p>The attention sink mechanism modifies the sliding window strategy. Instead of always dropping the absolutely oldest token, it guarantees that the first \(S\) tokens of the sequence (the "attention sink" tokens) are *never* dropped from the KV cache. When the context window is full and a new token arrives:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Identify the set of tokens currently in the KV cache.</li>
+      <li>If the number of tokens in cache exceeds the window size, remove the oldest token that is *not* one of the \(S\) attention sink tokens.</li>
+      <li>Add the new token's KV entries to the cache.</li>
+    </ol>
+    <p>This ensures that the initial context, which often receives high attention from subsequent tokens, remains stable throughout the generation process, even for very long sequences.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The attention sink ensures a persistent, stable set of initial tokens in the KV cache. This prevents the "cold start" problem where new tokens struggle to find strong, stable attention targets as older, crucial context is continually discarded, thereby improving the long-term coherence and quality of streaming LLM generation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Standard Self-Attention</h4>
+    <p>For a query vector \(q_i\) of the \(i\)-th token and key vectors \(k_j\) of preceding tokens, the attention scores are computed as:</p>
+    <div class="eq">$$ \text{score}(q_i, k_j) = \frac{q_i k_j^\top}{\sqrt{d_k}} $$</div>
+    <p>These scores are then normalized using a softmax function to get attention weights \( \alpha_{ij} \). The context vector for token \(i\) is a weighted sum of value vectors \(v_j\):</p>
+    <div class="eq">$$ \text{Attention}(Q, K, V)_i = \sum_{j=1}^i \alpha_{ij} v_j = \sum_{j=1}^i \frac{\exp\left(\frac{q_i k_j^\top}{\sqrt{d_k}}\right)}{\sum_{l=1}^i \exp\left(\frac{q_i k_l^\top}{\sqrt{d_k}}\right)} v_j $$</div>
+    <p>In streaming inference, the KV cache stores \(K = [k_1, \dots, k_N]\) and \(V = [v_1, \dots, v_N]\) for tokens \(1\) to \(N\).</p>
+    <h4>Impact of Sliding Window on Attention</h4>
+    <p>When a naive sliding window drops the oldest token \(k_1, v_1\), the denominator of the softmax function for subsequent tokens changes. If \(q_i\) (for \(i > 1\)) had a strong attention score with \(k_1\), removing \(k_1\) means its contribution to the sum \( \sum_{l=1}^i \exp\left(\frac{q_i k_l^\top}{\sqrt{d_k}}\right) \) is lost. This forces the attention distribution to re-normalize over the remaining tokens, potentially leading to a significant shift in attention weights for \(q_i\), even if \(q_i\) is far from \(k_1\).</p>
+    <p>The "attention sink" paper (Xiao et al., 2023) empirically found that the first few tokens \(k_1, \dots, k_S\) consistently receive high attention from later tokens, even very distant ones. This is because these tokens often represent the "root" of the conversation or task instruction. By explicitly retaining these \(S\) tokens, the softmax denominator for any \(q_i\) (where \(i > S\)) always includes these stable, high-attention terms:</p>
+    <div class="eq">$$ \text{Attention}(Q, K_{\text{sink}}, K_{\text{window}}, V_{\text{sink}}, V_{\text{window}})_i = \sum_{j \in \{\text{sink tokens, window tokens}\}} \frac{\exp\left(\frac{q_i k_j^\top}{\sqrt{d_k}}\right)}{\sum_{l \in \{\text{sink tokens, window tokens}\}} \exp\left(\frac{q_i k_l^\top}{\sqrt{d_k}}\right)} v_j $$</div>
+    <p>This mathematical stability of the softmax denominator, particularly for tokens that consistently draw attention, is key to maintaining performance. It prevents the "attention dilution" that occurs when the most salient context points are arbitrarily removed.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">The attention sink is an empirical fix. It doesn't fundamentally change the quadratic complexity of attention or allow infinite context. It's a heuristic that leverages the observed behavior of LLMs to stabilize streaming inference within a constrained context window. If the crucial context is *not* in the first few tokens (e.g., a long document where the key info is in the middle), the attention sink might not be as effective.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how the KV cache is managed for streaming LLM inference. Observe how naive sliding window attention discards crucial prompt tokens, and how the attention sink mechanism preserves them.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Attention Sink Size (S)</div>
+          <input type="range" id="sinkSlider" min="0" max="5" step="1" value="0">
+          <div class="slider-value" id="sinkValue">0</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Set S=0 for naive sliding window. Set S>0 to enable attention sink.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">Initial Prompt</div>
+        <div class="info-desc" id="infoDesc">We start with a short prompt. All tokens are initially stored in the KV cache.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> Prompt token</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--purple-mid)"></div> Generated token</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--green-mid)"></div> Attention Sink token</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--red-mid); opacity:0.3;"></div> Dropped token</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Current token's attention</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Attention Sink:</strong></p>
+    <ul>
+      <li><strong>Long-context streaming inference:</strong> When generating responses that exceed the LLM's fixed context window (e.g., chatbots, long document summarization, code generation).</li>
+      <li><strong>Maintaining coherence:</strong> To prevent "attention dilution" or "context drift" where the model forgets crucial initial instructions or persona set by the prompt.</li>
+      <li><strong>Performance-critical applications:</strong> It offers a simple, low-overhead way to improve quality with sliding window attention without complex architectural changes.</li>
+    </ul>
+    <p><strong>When NOT to use / Limitations:</strong></p>
+    <ul>
+      <li><strong>Short prompts/contexts:</strong> If the total sequence length never approaches or exceeds the context window, the sliding window (and thus attention sink) mechanism is not activated.</li>
+      <li><strong>Models not designed for streaming:</strong> While it can be applied to many models, its benefits are most pronounced in scenarios where a sliding window is already necessary.</li>
+      <li><strong>Crucial context in the middle:</strong> If the most important information for future tokens is *not* in the initial few tokens, the attention sink may not fully address the problem. Other techniques like Ring Attention or RecurrentGemma might be more suitable.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">The attention sink is a practical, empirically-driven optimization that significantly improves the quality and coherence of streaming LLM inference by stabilizing the attention mechanism. It's a testament to how crucial the initial prompt tokens are for guiding an LLM's behavior over extended interactions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python/PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2">class StreamingLLM:</div>
+      <div class="code-line" id="cl3">    def __init__(self, model, max_window_size=8, attention_sink_size=0):</div>
+      <div class="code-line" id="cl4">        self.model = model</div>
+      <div class="code-line" id="cl5">        self.max_window_size = max_window_size</div>
+      <div class="code-line" id="cl6">        self.attention_sink_size = attention_sink_size</div>
+      <div class="code-line" id="cl7">        self.kv_cache = None # Stores (keys, values) for all past tokens</div>
+      <div class="code-line" id="cl8">        self.current_sequence_length = 0</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">    def generate_next_token(self, input_ids):</div>
+      <div class="code-line" id="cl11">        # input_ids: tensor of the current token(s) to process</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">        if self.kv_cache is None:</div>
+      <div class="code-line" id="cl14">            # First forward pass, initialize cache</div>
+      <div class="code-line" id="cl15">            outputs = self.model(input_ids, use_cache=True)</div>
+      <div class="code-line" id="cl16">            self.kv_cache = outputs.past_key_values</div>
+      <div class="code-line" id="cl17">            self.current_sequence_length = input_ids.shape[-1]</div>
+      <div class="code-line" id="cl18">            return outputs.logits</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        # Prepare KV cache for next token generation</div>
+      <div class="code-line" id="cl21">        past_length = self.current_sequence_length</div>
+      <div class="code-line" id="cl22">        if past_length >= self.max_window_size:</div>
+      <div class="code-line" id="cl23">            # Sliding window logic (per attention head/layer)</div>
+      <div class="code-line" id="cl24">            new_kv_cache = []</div>
+      <div class="code-line" id="cl25">            for layer_kv in self.kv_cache:</div>
+      <div class="code-line" id="cl26">                keys, values = layer_kv # (batch, num_heads, seq_len, head_dim)</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">                # Keep sink tokens, then take the most recent (window_size - sink_size) tokens</div>
+      <div class="code-line" id="cl29">                # If sink_size is 0, this is a naive sliding window</div>
+      <div class="code-line" id="cl30">                sink_keys = keys[:, :, :self.attention_sink_size, :]</div>
+      <div class="code-line" id="cl31">                sink_values = values[:, :, :self.attention_sink_size, :]</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33">                # Remaining tokens in the window (excluding sink tokens)</div>
+      <div class="code-line" id="cl34">                non_sink_window_keys = keys[:, :, past_length - (self.max_window_size - self.attention_sink_size):, :]</div>
+      <div class="code-line" id="cl35">                non_sink_window_values = values[:, :, past_length - (self.max_window_size - self.attention_sink_size):, :]</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37">                # Concatenate sink tokens with the sliding window tokens</div>
+      <div class="code-line" id="cl38">                keys_to_pass = torch.cat([sink_keys, non_sink_window_keys], dim=2)</div>
+      <div class="code-line" id="cl39">                values_to_pass = torch.cat([sink_values, non_sink_window_values], dim=2)</div>
+      <div class="code-line" id="cl40">                new_kv_cache.append((keys_to_pass, values_to_pass))</div>
+      <div class="code-line" id="cl41">            self.kv_cache = new_kv_cache</div>
+      <div class="code-line" id="cl42">            # Adjust current_sequence_length to reflect the "shifted" window length</div>
+      <div class="code-line" id="cl43">            self.current_sequence_length = self.max_window_size - input_ids.shape[-1]</div>
+      <div class="code-line" id="cl44"></div>
+      <div class="code-line" id="cl45">        # Forward pass with updated cache</div>
+      <div class="code-line" id="cl46">        outputs = self.model(input_ids, past_key_values=self.kv_cache, use_cache=True)</div>
+      <div class="code-line" id="cl47">        self.kv_cache = outputs.past_key_values</div>
+      <div class="code-line" id="cl48">        self.current_sequence_length += input_ids.shape[-1]</div>
+      <div class="code-line" id="cl49">        return outputs.logits</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA ──
+const PROMPT_TOKENS = ['User:', 'Hello', '!', 'What', 'is'];
+const GENERATED_TOKENS = ['the', 'capital', 'of', 'France', '?', 'Paris', '.', 'That', 'is', 'a', 'good', 'question', '.'];
+
+// Token representation
+class Token {
+  constructor(id, text, type) {
+    this.id = id;
+    this.text = text;
+    this.type = type; // 'prompt' or 'generated'
+    this.status = 'active'; // 'active', 'dropped', 'sink'
+    this.attentionScore = 0; // for visualization
+  }
+}
+
+// ── VIZ STATE ──
+const VIZ_STATE = {
+  allTokens: [], // All tokens ever generated
+  kvCache: [],   // Tokens currently in KV cache (subset of allTokens)
+  currentGeneratedTokenIdx: -1, // Index of the token currently being generated
+  windowSize: 8,
+  attentionSinkSize: 0,
+  stepHistory: [], // For Prev/Next
+  currentStep: 0,
+};
+
+// Seeded RNG for attention scores
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const attentionRng = mulberry32(12345);
+
+// Simulate attention scores - current token attends to past.
+// Sink tokens get higher attention, recent tokens also get high attention.
+function simulateAttentionScores(currentIdx, kvCache, sinkSize) {
+  const scores = new Map();
+  let totalScore = 0;
+
+  kvCache.forEach(token => {
+    let score = 0;
+    if (token.id < sinkSize) { // Sink tokens
+      score = 0.8 + attentionRng() * 0.2; // High base attention
+    } else { // Non-sink tokens
+      // Heuristic: recent tokens get more attention, older less
+      const distance = currentIdx - token.id;
+      if (distance <= 2) score = 0.6 + attentionRng() * 0.4; // Very recent
+      else if (distance <= 5) score = 0.3 + attentionRng() * 0.3; // Medium recent
+      else score = 0.1 + attentionRng() * 0.2; // Old
+    }
+    scores.set(token.id, score);
+    totalScore += score;
+  });
+
+  // Normalize to sum to 1
+  scores.forEach((score, id) => scores.set(id, score / totalScore));
+  return scores;
+}
+
+// Update KV Cache based on current tokens, window size, and sink size
+function updateKvCache(allTokens, windowSize, sinkSize) {
+  const newKvCache = [];
+  const activeTokens = allTokens.filter(t => t.status !== 'dropped');
+
+  // Always include sink tokens if they exist
+  for (let i = 0; i < Math.min(sinkSize, activeTokens.length); i++) {
+    newKvCache.push(activeTokens[i]);
+  }
+
+  // Add non-sink tokens, respecting window size
+  const nonSinkTokens = activeTokens.filter(t => t.id >= sinkSize);
+  const numNonSinkToKeep = windowSize - newKvCache.length;
+  if (numNonSinkToKeep > 0) {
+    const startIndex = Math.max(0, nonSinkTokens.length - numNonSinkToKeep);
+    for (let i = startIndex; i < nonSinkTokens.length; i++) {
+      newKvCache.push(nonSinkTokens[i]);
+    }
+  }
+
+  // Mark tokens as dropped if they are not in the new KV cache
+  allTokens.forEach(token => {
+    if (token.id < sinkSize) {
+      token.status = 'sink';
+    } else if (newKvCache.includes(token)) {
+      token.status = 'active';
+    } else {
+      token.status = 'dropped';
+    }
+  });
+
+  // Sort by ID to ensure correct order
+  newKvCache.sort((a,b) => a.id - b.id);
+  return newKvCache;
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Prompt (5 tokens)',
+    desc: 'We start with a short prompt. All tokens are initially stored in the KV cache. The current token (P5) attends to all previous tokens.',
+    allTokens: PROMPT_TOKENS.slice(0, 5).map((t, i) => new Token(i, t, 'prompt')),
+    currentGeneratedTokenIdx: 4,
+    sinkSize: 0,
+    codeLines: [13,14,15,16,17]
+  },
+  {
+    phase: 'setup', title: 'Generate First New Token (T6)',
+    desc: 'The model generates its first new token. The KV cache still has space, so this token is simply added. The new token (N1) attends to all previous tokens.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 1)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 5,
+    sinkSize: 0,
+    codeLines: [13,14,15,16,17]
+  },
+  {
+    phase: 'naive', title: 'Naive Sliding Window (S=0) - Cache Full',
+    desc: `More tokens are generated. The KV cache (window size = ${VIZ_STATE.windowSize}) is now full. The next token will force a drop.`,
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 3)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 7,
+    sinkSize: 0,
+    codeLines: [21,22]
+  },
+  {
+    phase: 'naive', title: 'Naive Sliding Window (S=0) - Drop Oldest',
+    desc: 'A new token (N4) is generated. To make space, the oldest token in the cache (P1, a prompt token) is dropped. This means P1\'s Key/Value vectors are no longer available for attention.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 4)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 8,
+    sinkSize: 0,
+    codeLines: [21,22,23]
+  },
+  {
+    phase: 'naive', title: 'Naive Sliding Window (S=0) - Prompt Context Lost',
+    desc: 'As more tokens are generated, more of the initial prompt tokens (P2, P3) are dropped. The current token (N6) now attends to a context that has largely forgotten the original prompt.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 6)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 10,
+    sinkSize: 0,
+    codeLines: [21,22,23]
+  },
+  {
+    phase: 'sink', title: 'Attention Sink (S=2) - Initial State',
+    desc: 'Let\'s reset and enable the attention sink. We set S=2, meaning the first two tokens (P1, P2) will always be kept. The cache is full, just like before.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 3)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 7,
+    sinkSize: 2,
+    codeLines: [21,22,28,29,30,31]
+  },
+  {
+    phase: 'sink', title: 'Attention Sink (S=2) - Drop Non-Sink Oldest',
+    desc: 'A new token (N4) is generated. The cache is full. Instead of dropping P1, the oldest *non-sink* token (P3) is dropped. P1 and P2 remain in the cache, guaranteeing their presence.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 4)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 8,
+    sinkSize: 2,
+    codeLines: [21,22,28,29,30,31,34,35]
+  },
+  {
+    phase: 'sink', title: 'Attention Sink (S=2) - Long-Term Stability',
+    desc: 'Even after many generated tokens, the attention sink tokens (P1, P2) persist in the KV cache. This provides stable attention targets for the current token (N6), helping maintain coherence.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 6)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 10,
+    sinkSize: 2,
+    codeLines: [21,22,28,29,30,31,34,35,38,39]
+  },
+  {
+    phase: 'compare', title: 'Comparing Naive vs. Sink Stability',
+    desc: 'The attention sink ensures that crucial initial context tokens (P1, P2) are always available for attention. In contrast, the naive sliding window would have long discarded these, potentially leading to a loss of context and quality.',
+    allTokens: PROMPT_TOKENS.concat(GENERATED_TOKENS.slice(0, 6)).map((t, i) => new Token(i, t, i < PROMPT_TOKENS.length ? 'prompt' : 'generated')),
+    currentGeneratedTokenIdx: 10,
+    sinkSize: 2, // This will be dynamic with the slider
+    codeLines: [45,46,47,48]
+  }
+];
+
+let currentStepIdx = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStepIdx) d.classList.add('done');
+    if (i === currentStepIdx) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStepIdx + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStepIdx = next;
+  render();
+}
+function goTo(i) { currentStepIdx = i; render(); }
+function reset() { currentStepIdx = 0; VIZ_STATE.attentionSinkSize = 0; document.getElementById('sinkSlider').value = 0; updatePLabel(); render(); }
+
+// ── SLIDER ──
+const sinkSlider = document.getElementById('sinkSlider');
+sinkSlider.addEventListener('input', () => { updatePLabel(); render(); });
+function updatePLabel() {
+  const p = parseInt(sinkSlider.value);
+  document.getElementById('sinkValue').textContent = p.toString();
+  VIZ_STATE.attentionSinkSize = p;
+  document.getElementById('sliderHint').textContent =
+    `Set S=0 for naive sliding window. Set S>0 to enable attention sink. Current S = ${p}.`;
+
+  // Disable slider for initial steps where it's not relevant
+  const currentStepData = steps[currentStepIdx];
+  const enableSlider = (currentStepData.phase === 'sink' || currentStepData.phase === 'compare');
+  sinkSlider.disabled = !enableSlider;
+  document.getElementById('sinkValue').style.color = enableSlider ? 'var(--purple-mid)' : 'var(--text3)';
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStepIdx];
+
+  document.getElementById('btnPrev').disabled = currentStepIdx === 0;
+  document.getElementById('btnNext').disabled = currentStepIdx === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', naive:'phase-naive', sink:'phase-sink', compare:'phase-compare'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStepIdx+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  // Update VIZ_STATE based on current step
+  VIZ_STATE.allTokens = s.allTokens.map(t => new Token(t.id, t.text, t.type)); // Deep copy
+  VIZ_STATE.currentGeneratedTokenIdx = s.currentGeneratedTokenIdx;
+  if (currentStepIdx < 5) { // For naive steps, sink size is 0
+    VIZ_STATE.attentionSinkSize = 0;
+    document.getElementById('sinkSlider').value = 0;
+  } else { // For sink/compare steps, use slider value
+    const sliderValue = parseInt(document.getElementById('sinkSlider').value);
+    VIZ_STATE.attentionSinkSize = sliderValue;
+  }
+  VIZ_STATE.kvCache = updateKvCache(VIZ_STATE.allTokens, VIZ_STATE.windowSize, VIZ_STATE.attentionSinkSize);
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  drawCanvas();
+  updateDots();
+  updatePLabel(); // Ensure slider state matches
+}
+
+// ── CANVAS DRAWING ──
+function drawCanvas() {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const col = name => cs.getPropertyValue(name).trim();
+  const theme = {
+    text: col('--text'), text2: col('--text2'), text3: col('--text3'),
+    border: col('--border2'), bg2: col('--bg2'),
+    blue: col('--blue-mid'), green: col('--green-mid'), red: col('--red-mid'),
+    amber: col('--amber-mid'), purple: col('--purple-mid'), cyan: col('--cyan-mid')
+  };
+
+  const tokenRadius = 16;
+  const tokenSpacing = 40;
+  const timelineY = H * 0.2;
+  const kvCacheY = H * 0.6;
+  const kvCacheBoxHeight = H * 0.3;
+  const kvCacheBoxWidth = VIZ_STATE.windowSize * tokenSpacing + 2 * tokenRadius;
+
+  // Draw all tokens on timeline
+  ctx.font = '12px ' + theme.sans;
+  ctx.textAlign = 'center';
+  VIZ_STATE.allTokens.forEach((token, i) => {
+    const x = tokenSpacing + i * tokenSpacing;
+    const y = timelineY;
+
+    // Determine color based on token type and status
+    let fillColor = theme.blue;
+    let textColor = 'white';
+    let opacity = 1;
+
+    if (token.type === 'generated') fillColor = theme.purple;
+    if (token.status === 'dropped') {
+      fillColor = theme.red;
+      opacity = 0.3;
+    } else if (token.status === 'sink') {
+      fillColor = theme.green;
+    }
+
+    ctx.globalAlpha = opacity;
+    ctx.beginPath();
+    ctx.arc(x, y, tokenRadius, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.strokeStyle = theme.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = textColor;
+    ctx.fillText(token.text, x, y + 4);
+    ctx.globalAlpha = 1;
+
+    // Label token ID
+    ctx.fillStyle = theme.text3;
+    ctx.font = '10px ' + theme.mono;
+    ctx.fillText(`T${token.id}`, x, y - tokenRadius - 5);
+  });
+
+  // Draw KV Cache box
+  const kvCacheBoxX = tokenSpacing;
+  ctx.strokeStyle = theme.border;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(kvCacheBoxX - tokenRadius, kvCacheY - tokenRadius - 10, kvCacheBoxWidth, kvCacheBoxHeight);
+  ctx.fillStyle = theme.text2;
+  ctx.font = '12px ' + theme.sans;
+  ctx.fillText('KV Cache (Max ' + VIZ_STATE.windowSize + ' tokens)', kvCacheBoxX + kvCacheBoxWidth / 2 - tokenRadius, kvCacheY - tokenRadius - 20);
+
+  // Draw tokens in KV Cache
+  VIZ_STATE.kvCache.forEach((token, i) => {
+    const x = tokenSpacing + i * tokenSpacing;
+    const y = kvCacheY;
+
+    let fillColor = theme.blue;
+    let textColor = 'white';
+    if (token.type === 'generated') fillColor = theme.purple;
+    if (token.status === 'sink') fillColor = theme.green;
+
+    ctx.beginPath();
+    ctx.arc(x, y, tokenRadius, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.strokeStyle = theme.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = textColor;
+    ctx.fillText(token.text, x, y + 4);
+
+    // Label token ID
+    ctx.fillStyle = theme.text3;
+    ctx.font = '10px ' + theme.mono;
+    ctx.fillText(`T${token.id}`, x, y - tokenRadius - 5);
+  });
+
+  // Draw Attention from current generated token
+  const currentToken = VIZ_STATE.allTokens[VIZ_STATE.currentGeneratedTokenIdx];
+  if (currentToken) {
+    const currentTokenX = tokenSpacing + currentToken.id * tokenSpacing;
+    const currentTokenY = timelineY;
+
+    // Simulate attention scores
+    const attentionScores = simulateAttentionScores(currentToken.id, VIZ_STATE.kvCache, VIZ_STATE.attentionSinkSize);
+
+    VIZ_STATE.kvCache.forEach(targetToken => {
+      const targetX = tokenSpacing + targetToken.id * tokenSpacing;
+      const targetY = timelineY;
+
+      const score = attentionScores.get(targetToken.id) || 0;
+      const opacity = Math.max(0.1, score * 2); // Scale opacity for visibility
+      const lineWidth = Math.max(1, score * 5); // Scale line width
+
+      // Draw attention line
+      ctx.globalAlpha = opacity;
+      ctx.strokeStyle = theme.amber;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(currentTokenX, currentTokenY + tokenRadius);
+      ctx.lineTo(targetX, targetY + tokenRadius);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Highlight target token in KV cache
+      const kvTargetX = tokenSpacing + VIZ_STATE.kvCache.findIndex(t => t.id === targetToken.id) * tokenSpacing;
+      const kvTargetY = kvCacheY;
+      ctx.beginPath();
+      ctx.arc(kvTargetX, kvTargetY, tokenRadius + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = theme.amber;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    // Highlight current token on timeline
+    ctx.beginPath();
+    ctx.arc(currentTokenX, currentTokenY, tokenRadius + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = theme.amber;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = theme.amber;
+    ctx.font = '12px ' + theme.sans;
+    ctx.fillText('Current Token (T' + currentToken.id + ')', currentTokenX, currentTokenY - tokenRadius - 20);
+  }
+
+  // Info numbers
+  let infoLines = [];
+  infoLines.push(`Window Size: ${VIZ_STATE.windowSize}`);
+  infoLines.push(`Attention Sink Size (S): ${VIZ_STATE.attentionSinkSize}`);
+  infoLines.push(`Total Tokens Processed: ${VIZ_STATE.allTokens.length}`);
+  infoLines.push(`Tokens in KV Cache: ${VIZ_STATE.kvCache.length}`);
+  infoLines.push(`Dropped Tokens: ${VIZ_STATE.allTokens.filter(t => t.status === 'dropped').map(t => `T${t.id}`).join(', ') || 'None'}`);
+  document.getElementById('infoNumbers').textContent = infoLines.join('\n');
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', drawCanvas);
+</script>
+</body>
+</html>
