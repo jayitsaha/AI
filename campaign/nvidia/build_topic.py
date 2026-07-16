@@ -38,7 +38,7 @@ import notion_template as NT
 EXPLAINERS = os.path.join(AI, "explainers")
 LOGS = os.path.join(HERE, "logs")
 NEXT = os.path.join(AI, "campaign", "next.txt")
-URL_FMT = "https://jayitsaha.github.io/AI/explainers/{slug}_explainer.html"
+URL_FMT = "https://jayitsaha.github.io/PersonalSkillUp/AI/explainers/{slug}_explainer.html"
 ICON = {"Foundational": "🟢", "Intermediate": "🟡", "Advanced": "🟠", "Expert": "🔴"}
 
 
