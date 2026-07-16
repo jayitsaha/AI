@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Online Serving Architecture — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-advanced{background:var(--red-bg);color:var(--red-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-ingress{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-pipeline{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-budget{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-scale{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-metrics{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.metric-pill{font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border2);color:var(--text2);}
+.metric-pill b{color:var(--text);}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>ML System Design: Online Serving Architecture</h1>
+  <div class="subtitle">Retrieval → ranking → re-rank, under a hard millisecond budget</div>
+  <div class="tags">
+    <span class="tag tag-advanced">Advanced</span>
+    <span class="tag tag-category">ML System Design</span>
+    <span class="tag tag-category">Serving</span>
+    <span class="tag tag-complexity">p99-critical</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Online Serving</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Online serving is the path a single user request takes, live, to get a personalized answer — a feed, a search-result list, a recommendation — inside a strict time budget, usually 50–150ms end to end. It is the machinery that turns "millions of candidate items" into "the 10 items you actually see," on demand, at massive concurrency.</p>
+    <p><strong>Analogy:</strong> Think of a restaurant that must serve a full custom-tailored meal in under two minutes, for thousands of tables at once, from a warehouse of a million ingredients. You can't cook from scratch (too slow) — you pre-chop what you can (caching, precomputation), narrow the menu fast with a coarse filter (retrieval), then spend your remaining time budget carefully plating the few dishes that matter most (ranking).</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Online serving is a funnel under a latency budget: cheap, coarse retrieval narrows millions of candidates to hundreds, then an expensive, precise ranking model scores only those survivors. Every stage trades <em>accuracy for milliseconds</em>, and the budget — not accuracy — is usually the binding constraint.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Serving Stack Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Six Stages</h4>
+    <p>A request enters a <strong>load balancer</strong>, which routes it to a healthy replica (~2ms). That replica pulls <strong>features</strong> for the user and context — a mix of an online feature store (Redis/DynamoDB-class key-value store) and a request-scoped cache; a cache hit costs single-digit ms, a miss can cost 30–80ms because it fans out to multiple backing stores. Next, <strong>candidate retrieval</strong> uses an Approximate Nearest Neighbor (ANN) index (HNSW/IVF-PQ) to shrink millions of items down to a few hundred candidates in ~10–15ms — trading a small amount of recall for a huge latency win over exact search. Those candidates are scored by a <strong>ranking model</strong> (a deep network, batched on GPU/CPU) — the single most expensive stage, 20–50ms, because it runs a forward pass per candidate. A lightweight <strong>business re-rank</strong> layer then applies rules — diversity, deduplication, freshness boosts, ads — for a few ms. Finally the response is serialized and returned.</p>
+    <h4>Design Decision: Why Two-Stage (Retrieve then Rank)?</h4>
+    <p>Running the full ranking model over every item in the catalog is the accurate approach but is computationally infeasible at low latency — O(catalog size) forward passes. Two-stage funneling makes the expensive model's cost O(few hundred) instead, by first using a cheap, approximate method (ANN over embeddings, or simple heuristics) to discard the vast majority of irrelevant items.</p>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Latency composes <strong>additively down the pipeline</strong>, but caching and precomputation let you move work <em>offline</em> — anything computed ahead of time (embeddings, feature aggregates, popular-query results) does not count against the online budget at all.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Latency Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Sequential Composition</h4>
+    <p>If a request passes through \(k\) sequential stages with latencies \(T_1,\dots,T_k\), the total latency is simply their sum:</p>
+    <div class="eq">$$T_{total} = \sum_{i=1}^{k} T_i$$</div>
+    <p>Means add cleanly. <strong>Percentiles do not.</strong> If each stage's p99 happens independently, the p99 of the sum is generally <em>less</em> than the sum of the p99s — but in the worst case (fully correlated tails), it can approach the sum. System designers budget for the pessimistic bound:</p>
+    <div class="eq">$$P_{99}(T_{total}) \;\le\; \sum_{i=1}^{k} P_{99}(T_i)$$</div>
+    <h4>Cache-Blended Latency</h4>
+    <p>For a stage with cache hit ratio \(h\), hit latency \(T_{hit}\), and miss latency \(T_{miss}\), the expected latency is a convex blend:</p>
+    <div class="eq">$$\mathbb{E}[T_{fetch}] = h \cdot T_{hit} + (1-h)\cdot T_{miss}$$</div>
+    <p>Because \(T_{miss} \gg T_{hit}\) (often 10–20×), even modest improvements in \(h\) produce large latency wins — this is why cache hit ratio is one of the most-watched metrics in serving systems.</p>
+    <h4>Throughput via Little's Law</h4>
+    <p>For a replica handling requests with concurrency \(C\) (in-flight requests) and mean service time \(T_s\), sustainable throughput is:</p>
+    <div class="eq">$$\lambda_{max} = \frac{C}{T_s}$$</div>
+    <p>Total system capacity is \(\min(n \cdot \lambda_{max}, \, \text{Capacity}_{bottleneck})\) — scaling replicas \(n\) helps only until a shared downstream resource (feature store, ANN index, DB) saturates.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Teams optimize <em>mean</em> latency and ship a system whose <strong>p99</strong> blows the SLA. A single slow stage (e.g. a cache miss cascading into a cold feature fetch) can dominate the tail even when it's rare, because user-perceived latency is dominated by the tail, not the average.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow one request through the full serving stack, then see how the latency budget, caching, and horizontal scaling interact.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-ingress" id="infoPhase">INGRESS</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Request Hits the Load Balancer</div>
+        <div class="info-desc" id="infoDesc">...</div>
+        <div class="info-metrics" id="infoMetrics"></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate, R to reset</div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Ingress / routing</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Active stage</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Within SLA / warm cache</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Over budget / cache miss</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> p99 tail</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>Design principles for online serving:</strong></p>
+    <ul>
+      <li>Fund the latency budget top-down: set a p99 SLA first, then allocate ms to each stage — don't design stages in isolation and hope they fit.</li>
+      <li>Move as much work offline as possible: precompute embeddings, feature aggregates, and popular results so the online path only does the minimum live work.</li>
+      <li>Two-stage retrieve-then-rank keeps the expensive model's cost bounded regardless of catalog size.</li>
+      <li>Cache hit ratio is a first-class latency lever — small drops in hit ratio cause outsized p99 regressions.</li>
+      <li>Horizontal scaling (more replicas) only helps until a shared bottleneck (feature store, ANN index) saturates — then you must shard or cache further, not just add replicas.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Budget Discipline</div>
+      <p style="font-size:14px;margin:0;">A useful rule of thumb: reserve roughly 20–30% of your total p99 budget as slack for network, GC pauses, and tail variance you haven't measured yet — a system tuned to exactly hit budget on paper rarely does so in production.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">async def handle_request(user_id, context):</div>
+      <div class="code-line" id="cl1">    t0 = now()</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">    # 1. Load balancer already routed us here (~2ms upstream)</div>
+      <div class="code-line" id="cl4">    replica = self_replica_id</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">    # 2. Feature fetch: cache first, online store on miss</div>
+      <div class="code-line" id="cl7">    features = cache.get(user_id)</div>
+      <div class="code-line" id="cl8">    if features is None:</div>
+      <div class="code-line" id="cl9">        features = await feature_store.fetch(user_id, context)   # slow path</div>
+      <div class="code-line" id="cl10">        cache.set(user_id, features, ttl=300)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">    # 3. Candidate retrieval via ANN over item embeddings</div>
+      <div class="code-line" id="cl13">    candidates = ann_index.search(features.embedding, top_k=500)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">    # 4. Ranking model scores all candidates (batched)</div>
+      <div class="code-line" id="cl16">    scores = ranking_model.predict_batch(features, candidates)</div>
+      <div class="code-line" id="cl17">    ranked = sort_by_score(candidates, scores)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">    # 5. Business re-rank: diversity, dedup, freshness, ads</div>
+      <div class="code-line" id="cl20">    final = business_rerank(ranked, rules=DIVERSITY_RULES)</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22">    # 6. Serialize + respond</div>
+      <div class="code-line" id="cl23">    latency_ms = (now() - t0) * 1000</div>
+      <div class="code-line" id="cl24">    log_latency(stage_breakdown, latency_ms)</div>
+      <div class="code-line" id="cl25">    return Response(items=final[:10], took_ms=latency_ms)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STAGE DATA (all numbers computed live from this model, never hardcoded strings) ──
+const STAGES = [
+  { key:'lb',       name:'Load Balancer',    icon:'🌐', p50:2,    p99:6,   desc:'picks a healthy replica' },
+  { key:'feat',     name:'Feature Fetch',    icon:'🗄️', p50hit:4, p99hit:9, p50miss:35, p99miss:80, desc:'online store + cache' },
+  { key:'ann',      name:'ANN Retrieval',    icon:'🔍', p50:12,   p99:28,  desc:'vector index narrows candidates' },
+  { key:'rank',     name:'Ranking Model',    icon:'🧠', p50:22,   p99:40,  desc:'scores every candidate' },
+  { key:'rerank',   name:'Business Re-rank', icon:'⚖️', p50:3,    p99:8,   desc:'diversity, dedup, boosts' },
+  { key:'resp',     name:'Response Assembly',icon:'📦', p50:1.5,  p99:4,   desc:'serialize + return' }
+];
+const SLA_P99 = 100; // ms budget
+
+function stageLatency(stage, cacheMode){
+  if (stage.key === 'feat') {
+    return cacheMode === 'warm' ? {p50:stage.p50hit, p99:stage.p99hit} : {p50:stage.p50miss, p99:stage.p99miss};
+  }
+  return {p50:stage.p50, p99:stage.p99};
+}
+function totalLatency(cacheMode){
+  let p50=0, p99=0;
+  STAGES.forEach(s => { const l = stageLatency(s, cacheMode); p50 += l.p50; p99 += l.p99; });
+  return {p50: Math.round(p50*10)/10, p99: Math.round(p99*10)/10};
+}
+// Little's Law throughput model
+function replicaQPS(concurrency, serviceTimeMs){ return concurrency * 1000 / serviceTimeMs; }
+function systemThroughput(replicas, concurrency, serviceTimeMs, bottleneckCap){
+  return Math.min(replicas * replicaQPS(concurrency, serviceTimeMs), bottleneckCap);
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase:'ingress', title:'Request Hits the Load Balancer',
+    desc:'A client request arrives. The <strong>load balancer</strong> picks a healthy replica (round-robin or least-outstanding-requests) and forwards it. This adds a small, fairly predictable cost \\(T_{lb}\\) — but even here, tail spikes happen under connection-pool exhaustion.',
+    canvasMode:'pipeline', activeStage:0, cacheMode:'warm',
+    metrics: () => { const s=STAGES[0]; return [`p50 ${s.p50}ms`, `p99 ${s.p99}ms`]; }
+  },
+  {
+    phase:'pipeline', title:'Feature Fetch: Cache vs. Online Store',
+    desc:'The replica needs user/context features. A <strong>cache hit</strong> (\\(T_{hit}\\)) is cheap; a <strong>miss</strong> forces a live call to the online feature store (\\(T_{miss}\\)), which can be 8–20\\(\\times\\) slower. Expected cost blends both: \\(\\mathbb{E}[T] = h\\,T_{hit} + (1-h)\\,T_{miss}\\).',
+    canvasMode:'cache_detail', activeStage:1, cacheMode:'warm',
+    metrics: () => { const w=stageLatency(STAGES[1],'warm'), c=stageLatency(STAGES[1],'cold'); return [`hit p50 ${w.p50}ms`, `miss p50 ${c.p50}ms`, `miss is ${Math.round(c.p50/w.p50)}x slower`]; }
+  },
+  {
+    phase:'pipeline', title:'Candidate Retrieval (ANN Search)',
+    desc:'Instead of scanning the full catalog, an <strong>Approximate Nearest Neighbor</strong> index (HNSW / IVF-PQ) embeds the query and retrieves the closest few hundred items in sub-linear time — trading a little recall for a huge latency win over brute-force search.',
+    canvasMode:'funnel', activeStage:2, cacheMode:'warm',
+    metrics: () => { const s=STAGES[2]; return [`p50 ${s.p50}ms`, `p99 ${s.p99}ms`, `2,000,000 → 500 candidates`]; }
+  },
+  {
+    phase:'pipeline', title:'Ranking Model Scores Every Candidate',
+    desc:'The heaviest stage: a deep model runs a forward pass over each of the ~500 surviving candidates, batched for GPU/CPU efficiency. This is where most of the compute (and most of the tail risk) lives — \\(O(\\text{candidates})\\) forward passes, not \\(O(\\text{catalog})\\).',
+    canvasMode:'pipeline', activeStage:3, cacheMode:'warm',
+    metrics: () => { const s=STAGES[3]; return [`p50 ${s.p50}ms`, `p99 ${s.p99}ms`, `500 candidates × 1 forward pass`]; }
+  },
+  {
+    phase:'pipeline', title:'Business Re-rank',
+    desc:'A lightweight rules layer re-orders the model’s ranked list for diversity, deduplication, freshness boosts, and inserted content (ads/promotions). Cheap relative to ranking, but still counts against budget.',
+    canvasMode:'funnel2', activeStage:4, cacheMode:'warm',
+    metrics: () => { const s=STAGES[4]; return [`p50 ${s.p50}ms`, `p99 ${s.p99}ms`, `500 → 10 final items`]; }
+  },
+  {
+    phase:'ingress', title:'Response Assembly & Return',
+    desc:'Top-N items are serialized (e.g. protobuf/JSON) and returned to the client. Small cost, but it closes the loop — the full round trip is now measurable end to end.',
+    canvasMode:'pipeline', activeStage:5, cacheMode:'warm',
+    metrics: () => { const s=STAGES[5]; return [`p50 ${s.p50}ms`, `p99 ${s.p99}ms`]; }
+  },
+  {
+    phase:'budget', title:'The Latency Budget Waterfall (Cache-Cold)',
+    desc:'Stack every stage’s p50 and p99 cumulatively against the SLA line. With a <strong>cold</strong> feature cache, the p99 waterfall blows past the 100ms budget — the feature-fetch miss alone eats 80ms.',
+    canvasMode:'waterfall', cacheMode:'cold',
+    metrics: () => { const t=totalLatency('cold'); return [`total p50 ${t.p50}ms`, `total p99 ${t.p99}ms`, t.p99>SLA_P99 ? 'OVER BUDGET' : 'within budget']; }
+  },
+  {
+    phase:'budget', title:'Caching & Precomputation Close the Gap',
+    desc:'Warm the cache (or precompute features/embeddings offline) and the same pipeline meets budget: feature-fetch collapses from ~80ms to ~9ms at p99. Moving work <em>offline</em> is the highest-leverage latency fix available.',
+    canvasMode:'cache_compare',
+    metrics: () => { const c=totalLatency('cold'), w=totalLatency('warm'); return [`cold p99 ${c.p99}ms`, `warm p99 ${w.p99}ms`, `saved ${Math.round((c.p99-w.p99)*10)/10}ms`]; }
+  },
+  {
+    phase:'scale', title:'Throughput vs. Replica Count',
+    desc:'By Little’s Law, each replica sustains \\(\\lambda_{max}=C/T_s\\) QPS. Adding replicas scales capacity linearly — until a shared downstream resource (feature store, ANN index) saturates and throughput plateaus regardless of replica count.',
+    canvasMode:'throughput',
+    metrics: () => { const cap=4500; const r7=systemThroughput(7,40,44.5,cap); return [`per-replica ≈ ${Math.round(replicaQPS(40,44.5))} QPS`, `bottleneck cap ${cap} QPS`, `at 7 replicas: ${Math.round(r7)} QPS`]; }
+  },
+  {
+    phase:'scale', title:'Full Trace Summary',
+    desc:'Putting it together: every stage’s live-computed p50/p99, the warm-cache end-to-end total, and the SLA verdict. This per-stage accounting is exactly what production latency dashboards (e.g. distributed tracing spans) show for every request.',
+    canvasMode:'trace_summary',
+    metrics: () => { const t=totalLatency('warm'); return [`E2E p50 ${t.p50}ms`, `E2E p99 ${t.p99}ms`, t.p99<=SLA_P99?'MEETS 100ms SLA':'MISSES SLA']; }
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {ingress:'phase-ingress', pipeline:'phase-pipeline', budget:'phase-budget', scale:'phase-scale'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  const metricsWrap = document.getElementById('infoMetrics');
+  metricsWrap.innerHTML = '';
+  (s.metrics ? s.metrics() : []).forEach(m => {
+    const pill = document.createElement('span');
+    pill.className = 'metric-pill';
+    pill.innerHTML = m;
+    metricsWrap.appendChild(pill);
+  });
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  const codeMap = {0:[0,1],1:[6,7,8,9,10],2:[12,13],3:[15,16,17],4:[19,20],5:[22,23,24,25],6:[],7:[6,7,8,9,10],8:[],9:[22,23,24,25]};
+  (codeMap[step]||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    bg2:g('--bg2'), text:g('--text'), text2:g('--text2'), text3:g('--text3'),
+    blueMid:g('--blue-mid'), blueBg:g('--blue-bg'),
+    greenMid:g('--green-mid'), greenBg:g('--green-bg'),
+    redMid:g('--red-mid'), redBg:g('--red-bg'),
+    amberMid:g('--amber-mid'), amberBg:g('--amber-bg'),
+    purpleMid:g('--purple-mid'), purpleBg:g('--purple-bg'),
+    cyanMid:g('--cyan-mid'), cyanBg:g('--cyan-bg'),
+    border:g('--border2'), surface:g('--surface')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const C = getColors();
+  ctx.clearRect(0,0,W,H);
+
+  const mode = s.canvasMode;
+  if (mode === 'pipeline') drawPipeline(ctx, W, H, C, s.activeStage, s.cacheMode);
+  else if (mode === 'cache_detail') drawCacheDetail(ctx, W, H, C);
+  else if (mode === 'funnel') drawFunnel(ctx, W, H, C, 2000000, 500, 'ANN Retrieval narrows the catalog');
+  else if (mode === 'funnel2') drawFunnel(ctx, W, H, C, 500, 10, 'Business re-rank picks the final list');
+  else if (mode === 'waterfall') drawWaterfall(ctx, W, H, C, 'cold');
+  else if (mode === 'cache_compare') drawCacheCompare(ctx, W, H, C);
+  else if (mode === 'throughput') drawThroughput(ctx, W, H, C);
+  else if (mode === 'trace_summary') drawTraceSummary(ctx, W, H, C);
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawPipeline(ctx, W, H, C, activeIdx, cacheMode) {
+  const n = STAGES.length;
+  const pad = 16, gap = 10;
+  const boxW = (W - pad*2 - gap*(n-1)) / n;
+  const boxH = 92;
+  const y = H/2 - boxH/2 - 10;
+
+  ctx.font = '11px "DM Sans", system-ui';
+  ctx.fillStyle = C.text3;
+  ctx.textAlign = 'center';
+  ctx.fillText('Client Request → Load Balancer → Feature Fetch → ANN Retrieval → Ranking → Re-rank → Response', W/2, 20);
+
+  STAGES.forEach((st, i) => {
+    const x = pad + i*(boxW+gap);
+    const active = i === activeIdx;
+    const l = stageLatency(st, cacheMode);
+
+    ctx.lineWidth = active ? 2.5 : 1.5;
+    ctx.strokeStyle = active ? C.purpleMid : C.border;
+    ctx.fillStyle = active ? C.purpleBg : C.surface;
+    roundRect(ctx, x, y, boxW, boxH, 10);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = C.text;
+    ctx.font = '20px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(st.icon, x+boxW/2, y+28);
+
+    ctx.font = '600 10.5px "DM Sans", system-ui';
+    ctx.fillStyle = active ? C.purpleMid : C.text2;
+    wrapText(ctx, st.name, x+boxW/2, y+46, boxW-8, 12);
+
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillStyle = l.p99 > 40 ? C.redMid : C.greenMid;
+    ctx.fillText(`p50 ${l.p50}ms`, x+boxW/2, y+boxH-18);
+    ctx.fillText(`p99 ${l.p99}ms`, x+boxW/2, y+boxH-6);
+
+    if (i < n-1) {
+      ctx.strokeStyle = C.text3;
+      ctx.lineWidth = 1.5;
+      const ax = x+boxW+2, ay = y+boxH/2;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax+gap-4, ay); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax+gap-4, ay);
+      ctx.lineTo(ax+gap-9, ay-4);
+      ctx.lineTo(ax+gap-9, ay+4);
+      ctx.closePath();
+      ctx.fillStyle = C.text3;
+      ctx.fill();
+    }
+  });
+
+  if (activeIdx !== undefined) {
+    const ax = pad + activeIdx*(boxW+gap) + boxW/2;
+    ctx.beginPath();
+    ctx.arc(ax, y - 14, 5, 0, Math.PI*2);
+    ctx.fillStyle = C.purpleMid;
+    ctx.fill();
+  }
+
+  const cum = STAGES.slice(0, activeIdx+1).reduce((acc, st) => acc + stageLatency(st, cacheMode).p50, 0);
+  ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.textAlign = 'center';
+  ctx.fillText(`Cumulative p50 so far: ${Math.round(cum*10)/10}ms`, W/2, H-14);
+}
+
+function wrapText(ctx, text, cx, y, maxW, lh) {
+  const words = text.split(' ');
+  let line = '', lines = [];
+  words.forEach(w => {
+    const test = line ? line+' '+w : w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
+    else line = test;
+  });
+  lines.push(line);
+  lines.forEach((ln, i) => ctx.fillText(ln, cx, y + i*lh));
+}
+
+function drawCacheDetail(ctx, W, H, C) {
+  const hit = stageLatency(STAGES[1], 'warm');
+  const miss = stageLatency(STAGES[1], 'cold');
+
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText('Feature Fetch: cache hit vs. cache miss', W/2, 22);
+
+  const boxY = 45, boxH = 60, boxW = 130;
+  // cache box
+  const cacheX = W*0.28 - boxW/2;
+  ctx.strokeStyle = C.greenMid; ctx.fillStyle = C.greenBg; ctx.lineWidth = 2;
+  roundRect(ctx, cacheX, boxY, boxW, boxH, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.greenMid; ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillText('Cache', cacheX+boxW/2, boxY+26);
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillText(`hit → ${hit.p50}ms p50`, cacheX+boxW/2, boxY+44);
+
+  // store box
+  const storeX = W*0.72 - boxW/2;
+  ctx.strokeStyle = C.redMid; ctx.fillStyle = C.redBg; ctx.lineWidth = 2;
+  roundRect(ctx, storeX, boxY, boxW, boxH, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.redMid; ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillText('Online Feature Store', storeX+boxW/2, boxY+26);
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillText(`miss → ${miss.p50}ms p50`, storeX+boxW/2, boxY+44);
+
+  // arrows from request
+  const reqX = W/2, reqY = boxY - 22;
+  ctx.fillStyle = C.blueMid;
+  ctx.beginPath(); ctx.arc(reqX, reqY, 6, 0, Math.PI*2); ctx.fill();
+  ctx.font = '10px "DM Sans", system-ui'; ctx.fillStyle = C.text2;
+  ctx.fillText('request', reqX, reqY-12);
+
+  ctx.strokeStyle = C.text3; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(reqX, reqY+6); ctx.lineTo(cacheX+boxW/2, boxY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(reqX, reqY+6); ctx.lineTo(storeX+boxW/2, boxY); ctx.stroke();
+
+  // bar chart comparison below
+  const barY = 135, barMaxW = W - 80, maxMs = Math.max(hit.p99, miss.p99);
+  const rows = [
+    {label:`Hit p50 (${hit.p50}ms)`, val:hit.p50, color:C.greenMid},
+    {label:`Hit p99 (${hit.p99}ms)`, val:hit.p99, color:C.greenMid},
+    {label:`Miss p50 (${miss.p50}ms)`, val:miss.p50, color:C.redMid},
+    {label:`Miss p99 (${miss.p99}ms)`, val:miss.p99, color:C.redMid}
+  ];
+  ctx.textAlign = 'left';
+  rows.forEach((r, i) => {
+    const y = barY + i*24;
+    const w = (r.val / maxMs) * barMaxW;
+    ctx.fillStyle = C.bg2;
+    roundRect(ctx, 60, y, barMaxW, 14, 6); ctx.fill();
+    ctx.fillStyle = r.color;
+    roundRect(ctx, 60, y, Math.max(w,4), 14, 6); ctx.fill();
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillStyle = C.text2;
+    ctx.fillText(r.label, 4, y+11);
+  });
+}
+
+function drawFunnel(ctx, W, H, C, startN, endN, caption) {
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText(caption, W/2, 22);
+
+  const topW = W*0.75, botW = W*0.14, topY = 45, botY = H-45;
+  const cx = W/2;
+
+  const grad = ctx.createLinearGradient(0, topY, 0, botY);
+  grad.addColorStop(0, C.blueBg);
+  grad.addColorStop(1, C.purpleBg);
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = C.purpleMid;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx-topW/2, topY);
+  ctx.lineTo(cx+topW/2, topY);
+  ctx.lineTo(cx+botW/2, botY);
+  ctx.lineTo(cx-botW/2, botY);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // dots representing items narrowing
+  const rows = 6;
+  for (let r=0; r<rows; r++) {
+    const t = r/(rows-1);
+    const y = topY + t*(botY-topY) + 14;
+    const w = topW + (botW-topW)*t;
+    const count = Math.max(3, Math.round(14*(1-t)+3*t));
+    for (let i=0;i<count;i++) {
+      const x = cx - w/2 + (i+0.5)*(w/count);
+      ctx.beginPath();
+      ctx.arc(x, y, 2.6, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.fill();
+    }
+  }
+
+  ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText(startN.toLocaleString() + ' items', cx, topY-8);
+  ctx.fillText(endN.toLocaleString() + ' items', cx, botY+22);
+}
+
+function drawWaterfall(ctx, W, H, C, cacheMode) {
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText('Latency Waterfall (cache-cold) vs. SLA', W/2, 20);
+
+  const pad = {l:100, r:20, t:38, b:34};
+  const chartW = W - pad.l - pad.r, chartH = H - pad.t - pad.b;
+  const total = totalLatency(cacheMode);
+  const maxMs = Math.max(total.p99, SLA_P99) * 1.15;
+  const toX = v => pad.l + (v/maxMs)*chartW;
+
+  // axis
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H-pad.b); ctx.lineTo(W-pad.r, H-pad.b); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.font = '10px "DM Sans", system-ui'; ctx.fillStyle = C.text3;
+  for (let v=0; v<=maxMs; v+=25) {
+    const x = toX(v);
+    ctx.beginPath(); ctx.moveTo(x, H-pad.b); ctx.lineTo(x, H-pad.b+4); ctx.stroke();
+    ctx.fillText(Math.round(v)+'ms', x, H-pad.b+16);
+  }
+
+  const rowH = chartH / STAGES.length;
+  let cumP50 = 0, cumP99 = 0;
+  STAGES.forEach((st, i) => {
+    const l = stageLatency(st, cacheMode);
+    const y = pad.t + i*rowH + 4;
+    const barH = rowH*0.36;
+
+    // p99 bar (background, lighter)
+    ctx.fillStyle = C.amberBg;
+    ctx.fillRect(toX(cumP99), y, toX(cumP99+l.p99)-toX(cumP99), barH);
+    ctx.strokeStyle = C.amberMid; ctx.lineWidth = 1;
+    ctx.strokeRect(toX(cumP99), y, toX(cumP99+l.p99)-toX(cumP99), barH);
+
+    // p50 bar (foreground)
+    ctx.fillStyle = C.blueMid;
+    ctx.fillRect(toX(cumP50), y+barH+4, toX(cumP50+l.p50)-toX(cumP50), barH*0.7);
+
+    ctx.textAlign = 'right'; ctx.font = '10px "DM Sans", system-ui'; ctx.fillStyle = C.text2;
+    ctx.fillText(st.name, pad.l-6, y+barH);
+
+    cumP50 += l.p50; cumP99 += l.p99;
+  });
+
+  // SLA line
+  const slaX = toX(SLA_P99);
+  ctx.strokeStyle = C.redMid; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(slaX, pad.t-4); ctx.lineTo(slaX, H-pad.b); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = C.redMid; ctx.font = '600 11px "DM Sans", system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('SLA 100ms', slaX+4, pad.t+8);
+
+  ctx.textAlign = 'left'; ctx.font = '600 12px "DM Sans", system-ui';
+  ctx.fillStyle = total.p99 > SLA_P99 ? C.redMid : C.greenMid;
+  ctx.fillText(`cumulative p99 = ${total.p99}ms (${total.p99>SLA_P99?'OVER':'within'} budget)`, pad.l, H-8);
+}
+
+function drawCacheCompare(ctx, W, H, C) {
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText('Cold vs. Warm Cache: Total p99 Latency', W/2, 20);
+
+  const cold = totalLatency('cold'), warm = totalLatency('warm');
+  const pad = {l:60, r:60, t:45, b:40};
+  const chartH = H - pad.t - pad.b;
+  const maxMs = Math.max(cold.p99, SLA_P99) * 1.1;
+  const toY = v => H - pad.b - (v/maxMs)*chartH;
+
+  const barW = 110;
+  const xCold = W*0.3 - barW/2, xWarm = W*0.7 - barW/2;
+
+  [{x:xCold, v:cold.p99, label:'Cache Cold', color:C.redMid}, {x:xWarm, v:warm.p99, label:'Cache Warm', color:C.greenMid}].forEach(b => {
+    const y = toY(b.v);
+    ctx.fillStyle = b.color;
+    roundRect(ctx, b.x, y, barW, H-pad.b-y, 6);
+    ctx.fill();
+    ctx.font = '600 13px "JetBrains Mono", monospace';
+    ctx.fillStyle = C.text;
+    ctx.fillText(b.v+'ms', b.x+barW/2, y-8);
+    ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillStyle = C.text2;
+    ctx.fillText(b.label, b.x+barW/2, H-pad.b+18);
+  });
+
+  const slaY = toY(SLA_P99);
+  ctx.strokeStyle = C.text3; ctx.lineWidth = 1.5; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(pad.l-10, slaY); ctx.lineTo(W-pad.r+10, slaY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.textAlign = 'left'; ctx.font = '600 10.5px "DM Sans", system-ui'; ctx.fillStyle = C.text3;
+  ctx.fillText('SLA 100ms', pad.l-10, slaY-6);
+}
+
+function drawThroughput(ctx, W, H, C) {
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText('System Throughput vs. Replica Count (Little’s Law)', W/2, 20);
+
+  const concurrency = 40, serviceTime = totalLatency('warm').p50, bottleneckCap = 4500;
+  const maxReplicas = 12;
+  const pad = {l:60, r:20, t:40, b:36};
+  const chartW = W-pad.l-pad.r, chartH = H-pad.t-pad.b;
+  const maxQ = bottleneckCap*1.1;
+  const toX = r => pad.l + (r/maxReplicas)*chartW;
+  const toY = q => H-pad.b - (q/maxQ)*chartH;
+
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H-pad.b); ctx.lineTo(W-pad.r, H-pad.b); ctx.stroke();
+
+  ctx.font = '10px "DM Sans", system-ui'; ctx.fillStyle = C.text3;
+  for (let r=2; r<=maxReplicas; r+=2) {
+    const x = toX(r);
+    ctx.beginPath(); ctx.moveTo(x, H-pad.b); ctx.lineTo(x, H-pad.b+4); ctx.stroke();
+    ctx.textAlign='center'; ctx.fillText(r, x, H-pad.b+16);
+  }
+  ctx.textAlign='left';
+  ctx.fillText('QPS', pad.l-6, pad.t-6);
+  ctx.fillText('replicas', W-pad.r-30, H-pad.b+30);
+
+  // bottleneck cap line
+  const capY = toY(bottleneckCap);
+  ctx.strokeStyle = C.redMid; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(pad.l, capY); ctx.lineTo(W-pad.r, capY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = C.redMid; ctx.font = '10px "DM Sans", system-ui';
+  ctx.fillText('shared bottleneck cap', pad.l+6, capY-6);
+
+  // throughput curve
+  ctx.beginPath();
+  ctx.strokeStyle = C.purpleMid; ctx.lineWidth = 2.5;
+  for (let r=1; r<=maxReplicas; r++) {
+    const q = systemThroughput(r, concurrency, serviceTime, bottleneckCap);
+    const x = toX(r), y = toY(q);
+    if (r===1) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  for (let r=1; r<=maxReplicas; r++) {
+    const q = systemThroughput(r, concurrency, serviceTime, bottleneckCap);
+    const x = toX(r), y = toY(q);
+    ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2);
+    ctx.fillStyle = q >= bottleneckCap*0.999 ? C.redMid : C.purpleMid;
+    ctx.fill();
+  }
+
+  ctx.textAlign='left'; ctx.font='11px "DM Sans", system-ui'; ctx.fillStyle=C.text2;
+  ctx.fillText(`per-replica capacity ≈ ${Math.round(replicaQPS(concurrency, serviceTime))} QPS  (C=${concurrency}, Tservice=${serviceTime}ms)`, pad.l, pad.t-20);
+}
+
+function drawTraceSummary(ctx, W, H, C) {
+  ctx.textAlign = 'center';
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillStyle = C.text;
+  ctx.fillText('End-to-End Trace Summary (Warm Cache)', W/2, 20);
+
+  const total = totalLatency('warm');
+  const pad = {l:16, r:16, t:38};
+  const rowH = 26;
+  STAGES.forEach((st, i) => {
+    const l = stageLatency(st, 'warm');
+    const y = pad.t + i*rowH;
+    const frac = l.p50/total.p50;
+    const barMaxW = W - pad.l - pad.r - 150;
+    const barW = Math.max(4, frac*barMaxW*3.2);
+
+    ctx.textAlign='left'; ctx.font='10.5px "DM Sans", system-ui'; ctx.fillStyle=C.text2;
+    ctx.fillText(`${st.icon} ${st.name}`, pad.l, y+13);
+
+    ctx.fillStyle = C.bg2;
+    roundRect(ctx, 150, y+2, barMaxW, 14, 5); ctx.fill();
+    ctx.fillStyle = C.blueMid;
+    roundRect(ctx, 150, y+2, Math.min(barW,barMaxW), 14, 5); ctx.fill();
+
+    ctx.font = '10px "JetBrains Mono", monospace'; ctx.fillStyle=C.text3; ctx.textAlign='right';
+    ctx.fillText(`${l.p50}ms / p99 ${l.p99}ms`, W-pad.r, y+13);
+  });
+
+  const verdictY = pad.t + STAGES.length*rowH + 18;
+  const pass = total.p99 <= SLA_P99;
+  ctx.textAlign='center';
+  ctx.fillStyle = pass ? C.greenBg : C.redBg;
+  roundRect(ctx, W/2-140, verdictY, 280, 40, 10); ctx.fill();
+  ctx.strokeStyle = pass ? C.greenMid : C.redMid; ctx.lineWidth=1.5;
+  roundRect(ctx, W/2-140, verdictY, 280, 40, 10); ctx.stroke();
+  ctx.fillStyle = pass ? C.greenMid : C.redMid;
+  ctx.font = '600 13px "DM Sans", system-ui';
+  ctx.fillText(`E2E p50 ${total.p50}ms · p99 ${total.p99}ms — ${pass?'MEETS':'MISSES'} 100ms SLA`, W/2, verdictY+25);
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>
