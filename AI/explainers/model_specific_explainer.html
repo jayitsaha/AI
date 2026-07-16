@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model-Specific Explainability: Attention, Gradients, Concepts — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Controls for viz */
+.viz-controls-panel{display:flex;flex-direction:column;gap:12px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-top:1rem;}
+.viz-control-group{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.viz-control-label{font-size:13px;font-weight:600;min-width:150px;}
+.viz-control-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:40px;text-align:right;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.viz-radio-group{display:flex;gap:15px;flex-wrap:wrap;}
+.viz-radio-group label{font-size:13px;cursor:pointer;color:var(--text2);display:flex;align-items:center;gap:6px;}
+.viz-radio-group input[type="radio"]{accent-color:var(--purple-mid);width:14px;height:14px;}
+.image-selector{display:flex;gap:10px;margin-top:10px;}
+.image-thumb{width:60px;height:60px;border-radius:var(--radius);cursor:pointer;border:2px solid transparent;transition:border-color 0.2s;}
+.image-thumb.active{border-color:var(--blue-mid);}
+.image-thumb.active canvas{box-shadow:0 0 0 2px var(--blue-mid);}
+.image-thumb canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);transition:box-shadow 0.2s;}
+.image-thumb-label{font-size:11px;color:var(--text2);text-align:center;margin-top:4px;}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-attention{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-gradient{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-concept{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-summary{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-prediction{font-family:var(--mono);font-size:12px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .viz-control-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Model-Specific Explainability</h1>
+  <div class="subtitle">Attention, Saliency, Grad-CAM, Integrated Gradients, TCAV — understanding *why* a model predicts what it does</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Explainable AI (XAI)</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(n) to O(n·steps)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Model-Specific Explanations</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Model-specific explanation methods delve into the internal workings of a particular AI model (e.g., a neural network) to understand its decision-making process for a given input. Unlike model-agnostic methods (like LIME or SHAP), these techniques leverage the model's architecture, weights, or gradients to generate insights. They are crucial for debugging, building trust, and gaining scientific understanding of complex models.</p>
+    <p><strong>Analogy:</strong> Imagine a master chef who tastes a dish and declares, "This needs more salt!" A model-agnostic explanation would be like asking: "What ingredients are in the dish?" A model-specific explanation is like asking the chef: "Which part of your tongue detected the lack of salt? Was it the initial taste, or the aftertaste? How did the salt interact with the other spices in your mental model of flavor?" It's about probing the internal mechanism, not just the input-output relationship.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Model-specific explainers are often categorized by what they reveal: <strong>attention-based</strong> (where the model "looks"), <strong>gradient-based</strong> (what input changes most affect output), or <strong>concept-based</strong> (what human-understandable concepts drive the decision).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Different Methods Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Attention Visualization (e.g., Transformers)</h4>
+    <p><strong>Mechanism:</strong> In models with explicit attention mechanisms (like Transformers), attention weights directly quantify the importance of different input parts (e.g., tokens in text, patches in images) to a particular output or internal state. These weights are often normalized (e.g., via softmax) and can be directly visualized as heatmaps.</p>
+    <p><strong>Strengths:</strong> Directly interpretable as "where the model is focusing." Computationally cheap once attention weights are calculated during the forward pass.</p>
+    <p><strong>Limitations:</strong> Not all models have explicit attention. Attention does not always equate to "importance" for the final prediction; it's a measure of dependency, not necessarily causality.</p>
+
+    <h4>2. Gradient-Based Methods (Saliency, Grad-CAM, Integrated Gradients)</h4>
+    <p>These methods all rely on computing gradients of the model's output (e.g., class score) with respect to its input pixels or intermediate feature maps.</p>
+    <ul>
+      <li><strong>Saliency Maps (Vanilla Gradients):</strong> Compute the gradient of the target class score \(S_c\) with respect to the input pixels \(x\): \(\frac{\partial S_c}{\partial x}\). High absolute gradient values indicate pixels that, if changed slightly, would most affect the score.</li>
+      <li><strong>Grad-CAM (Gradient-weighted Class Activation Mapping):</strong> A more robust method for CNNs. It computes gradients of \(S_c\) w.r.t. a convolutional feature map \(A^k\) from a late layer: \(\frac{\partial S_c}{\partial A^k_{ij}}\). These gradients are then globally averaged to get "neuron importance weights" \(\alpha^c_k\). The heatmap is formed by a weighted sum of feature maps: \(\sum_k \alpha^c_k A^k\), followed by ReLU. This produces coarser, class-discriminative heatmaps.</li>
+      <li><strong>Integrated Gradients (IG):</strong> Addresses the "gradient saturation" problem (where gradients can be zero for highly confident predictions). IG computes an integral of gradients along a linear path from a baseline input (e.g., a black image) to the actual input. This ensures that all input features are attributed, even if their local gradients are zero.</li>
+    </ul>
+    <p><strong>Strengths:</strong> Mathematically grounded in calculus. Widely applicable to differentiable models. Can be very precise (saliency) or highlight broad regions (Grad-CAM).</p>
+    <p><strong>Limitations:</strong> Saliency maps can be noisy. Gradients can saturate. IG is computationally more expensive due to path integration.</p>
+
+    <h4>3. Concept-Based Explanations (TCAV)</h4>
+    <p><strong>Mechanism:</strong> TCAV (Testing with Concept Activation Vectors) aims to explain model predictions using human-interpretable concepts (e.g., "striped," "furry," "spotted") rather than pixels. It works by:
+      <ol>
+        <li>Defining a concept: Collect a set of images that embody a concept (e.g., images of stripes) and a set of random images.</li>
+        <li>Training a linear classifier: Train a linear binary classifier to distinguish concept images from random images based on their activations in an intermediate layer of the target model. The weights of this classifier form the Concept Activation Vector (CAV).</li>
+        <li>Computing TCAV score: For a given input image and class, TCAV measures the directional derivative of the class score with respect to the CAV. A high TCAV score means the concept is important for the model's prediction of that class.</li>
+      </ol>
+    </p>
+    <p><strong>Strengths:</strong> Explanations are in human-understandable terms. Applicable to various model architectures. Provides global (concept-level) insights into model behavior.</p>
+    <p><strong>Limitations:</strong> Requires carefully curated concept image sets. Can be computationally intensive to compute CAVs and directional derivatives. Provides concept importance, not necessarily pixel importance.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">These methods are <strong>model-specific</strong> because they require access to the model's internal structure (e.g., attention weights, gradients of specific layers, intermediate activations) to generate their explanations. They cannot be applied as black-box tools.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math Behind the Methods</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Saliency Maps</h4>
+    <p>For a given input \(x\) and a target class \(c\), let \(S_c(x)\) be the model's score for class \(c\). The saliency map is simply the magnitude of the gradient of this score with respect to the input pixels:</p>
+    <div class="eq">$$\text{Saliency}(x) = \left| \frac{\partial S_c(x)}{\partial x} \right|$$</div>
+    <p>This is a first-order Taylor approximation: if we perturb a pixel \(x_i\) by \(\Delta x_i\), the change in score is approximately \(\frac{\partial S_c(x)}{\partial x_i} \Delta x_i\). The absolute value highlights pixels that, regardless of direction, have a strong influence.</p>
+
+    <h4>Grad-CAM</h4>
+    <p>Let \(A^k \in \mathbb{R}^{H \times W}\) be the \(k\)-th feature map of a convolutional layer. Grad-CAM computes the neuron importance weights \(\alpha^c_k\) for class \(c\) by taking the global average pooling of the gradients of \(S_c\) with respect to \(A^k\):</p>
+    <div class="eq">$$\alpha^c_k = \text{GAP}\left(\frac{\partial S_c}{\partial A^k}\right) = \frac{1}{H \cdot W} \sum_{i=1}^H \sum_{j=1}^W \frac{\partial S_c}{\partial A^k_{ij}}$$</div>
+    <p>The Grad-CAM heatmap \(L^c_{\text{Grad-CAM}}\) is then a weighted sum of the feature maps, rectified by ReLU:</p>
+    <div class="eq">$$L^c_{\text{Grad-CAM}} = \text{ReLU}\left(\sum_k \alpha^c_k A^k\right)$$</div>
+    <p>The ReLU ensures only positive contributions (features that increase the class score) are considered.</p>
+
+    <h4>Integrated Gradients</h4>
+    <p>Integrated Gradients addresses the issue of gradient saturation by integrating the gradients along a straight path from a baseline input \(x'\) to the input \(x\). The attribution for a feature \(x_i\) is:</p>
+    <div class="eq">$$\text{IG}_i(x) = (x_i - x'_i) \int_{\alpha=0}^1 \frac{\partial S_c(x' + \alpha(x - x'))}{\partial x_i} d\alpha$$</div>
+    <p>This integral is typically approximated using a Riemann sum over \(m\) steps. This method ensures that the attributions sum up to the difference between the model's output for the input and the baseline, satisfying the completeness axiom.</p>
+
+    <h4>TCAV</h4>
+    <p>Let \(v_C\) be the Concept Activation Vector (CAV) for concept \(C\) at a given layer, and \(h_l(x)\) be the activation of layer \(l\) for input \(x\). The TCAV score for class \(c\) and concept \(C\) is defined as the directional derivative of the class score \(S_c\) with respect to the CAV:</p>
+    <div class="eq}>$$\text{TCAV}_{C,c}(x) = \frac{\partial S_c(h_l(x))}{\partial h_l(x)} \cdot v_C = \sum_{j} \frac{\partial S_c(h_l(x))}{\partial h_l(x)_j} v_{C,j}$$</div>
+    <p>This measures how sensitive the class prediction is to the presence of the concept \(C\) in the activations of layer \(l\). A positive TCAV means the concept increases the class score, while a negative TCAV means it decreases it.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Interpretability vs. Fidelity</div>
+      <p style="font-size:14px;margin:0;">There's often a trade-off between how interpretable an explanation is (e.g., broad regions in Grad-CAM, human concepts in TCAV) and how faithful it is to the model's exact decision process (e.g., pixel-level precision in Saliency/IG). Simpler explanations might miss subtle model behaviors.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore different explanation methods on a simple image classification task. Select an image, then choose an explanation method to see how it highlights important regions. Adjust the overlay opacity for better visibility, and for TCAV, try the threshold.</p>
+
+    <div class="viz-container">
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <div class="viz-controls-panel">
+        <div class="viz-control-group">
+          <div class="viz-control-label">Input Image</div>
+          <div class="image-selector" id="imageSelector"></div>
+        </div>
+        <div class="viz-control-group">
+          <div class="viz-control-label">Explanation Method</div>
+          <div class="viz-radio-group">
+            <label><input type="radio" name="explanationMethod" value="none" checked> None</label>
+            <label><input type="radio" name="explanationMethod" value="attention"> Attention</label>
+            <label><input type="radio" name="explanationMethod" value="saliency"> Saliency</label>
+            <label><input type="radio" name="explanationMethod" value="gradcam"> Grad-CAM</label>
+            <label><input type="radio" name="explanationMethod" value="integrated_gradients"> Integrated Gradients</label>
+            <label><input type="radio" name="explanationMethod" value="tcav"> TCAV (Concept)</label>
+          </div>
+        </div>
+        <div class="viz-control-group">
+          <div class="viz-control-label">Overlay Opacity</div>
+          <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.6">
+          <div class="viz-control-value" id="opacityValue">0.60</div>
+        </div>
+        <div class="viz-control-group" id="tcavThresholdGroup" style="display:none;">
+          <div class="viz-control-label">TCAV Threshold</div>
+          <input type="range" id="tcavThresholdSlider" min="0" max="1" step="0.05" value="0.5">
+          <div class="viz-control-value" id="tcavThresholdValue">0.50</div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Welcome to the Explainer</div>
+        <div class="info-desc" id="infoDesc">Select an image above and choose an explanation method to begin.</div>
+        <div class="info-prediction" id="infoPrediction"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#555"></div> Input pixels</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> High importance / activation</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Low importance / activation</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use which method:</strong></p>
+    <ul>
+      <li><strong>Attention:</strong> If your model has an explicit attention mechanism (e.g., Transformers), this is a natural first step for understanding "where" the model focuses.</li>
+      <li><strong>Saliency Maps:</strong> For quick, pixel-level insights into feature importance, especially for simpler models or when fine-grained details matter. Be mindful of noise and saturation.</li>
+      <li><strong>Grad-CAM:</strong> For convolutional neural networks, when you need coarser, class-discriminative heatmaps that highlight semantic regions rather than individual pixels.</li>
+      <li><strong>Integrated Gradients:</strong> When you need a more robust and theoretically sound attribution method that accounts for gradient saturation and provides completeness, especially for critical applications.</li>
+      <li><strong>TCAV:</strong> When you want to explain model behavior in terms of human-understandable concepts rather than raw pixels, to answer "why" in a more abstract way.</li>
+    </ul>
+    <p><strong>General considerations:</strong></p>
+    <ul>
+      <li><strong>Model-specific access:</strong> All these methods require access to the model's internal structure (gradients, activations, attention weights).</li>
+      <li><strong>Fidelity vs. Interpretability:</strong> Simpler explanations (e.g., Grad-CAM's coarse regions) are often easier to interpret but might not perfectly reflect the model's true decision. More faithful methods (e.g., IG) can be harder to visualize.</li>
+      <li><strong>Context matters:</strong> The "best" explanation method depends heavily on the use case, the model architecture, and what question you're trying to answer.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Explainer's Toolbox</div>
+      <p style="font-size:14px;margin:0;">There is no single "universal" explanation method. Instead, XAI offers a toolbox of techniques. Effective explainability often involves using multiple methods to gain a comprehensive understanding of a model's behavior, cross-referencing insights from different perspectives.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python: Grad-CAM with PyTorch)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2">from torchvision.models import resnet18</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># 1. Load a pre-trained model</div>
+      <div class="code-line" id="cl5">model = resnet18(pretrained=True)</div>
+      <div class="code-line" id="cl6">model.eval()</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># 2. Define target layer and register hooks</div>
+      <div class="code-line" id="cl9">target_layer = model.layer4[-1] # Last conv layer of ResNet18</div>
+      <div class="code-line" id="cl10">activations = None</div>
+      <div class="code-line" id="cl11">gradients = None</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13">def save_activation(module, input, output):</div>
+      <div class="code-line" id="cl14">    nonlocal activations</div>
+      <div class="code-line" id="cl15">    activations = output</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17">def save_gradient(module, grad_input, grad_output):</div>
+      <div class="code-line" id="cl18">    nonlocal gradients</div>
+      <div class="code-line" id="cl19">    gradients = grad_output[0] # grad_output is a tuple</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">target_layer.register_forward_hook(save_activation)</div>
+      <div class="code-line" id="cl22">target_layer.register_backward_hook(save_gradient)</div>
+      <div class="code-line" id="cl23"></div>
+      <div class="code-line" id="cl24"># 3. Prepare input image (e.g., a preprocessed tensor)</div>
+      <div class="code-line" id="cl25">input_tensor = torch.randn(1, 3, 224, 224) # Example dummy input</div>
+      <div class="code-line" id="cl26">input_tensor.requires_grad_(True)</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28"># 4. Forward pass and get prediction</div>
+      <div class="code-line" id="cl29">output = model(input_tensor)</div>
+      <div class="code-line" id="cl30">predicted_class = output.argmax(dim=1).item()</div>
+      <div class="code-line" id="cl31">target_score = output[:, predicted_class]</div>
+      <div class="code-line" id="cl32"></div>
+      <div class="code-line" id="cl33"># 5. Backward pass to get gradients of target score w.r.t. feature map</div>
+      <div class="code-line" id="cl34">model.zero_grad()</div>
+      <div class="code-line" id="cl35">target_score.backward()</div>
+      <div class="code-line" id="cl36"></div>
+      <div class="code-line" id="cl37"># 6. Compute Grad-CAM heatmap</div>
+      <div class="code-line" id="cl38">pooled_gradients = torch.mean(gradients, dim=[2, 3]) # Global Average Pooling</div>
+      <div class="code-line" id="cl39">weighted_activations = activations * pooled_gradients.unsqueeze(-1).unsqueeze(-1)</div>
+      <div class="code-line" id="cl40">heatmap = torch.sum(weighted_activations, dim=1).squeeze()</div>
+      <div class="code-line" id="cl41">heatmap = F.relu(heatmap) # Apply ReLU</div>
+      <div class="code-line" id="cl42">heatmap = F.interpolate(heatmap.unsqueeze(0).unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze()</div>
+      <div class="code-line" id="cl43">heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min()) # Normalize [0,1]</div>
+      <div class="code-line" id="cl44"></div>
+      <div class="code-line" id="cl45">print(f"Predicted class: {predicted_class}")</div>
+      <div class="code-line" id="cl46">print("Grad-CAM heatmap shape:", heatmap.shape)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── IMAGE DATA (simple pixel art for demonstration) ──
+const GRID_SIZE = 10;
+const dogPixels = [
+  [0,0,0,0,0,0,0,0,0,0], [0,0,0,0,1,1,0,0,0,0], [0,0,0,1,1,1,1,0,0,0],
+  [0,0,1,1,1,1,1,1,0,0], [0,1,1,1,1,1,1,1,1,0], [0,1,1,1,1,1,1,1,1,0],
+  [0,1,1,1,1,1,1,1,1,0], [0,0,1,1,1,1,1,1,0,0], [0,0,0,1,0,0,1,0,0,0],
+  [0,0,0,1,0,0,1,0,0,0]
+];
+const carPixels = [
+  [0,0,0,0,0,0,0,0,0,0], [0,0,0,0,1,1,1,0,0,0], [0,0,1,1,1,1,1,1,0,0],
+  [0,1,1,1,1,1,1,1,1,0], [1,1,1,1,1,1,1,1,1,1], [1,1,1,1,1,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,1,0], [0,0,1,0,0,0,0,1,0,0], [0,0,1,0,0,0,0,1,0,0],
+  [0,0,0,0,0,0,0,0,0,0]
+];
+
+const images = [
+  { id: 'dog', name: 'Dog', pixels: dogPixels, prediction: 'Dog' },
+  { id: 'car', name: 'Car', pixels: carPixels, prediction: 'Car' }
+];
+
+// ── FAKED HEATMAPS / SCORES FOR EACH IMAGE AND METHOD ──
+const heatmaps = {
+  'dog': {
+    'attention': [
+      [0.0,0.0,0.0,0.0,0.1,0.1,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.1,0.4,0.4,0.1,0.0,0.0,0.0],
+      [0.0,0.0,0.1,0.5,0.7,0.7,0.5,0.1,0.0,0.0], [0.0,0.1,0.5,0.8,1.0,1.0,0.8,0.5,0.1,0.0],
+      [0.1,0.5,0.8,1.0,1.0,1.0,1.0,0.8,0.5,0.1], [0.1,0.5,0.8,1.0,1.0,1.0,1.0,0.8,0.5,0.1],
+      [0.0,0.1,0.5,0.8,1.0,1.0,0.8,0.5,0.1,0.0], [0.0,0.0,0.1,0.5,0.7,0.7,0.5,0.1,0.0,0.0],
+      [0.0,0.0,0.0,0.1,0.2,0.2,0.1,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.1,0.1,0.0,0.0,0.0,0.0]
+    ],
+    'saliency': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.1,0.1,0.0,0.0,0.0,0.0],
+      [0.0,0.0,0.0,0.2,0.3,0.3,0.2,0.0,0.0,0.0], [0.0,0.0,0.2,0.5,0.6,0.6,0.5,0.2,0.0,0.0],
+      [0.0,0.2,0.5,0.8,0.9,0.9,0.8,0.5,0.2,0.0], [0.0,0.2,0.5,0.8,0.9,0.9,0.8,0.5,0.2,0.0],
+      [0.0,0.0,0.2,0.5,0.6,0.6,0.5,0.2,0.0,0.0], [0.0,0.0,0.0,0.2,0.3,0.3,0.2,0.0,0.0,0.0],
+      [0.0,0.0,0.0,0.1,0.1,0.1,0.1,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'gradcam': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.2,0.2,0.0,0.0,0.0,0.0],
+      [0.0,0.0,0.0,0.4,0.6,0.6,0.4,0.0,0.0,0.0], [0.0,0.0,0.4,0.8,1.0,1.0,0.8,0.4,0.0,0.0],
+      [0.0,0.4,0.8,1.0,1.0,1.0,1.0,0.8,0.4,0.0], [0.0,0.4,0.8,1.0,1.0,1.0,1.0,0.8,0.4,0.0],
+      [0.0,0.0,0.4,0.8,1.0,1.0,0.8,0.4,0.0,0.0], [0.0,0.0,0.0,0.4,0.6,0.6,0.4,0.0,0.0,0.0],
+      [0.0,0.0,0.0,0.2,0.2,0.2,0.2,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'integrated_gradients': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.1,0.3,0.3,0.1,0.0,0.0,0.0],
+      [0.0,0.0,0.2,0.5,0.7,0.7,0.5,0.2,0.0,0.0], [0.0,0.3,0.7,0.9,1.0,1.0,0.9,0.7,0.3,0.0],
+      [0.1,0.5,0.9,1.0,1.0,1.0,1.0,0.9,0.5,0.1], [0.1,0.5,0.9,1.0,1.0,1.0,1.0,0.9,0.5,0.1],
+      [0.0,0.3,0.7,0.9,1.0,1.0,0.9,0.7,0.3,0.0], [0.0,0.0,0.2,0.5,0.7,0.7,0.5,0.2,0.0,0.0],
+      [0.0,0.0,0.0,0.1,0.3,0.3,0.1,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'tcav': { // Concept 'furry'
+      'scores': [
+        [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.1,0.3,0.3,0.1,0.0,0.0,0.0],
+        [0.0,0.0,0.2,0.5,0.7,0.7,0.5,0.2,0.0,0.0], [0.0,0.3,0.7,0.9,1.0,1.0,0.9,0.7,0.3,0.0],
+        [0.1,0.5,0.9,1.0,1.0,1.0,1.0,0.9,0.5,0.1], [0.1,0.5,0.9,1.0,1.0,1.0,1.0,0.9,0.5,0.1],
+        [0.0,0.3,0.7,0.9,1.0,1.0,0.9,0.7,0.3,0.0], [0.0,0.0,0.2,0.5,0.7,0.7,0.5,0.2,0.0,0.0],
+        [0.0,0.0,0.0,0.1,0.3,0.3,0.1,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+      ],
+      'concept': 'furry'
+    }
+  },
+  'car': {
+    'attention': [
+      [0.0,0.0,0.0,0.0,0.1,0.1,0.1,0.0,0.0,0.0], [0.0,0.0,0.1,0.3,0.5,0.5,0.5,0.3,0.1,0.0],
+      [0.0,0.1,0.4,0.7,0.9,0.9,0.9,0.7,0.4,0.1], [0.1,0.4,0.7,1.0,1.0,1.0,1.0,1.0,0.7,0.4],
+      [0.4,0.7,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.7], [0.4,0.7,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.7],
+      [0.0,0.1,0.4,0.7,0.9,0.9,0.9,0.7,0.4,0.1], [0.0,0.0,0.1,0.3,0.1,0.1,0.3,0.1,0.0,0.0],
+      [0.0,0.0,0.1,0.3,0.1,0.1,0.3,0.1,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'saliency': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.1,0.1,0.1,0.0,0.0,0.0],
+      [0.0,0.0,0.1,0.2,0.3,0.3,0.3,0.2,0.0,0.0], [0.0,0.1,0.2,0.5,0.6,0.6,0.6,0.5,0.2,0.0],
+      [0.1,0.2,0.5,0.8,0.9,0.9,0.9,0.8,0.5,0.1], [0.1,0.2,0.5,0.8,0.9,0.9,0.9,0.8,0.5,0.1],
+      [0.0,0.1,0.2,0.5,0.6,0.6,0.6,0.5,0.2,0.0], [0.0,0.0,0.1,0.2,0.1,0.1,0.2,0.1,0.0,0.0],
+      [0.0,0.0,0.1,0.2,0.1,0.1,0.2,0.1,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'gradcam': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.2,0.2,0.2,0.0,0.0,0.0],
+      [0.0,0.0,0.2,0.4,0.6,0.6,0.6,0.4,0.0,0.0], [0.0,0.2,0.4,0.8,1.0,1.0,1.0,0.8,0.4,0.0],
+      [0.2,0.4,0.8,1.0,1.0,1.0,1.0,1.0,0.8,0.2], [0.2,0.4,0.8,1.0,1.0,1.0,1.0,1.0,0.8,0.2],
+      [0.0,0.2,0.4,0.8,1.0,1.0,1.0,0.8,0.4,0.0], [0.0,0.0,0.2,0.4,0.2,0.2,0.4,0.2,0.0,0.0],
+      [0.0,0.0,0.2,0.4,0.2,0.2,0.4,0.2,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'integrated_gradients': [
+      [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.1,0.3,0.3,0.3,0.1,0.0,0.0],
+      [0.0,0.0,0.2,0.5,0.7,0.7,0.7,0.5,0.2,0.0], [0.0,0.3,0.7,0.9,1.0,1.0,1.0,0.9,0.7,0.3],
+      [0.1,0.5,0.9,1.0,1.0,1.0,1.0,1.0,0.9,0.5], [0.1,0.5,0.9,1.0,1.0,1.0,1.0,1.0,0.9,0.5],
+      [0.0,0.3,0.7,0.9,1.0,1.0,1.0,0.9,0.7,0.3], [0.0,0.0,0.2,0.5,0.3,0.3,0.5,0.2,0.0,0.0],
+      [0.0,0.0,0.2,0.5,0.3,0.3,0.5,0.2,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+    ],
+    'tcav': { // Concept 'wheel'
+      'scores': [
+        [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
+        [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
+        [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
+        [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,0.5,0.8,0.5,0.5,0.8,0.5,0.0,0.0],
+        [0.0,0.0,0.5,0.8,0.5,0.5,0.8,0.5,0.0,0.0], [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+      ],
+      'concept': 'wheel'
+    }
+  }
+};
+
+// ── STEPS DEFINITION ──
+const steps = [
+  { phase:'setup', title:'Welcome to the Explainer', desc:'We have a model that classifies images. Let\'s see how it explains its predictions.',
+    image: 'dog', method: 'none', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'setup', title:'Model Prediction', desc:'The model predicts "Dog" with high confidence for this input. But *why* did it make this decision? Which parts of the image were most influential?',
+    image: 'dog', method: 'none', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'attention', title:'Attention Visualization', desc:'Attention maps show where the model "looked" to make its decision. Brighter (redder) areas indicate higher attention weight, suggesting these regions were more relevant for the model\'s internal processing.',
+    image: 'dog', method: 'attention', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'gradient', title:'Saliency Maps (Vanilla Gradients)', desc:'Saliency maps use gradients of the output score with respect to input pixels. They highlight pixels whose slight change would most impact the prediction score for the target class.',
+    image: 'dog', method: 'saliency', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'gradient', title:'Grad-CAM: Class Activation Mapping', desc:'Grad-CAM uses gradients of a convolutional feature map to produce a coarser, class-discriminative heatmap. It focuses on broader semantic regions rather than individual noisy pixels, showing "what part of the image led to the prediction".',
+    image: 'dog', method: 'gradcam', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43] },
+  { phase:'gradient', title:'Integrated Gradients', desc:'Integrated Gradients addresses gradient saturation by summing gradients along a path from a baseline input (e.g., a black image) to the actual input. This provides a more faithful attribution, ensuring all features contributing to the prediction are recognized.',
+    image: 'dog', method: 'integrated_gradients', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'gradient', title:'Comparing Gradient Methods', desc:'Notice the differences: Saliency is pixel-level, Grad-CAM is region-level. Integrated Gradients provides a smoother, more complete attribution. Each offers a different perspective on feature importance.',
+    image: 'car', method: 'gradcam', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'concept', title:'TCAV: Concept-Based Explanations', desc:'TCAV (Testing with Concept Activation Vectors) explains model behavior using human-interpretable concepts. Instead of pixels, it tells you how much a concept (e.g., "furry") influences the model\'s prediction.',
+    image: 'dog', method: 'tcav_intro', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'concept', title:'TCAV: Interactive Concept Analysis', desc:'Here, we visualize the TCAV scores for the "furry" concept. Adjust the threshold to highlight regions whose activations strongly align with this concept. A higher score means it\'s more "furry" for the model.',
+    image: 'dog', method: 'tcav', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] },
+  { phase:'summary', title:'Summary: The Explainer\'s Toolbox', desc:'Each method offers a unique lens into model decision-making. Attention shows focus, gradient methods show feature importance, and concept-based methods link predictions to human concepts. The choice depends on the question you\'re asking.',
+    image: 'dog', method: 'none', overlayOpacity: 0.6, tcavThreshold: 0.5, codeLines: [] }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentImageId = 'dog';
+let currentMethod = 'none';
+let currentOpacity = 0.6;
+let currentTcavThreshold = 0.5;
+
+// ── UI ELEMENTS ──
+const canvas = document.getElementById('vizCanvas');
+const ctx = canvas.getContext('2d');
+const opacitySlider = document.getElementById('opacitySlider');
+const opacityValue = document.getElementById('opacityValue');
+const tcavThresholdGroup = document.getElementById('tcavThresholdGroup');
+const tcavThresholdSlider = document.getElementById('tcavThresholdSlider');
+const tcavThresholdValue = document.getElementById('tcavThresholdValue');
+const imageSelector = document.getElementById('imageSelector');
+const methodRadios = document.querySelectorAll('input[name="explanationMethod"]');
+
+// ── EVENT LISTENERS ──
+opacitySlider.addEventListener('input', () => {
+  currentOpacity = parseFloat(opacitySlider.value);
+  opacityValue.textContent = currentOpacity.toFixed(2);
+  drawCanvas();
+});
+tcavThresholdSlider.addEventListener('input', () => {
+  currentTcavThreshold = parseFloat(tcavThresholdSlider.value);
+  tcavThresholdValue.textContent = currentTcavThreshold.toFixed(2);
+  drawCanvas();
+});
+methodRadios.forEach(radio => {
+  radio.addEventListener('change', (e) => {
+    currentMethod = e.target.value;
+    drawCanvas();
+    updateTCAVControls();
+  });
+});
+
+// ── INITIALIZATION ──
+function initImageSelector() {
+  imageSelector.innerHTML = '';
+  images.forEach(img => {
+    const thumbDiv = document.createElement('div');
+    thumbDiv.className = 'image-thumb';
+    thumbDiv.dataset.imageId = img.id;
+
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = GRID_SIZE;
+    thumbCanvas.height = GRID_SIZE;
+    const thumbCtx = thumbCanvas.getContext('2d');
+    drawBaseImage(thumbCtx, thumbCanvas.width, thumbCanvas.height, img.pixels);
+
+    thumbDiv.appendChild(thumbCanvas);
+    const label = document.createElement('div');
+    label.className = 'image-thumb-label';
+    label.textContent = img.name;
+    thumbDiv.appendChild(label);
+
+    thumbDiv.addEventListener('click', () => {
+      currentImageId = img.id;
+      drawCanvas();
+      updateImageSelector();
+    });
+    imageSelector.appendChild(thumbDiv);
+  });
+}
+
+function updateImageSelector() {
+  document.querySelectorAll('.image-thumb').forEach(thumb => {
+    thumb.classList.toggle('active', thumb.dataset.imageId === currentImageId);
+  });
+}
+
+function updateMethodRadios() {
+  methodRadios.forEach(radio => {
+    radio.checked = (radio.value === currentMethod);
+  });
+}
+
+function updateTCAVControls() {
+  const isTCAV = (currentMethod === 'tcav');
+  tcavThresholdGroup.style.display = isTCAV ? 'flex' : 'none';
+}
+
+// ── CANVAS DRAWING HELPERS ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawBaseImage(ctx, W, H, pixels) {
+  const colors = getColors();
+  const pixelSize = W / GRID_SIZE;
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      ctx.fillStyle = pixels[r][c] === 1 ? colors.text2 : colors.bg2;
+      ctx.fillRect(c * pixelSize, r * pixelSize, pixelSize, pixelSize);
+    }
+  }
+}
+
+function drawOverlay(ctx, W, H, heatmapData, opacity, method, tcavThreshold) {
+  if (!heatmapData || opacity === 0) return;
+
+  const pixelSize = W / GRID_SIZE;
+  const colors = getColors();
+
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      let value = heatmapData[r][c];
+      let color = ``;
+
+      if (method === 'tcav') {
+        // For TCAV, highlight based on threshold
+        if (value >= tcavThreshold) {
+          color = `rgba(59, 109, 17, ${opacity * value})`; // Green-ish for concept
+        } else {
+          color = `rgba(255, 0, 0, ${opacity * value * 0.2})`; // Fainter red for less relevant
+        }
+      } else {
+        // For other heatmaps, gradient from blue to red
+        // Normalize value to 0-1 if it's not already
+        const normValue = Math.max(0, Math.min(1, value));
+        const rVal = Math.floor(255 * normValue);
+        const bVal = Math.floor(255 * (1 - normValue));
+        color = `rgba(${rVal}, 0, ${bVal}, ${opacity})`;
+      }
+
+      ctx.fillStyle = color;
+      ctx.fillRect(c * pixelSize, r * pixelSize, pixelSize, pixelSize);
+    }
+  }
+}
+
+function drawCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const currentImage = images.find(img => img.id === currentImageId);
+  if (!currentImage) return;
+
+  drawBaseImage(ctx, W, H, currentImage.pixels);
+
+  let heatmapData = null;
+  let conceptName = '';
+
+  if (currentMethod !== 'none') {
+    const methodData = heatmaps[currentImageId][currentMethod];
+    if (currentMethod === 'tcav') {
+      heatmapData = methodData.scores;
+      conceptName = methodData.concept;
+    } else {
+      heatmapData = methodData;
+    }
+    drawOverlay(ctx, W, H, heatmapData, currentOpacity, currentMethod, currentTcavThreshold);
+  }
+
+  // Update info card prediction
+  document.getElementById('infoPrediction').textContent = `Model Prediction: ${currentImage.prediction}`;
+  if (currentMethod === 'tcav') {
+    document.getElementById('infoPrediction').textContent += `\nConcept: "${conceptName}"`;
+  }
+}
+
+// ── NAVIGATION & RENDER LOGIC ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+
+function goTo(i) {
+  step = i;
+  render();
+}
+
+function reset() {
+  step = 0;
+  currentImageId = 'dog';
+  currentMethod = 'none';
+  currentOpacity = 0.6;
+  currentTcavThreshold = 0.5;
+  render();
+}
+
+function render() {
+  const s = steps[step];
+
+  // Update UI controls based on step data
+  currentImageId = s.image;
+  currentMethod = s.method;
+  currentOpacity = s.overlayOpacity;
+  currentTcavThreshold = s.tcavThreshold;
+
+  opacitySlider.value = currentOpacity;
+  opacityValue.textContent = currentOpacity.toFixed(2);
+  tcavThresholdSlider.value = currentTcavThreshold;
+  tcavThresholdValue.textContent = currentTcavThreshold.toFixed(2);
+
+  updateImageSelector();
+  updateMethodRadios();
+  updateTCAVControls();
+
+  // Update buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Update info card
+  const phaseMap = {
+    setup: 'phase-setup', attention: 'phase-attention', gradient: 'phase-gradient',
+    concept: 'phase-concept', summary: 'phase-summary'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Update code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Re-draw canvas
+  drawCanvas();
+  updateDots();
+}
+
+// ── KEYBOARD NAVIGATION ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INITIAL LOAD ──
+initImageSelector();
+initDots();
+render();
+window.addEventListener('resize', drawCanvas);
+</script>
+</body>
+</html>
