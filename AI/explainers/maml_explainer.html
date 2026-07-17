@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAML (Model-Agnostic Meta-Learning) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-group{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text2);}
+.toggle-group input[type="checkbox"]{width:16px;height:16px;accent-color:var(--purple-mid);}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-inner{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-outer{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compare{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-final{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.circle{border-radius:50%;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>MAML (Model-Agnostic Meta-Learning)</h1>
+  <div class="subtitle">Second-order gradients, first-order approximations (FOMAML, Reptile) for few-shot learning</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Meta-Learning</span>
+    <span class="tag tag-complexity">O(N_tasks · K_steps · Params²)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding MAML</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> MAML (Model-Agnostic Meta-Learning) is a meta-learning algorithm designed to enable models to adapt quickly to new, unseen tasks with very little training data (few-shot learning). Instead of learning a single model that performs well on one task, MAML learns a good <em>initialization</em> for a model's parameters, such that this initialization can be fine-tuned effectively on a new task using only a few gradient steps.</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a robot to play different sports. Instead of teaching it to play soccer from scratch, then basketball from scratch, etc., MAML teaches the robot how to "learn to play a sport." It finds a base set of motor skills and reflexes (the meta-parameters) that, with just a few minutes of practice (a few gradient updates) on a new sport, allow the robot to become proficient quickly. It's about learning a good starting point for rapid adaptation.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">MAML optimizes for an initialization \(\theta\) that is sensitive to rapid adaptation. It does this by performing an inner gradient update on each task to get task-specific parameters \(\phi\), then computing a "meta-gradient" on \(\theta\) by backpropagating through that inner update. This requires calculating <strong>second-order gradients</strong>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How MAML Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How MAML Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p>MAML operates on a two-loop optimization structure:</p>
+    <h4>1. Inner Loop: Task-Specific Adaptation</h4>
+    <p>For each task \(\mathcal{T}_i\) sampled from a distribution of tasks \(p(\mathcal{T})\):</p>
+    <ul>
+      <li>Start with the current meta-parameters \(\theta\).</li>
+      <li>Take one or more gradient descent steps on the training data \(\mathcal{D}_i^{\text{train}}\) of task \(\mathcal{T}_i\) to adapt \(\theta\) to this specific task.
+        $$ \phi_i = \theta - \alpha \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\theta) $$
+        Here, \(\alpha\) is the inner-loop learning rate, and \(\mathcal{L}_{\mathcal{T}_i}(\theta)\) is the loss on task \(\mathcal{T}_i\)'s training data. The resulting \(\phi_i\) are the adapted parameters for task \(\mathcal{T}_i\).</li>
+    </ul>
+
+    <h4>2. Outer Loop: Meta-Update on Initialization</h4>
+    <p>After adapting to several tasks (or a batch of tasks), the meta-parameters \(\theta\) are updated. The goal is to make \(\theta\) a better initialization for future tasks. This update is based on how well the <em>adapted</em> parameters \(\phi_i\) perform on new, unseen data from each task \(\mathcal{T}_i\):</p>
+    <ul>
+      <li>Compute a meta-loss using the adapted parameters \(\phi_i\) on the validation data \(\mathcal{D}_i^{\text{val}}\) of each task \(\mathcal{T}_i\). This is typically the same loss function, but evaluated on a different data split.</li>
+      <li>The meta-gradient is computed by backpropagating through the entire inner adaptation process to update \(\theta\):
+        $$ \theta \leftarrow \theta - \beta \nabla_\theta \sum_{\mathcal{T}_i \sim p(\mathcal{T})} \mathcal{L}_{\mathcal{T}_i}(\phi_i) $$
+        Here, \(\beta\) is the outer-loop (meta) learning rate. This meta-gradient requires computing derivatives of derivatives, i.e., <strong>second-order gradients</strong>.</li>
+    </ul>
+
+    <h4>First-Order Approximations: FOMAML & Reptile</h4>
+    <p>The second-order gradients in MAML are computationally expensive. Two popular approximations avoid this:</p>
+    <ul>
+      <li><strong>FOMAML (First-Order MAML):</strong> Simply ignores the second-order terms (the Hessian-vector product) when computing \(\nabla_\theta \phi_i\). This makes the meta-gradient much cheaper but can lead to a less optimal meta-initialization.</li>
+      <li><strong>Reptile:</strong> A simpler, gradient-based meta-learning algorithm that is equivalent to FOMAML under certain conditions. It performs the inner loop updates to get \(\phi_i\), then updates \(\theta\) by simply moving it towards the average of the adapted parameters: \(\theta \leftarrow \theta + \beta \sum_{\mathcal{T}_i} (\theta - \phi_i)\). This update rule is interpretable as repeatedly applying SGD on a batch of tasks, then moving the initial parameters towards the converged parameters for each task.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The core idea is to learn parameters \(\theta\) that are "close" to optimal solutions for many tasks, such that a small change (a few gradient steps) leads to a substantial performance improvement on any specific task. This "sensitivity" to adaptation is what the second-order gradients capture.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The MAML Objective</h4>
+    <p>MAML minimizes the expected loss over a distribution of tasks \(p(\mathcal{T})\), where the loss for each task is evaluated after one (or more) gradient steps:</p>
+    <div class="eq">$$ \min_\theta \mathbb{E}_{\mathcal{T}_i \sim p(\mathcal{T})} \left[ \mathcal{L}_{\mathcal{T}_i}(\phi_i) \right] $$</div>
+    <p>where \(\phi_i\) are the parameters adapted to task \(\mathcal{T}_i\) using the initial parameters \(\theta\) and an inner learning rate \(\alpha\):</p>
+    <div class="eq">$$ \phi_i = \theta - \alpha \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\theta) $$</div>
+    <p>To find the meta-gradient \(\nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\phi_i)\), we apply the chain rule:</p>
+    <div class="eq">$$ \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\phi_i) = \nabla_{\phi_i} \mathcal{L}_{\mathcal{T}_i}(\phi_i) \cdot \nabla_\theta \phi_i $$</div>
+    <p>Now, let's compute \(\nabla_\theta \phi_i\):</p>
+    <div class="eq">$$ \nabla_\theta \phi_i = \nabla_\theta \left( \theta - \alpha \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\theta) \right) = I - \alpha \nabla_\theta^2 \mathcal{L}_{\mathcal{T}_i}(\theta) $$</div>
+    <p>Substituting this back into the chain rule gives the full MAML meta-gradient for a single task:</p>
+    <div class="eq">$$ \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\phi_i) = \nabla_{\phi_i} \mathcal{L}_{\mathcal{T}_i}(\phi_i) \left( I - \alpha \nabla_\theta^2 \mathcal{L}_{\mathcal{T}_i}(\theta) \right) $$</div>
+    <p>The term \(\nabla_\theta^2 \mathcal{L}_{\mathcal{T}_i}(\theta)\) is the Hessian matrix (second-order derivative) of the inner loss with respect to \(\theta\). This is multiplied by \(\nabla_{\phi_i} \mathcal{L}_{\mathcal{T}_i}(\phi_i)\), which is a vector. The product of a matrix and a vector is a Hessian-vector product, which is what makes MAML computationally expensive.</p>
+
+    <h4>First-Order MAML (FOMAML)</h4>
+    <p>FOMAML approximates the meta-gradient by ignoring the second-order term. It assumes \(\nabla_\theta \phi_i \approx I\):</p>
+    <div class="eq">$$ \nabla_\theta \mathcal{L}_{\mathcal{T}_i}(\phi_i) \approx \nabla_{\phi_i} \mathcal{L}_{\mathcal{T}_i}(\phi_i) $$</div>
+    <p>This means the meta-gradient is simply the gradient of the adapted parameters \(\phi_i\) with respect to the loss on \(\mathcal{D}_i^{\text{val}}\). While simpler, this approximation can sometimes lead to slower convergence or suboptimal meta-initializations.</p>
+
+    <h4>Reptile</h4>
+    <p>Reptile takes a different approach. After performing \(K\) inner gradient steps on a task \(\mathcal{T}_i\) to get \(\phi_i\), it updates \(\theta\) by moving it towards \(\phi_i\):</p>
+    <div class="eq">$$ \theta \leftarrow \theta + \beta (\phi_i - \theta) $$</div>
+    <p>When averaged over many tasks, this update rule can be shown to implicitly approximate MAML's meta-gradient, particularly when the inner learning rate \(\alpha\) is small and the number of inner steps \(K\) is large enough to reach near-convergence on each task. It effectively tries to find an initialization \(\theta\) that is centrally located among the optimal parameters \(\phi_i\) for various tasks.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Computational Cost</div>
+      <p style="font-size:14px;margin:0;">The second-order gradients in full MAML are expensive, scaling quadratically with the number of parameters (\(O(P^2)\)). This makes it impractical for very large models. FOMAML and Reptile are crucial for scaling meta-learning to complex deep neural networks by trading off some theoretical guarantees for practical feasibility.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize MAML (and its first-order approximations) on a 2D loss landscape. Each "task" is a simple quadratic loss with a different minimum. Watch how the meta-initialization \(\theta\) is updated based on adaptation to various tasks.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Inner LR (\(\alpha\))</div>
+          <input type="range" id="alphaSlider" min="0.01" max="0.5" step="0.01" value="0.1">
+          <div class="slider-value" id="alphaValue">0.10</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Inner Steps (\(K\))</div>
+          <input type="range" id="kStepsSlider" min="1" max="5" step="1" value="2">
+          <div class="slider-value" id="kStepsValue">2</div>
+        </div>
+        <div class="toggle-group">
+          <input type="checkbox" id="fomamlToggle">
+          <label for="fomamlToggle">Use First-Order Approximation (FOMAML/Reptile)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">The Loss Landscape</div>
+        <div class="info-desc" id="infoDesc">We're visualizing the parameter space \(\theta = [\theta_x, \theta_y]\) as a 2D plane. The color indicates the loss value. Each colored circle represents the optimal parameters (minimum loss) for a specific task \(\mathcal{T}_i\). Our goal is to find a meta-initialization \(\theta\) (blue circle) that can quickly adapt to any of these tasks.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--blue-mid)"></div> Meta-initialization \(\theta\)</div>
+        <div class="legend-item"><div class="legend-swatch circle" style="background:var(--amber-mid)"></div> Task-specific minimum</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Adapted parameters \(\phi_i\)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Inner loop path</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Meta-gradient direction</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use MAML/FOMAML/Reptile:</strong></p>
+    <ul>
+      <li><strong>Few-shot learning:</strong> When you need models to generalize to new classes/tasks with very limited labeled data (e.g., 1-5 examples per class).</li>
+      <li><strong>Meta-learning for adaptation:</strong> When the goal is for a model to learn how to learn, rather than just learning a fixed mapping.</li>
+      <li><strong>Domain adaptation:</strong> Can be applied when quickly adapting to new domains with small datasets.</li>
+      <li><strong>Reinforcement Learning:</strong> MAML can learn an initialization for policies that adapt quickly to new reward functions or environment dynamics.</li>
+    </ul>
+    <p><strong>When NOT to use / Considerations:</strong></p>
+    <ul>
+      <li><strong>Computational cost:</strong> Full MAML's second-order gradients are expensive. For large models, FOMAML or Reptile are usually preferred.</li>
+      <li><strong>Task distribution:</strong> Assumes a clear distribution of tasks from which to sample. Performance degrades if test tasks are very different from training tasks.</li>
+      <li><strong>Hyperparameter sensitivity:</strong> Inner and outer learning rates (\(\alpha\) and \(\beta\)) and number of inner steps (\(K\)) are critical and can be hard to tune.</li>
+      <li><strong>Model architecture:</strong> While "model-agnostic," it still requires a differentiable model and a task structure that allows for inner-loop adaptation.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">MAML, FOMAML, and Reptile represent a powerful paradigm shift from "learning a model" to "learning how to learn." They enable rapid adaptation by optimizing for an initial parameter state that is inherently easy to fine-tune, making them cornerstones of modern meta-learning research and applications.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0"># Assume 'model' is a PyTorch nn.Module, 'meta_optimizer' for outer loop</div>
+      <div class="code-line" id="cl1"># 'tasks' is a list of (train_data, val_data, loss_fn) tuples</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3">meta_optimizer.zero_grad()</div>
+      <div class="code-line" id="cl4">meta_batch_loss = 0</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6">for task_train_data, task_val_data, task_loss_fn in tasks:</div>
+      <div class="code-line" id="cl7">    # 1. Inner Loop: Task-specific adaptation</div>
+      <div class="code-line" id="cl8">    # Create a 'fast_model' with current meta-parameters (theta)</div>
+      <div class="code-line" id="cl9">    # This is crucial: we need to compute gradients w.r.t. theta LATER</div>
+      <div class="code-line" id="cl10">    fast_weights = collections.OrderedDict(</div>
+      <div class="code-line" id="cl11">        (name, param) for name, param in model.named_parameters()</div>
+      <div class="code-line" id="cl12">    )</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14">    for _ in range(INNER_STEPS):</div>
+      <div class="code-line" id="cl15">        # Compute loss on task_train_data with current fast_weights</div>
+      <div class="code-line" id="cl16">        train_logits = model.forward_with_weights(task_train_data.x, fast_weights)</div>
+      <div class="code-line" id="cl17">        inner_loss = task_loss_fn(train_logits, task_train_data.y)</div>
+      <div class="code-line" id="cl18"></div>
+      <div class="code-line" id="cl19">        # Compute gradients w.r.t. fast_weights (phi)</div>
+      <div class="code-line" id="cl20">        # create_graph=True is needed for MAML to enable second-order grads</div>
+      <div class="code-line" id="cl21">        grads = torch.autograd.grad(inner_loss, fast_weights.values(), create_graph=True)</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">        # Update fast_weights (phi) for the next inner step</div>
+      <div class="code-line" id="cl24">        fast_weights = collections.OrderedDict(</div>
+      <div class="code-line" id="cl25">            (name, param - INNER_LR * grad)</div>
+      <div class="code-line" id="cl26">            for (name, param), grad in zip(fast_weights.items(), grads)</div>
+      <div class="code-line" id="cl27">        )</div>
+      <div class="code-line" id="cl28"></div>
+      <div class="code-line" id="cl29">    # 2. Outer Loop: Evaluate adapted model on validation data</div>
+      <div class="code-line" id="cl30">    val_logits = model.forward_with_weights(task_val_data.x, fast_weights) # Use phi_i</div>
+      <div class="code-line" id="cl31">    outer_loss = task_loss_fn(val_logits, task_val_data.y)</div>
+      <div class="code-line" id="cl32">    meta_batch_loss += outer_loss</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34"># Compute meta-gradient w.r.t. initial model parameters (theta)</div>
+      <div class="code-line" id="cl35"># This will automatically compute second-order gradients if create_graph=True was used</div>
+      <div class="code-line" id="cl36">meta_batch_loss.backward()</div>
+      <div class="code-line" id="cl37">meta_optimizer.step()</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39"># --- FOMAML / Reptile variant ---</div>
+      <div class="code-line" id="cl40"># For FOMAML, set create_graph=False in line 21.</div>
+      <div class="code-line" id="cl41"># For Reptile, the outer loop update looks like:</div>
+      <div class="code-line" id="cl42"># for (name, param), (name_fast, param_fast) in zip(model.named_parameters(), fast_weights.items()):</div>
+      <div class="code-line" id="cl43">#     param.grad = (param - param_fast) / OUTER_LR # Approx. meta-gradient</div>
+      <div class="code-line" id="cl44"># meta_optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function Vec2(x, y) { this.x = x; this.y = y; }
+Vec2.prototype.add = function(other) { return new Vec2(this.x + other.x, this.y + other.y); };
+Vec2.prototype.sub = function(other) { return new Vec2(this.x - other.x, this.y - other.y); };
+Vec2.prototype.mul = function(scalar) { return new Vec2(this.x * scalar, this.y * scalar); };
+Vec2.prototype.div = function(scalar) { return new Vec2(this.x / scalar, this.y / scalar); };
+Vec2.prototype.len = function() { return Math.sqrt(this.x * this.x + this.y * this.y); };
+Vec2.prototype.normalize = function() { const l = this.len(); return l === 0 ? new Vec2(0,0) : this.div(l); };
+Vec2.prototype.dist = function(other) { return this.sub(other).len(); };
+Vec2.prototype.clone = function() { return new Vec2(this.x, this.y); };
+
+// ── LOSS LANDSCAPE FUNCTIONS ──
+// Each task has a quadratic loss: L(theta) = (theta_x - target_x)^2 + (theta_y - target_y)^2
+// The Hessian is simply [[2,0],[0,2]], so the Hessian-vector product is just 2*gradient.
+function taskLoss(theta, target) {
+  return Math.pow(theta.x - target.x, 2) + Math.pow(theta.y - target.y, 2);
+}
+
+function taskGradient(theta, target) {
+  return new Vec2(
+    2 * (theta.x - target.x),
+    2 * (theta.y - target.y)
+  );
+}
+
+// ── MAML ALGORITHM SIMULATION ──
+const WORLD_SIZE = 5; // -WORLD_SIZE to +WORLD_SIZE for x and y
+const TASKS = [
+  { id: 0, target: new Vec2(-3, 2), color: '#85B7EB' }, // blue-border
+  { id: 1, target: new Vec2(1, -3), color: '#97C459' }, // green-border
+  { id: 2, target: new Vec2(3, 3), color: '#EF9F27' },  // amber-border
+  { id: 3, target: new Vec2(-2, -4), color: '#AFA9EC' } // purple-border
+];
+
+let metaTheta = new Vec2(0, 0); // Initial meta-parameters
+let innerLR = 0.1;
+let innerSteps = 2;
+let isFOMAML = false;
+
+function simulateMAMLStep(currentMetaTheta, alpha, kSteps, isFOMAMLMode) {
+  const adaptedThetas = []; // phi_i for each task
+  const innerPaths = []; // paths taken during inner loop
+  const metaGradients = []; // gradients for outer loop
+
+  for (const task of TASKS) {
+    let currentPhi = currentMetaTheta.clone();
+    const path = [currentPhi.clone()];
+
+    for (let k = 0; k < kSteps; k++) {
+      const grad = taskGradient(currentPhi, task.target);
+      currentPhi = currentPhi.sub(grad.mul(alpha));
+      path.push(currentPhi.clone());
+    }
+    adaptedThetas.push({ task, phi: currentPhi, path });
+
+    // Calculate meta-gradient contribution for this task
+    const grad_L_phi = taskGradient(currentPhi, task.target); // Gradient of L(phi) w.r.t phi
+
+    if (!isFOMAMLMode) {
+      // MAML: d(phi)/d(theta) = I - alpha * H(L(theta))
+      // So, grad_theta L(phi) = grad_phi L(phi) * (I - alpha * H(L(theta)))
+      // For a quadratic loss L(theta) = ||theta - target||^2, H(L(theta)) = 2*I
+      // Thus, (I - alpha * H(L(theta))) becomes (I - 2*alpha*I) = (1 - 2*alpha)*I
+      // So, grad_theta L(phi) = grad_phi L(phi) * (1 - 2*alpha)
+      const metaGrad = grad_L_phi.mul(1 - 2 * alpha);
+      metaGradients.push(metaGrad);
+    } else {
+      // FOMAML / Reptile approximation
+      // For FOMAML, it's approximately grad_phi L(phi)
+      // For Reptile, it's (theta - phi)
+      // We'll use (theta - phi) for a clearer visual difference from MAML's (1-2alpha) factor.
+      const metaGrad = currentMetaTheta.sub(currentPhi);
+      metaGradients.push(metaGrad);
+    }
+  }
+
+  // Aggregate meta-gradients
+  let totalMetaGrad = new Vec2(0, 0);
+  for (const mg of metaGradients) {
+    totalMetaGrad = totalMetaGrad.add(mg);
+  }
+  totalMetaGrad = totalMetaGrad.div(TASKS.length); // Average over tasks
+
+  // Outer loop update (meta-learning rate beta is fixed for visualization)
+  const metaLR = 0.05;
+  const nextMetaTheta = currentMetaTheta.sub(totalMetaGrad.mul(metaLR));
+
+  return {
+    adaptedThetas,
+    innerPaths,
+    metaGradients,
+    totalMetaGrad,
+    nextMetaTheta
+  };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Loss Landscape & Tasks', mode: 'init',
+    desc: 'The 2D plane represents our model parameters \\(\\theta = [\\theta_x, \\theta_y]\\). The color indicates the loss value for a generic task. Each colored circle represents the optimal parameters (minimum loss) for a specific task \\(\\mathcal{T}_i\\). Our goal is to find a meta-initialization \\(\\theta\\) (blue circle) that can quickly adapt to any of these tasks.',
+    codeLines: []
+  },
+  {
+    phase: 'inner', title: 'Inner Loop: Adapt to Task 0', mode: 'inner_loop_0',
+    desc: 'Starting from our current meta-initialization \\(\\theta\\), we perform \\(K\\) gradient descent steps (inner loop) on the training data of Task 0 (blue target). This adapts \\(\\theta\\) to \\(\\phi_0\\), a task-specific set of parameters. The path (purple line) shows this adaptation.',
+    codeLines: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+  },
+  {
+    phase: 'inner', title: 'Inner Loop: Adapt to Task 1', mode: 'inner_loop_1',
+    desc: 'We repeat the inner loop adaptation for Task 1 (green target), starting from the <em>same</em> meta-initialization \\(\\theta\\). This yields task-specific parameters \\(\\phi_1\\). Each \\(\\phi_i\\) represents how well \\(\\theta\\) adapts to a specific task.',
+    codeLines: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+  },
+  {
+    phase: 'inner', title: 'Inner Loop: Adapt to Task 2', mode: 'inner_loop_2',
+    desc: 'And again for Task 2 (amber target), yielding \\(\\phi_2\\). In a real MAML setup, we would do this for a batch of many tasks, not just three, to get a representative sample of how \\(\\theta\\) adapts across the task distribution.',
+    codeLines: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+  },
+  {
+    phase: 'inner', title: 'Inner Loop: Adapt to Task 3', mode: 'inner_loop_3',
+    desc: 'Finally, for Task 3 (purple target), yielding \\(\\phi_3\\). Now we have a set of adapted parameters \\(\\phi_i\\) for each task, all starting from the same meta-initialization \\(\\theta\\).',
+    codeLines: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]
+  },
+  {
+    phase: 'outer', title: 'Meta-Gradient (MAML): Second-Order', mode: 'meta_gradient_maml',
+    desc: 'For MAML, the meta-gradient for updating \\(\\theta\\) is calculated by backpropagating through the inner adaptation steps. This means computing gradients of gradients (second-order derivatives). The meta-gradient (red arrow) points in a direction that makes \\(\\theta\\) more "adaptable" to all tasks.',
+    codeLines: [20,21,30,31,32,33,34,35,36]
+  },
+  {
+    phase: 'outer', title: 'Meta-Gradient (FOMAML/Reptile): First-Order', mode: 'meta_gradient_fomaml',
+    desc: 'With the "First-Order Approximation" toggle on, the meta-gradient is simpler. For FOMAML, it ignores second-order terms. For Reptile, it effectively just moves \\(\\theta\\) towards the average of the adapted \\(\\phi_i\\) parameters. This is computationally cheaper but might be less optimal.',
+    codeLines: [40,41,42,43,44]
+  },
+  {
+    phase: 'outer', title: 'Outer Loop: Update Meta-Parameters', mode: 'meta_update',
+    desc: 'The meta-gradient (averaged across tasks) is applied to update the meta-initialization: \\(\\theta \\leftarrow \\theta - \\beta \\nabla_\theta \\sum \mathcal{L}_{\mathcal{T}_i}(\\phi_i)\\). This moves \\(\\theta\\) to a new position that should be a better starting point for *future* tasks, requiring fewer inner steps to adapt.',
+    codeLines: [36,37]
+  },
+  {
+    phase: 'final', title: 'Next Iteration: Repeat', mode: 'final',
+    desc: 'This completes one meta-training iteration. In practice, this process is repeated for many iterations, sampling new batches of tasks each time, until \\(\\theta\\) converges to a highly adaptable initialization. The ultimate goal is to generalize to entirely new, unseen tasks outside the training distribution.',
+    codeLines: [3]
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let metaLR = 0.05; // Fixed outer learning rate for visualization
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  metaTheta = new Vec2(0, 0); // Reset meta parameters
+  document.getElementById('alphaSlider').value = 0.1;
+  document.getElementById('kStepsSlider').value = 2;
+  document.getElementById('fomamlToggle').checked = false;
+  updateSliderLabels();
+  render();
+}
+
+// ── SLIDER & TOGGLE WIRING ──
+const alphaSlider = document.getElementById('alphaSlider');
+const kStepsSlider = document.getElementById('kStepsSlider');
+const fomamlToggle = document.getElementById('fomamlToggle');
+
+alphaSlider.addEventListener('input', () => {
+  innerLR = parseFloat(alphaSlider.value);
+  updateSliderLabels();
+  render();
+});
+kStepsSlider.addEventListener('input', () => {
+  innerSteps = parseInt(kStepsSlider.value);
+  updateSliderLabels();
+  render();
+});
+fomamlToggle.addEventListener('change', () => {
+  isFOMAML = fomamlToggle.checked;
+  render();
+});
+
+function updateSliderLabels() {
+  document.getElementById('alphaValue').textContent = innerLR.toFixed(2);
+  document.getElementById('kStepsValue').textContent = innerSteps;
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', inner: 'phase-inner', outer: 'phase-outer',
+    compare: 'phase-compare', final: 'phase-final'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.mode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'), sans: 'DM Sans, system-ui, sans-serif',
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid'),
+    blueBorder: g('--blue-border'), greenBorder: g('--green-border'), amberBorder: g('--amber-border'), purpleBorder: g('--purple-border')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // Coordinate transformation
+  const toCanvasX = v => W / 2 + (v / WORLD_SIZE) * (W / 2 - 20);
+  const toCanvasY = v => H / 2 - (v / WORLD_SIZE) * (H / 2 - 20);
+  const toWorldX = v => (v - W / 2) / (W / 2 - 20) * WORLD_SIZE;
+  const toWorldY = v => -(v - H / 2) / (H / 2 - 20) * WORLD_SIZE;
+
+  // Draw loss landscape background
+  const imgData = ctx.createImageData(W, H);
+  const data = imgData.data;
+  const maxLoss = taskLoss(new Vec2(WORLD_SIZE, WORLD_SIZE), new Vec2(0, 0)); // Max possible loss at corner
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const wx = toWorldX(x);
+      const wy = toWorldY(y);
+      const loss = taskLoss(new Vec2(wx, wy), new Vec2(0, 0)); // Use a general task for background
+      const normalizedLoss = Math.min(1, loss / maxLoss);
+      const idx = (y * W + x) * 4;
+      // Simple gradient from dark (low loss) to light (high loss)
+      data[idx + 0] = Math.floor(255 * normalizedLoss * 0.2 + 50); // R
+      data[idx + 1] = Math.floor(255 * normalizedLoss * 0.2 + 50); // G
+      data[idx + 2] = Math.floor(255 * normalizedLoss * 0.2 + 50); // B
+      data[idx + 3] = 255; // Alpha
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  // Draw axes
+  ctx.strokeStyle = c.text3;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); // X-axis
+  ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); // Y-axis
+  ctx.stroke();
+
+  // Draw task targets
+  TASKS.forEach(task => {
+    const cx = toCanvasX(task.target.x);
+    const cy = toCanvasY(task.target.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = task.color;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = c.text2;
+    ctx.font = '11px ' + c.sans;
+    ctx.fillText(`T${task.id} min`, cx + 8, cy - 8);
+  });
+
+  // Calculate MAML step results
+  const simResult = simulateMAMLStep(metaTheta, innerLR, innerSteps, isFOMAML);
+
+  // Draw meta-initialization theta
+  const drawTheta = (theta, color, label) => {
+    const cx = toCanvasX(theta.x);
+    const cy = toCanvasY(theta.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = c.text;
+    ctx.font = '600 12px ' + c.sans;
+    ctx.fillText(label, cx + 12, cy + 4);
+  };
+
+  // Draw adapted parameters phi_i
+  const drawPhi = (phi, taskColor, label) => {
+    const cx = toCanvasX(phi.x);
+    const cy = toCanvasY(phi.y);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = c.greenMid;
+    ctx.fill();
+    ctx.strokeStyle = taskColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = c.text;
+    ctx.font = '600 11px ' + c.sans;
+    ctx.fillText(label, cx + 10, cy + 4);
+  };
+
+  // Draw path
+  const drawPath = (path, color) => {
+    if (path.length < 2) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 2]);
+    ctx.beginPath();
+    let px = toCanvasX(path[0].x), py = toCanvasY(path[0].y);
+    ctx.moveTo(px, py);
+    for (let i = 1; i < path.length; i++) {
+      px = toCanvasX(path[i].x);
+      py = toCanvasY(path[i].y);
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  // Draw gradient arrow
+  const drawArrow = (start, end, color, label) => {
+    const startX = toCanvasX(start.x);
+    const startY = toCanvasY(start.y);
+    const endX = toCanvasX(end.x);
+    const endY = toCanvasY(end.y);
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Draw arrowhead
+    const headlen = 10; // length of head in pixels
+    const angle = Math.atan2(endY - startY, endX - startX);
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - headlen * Math.cos(angle - Math.PI / 6), endY - headlen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - headlen * Math.cos(angle + Math.PI / 6), endY - headlen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+    ctx.fill();
+
+    if (label) {
+      ctx.fillStyle = c.text;
+      ctx.font = '600 11px ' + c.sans;
+      const midX = (startX + endX) / 2;
+      const midY = (startY + endY) / 2;
+      ctx.fillText(label, midX + 10, midY - 10);
+    }
+  };
+
+  drawTheta(metaTheta, c.blueMid, 'θ');
+
+  // --- Mode-specific drawing ---
+  if (mode === 'init') {
+    // Only draw initial theta and task targets
+  } else if (mode.startsWith('inner_loop_')) {
+    const taskIdx = parseInt(mode.split('_')[2]);
+    for (let i = 0; i <= taskIdx; i++) {
+      const taskResult = simResult.adaptedThetas[i];
+      drawPath(taskResult.path, c.purpleMid);
+      drawPhi(taskResult.phi, taskResult.task.color, `φ${taskResult.task.id}`);
+    }
+  } else if (mode === 'meta_gradient_maml' || mode === 'meta_gradient_fomaml') {
+    for (const taskResult of simResult.adaptedThetas) {
+      drawPath(taskResult.path, c.purpleMid);
+      drawPhi(taskResult.phi, taskResult.task.color, `φ${taskResult.task.id}`);
+    }
+    // Show individual meta-gradients
+    for (let i = 0; i < TASKS.length; i++) {
+      const phi = simResult.adaptedThetas[i].phi;
+      const mg = simResult.metaGradients[i];
+      const endPoint = phi.add(mg.mul(0.5)); // Scale gradient for visibility
+      drawArrow(phi, endPoint, c.redMid, `∇θL(φ${i})`);
+    }
+  } else if (mode === 'meta_update' || mode === 'final') {
+    for (const taskResult of simResult.adaptedThetas) {
+      drawPath(taskResult.path, c.purpleMid);
+      drawPhi(taskResult.phi, taskResult.task.color, `φ${taskResult.task.id}`);
+    }
+    // Draw total meta-gradient from metaTheta
+    const gradEnd = metaTheta.add(simResult.totalMetaGrad.mul(1)); // Scale for visibility
+    drawArrow(metaTheta, gradEnd, c.redMid, 'Σ∇θL(φ)');
+
+    if (mode === 'final') {
+      drawTheta(simResult.nextMetaTheta, c.cyanMid, 'θ_new');
+    }
+  }
+
+  // Update info numbers
+  let infoText = `Current θ: (${metaTheta.x.toFixed(2)}, ${metaTheta.y.toFixed(2)})`;
+  if (mode.startsWith('inner_loop_') || mode.startsWith('meta_gradient_') || mode === 'meta_update' || mode === 'final') {
+    infoText += `\nInner LR (α): ${innerLR.toFixed(2)}, Inner Steps (K): ${innerSteps}`;
+    infoText += `\nMeta-Algorithm: ${isFOMAML ? 'FOMAML/Reptile' : 'MAML (Second-Order)'}`;
+    if (mode === 'meta_update' || mode === 'final') {
+      infoText += `\nAvg. Meta-Grad: (${simResult.totalMetaGrad.x.toFixed(2)}, ${simResult.totalMetaGrad.y.toFixed(2)})`;
+      infoText += `\nNext θ: (${simResult.nextMetaTheta.x.toFixed(2)}, ${simResult.nextMetaTheta.y.toFixed(2)})`;
+    }
+  }
+  document.getElementById('infoNumbers').textContent = infoText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateSliderLabels();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode));
+</script>
+</body>
+</html>

@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Probing Classifiers for LLMs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-interpretability{background:var(--green-bg);color:var(--green-mid);}
+.tag-nlp{background:var(--purple-bg);color:var(--purple-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-probe{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-train{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-eval{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Probing Classifiers for LLMs</h1>
+  <div class="subtitle">Uncovering what linguistic properties Large Language Models encode in their representations</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-interpretability">Interpretability</span>
+    <span class="tag tag-nlp">NLP</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Probing</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Probing is a technique used to understand what kind of information Large Language Models (LLMs) implicitly store within their intermediate representations (embeddings). It involves training a simple, "probe" classifier on these embeddings to predict a specific linguistic property (e.g., part-of-speech, sentiment, syntactic role). If the probe can accurately predict the property, it suggests that the LLM's embeddings encode that information in an accessible way.</p>
+    <p><strong>Analogy:</strong> Imagine you're a detective trying to figure out if a complex, encrypted diary (the LLM's internal state) contains information about a specific topic, say, "the weather." Instead of trying to decrypt the whole diary, you take a few sentences, translate them into a simplified code (the embedding), and then train a very simple, small algorithm (the probe) to predict if those sentences were about the weather. If your small algorithm is highly successful, you conclude that "weather information" is present and easily extractable from the diary's simplified code, even if you don't know *how* the main diary uses it.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Probing helps us peer into the "black box" of LLMs. By training a simple, interpretable classifier on LLM embeddings, we can infer what linguistic features (syntax, semantics, sentiment, etc.) are implicitly captured and represented by the LLM at different layers, without needing to understand the LLM's full internal complexity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Probing Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Probing Pipeline</h4>
+    <p>The standard probing methodology follows a clear sequence of steps:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Data Preparation:</strong> Select a dataset where each text input is explicitly labeled with the linguistic property you want to investigate (e.g., sentences labeled with sentiment, words labeled with their part-of-speech).</li>
+      <li><strong>Embedding Extraction:</strong> Pass the text inputs through the target LLM (which is typically frozen, i.e., its weights are not updated). Extract the intermediate representation (embedding vector) from a specific layer for each input. This yields pairs of \((h_i, y_i)\), where \(h_i\) is the LLM embedding and \(y_i\) is the ground-truth label for the property.</li>
+      <li><strong>Probe Training:</strong> Train a simple, often linear, classifier (the "probe") on these \((h_i, y_i)\) pairs. The probe learns to map the LLM's embeddings to the target linguistic labels. Common choices include logistic regression, a single-layer perceptron, or a small feedforward network.</li>
+      <li><strong>Probe Evaluation:</strong> Evaluate the trained probe's performance (e.g., accuracy, F1-score) on a held-out test set. A high score suggests the LLM's embeddings contain readily accessible information about the probed property.</li>
+    </ol>
+
+    <h4>Design Decisions: Why Simplicity Matters</h4>
+    <p>The simplicity of the probe is crucial. If a complex probe (e.g., a deep neural network) achieves high accuracy, it might be learning to *compute* the linguistic property from very raw, unstructured information in the embeddings, rather than simply *reading out* information the LLM already explicitly encoded. A simple probe (like a linear classifier) suggests that the information is organized in a linearly separable fashion within the embedding space, indicating a strong, "explicit" encoding by the LLM itself.</p>
+    <p>Researchers also often probe different layers of an LLM. Early layers might encode more surface-level properties (like word forms), while deeper layers might capture more abstract, semantic, or syntactic information.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Probing is a diagnostic tool for interpretability. The LLM's weights remain fixed during probing; only the probe's weights are trained. This ensures we are measuring what the LLM *already represents*, not teaching the LLM new capabilities or optimizing its performance on the probing task.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math & Theory</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Formalizing the Probing Objective</h4>
+    <p>Let \(f\) be a pre-trained LLM, and \(h = f(x)\) be the embedding vector extracted from a specific layer for input text \(x\). We want to determine if \(h\) contains information about a linguistic property \(y\). A probe \(g\) is a simple classifier, often a linear layer, with parameters \(\theta_g\).</p>
+    <p>The probe's prediction is \(\hat{y} = g(h) = g(f(x))\). We train the probe by minimizing a loss function \(\mathcal{L}\) over a dataset \(D = \{(x_i, y_i)\}_{i=1}^N\):</p>
+    <div class="eq">$$\min_{\theta_g} \sum_{(x_i, y_i) \in D} \mathcal{L}(y_i, g(f(x_i)))$$</div>
+    <p>For a binary classification task (e.g., positive/negative sentiment), \(g\) might be a linear layer followed by a sigmoid activation: \(g(h) = \sigma(w^\top h + b)\). The loss \(\mathcal{L}\) would typically be binary cross-entropy.</p>
+
+    <h4>The Linear Separability Hypothesis</h4>
+    <p>The core assumption behind using simple linear probes is the "linear separability hypothesis." If a linguistic property is encoded in the LLM's embeddings in such a way that examples with different labels for that property can be perfectly (or near-perfectly) separated by a hyperplane in the embedding space, then a linear probe will achieve high accuracy. This implies a clear, disentangled representation of that property within the LLM's internal state.</p>
+    <p>The probe effectively searches for such a hyperplane. If it finds one, it means the LLM has already done the heavy lifting of transforming the raw text into a representation where the desired property is easily discernible.</p>
+
+    <h4>Information Bottleneck and Representational Capacity</h4>
+    <p>Probing is related to the information bottleneck principle. By training a probe, we are asking how much information about \(Y\) is "bottlenecked" through \(H\) (the LLM's embedding space). A high-performing probe means the mutual information \(I(Y; H)\) is high. This can also be seen as an investigation into the *representational capacity* of different LLM layers for various tasks.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">High probe accuracy does <strong>not</strong> necessarily mean the LLM actively *uses* that information for its primary generative task. It only confirms that the information *exists* in the representation. It's a measure of presence, not necessarily of utility or causality. Furthermore, a low probe accuracy doesn't mean the information is absent, only that it's not linearly separable or easily extractable by the chosen simple probe.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize how a linear probe learns to separate LLM embeddings based on a linguistic property. Adjust the "Separability" slider to see how data structure affects probe performance. The probe uses a simple logistic regression update rule.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Embedding Separability</div>
+          <input type="range" id="separabilitySlider" min="0" max="1" step="0.05" value="0.8">
+          <div class="slider-value" id="separabilityValue">0.80</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher values mean the linguistic property is more linearly separable in the embedding space.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Simulated LLM Embeddings</div>
+        <div class="info-desc" id="infoDesc">We simulate 2D LLM embeddings for text snippets, colored by their true linguistic property (e.g., sentiment: positive/negative). The "Separability" slider controls how well this property is linearly encoded.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Class +1 (e.g., Positive)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Class -1 (e.g., Negative)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Current point / Misclassified</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Probe Decision Boundary</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--green-mid)"></div> Optimal Separator (Reference)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use probing:</strong></p>
+    <ul>
+      <li><strong>Interpretability:</strong> To understand what information LLM layers encode (e.g., syntactic trees, semantic roles, factual knowledge).</li>
+      <li><strong>Model Comparison:</strong> To compare different LLM architectures or pre-training objectives by seeing which models better encode certain properties.</li>
+      <li><strong>Emergent Capabilities:</strong> To investigate if complex linguistic phenomena "emerge" in deeper layers of models trained on simpler tasks.</li>
+      <li><strong>Debugging/Diagnosis:</strong> To identify if an LLM is failing at a downstream task because it lacks a crucial upstream linguistic representation.</li>
+    </ul>
+    <p><strong>When NOT to use / Limitations:</strong></p>
+    <ul>
+      <li><strong>Improving LLM Performance:</strong> Probing is an analysis tool, not a training technique to improve the LLM's primary task performance.</li>
+      <li><strong>Over-interpretation:</strong> A high-performing probe doesn't mean the LLM *uses* that information causally for its output, only that it is present.</li>
+      <li><strong>Probe Complexity:</strong> Using overly complex probes can obscure whether the information is truly "explicit" in the embedding or merely learnable by the probe itself.</li>
+      <li><strong>Non-linear Encoding:</strong> If a property is encoded non-linearly, a simple linear probe might show low accuracy even if the information is present. This is a limitation of the probe, not necessarily the LLM.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">Probing classifiers are an indispensable tool in the LLM interpretability toolkit. They offer a systematic, quantitative way to test hypotheses about the internal representations of these powerful, yet opaque, models, allowing researchers to build a clearer picture of their linguistic understanding and capabilities.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python / PyTorch-like)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from torch.utils.data import DataLoader, TensorDataset</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># 1. Assume we have a pre-trained LLM (e.g., BERT, GPT)</div>
+      <div class="code-line" id="cl5"># and a dataset with text inputs and linguistic labels.</div>
+      <div class="code-line" id="cl6"># LLM is frozen: model.eval(), requires_grad=False</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># 2. Extract embeddings (e.g., from the last hidden layer)</div>
+      <div class="code-line" id="cl9"># text_inputs = ["The cat sat.", "A dog barked loudly."]</div>
+      <div class="code-line" id="cl10"># true_labels = [0, 1] # e.g., 0=singular subject, 1=plural subject</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12"># with torch.no_grad():</div>
+      <div class="code-line" id="cl13">#     llm_embeddings = llm_model(text_inputs).last_hidden_state[:, 0, :]</div>
+      <div class="code-line" id="cl14">#     # (batch_size, embedding_dim)</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16"># For this example, let's use simulated embeddings and labels</div>
+      <div class="code-line" id="cl17">embedding_dim = 768</div>
+      <div class="code-line" id="cl18">num_samples = 1000</div>
+      <div class="code-line" id="cl19">llm_embeddings = torch.randn(num_samples, embedding_dim)</div>
+      <div class="code-line" id="cl20">true_labels = torch.randint(0, 2, (num_samples,)) # Binary labels</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># Create DataLoader</div>
+      <div class="code-line" id="cl23">dataset = TensorDataset(llm_embeddings, true_labels)</div>
+      <div class="code-line" id="cl24">dataloader = DataLoader(dataset, batch_size=32, shuffle=True)</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># 3. Define a simple linear probe classifier</div>
+      <div class="code-line" id="cl27">class LinearProbe(nn.Module):</div>
+      <div class="code-line" id="cl28">    def __init__(self, input_dim, num_classes):</div>
+      <div class="code-line" id="cl29">        super().__init__()</div>
+      <div class="code-line" id="cl30">        self.linear = nn.Linear(input_dim, num_classes)</div>
+      <div class="code-line" id="cl31"></div>
+      <div class="code-line" id="cl32">    def forward(self, x):</div>
+      <div class="code-line" id="cl33">        return self.linear(x)</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35">probe = LinearProbe(embedding_dim, num_classes=2)</div>
+      <div class="code-line" id="cl36">optimizer = torch.optim.Adam(probe.parameters(), lr=0.001)</div>
+      <div class="code-line" id="cl37">loss_fn = nn.CrossEntropyLoss()</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39"># 4. Train the probe</div>
+      <div class="code-line" id="cl40">num_epochs = 10</div>
+      <div class="code-line" id="cl41">for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl42">    for batch_embeddings, batch_labels in dataloader:</div>
+      <div class="code-line" id="cl43">        optimizer.zero_grad()</div>
+      <div class="code-line" id="cl44">        outputs = probe(batch_embeddings)</div>
+      <div class="code-line" id="cl45">        loss = loss_fn(outputs, batch_labels)</div>
+      <div class="code-line" id="cl46">        loss.backward()</div>
+      <div class="code-line" id="cl47">        optimizer.step()</div>
+      <div class="code-line" id="cl48"></div>
+      <div class="code-line" id="cl49"># 5. Evaluate the probe</div>
+      <div class="code-line" id="cl50">probe.eval()</div>
+      <div class="code-line" id="cl51">with torch.no_grad():</div>
+      <div class="code-line" id="cl52">    total_correct = 0</div>
+      <div class="code-line" id="cl53">    for batch_embeddings, batch_labels in dataloader:</div>
+      <div class="code-line" id="cl54">        outputs = probe(batch_embeddings)</div>
+      <div class="code-line" id="cl55">        _, predicted = torch.max(outputs.data, 1)</div>
+      <div class="code-line" id="cl56">        total_correct += (predicted == batch_labels).sum().item()</div>
+      <div class="code-line" id="cl57">    accuracy = total_correct / num_samples</div>
+      <div class="code-line" id="cl58">    print(f"Probe Accuracy: {accuracy:.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentSeed = 42;
+let rng = mulberry32(currentSeed);
+function resetRNG() { rng = mulberry32(currentSeed); }
+
+// ── DATA GENERATION ──
+const NUM_POINTS = 100;
+let points = [];
+let probeW = [0, 0]; // [wx, wy]
+let probeB = 0; // bias
+let learningRate = 0.1;
+
+function generateData(separability, numPoints = NUM_POINTS) {
+  resetRNG(); // Reset RNG for reproducible data when separability changes
+  points = [];
+  const idealSlope = 1; // Fixed ideal separator for consistent visualization
+  const idealIntercept = 0;
+
+  for (let i = 0; i < numPoints; i++) {
+    let x, y, label;
+
+    // Generate points around an ideal separator y = idealSlope * x + idealIntercept
+    // Add noise based on separability
+    const base_x = rng() * 10 - 5; // x from -5 to 5
+    const ideal_y = idealSlope * base_x + idealIntercept;
+
+    const noise_magnitude = (1 - separability) * 3; // Max noise when separability is 0
+    y = ideal_y + (rng() * 2 - 1) * noise_magnitude;
+
+    // Assign label based on position relative to ideal separator
+    label = (y > (idealSlope * base_x + idealIntercept)) ? 1 : -1;
+
+    // Add some random scatter to x to make it less perfectly diagonal
+    x = base_x + (rng() * 2 - 1) * 0.5 * (1 - separability);
+
+    points.push({ x, y, label, originalX: x, originalY: y });
+  }
+  // Compute optimal separator for reference
+  // In 2D, if data is generated around a line, the original line is the optimal separator
+  // For simplicity, we'll use the line we generated the data around as the "optimal" one
+  return {
+    optimalW: [idealSlope, -1], // wx*x + wy*y + b = 0 => y = wx/(-wy) * x + b/(-wy)
+    optimalB: idealIntercept,
+    points: points
+  };
+}
+
+// ── PROBE LOGIC (Simple Logistic Regression-like update) ──
+function predict(x, y, w, b) {
+  return w[0] * x + w[1] * y + b;
+}
+
+function sigmoid(z) {
+  return 1 / (1 + Math.exp(-z));
+}
+
+function trainProbeStep(currentProbe, point) {
+  const { x, y, label } = point;
+  const activation = predict(x, y, currentProbe.w, currentProbe.b);
+  const predictionProb = sigmoid(activation);
+
+  // Binary Cross-Entropy Loss derivative w.r.t. activation
+  // dL/d_activation = predictionProb - (label == 1 ? 1 : 0)
+  const error = predictionProb - (label === 1 ? 1 : 0);
+
+  // Update weights and bias using gradient descent
+  currentProbe.w[0] -= learningRate * error * x;
+  currentProbe.w[1] -= learningRate * error * y;
+  currentProbe.b -= learningRate * error;
+
+  return currentProbe;
+}
+
+function evaluateProbe(w, b) {
+  let correct = 0;
+  points.forEach(p => {
+    const activation = predict(p.x, p.y, w, b);
+    const predictedLabel = activation > 0 ? 1 : -1;
+    if (predictedLabel === p.label) {
+      correct++;
+    }
+  });
+  return correct / points.length;
+}
+
+// ── STEP DEFINITIONS ──
+let probeHistory = [];
+let optimalSeparator = { optimalW: [0,0], optimalB: 0 };
+let currentSeparability = 0.8;
+
+function initSimulation() {
+  currentSeed = Math.floor(Math.random() * 100000); // New seed for full reset
+  rng = mulberry32(currentSeed);
+  probeW = [rng() * 2 - 1, rng() * 2 - 1];
+  probeB = rng() * 2 - 1;
+  learningRate = 0.1;
+
+  optimalSeparator = generateData(currentSeparability);
+  points = optimalSeparator.points;
+
+  probeHistory = [];
+  probeHistory.push({
+    w: [...probeW], b: probeB,
+    currentPointIndex: -1,
+    accuracy: evaluateProbe(probeW, probeB),
+    epoch: 0,
+    mistake: false
+  });
+
+  // Simulate training steps for the visualization
+  let currentProbe = { w: [...probeW], b: probeB };
+  let currentAccuracy = probeHistory[0].accuracy;
+  let epoch = 0;
+  const MAX_TRAINING_STEPS = NUM_POINTS * 5; // Max 5 epochs for the visualizer
+
+  for (let i = 0; i < MAX_TRAINING_STEPS; i++) {
+    const pointIndex = i % NUM_POINTS;
+    const point = points[pointIndex];
+
+    const activation = predict(point.x, point.y, currentProbe.w, currentProbe.b);
+    const predictedLabel = activation > 0 ? 1 : -1;
+    const isMistake = predictedLabel !== point.label;
+
+    let mistakeMade = false;
+    if (isMistake) {
+      currentProbe = trainProbeStep(currentProbe, point);
+      mistakeMade = true;
+    }
+
+    const newAccuracy = evaluateProbe(currentProbe.w, currentProbe.b);
+    probeHistory.push({
+      w: [...currentProbe.w], b: currentProbe.b,
+      currentPointIndex: pointIndex,
+      accuracy: newAccuracy,
+      epoch: Math.floor(i / NUM_POINTS),
+      mistake: mistakeMade
+    });
+
+    if (newAccuracy === 1.0 && !mistakeMade) { // Converged and no mistake in this step
+      // Add a few more steps to show stability
+      for (let j = 0; j < NUM_POINTS * 0.5; j++) {
+        probeHistory.push({
+          w: [...currentProbe.w], b: currentProbe.b,
+          currentPointIndex: (pointIndex + j + 1) % NUM_POINTS,
+          accuracy: 1.0,
+          epoch: Math.floor((i + j + 1) / NUM_POINTS),
+          mistake: false
+        });
+      }
+      break;
+    }
+  }
+}
+
+const steps = [
+  { phase:'setup', title:'Simulated LLM Embeddings', mode:'data',
+    desc:'We simulate 2D LLM embeddings for text snippets, colored by their true linguistic property (e.g., sentiment: positive/negative). The "Separability" slider controls how well this property is linearly encoded. The green line shows the *optimal* (ground truth) separator.' },
+  { phase:'probe', title:'Initialize the Linear Probe', mode:'probe_init',
+    desc:'A linear probe is a simple classifier (e.g., logistic regression) with weights \\(w\\) and bias \\(b\\). It starts with random parameters, resulting in a random decision boundary (purple line). Its goal is to learn to separate the classes in the embedding space.' },
+  { phase:'train', title:'Forward Pass: Predict for a Point', mode:'forward',
+    desc:'The probe takes an embedding \\((x, y)\\) and computes an activation: \\(z = w_x x + w_y y + b\\). For binary classification, this is passed through a sigmoid to get a probability. If \\(z > 0\\) it predicts +1, otherwise -1. Here, the highlighted point is being evaluated.' },
+  { phase:'train', title:'Identify Misclassification', mode:'mistake',
+    desc:'The probe\'s prediction for the highlighted point is compared to its true label. If they mismatch (as shown here), it\'s a misclassification. This error signals the need for an update to the probe\'s parameters.' },
+  { phase:'train', title:'Backward Pass: Compute Gradients', mode:'gradient',
+    desc:'Based on the misclassification, the probe calculates gradients \\(\\partial L / \\partial w_x\\), \\(\\partial L / \\partial w_y\\), and \\(\\partial L / \\partial b\\). These gradients tell us how to adjust \\(w\\) and \\(b\\) to reduce the error for this specific point. The gradient for \\(w_x\\) is proportional to \\(x\\), for \\(w_y\\) to \\(y\\), and for \\(b\\) is constant.' },
+  { phase:'train', title:'Update Probe Parameters', mode:'update',
+    desc:'The probe\'s weights \\(w\\) and bias \\(b\\) are updated using an optimizer (e.g., Stochastic Gradient Descent): \\(w \\leftarrow w - \\eta \\nabla_w L\\), \\(b \\leftarrow b - \\eta \\nabla_b L\\). This shifts the decision boundary (purple line) to better classify the misclassified point.' },
+  { phase:'train', title:'Iterative Training', mode:'iterate',
+    desc:'The process of forward pass, error detection, gradient computation, and parameter update repeats for many points over multiple epochs. Each update nudges the decision boundary, slowly improving the probe\'s ability to separate the classes.' },
+  { phase:'eval', title:'Probe Evaluation: Final Accuracy', mode:'final',
+    desc:'After training, the probe\'s accuracy is evaluated on the entire dataset. A high accuracy indicates that the LLM\'s embeddings encode the linguistic property in a linearly separable way, making it easily extractable by a simple probe.' }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i=0;i<totalSteps;i++){
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAV ──
+function go(dir) { const n = step+dir; if (n<0||n>=totalSteps) return; step=n; render(); }
+function goTo(i) { step=i; render(); }
+function reset() { step=0; currentSeparability = 0.8; document.getElementById('separabilitySlider').value = 0.8; updateSeparabilityLabel(); initSimulation(); render(); }
+
+// ── SLIDER ──
+const separabilitySlider = document.getElementById('separabilitySlider');
+separabilitySlider.addEventListener('input', () => {
+  currentSeparability = parseFloat(separabilitySlider.value);
+  updateSeparabilityLabel();
+  initSimulation(); // Re-generate data and re-train probe
+  if (step > 0) step = 0; // Reset step to start of viz if data changes
+  render();
+});
+
+function updateSeparabilityLabel() {
+  document.getElementById('separabilityValue').textContent = currentSeparability.toFixed(2);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step===0;
+  document.getElementById('btnNext').disabled = step===totalSteps-1;
+
+  const phaseMap = {setup:'phase-setup', probe:'phase-probe', train:'phase-train', eval:'phase-eval', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+const WORLD_X = 5; // x from -5 to 5
+const WORLD_Y = 5; // y from -5 to 5
+
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const colors = getColors();
+
+  // Coordinate transformation
+  const toCanvasX = (val) => (val + WORLD_X) / (2 * WORLD_X) * W;
+  const toCanvasY = (val) => H - (val + WORLD_Y) / (2 * WORLD_Y) * H;
+  const fromCanvasX = (val) => (val / W) * (2 * WORLD_X) - WORLD_X;
+  const fromCanvasY = (val) => (H - val) / H * (2 * WORLD_Y) - WORLD_Y;
+
+  // Draw axes
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(toCanvasX(-WORLD_X), toCanvasY(0)); ctx.lineTo(toCanvasX(WORLD_X), toCanvasY(0)); // X axis
+  ctx.moveTo(toCanvasX(0), toCanvasY(-WORLD_Y)); ctx.lineTo(toCanvasX(0), toCanvasY(WORLD_Y)); // Y axis
+  ctx.stroke();
+
+  ctx.fillStyle = colors.text3;
+  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  ctx.fillText('X (Embedding Dim 1)', W/2, H - 10);
+  ctx.save();
+  ctx.translate(15, H/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('Y (Embedding Dim 2)', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+
+  // Draw optimal separator (green line)
+  ctx.strokeStyle = colors.green;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath();
+  const ox1 = -WORLD_X, oy1 = (-optimalSeparator.optimalW[0] * ox1 - optimalSeparator.optimalB) / optimalSeparator.optimalW[1];
+  const ox2 = WORLD_X, oy2 = (-optimalSeparator.optimalW[0] * ox2 - optimalSeparator.optimalB) / optimalSeparator.optimalW[1];
+  ctx.moveTo(toCanvasX(ox1), toCanvasY(oy1));
+  ctx.lineTo(toCanvasX(ox2), toCanvasY(oy2));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Get current probe state
+  const currentProbeState = probeHistory[Math.min(step, probeHistory.length - 1)];
+  const currentW = currentProbeState.w;
+  const currentB = currentProbeState.b;
+  const currentPointIndex = currentProbeState.currentPointIndex;
+
+  // Draw probe decision boundary (purple line)
+  ctx.strokeStyle = colors.purple;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const px1 = -WORLD_X, py1 = (-currentW[0] * px1 - currentB) / currentW[1];
+  const px2 = WORLD_X, py2 = (-currentW[0] * px2 - currentB) / currentW[1];
+  ctx.moveTo(toCanvasX(px1), toCanvasY(py1));
+  ctx.lineTo(toCanvasX(px2), toCanvasY(py2));
+  ctx.stroke();
+
+  // Draw points
+  points.forEach((p, i) => {
+    const cx = toCanvasX(p.x);
+    const cy = toCanvasY(p.y);
+    const isHighlighted = (s.mode === 'forward' || s.mode === 'mistake' || s.mode === 'gradient' || s.mode === 'update') && (i === currentPointIndex);
+    const isMisclassified = isHighlighted && currentProbeState.mistake;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, isHighlighted ? 8 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = p.label === 1 ? colors.blue : colors.red;
+    ctx.fill();
+    ctx.strokeStyle = colors.surface;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    if (isHighlighted) {
+      ctx.strokeStyle = colors.amber;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  });
+
+  // Info numbers
+  let infoLines = [];
+  infoLines.push(`Probe Weights (wx, wy): (${currentW[0].toFixed(2)}, ${currentW[1].toFixed(2)})`);
+  infoLines.push(`Probe Bias (b): ${currentB.toFixed(2)}`);
+  infoLines.push(`Probe Accuracy: ${(currentProbeState.accuracy * 100).toFixed(1)}%`);
+  if (currentPointIndex !== -1 && (s.mode === 'forward' || s.mode === 'mistake' || s.mode === 'gradient' || s.mode === 'update')) {
+    const p = points[currentPointIndex];
+    const activation = predict(p.x, p.y, currentW, currentB);
+    const predictedLabel = activation > 0 ? 1 : -1;
+    infoLines.push(`---`);
+    infoLines.push(`Current Point (x, y): (${p.x.toFixed(2)}, ${p.y.toFixed(2)})`);
+    infoLines.push(`True Label: ${p.label === 1 ? '+1' : '-1'}`);
+    infoLines.push(`Probe Activation: ${activation.toFixed(2)}`);
+    infoLines.push(`Probe Prediction: ${predictedLabel === 1 ? '+1' : '-1'}`);
+    infoLines.push(`Misclassified: ${currentProbeState.mistake ? 'Yes' : 'No'}`);
+  }
+  document.getElementById('infoNumbers').textContent = infoLines.join('\n');
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initSimulation(); // Initial data and probe training simulation
+updateSeparabilityLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

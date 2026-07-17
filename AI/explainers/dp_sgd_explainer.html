@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DP-SGD: Training with Privacy Guarantees — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-grad{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-clip{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-noise{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-update{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>DP-SGD: Training with Privacy Guarantees</h1>
+  <div class="subtitle">Differentially private stochastic gradient descent: clipping gradients and adding noise</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Privacy</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(N) per step</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding DP-SGD</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> DP-SGD (Differentially Private Stochastic Gradient Descent) is a modification of the standard SGD algorithm that provides a mathematical guarantee of privacy for individual training data points. It ensures that the trained model's parameters reveal very little about any single person's data, protecting against membership inference attacks and other privacy breaches.</p>
+    <p><strong>Analogy:</strong> Imagine a group of chefs (the model) learning to bake a cake (the task) from individual recipes (data points). Standard SGD lets each chef taste a recipe and adjust their technique. If one chef has a very unique, secret ingredient, the final cake might subtly hint at that ingredient. DP-SGD is like making sure each chef only gives feedback that's capped in intensity (gradient clipping) and then mixing all the feedback with a bit of random noise before adjusting the master recipe. This way, no single secret ingredient can be easily reverse-engineered from the final cake.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">DP-SGD protects privacy by two main mechanisms during gradient computation: <strong>clipping individual gradients</strong> to a maximum L2 norm (to limit influence) and <strong>adding Gaussian noise</strong> to the aggregated gradients (to obscure individual contributions). This ensures that adding or removing a single data point from the training set has a negligible effect on the final model, quantified by the privacy budget \((\epsilon, \delta)\).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How DP-SGD Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Standard SGD Update</h4>
+    <p>In standard SGD, for each batch of data, we compute the gradient of the loss with respect to the model parameters \(\nabla L(w)\), and update the weights as \(w_{t+1} = w_t - \eta \nabla L(w_t)\). The batch gradient is typically an average of individual gradients: \(\nabla L(w) = \frac{1}{N} \sum_{i=1}^N \nabla L_i(w)\).</p>
+
+    <h4>The DP-SGD Modifications</h4>
+    <p>DP-SGD modifies this process in three key ways, applied per mini-batch:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Compute per-example gradients:</strong> Instead of a single batch gradient, compute \(\nabla L_i(w)\) for each individual data point \(x_i\) in the mini-batch.</li>
+      <li><strong>Clip individual gradients:</strong> For each \(\nabla L_i(w)\), if its L2 norm \(\|\nabla L_i(w)\|_2\) exceeds a predefined clipping threshold \(C\), scale it down so its norm is exactly \(C\). This limits the maximum influence any single example can have.</li>
+      <li><strong>Average and add noise:</strong> Sum the clipped gradients, then add Gaussian noise with scale \(\sigma C\) to this sum. Finally, divide by the batch size \(N\) to get the noisy average gradient, which is then used for the weight update.</li>
+    </ol>
+    <p>This process guarantees that the model update is almost indistinguishable whether a specific data point was included or excluded from the training set, thus providing differential privacy.</p>
+
+    <h4>Design Decision: Why Clip *Before* Noise?</h4>
+    <p>Clipping is crucial because differential privacy requires bounding the "sensitivity" of the query (in this case, the gradient computation). If individual gradients could be arbitrarily large, the noise required to mask them would also have to be arbitrarily large, making the training ineffective. Clipping sets an upper bound on the influence of any single example, allowing a fixed amount of noise to provide meaningful privacy guarantees.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The privacy budget \((\epsilon, \delta)\) in DP-SGD is not fixed per step, but <strong>accumulates</strong> over the entire training process. Lower noise \(\sigma\) or smaller clipping threshold \(C\) (relative to gradient magnitudes) generally lead to a tighter privacy budget (smaller \(\epsilon\)), but can hurt model utility. There's a fundamental trade-off between privacy and accuracy.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The DP-SGD Update Rule</h4>
+    <p>For each training step \(t\), given current weights \(w_t\) and a mini-batch of \(N\) examples \(B = \{x_1, \dots, x_N\}\):</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Individual Gradients:</strong> Compute \(\nabla L_i(w_t)\) for each \(x_i \in B\).</li>
+      <li><strong>Clipping:</strong> For each \(i\), define the clipped gradient \(\tilde{g}_i\) as:
+        <div class="eq">$$\tilde{g}_i = \frac{\nabla L_i(w_t)}{\max\left(1, \frac{\|\nabla L_i(w_t)\|_2}{C}\right)}$$</div>
+        This ensures that \(\|\tilde{g}_i\|_2 \le C\).
+      </li>
+      <li><strong>Noise Addition and Averaging:</strong> Compute the noisy average gradient \(\hat{g}_t\):
+        <div class="eq">$$\hat{g}_t = \frac{1}{N} \left( \sum_{i=1}^N \tilde{g}_i + \mathcal{N}(0, \sigma^2 C^2 I) \right)$$</div>
+        Here, \(\mathcal{N}(0, \sigma^2 C^2 I)\) represents a Gaussian noise vector where each dimension is drawn independently from \(\mathcal{N}(0, \sigma^2 C^2)\). Note that the noise scale is proportional to \(C\).
+      </li>
+      <li><strong>Weight Update:</strong> Update the model weights:
+        <div class="eq">$$w_{t+1} = w_t - \eta \hat{g}_t$$</div>
+        where \(\eta\) is the learning rate.
+      </li>
+    </ol>
+
+    <h4>Privacy Accounting (\(\epsilon, \delta\))</h4>
+    <p>The privacy guarantee is typically expressed using \(( \epsilon, \delta ) \)-differential privacy. For DP-SGD, the total \(\epsilon\) and \(\delta\) after \(T\) steps are usually computed using a composition theorem, often with advanced techniques like Rényi Differential Privacy (RDP) accounting. The key parameters influencing privacy are:</p>
+    <ul>
+      <li><strong>Noise Multiplier \(\sigma\):</strong> Higher \(\sigma\) means more noise, leading to smaller \(\epsilon\) (better privacy).</li>
+      <li><strong>Clipping Threshold \(C\):</strong> Defines the maximum sensitivity of gradients.</li>
+      <li><strong>Sampling Probability \(q\):</strong> The fraction of data points sampled in each mini-batch (\(q = N / |\text{Dataset}|\)). Smaller batches (smaller \(q\)) generally offer better privacy.</li>
+      <li><strong>Number of Epochs/Steps \(T\):</strong> Privacy budget accumulates with more steps.</li>
+    </ul>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Choosing the right hyperparameters (\(C\), \(\sigma\), \(\eta\)) for DP-SGD is notoriously difficult. A high \(\sigma\) (more noise) improves privacy but often dramatically reduces model accuracy. A low \(C\) (aggressive clipping) also improves privacy but can distort gradients and slow down convergence. Finding the optimal balance for a given task and privacy budget often requires extensive tuning and understanding of the data's gradient distribution.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Visualize one step of DP-SGD on a simple 2D binary classification problem. Adjust the clipping threshold, noise scale, and learning rate to see their effects on the gradient and decision boundary.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Clipping Threshold C</div>
+          <input type="range" id="clipSlider" min="0.1" max="5" step="0.1" value="1.0">
+          <div class="slider-value" id="clipValue">1.0</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Noise Scale σ</div>
+          <input type="range" id="noiseSlider" min="0" max="2" step="0.05" value="0.5">
+          <div class="slider-value" id="noiseValue">0.5</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">Learning Rate η</div>
+          <input type="range" id="lrSlider" min="0.01" max="0.5" step="0.01" value="0.1">
+          <div class="slider-value" id="lrValue">0.1</div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial Model & Data</div>
+        <div class="info-desc" id="infoDesc">We have 10 data points (5 positive, 5 negative) and an initial linear model (decision boundary).</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Class +1</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Class -1</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Decision Boundary</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Individual Gradient</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Clipped Gradient</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Noisy Avg Gradient</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use DP-SGD:</strong></p>
+    <ul>
+      <li>When training on sensitive user data (e.g., medical records, financial data, personal communications) where strong privacy guarantees are legally or ethically required.</li>
+      <li>When the risk of membership inference attacks or reconstruction attacks on the training data is a concern.</li>
+      <li>In federated learning settings where models are trained on decentralized user data, to protect individual client contributions.</li>
+    </ul>
+    <p><strong>When NOT to use / Challenges:</strong></p>
+    <ul>
+      <li>When model accuracy is paramount and a slight drop in performance is unacceptable. DP-SGD almost always introduces some utility cost.</li>
+      <li>For very small datasets, as the noise can easily overwhelm the signal.</li>
+      <li>When computational resources are extremely limited, as per-example gradient computation and clipping add overhead.</li>
+      <li>When fine-tuning pre-trained models, as the privacy budget can quickly accumulate, and it's unclear how much privacy is truly gained for the fine-tuning data if the base model was not privately trained.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Privacy-Utility Trade-off</div>
+      <p style="font-size:14px;margin:0;">DP-SGD offers a powerful privacy guarantee, but it comes at a cost. The parameters \(C\) and \(\sigma\) directly control this trade-off: increasing \(\sigma\) (more noise) or decreasing \(C\) (more aggressive clipping) improves privacy (smaller \(\epsilon\)) but typically reduces the model's utility (accuracy/performance). The art of using DP-SGD lies in carefully balancing these factors to achieve an acceptable level of privacy without rendering the model useless.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Pseudocode)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">from opacus.accountants import RDPAccountant # For privacy accounting</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># Hyperparameters for DP-SGD</div>
+      <div class="code-line" id="cl5">clip_norm = 1.0     # C: L2 clipping threshold</div>
+      <div class="code-line" id="cl6">noise_multiplier = 0.5 # σ: Noise scale</div>
+      <div class="code-line" id="cl7">learning_rate = 0.1 # η</div>
+      <div class="code-line" id="cl8">batch_size = 64</div>
+      <div class="code-line" id="cl9">num_epochs = 10</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">model = nn.Linear(input_dim, output_dim)</div>
+      <div class="code-line" id="cl12">optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)</div>
+      <div class="code-line" id="cl13">criterion = nn.BCEWithLogitsLoss(reduction='none') # important: no reduction for per-example gradients</div>
+      <div class="code-line" id="cl14">accountant = RDPAccountant()</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16">for epoch in range(num_epochs):</div>
+      <div class="code-line" id="cl17">    for i, (data, target) in enumerate(dataloader):</div>
+      <div class="code-line" id="cl18">        optimizer.zero_grad()</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        # 1. Compute per-example gradients</div>
+      <div class="code-line" id="cl21">        logits = model(data)</div>
+      <div class="code-line" id="cl22">        losses = criterion(logits, target) # (batch_size,) tensor of individual losses</div>
+      <div class="code-line" id="cl23">        per_sample_gradients = []</div>
+      <div class="code-line" id="cl24">        for loss in losses:</div>
+      <div class="code-line" id="cl25">            loss.backward(retain_graph=True) # Compute gradient for each loss</div>
+      <div class="code-line" id="cl26">            flat_grad = torch.cat([p.grad.flatten() for p in model.parameters()])</div>
+      <div class="code-line" id="cl27">            per_sample_gradients.append(flat_grad)</div>
+      <div class="code-line" id="cl28">            model.zero_grad() # Clear for next sample's gradient</div>
+      <div class="code-line" id="cl29">        per_sample_gradients = torch.stack(per_sample_gradients) # (batch_size, grad_dim)</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31">        # 2. Clip individual gradients</div>
+      <div class="code-line" id="cl32">        l2_norms = per_sample_gradients.norm(2, dim=1, keepdim=True)</div>
+      <div class="code-line" id="cl33">        clipping_factor = torch.min(torch.ones_like(l2_norms), clip_norm / l2_norms)</div>
+      <div class="code-line" id="cl34">        clipped_gradients = per_sample_gradients * clipping_factor</div>
+      <div class="code-line" id="cl35"></div>
+      <div class="code-line" id="cl36">        # 3. Aggregate and add Gaussian noise</div>
+      <div class="code-line" id="cl37">        sum_clipped_gradients = clipped_gradients.sum(dim=0)</div>
+      <div class="code-line" id="cl38">        noise = torch.randn_like(sum_clipped_gradients) * noise_multiplier * clip_norm</div>
+      <div class="code-line" id="cl39">        noisy_gradient = (sum_clipped_gradients + noise) / batch_size</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41">        # 4. Apply noisy gradient to model parameters</div>
+      <div class="code-line" id="cl42">        # Manually set gradients for optimizer step (or use a custom DP optimizer)</div>
+      <div class="code-line" id="cl43">        start_idx = 0</div>
+      <div class="code-line" id="cl44">        for p in model.parameters():</div>
+      <div class="code-line" id="cl45">            param_grad_len = p.numel()</div>
+      <div class="code-line" id="cl46">            p.grad = noisy_gradient[start_idx : start_idx + param_grad_len].reshape(p.shape)</div>
+      <div class="code-line" id="cl47">            start_idx += param_grad_len</div>
+      <div class="code-line" id="cl48"></div>
+      <div class="code-line" id="cl49">        optimizer.step()</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">        # 5. Account for privacy budget</div>
+      <div class="code-line" id="cl52">        accountant.step(noise_multiplier=noise_multiplier, sample_rate=batch_size/len(dataset))</div>
+      <div class="code-line" id="cl53"></div>
+      <div class="code-line" id="cl54"># After training, query the privacy budget</div>
+      <div class="code-line" id="cl55">epsilon, delta = accountant.get_epsilon(delta=1e-5)</div>
+      <div class="code-line" id="cl56">print(f"Trained with (ε={epsilon:.2f}, δ={delta})")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILITY FUNCTIONS ──
+function randRange(min, max) { return Math.random() * (max - min) + min; }
+function vecAdd(v1, v2) { return v1.map((x, i) => x + v2[i]); }
+function vecSub(v1, v2) { return v1.map((x, i) => x - v2[i]); }
+function vecScale(v, s) { return v.map(x => x * s); }
+function vecNorm(v) { return Math.sqrt(v.reduce((sum, x) => sum + x * x, 0)); }
+function vecNormalize(v) { const n = vecNorm(v); return n === 0 ? v.map(() => 0) : v.map(x => x / n); }
+function dot(v1, v2) { return v1[0] * v2[0] + v1[1] * v2[1]; }
+
+// Box-Muller transform for Gaussian noise
+function gaussianRandom(mean = 0, stdev = 1) {
+  let u = 0, v = 0;
+  while(u === 0) u = Math.random(); // Converting [0,1) to (0,1)
+  while(v === 0) v = Math.random();
+  let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return num * stdev + mean;
+}
+
+// ── DATA & MODEL (Linear Regression/Classification) ──
+const dataPoints = [
+  {x: 1.5, y: 3.5, label: 1}, {x: 2.0, y: 4.0, label: 1}, {x: 2.5, y: 3.0, label: 1},
+  {x: 1.0, y: 2.0, label: 1}, {x: 3.0, y: 2.5, label: 1},
+  {x: 4.0, y: 1.0, label: -1}, {x: 4.5, y: 0.5, label: -1}, {x: 5.0, y: 1.5, label: -1},
+  {x: 3.5, y: 0.0, label: -1}, {x: 5.5, y: 2.0, label: -1}
+];
+const N_BATCH = dataPoints.length; // For simplicity, batch size is full dataset
+
+let currentWeights = {w: [-0.5, 0.5], b: 1.5}; // Initial model parameters
+
+// Loss function (Binary Cross-Entropy with Logits for a linear model)
+// For a point (x,y) and model w = [w0, w1], b, prediction is score = w0*x + w1*y + b
+// Loss is log(1 + exp(-label * score))
+function computeLoss(point, weights) {
+  const score = dot([point.x, point.y], weights.w) + weights.b;
+  return Math.log(1 + Math.exp(-point.label * score));
+}
+
+// Gradient of loss w.r.t. w and b for a single point
+// dL/dw_j = -label * x_j * sigmoid(-label * score)
+// dL/db = -label * sigmoid(-label * score)
+function computeIndividualGradient(point, weights) {
+  const score = dot([point.x, point.y], weights.w) + weights.b;
+  const sigmoid_val = 1 / (1 + Math.exp(point.label * score)); // sigmoid(-label * score)
+  return {
+    w: vecScale([point.x, point.y], -point.label * sigmoid_val),
+    b: -point.label * sigmoid_val
+  };
+}
+
+// Combine w and b gradients into a single vector for clipping
+function flattenGradient(grad) { return [...grad.w, grad.b]; }
+function unflattenGradient(flatGrad) { return {w: [flatGrad[0], flatGrad[1]], b: flatGrad[2]}; }
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Model & Data',
+    desc: 'We have 10 2D data points (blue for +1, red for -1) and an initial linear model. The purple line represents the decision boundary where the model output is zero. Points on one side are classified +1, the other -1. We will simulate one DP-SGD step.',
+    codeLines: [],
+    canvasMode: 'init',
+  },
+  {
+    phase: 'grad', title: 'Compute Individual Gradients',
+    desc: 'For each data point, we compute the gradient of the loss function with respect to the model parameters (weights and bias). These gradients (amber arrows) point in the direction that would reduce the loss for that specific data point.',
+    codeLines: [],
+    canvasMode: 'gradients',
+  },
+  {
+    phase: 'clip', title: 'Visualize Clipping Threshold',
+    desc: 'Differential privacy requires bounding the influence of any single data point. We define a clipping threshold C (white circle). Any individual gradient whose L2 norm (length) exceeds C must be scaled down to have norm C.',
+    codeLines: [20,21,22,23,24,25,26,27,28,29,30,31,32,33,34],
+    canvasMode: 'clipping_viz',
+  },
+  {
+    phase: 'clip', title: 'Apply Gradient Clipping',
+    desc: 'Gradients that exceeded the clipping threshold C are now scaled down (red arrows). Their direction remains the same, but their magnitude is capped. This ensures no single data point, however "outlying", can disproportionately influence the model update.',
+    codeLines: [31,32,33,34],
+    canvasMode: 'clipped_gradients',
+  },
+  {
+    phase: 'noise', title: 'Aggregate Clipped Gradients',
+    desc: 'After clipping, we sum all the individual (now clipped) gradients. This sum represents the overall direction for the model update, but it still carries information about individual data points.',
+    codeLines: [37],
+    canvasMode: 'aggregated_gradient',
+  },
+  {
+    phase: 'noise', title: 'Add Gaussian Noise',
+    desc: 'To further obscure individual contributions and achieve differential privacy, Gaussian noise is added to the aggregated gradient. The magnitude of this noise (green arrow) is controlled by the noise scale σ and clipping threshold C.',
+    codeLines: [38],
+    canvasMode: 'noisy_gradient',
+  },
+  {
+    phase: 'update', title: 'Apply Noisy Gradient Update',
+    desc: 'The model weights are updated using this noisy, aggregated gradient. The learning rate η controls the step size. The new decision boundary (purple line) reflects the privacy-preserving update.',
+    codeLines: [39,40,41,42,43,44,45,46,47,48,49],
+    canvasMode: 'updated_model',
+  },
+  {
+    phase: 'result', title: 'Privacy-Utility Trade-off',
+    desc: 'This single step consumed a portion of the privacy budget. A higher noise scale (σ) or lower clipping threshold (C) improves privacy but can make the model converge slower or to a lower accuracy. Finding the right balance is key.',
+    codeLines: [51,52,53,54,55,56],
+    canvasMode: 'updated_model',
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── SLIDER CONTROLS ──
+const clipSlider = document.getElementById('clipSlider');
+const noiseSlider = document.getElementById('noiseSlider');
+const lrSlider = document.getElementById('lrSlider');
+
+[clipSlider, noiseSlider, lrSlider].forEach(slider => {
+  slider.addEventListener('input', () => {
+    updateSliderLabels();
+    render();
+  });
+});
+
+function updateSliderLabels() {
+  document.getElementById('clipValue').textContent = parseFloat(clipSlider.value).toFixed(1);
+  document.getElementById('noiseValue').textContent = parseFloat(noiseSlider.value).toFixed(2);
+  document.getElementById('lrValue').textContent = parseFloat(lrSlider.value).toFixed(2);
+}
+
+// ── DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  currentWeights = {w: [-0.5, 0.5], b: 1.5}; // Reset to initial weights
+  clipSlider.value = 1.0;
+  noiseSlider.value = 0.5;
+  lrSlider.value = 0.1;
+  updateSliderLabels();
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup', grad: 'phase-grad', clip: 'phase-clip',
+    noise: 'phase-noise', update: 'phase-update', result: 'phase-result'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+let canvasData = {}; // Store computed gradients etc. for re-drawing
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  // Coordinate transformation: World coords [-1, 6] to Canvas
+  const WORLD_MIN_X = -1, WORLD_MAX_X = 6;
+  const WORLD_MIN_Y = -1, WORLD_MAX_Y = 6;
+  const PAD_X = W * 0.08, PAD_Y = H * 0.08;
+  const DRAW_W = W - 2 * PAD_X, DRAW_H = H - 2 * PAD_Y;
+
+  const toCanvasX = (wx) => PAD_X + (wx - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X) * DRAW_W;
+  const toCanvasY = (wy) => PAD_Y + (1 - (wy - WORLD_MIN_Y) / (WORLD_MAX_Y - WORLD_MIN_Y)) * DRAW_H;
+  const fromCanvasX = (cx) => WORLD_MIN_X + (cx - PAD_X) / DRAW_W * (WORLD_MAX_X - WORLD_MIN_X);
+  const fromCanvasY = (cy) => WORLD_MIN_Y + (1 - (cy - PAD_Y) / DRAW_H) * (WORLD_MAX_Y - WORLD_MIN_Y);
+
+  // Draw Axes
+  ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(toCanvasX(WORLD_MIN_X), toCanvasY(0)); ctx.lineTo(toCanvasX(WORLD_MAX_X), toCanvasY(0)); // X-axis
+  ctx.moveTo(toCanvasX(0), toCanvasY(WORLD_MIN_Y)); ctx.lineTo(toCanvasX(0), toCanvasY(WORLD_MAX_Y)); // Y-axis
+  ctx.stroke();
+
+  // Draw data points
+  dataPoints.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 6, 0, Math.PI * 2);
+    ctx.fillStyle = p.label === 1 ? c.blue : c.red;
+    ctx.fill();
+    ctx.strokeStyle = c.text; ctx.lineWidth = 1; ctx.stroke();
+  });
+
+  // Draw decision boundary
+  function drawDecisionBoundary(weights, color, lineWidth = 2, dashed = false) {
+    // Line equation: w_0*x + w_1*y + b = 0
+    // y = (-w_0*x - b) / w_1
+    const w0 = weights.w[0], w1 = weights.w[1], b = weights.b;
+    if (Math.abs(w1) < 1e-6) { // Vertical line
+      const x_intercept = -b / w0;
+      if (x_intercept > WORLD_MIN_X && x_intercept < WORLD_MAX_X) {
+        ctx.beginPath();
+        ctx.moveTo(toCanvasX(x_intercept), toCanvasY(WORLD_MIN_Y));
+        ctx.lineTo(toCanvasX(x_intercept), toCanvasY(WORLD_MAX_Y));
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        if (dashed) ctx.setLineDash([5, 5]); else ctx.setLineDash([]);
+        ctx.stroke();
+      }
+    } else { // Normal line
+      const y1 = (-w0 * WORLD_MIN_X - b) / w1;
+      const y2 = (-w0 * WORLD_MAX_X - b) / w1;
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(WORLD_MIN_X), toCanvasY(y1));
+      ctx.lineTo(toCanvasX(WORLD_MAX_X), toCanvasY(y2));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      if (dashed) ctx.setLineDash([5, 5]); else ctx.setLineDash([]);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // --- Common calculations for all modes ---
+  const currentC = parseFloat(clipSlider.value);
+  const currentSigma = parseFloat(noiseSlider.value);
+  const currentLr = parseFloat(lrSlider.value);
+
+  // Compute individual gradients for current weights
+  const individualGradients = dataPoints.map(p => computeIndividualGradient(p, currentWeights));
+  const flatIndividualGradients = individualGradients.map(g => flattenGradient(g));
+
+  // Compute clipped gradients
+  const clippedGradients = flatIndividualGradients.map(g => {
+    const norm = vecNorm(g);
+    if (norm > currentC) {
+      return vecScale(g, currentC / norm);
+    }
+    return g;
+  });
+
+  // Aggregate clipped gradients
+  const sumClippedGradients = clippedGradients.reduce((acc, g) => vecAdd(acc, g), [0, 0, 0]);
+
+  // Add noise
+  const noiseScaleFactor = currentSigma * currentC;
+  const noise = [
+    gaussianRandom(0, noiseScaleFactor),
+    gaussianRandom(0, noiseScaleFactor),
+    gaussianRandom(0, noiseScaleFactor)
+  ];
+  const noisyGradient = vecAdd(sumClippedGradients, noise);
+  const averagedNoisyGradient = vecScale(noisyGradient, 1 / N_BATCH);
+
+  // New weights after update
+  const unflattenedAvgNoisyGrad = unflattenGradient(averagedNoisyGradient);
+  const updatedWeights = {
+    w: vecSub(currentWeights.w, vecScale(unflattenedAvgNoisyGrad.w, currentLr)),
+    b: currentWeights.b - unflattenedAvgNoisyGrad.b * currentLr
+  };
+
+  // Store for info card
+  canvasData = {
+    individualGradients, flatIndividualGradients, clippedGradients, sumClippedGradients,
+    noise, noisyGradient, averagedNoisyGradient, updatedWeights
+  };
+
+  // --- Mode-specific drawing ---
+  if (mode === 'init' || mode === 'gradients' || mode === 'clipping_viz' || mode === 'clipped_gradients' || mode === 'aggregated_gradient' || mode === 'noisy_gradient' || mode === 'updated_model') {
+    drawDecisionBoundary(currentWeights, c.purple); // Initial boundary
+  }
+
+  if (mode === 'gradients' || mode === 'clipping_viz' || mode === 'clipped_gradients' || mode === 'aggregated_gradient' || mode === 'noisy_gradient' || mode === 'updated_model') {
+    // Draw individual gradients (before clipping)
+    dataPoints.forEach((p, i) => {
+      const grad = individualGradients[i];
+      const startX = toCanvasX(p.x), startY = toCanvasY(p.y);
+      const endX = toCanvasX(p.x + grad.w[0] * 0.5), endY = toCanvasY(p.y + grad.w[1] * 0.5); // Scale for visibility
+      drawArrow(ctx, startX, startY, endX, endY, c.amber, 2);
+    });
+  }
+
+  if (mode === 'clipping_viz' || mode === 'clipped_gradients' || mode === 'aggregated_gradient' || mode === 'noisy_gradient' || mode === 'updated_model') {
+    // Draw clipping circle
+    const clipCircleX = toCanvasX(dataPoints[0].x); // Anchor at first point for visualization
+    const clipCircleY = toCanvasY(dataPoints[0].y);
+    const clipRadius = currentC * (DRAW_W / (WORLD_MAX_X - WORLD_MIN_X)) * 0.5; // Scale to world units
+    ctx.beginPath();
+    ctx.arc(clipCircleX, clipCircleY, clipRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = c.text3; ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Label clipping circle
+    ctx.fillStyle = c.text3; ctx.font = '10px "DM Sans", system-ui';
+    ctx.fillText(`C = ${currentC.toFixed(1)}`, clipCircleX + clipRadius + 5, clipCircleY + 5);
+
+    // Highlight clipped gradients
+    dataPoints.forEach((p, i) => {
+      const grad = individualGradients[i];
+      const norm = vecNorm(flattenGradient(grad));
+      if (norm > currentC) {
+        ctx.beginPath();
+        ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 8, 0, Math.PI * 2);
+        ctx.strokeStyle = c.red; ctx.lineWidth = 2; ctx.stroke();
+      }
+    });
+  }
+
+  if (mode === 'clipped_gradients' || mode === 'aggregated_gradient' || mode === 'noisy_gradient' || mode === 'updated_model') {
+    // Draw clipped gradients (red arrows)
+    dataPoints.forEach((p, i) => {
+      const grad = unflattenGradient(clippedGradients[i]);
+      const startX = toCanvasX(p.x), startY = toCanvasY(p.y);
+      const endX = toCanvasX(p.x + grad.w[0] * 0.5), endY = toCanvasY(p.y + grad.w[1] * 0.5);
+      drawArrow(ctx, startX, startY, endX, endY, c.red, 2);
+    });
+  }
+
+  if (mode === 'aggregated_gradient' || mode === 'noisy_gradient' || mode === 'updated_model') {
+    // Draw aggregated clipped gradient (sum_clipped_gradients)
+    const avgPoint = {x: dataPoints.reduce((sum, p) => sum + p.x, 0) / N_BATCH, y: dataPoints.reduce((sum, p) => sum + p.y, 0) / N_BATCH};
+    const sumGradW = unflattenGradient(sumClippedGradients).w;
+    const startX = toCanvasX(avgPoint.x), startY = toCanvasY(avgPoint.y);
+    const endX = toCanvasX(avgPoint.x + sumGradW[0] * 0.5), endY = toCanvasY(avgPoint.y + sumGradW[1] * 0.5);
+    drawArrow(ctx, startX, startY, endX, endY, c.amber, 3);
+  }
+
+  if (mode === 'noisy_gradient' || mode === 'updated_model') {
+    // Draw noisy aggregated gradient (averagedNoisyGradient)
+    const avgPoint = {x: dataPoints.reduce((sum, p) => sum + p.x, 0) / N_BATCH, y: dataPoints.reduce((sum, p) => sum + p.y, 0) / N_BATCH};
+    const noisyGradW = unflattenGradient(averagedNoisyGradient).w;
+    const startX = toCanvasX(avgPoint.x), startY = toCanvasY(avgPoint.y);
+    const endX = toCanvasX(avgPoint.x + noisyGradW[0] * 2), endY = toCanvasY(avgPoint.y + noisyGradW[1] * 2); // Scale more for visibility
+    drawArrow(ctx, startX, startY, endX, endY, c.green, 4);
+  }
+
+  if (mode === 'updated_model') {
+    drawDecisionBoundary(updatedWeights, c.purple, 3, true); // New boundary
+  }
+
+  updateInfoNumbers(mode);
+}
+
+function drawArrow(ctx, fromX, fromY, toX, toY, color, width) {
+  const headlen = 10; // length of head in pixels
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const angle = Math.atan2(dy, dx);
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+}
+
+function updateInfoNumbers(mode) {
+  const infoNumbers = document.getElementById('infoNumbers');
+  let text = '';
+  if (mode === 'init') {
+    text = `Initial weights w = [${currentWeights.w[0].toFixed(2)}, ${currentWeights.w[1].toFixed(2)}], b = ${currentWeights.b.toFixed(2)}`;
+  } else if (mode === 'gradients') {
+    const avgGradNorm = canvasData.flatIndividualGradients.reduce((sum, g) => sum + vecNorm(g), 0) / N_BATCH;
+    text = `Avg individual gradient norm: ${avgGradNorm.toFixed(2)}`;
+  } else if (mode === 'clipping_viz') {
+    const numClipped = canvasData.flatIndividualGradients.filter(g => vecNorm(g) > parseFloat(clipSlider.value)).length;
+    text = `Clipping threshold C = ${parseFloat(clipSlider.value).toFixed(1)}\n${numClipped} gradients will be clipped.`;
+  } else if (mode === 'clipped_gradients') {
+    const numClipped = canvasData.flatIndividualGradients.filter(g => vecNorm(g) > parseFloat(clipSlider.value)).length;
+    const avgClippedNorm = canvasData.clippedGradients.reduce((sum, g) => sum + vecNorm(g), 0) / N_BATCH;
+    text = `Clipped gradients (red arrows)\n${numClipped} gradients were scaled down.\nAvg clipped gradient norm: ${avgClippedNorm.toFixed(2)}`;
+  } else if (mode === 'aggregated_gradient') {
+    const sumGradNorm = vecNorm(canvasData.sumClippedGradients);
+    text = `Sum of clipped gradients: [${canvasData.sumClippedGradients[0].toFixed(2)}, ${canvasData.sumClippedGradients[1].toFixed(2)}, ${canvasData.sumClippedGradients[2].toFixed(2)}]\nNorm: ${sumGradNorm.toFixed(2)}`;
+  } else if (mode === 'noisy_gradient') {
+    const noiseNorm = vecNorm(canvasData.noise);
+    const avgNoisyGradNorm = vecNorm(canvasData.averagedNoisyGradient);
+    text = `Added noise: [${canvasData.noise[0].toFixed(2)}, ${canvasData.noise[1].toFixed(2)}, ${canvasData.noise[2].toFixed(2)}]\nNoise norm: ${noiseNorm.toFixed(2)}\nAvg noisy gradient norm: ${avgNoisyGradNorm.toFixed(2)}`;
+  } else if (mode === 'updated_model' || mode === 'result') {
+    text = `Old weights w = [${currentWeights.w[0].toFixed(2)}, ${currentWeights.w[1].toFixed(2)}], b = ${currentWeights.b.toFixed(2)}\n`;
+    text += `New weights w = [${canvasData.updatedWeights.w[0].toFixed(2)}, ${canvasData.updatedWeights.w[1].toFixed(2)}], b = ${canvasData.updatedWeights.b.toFixed(2)}`;
+  }
+  infoNumbers.textContent = text;
+}
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+updateSliderLabels();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

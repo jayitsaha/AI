@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scalability: Mini-Batch Graph Training — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.toggle-row input{width:16px;height:16px;accent-color:var(--purple-mid);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-sample{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-construct{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-compute{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Scalability: Mini-Batch Graph Training</h1>
+  <div class="subtitle">Efficiently training Graph Neural Networks on large graphs via neighbor sampling</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Graph ML</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">O(batch_size * k^L)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Mini-Batch Graph Training</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Training Graph Neural Networks (GNNs) on massive graphs (millions or billions of nodes and edges) is computationally infeasible if we try to process the entire graph at once (full-batch training). Mini-batch graph training is a set of techniques that allow GNNs to scale by processing only small, localized subgraphs at each training step, similar to how mini-batch SGD works for regular neural networks.</p>
+    <p><strong>Analogy:</strong> Imagine you're a detective trying to understand a complex criminal network (a graph). If the network is global, you can't interview everyone. Instead, you pick a few key suspects (your "batch" of target nodes). For each suspect, you interview their direct associates (1-hop neighbors), and from those, you interview a few of *their* associates (2-hop neighbors), and so on, for a few "hops." You gather just enough information to make a judgment about your initial suspects, then move on to a new batch of suspects. This localized approach allows you to make progress without ever needing to map out the entire global network.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Mini-batch graph training addresses the "neighbor explosion" problem by <strong>sampling a fixed number of neighbors at each hop</strong> around a set of target nodes, creating a small, localized "computation graph" that can fit into memory and be processed efficiently on accelerators like GPUs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The "Neighbor Explosion" Problem</h4>
+    <p>A typical L-layer GNN computes a node's embedding by iteratively aggregating information from its neighbors. An L-layer GNN requires information from a node's L-hop neighborhood. In sparse graphs, the size of an L-hop neighborhood can grow exponentially with L. For example, if each node has an average degree \(d\), an L-hop neighborhood can contain up to \(d^L\) nodes. For large graphs, even a 2-hop neighborhood can easily exceed GPU memory.</p>
+
+    <h4>Node-Centric Sampling: Constructing the Computation Graph</h4>
+    <p>Instead of using the full L-hop neighborhood, mini-batch training samples a fixed number of neighbors at each hop. For a target node \(v\):</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Select a random mini-batch of \(B\) <strong>target nodes</strong> for which we want to compute embeddings/predictions.</li>
+      <li>For each target node \(v\) in the batch, recursively sample its neighbors:
+        <ul>
+          <li>For the first hop, sample \(k_1\) neighbors of \(v\).</li>
+          <li>For the second hop, for each of the \(k_1\) sampled neighbors, sample \(k_2\) of *their* neighbors.</li>
+          <li>Repeat for \(L\) hops, using sampling rates \(k_1, k_2, \dots, k_L\).</li>
+        </ul>
+      </li>
+      <li>This process generates a small, directed acyclic graph (DAG) for each target node, called its <strong>computation graph</strong>. This graph contains all nodes whose features are needed to compute the target node's final embedding.</li>
+    </ol>
+
+    <h4>Merging for Efficiency: The Mini-Batch Graph</h4>
+    <p>The individual computation graphs for all target nodes in the batch are then merged into a single, larger <strong>mini-batch graph</strong>. This merged graph typically contains many shared nodes and edges, which greatly improves computational efficiency on hardware accelerators.</p>
+    <p>Once the mini-batch graph is constructed:</p>
+    <ul>
+      <li>Features for all nodes in the mini-batch graph are fetched from the global feature matrix.</li>
+      <li>GNN layers are applied to this sub-graph, propagating information from the outermost sampled nodes inwards towards the target nodes.</li>
+      <li>The loss is computed only for the target nodes in the batch, and gradients are backpropagated through the sampled subgraph.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The size of each computation graph is bounded by \(\prod_{l=1}^L k_l\), making the overall mini-batch graph size manageable. This allows training on graphs that would otherwise be too large to fit in memory, at the cost of some approximation due to sampling.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>GNN Layer Aggregation</h4>
+    <p>A generic L-layer GNN computes node embeddings \(h_v^{(l)}\) at layer \(l\) based on its neighbors' embeddings from layer \(l-1\). The core operation is aggregation:</p>
+    <div class="eq">$$h_v^{(l)} = \text{COMBINE}^{(l)}\left(h_v^{(l-1)}, \text{AGGREGATE}^{(l)}\left(\{h_u^{(l-1)} : u \in \mathcal{N}(v)\}\right)\right)$$</div>
+    <p>where \(\mathcal{N}(v)\) is the set of neighbors of node \(v\). For an L-layer GNN, \(h_v^{(L)}\) depends on all nodes up to L-hops away. If we use the full neighborhood, the computational graph for a single node \(v\) can be vast.</p>
+
+    <h4>The Sampling Trade-off</h4>
+    <p>With neighbor sampling, instead of \(\mathcal{N}(v)\), we use a sampled set \(\mathcal{N}_S(v)\). This changes the aggregation to:</p>
+    <div class="eq">$$h_v^{(l)} = \text{COMBINE}^{(l)}\left(h_v^{(l-1)}, \text{AGGREGATE}^{(l)}\left(\{h_u^{(l-1)} : u \in \mathcal{N}_S(v)\}\right)\right)$$</div>
+    <p>The key insight is that this is an unbiased estimator of the full neighborhood aggregation if the aggregation function is linear (e.g., mean aggregation). For non-linear aggregations, it's an approximation, but often a very good one.</p>
+
+    <h4>Complexity Reduction</h4>
+    <p>Without sampling, the number of nodes in an L-hop neighborhood can be \(O(d^L)\) where \(d\) is the average degree. With sampling, if we sample \(k\) neighbors at each hop, the number of nodes in the computation graph for a single target node is bounded by:</p>
+    <div class="eq">$$\text{Nodes} \approx 1 + k_1 + k_1 k_2 + \dots + k_1 k_2 \dots k_L = O\left(\prod_{l=1}^L k_l\right)$$</div>
+    <p>For a batch of \(B\) target nodes, the total size of the merged mini-batch graph is typically much less than \(B \times O(\prod k_l)\) due to node sharing, but still bounded. This reduction from exponential to polynomial (in \(k\)) makes large-scale training possible.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Choosing appropriate sampling rates (\(k_l\)) is crucial. Too small, and the model might lose too much information, leading to underfitting. Too large, and you risk re-introducing the memory/computation problems you were trying to solve. Dynamic or adaptive sampling strategies are an active research area.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore how mini-batch sampling constructs computation graphs for a batch of target nodes on a small graph. Adjust the sampling rates for 1-hop and 2-hop neighbors.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">1-Hop Sample Rate (k₁)</div>
+          <input type="range" id="k1Slider" min="1" max="5" step="1" value="3">
+          <div class="slider-value" id="k1Value">3</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">2-Hop Sample Rate (k₂)</div>
+          <input type="range" id="k2Slider" min="1" max="5" step="1" value="3">
+          <div class="slider-value" id="k2Value">3</div>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="showIndividualGraphs" onchange="render()">
+          <label for="showIndividualGraphs">Show individual computation graphs (instead of merged batch graph)</label>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="graphVizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Global Graph</div>
+        <div class="info-desc" id="infoDesc">This is our full graph. In real-world scenarios, it could have billions of nodes and edges, making full-batch training impossible due to memory constraints.</div>
+        <div class="info-numbers" id="infoNumbers">Nodes: 15, Edges: 25</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--text3)"></div> Normal node</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Target node</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> 1-Hop neighbor</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> 2-Hop neighbor</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Merged node</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use mini-batch graph training:</strong></p>
+    <ul>
+      <li>When the graph is too large to fit into GPU memory for full-batch processing.</li>
+      <li>For inductive tasks, where the model needs to generalize to unseen nodes/graphs. Node sampling naturally exposes the model to local graph structures.</li>
+      <li>When computational efficiency is paramount, as sampling allows for parallel processing of smaller subgraphs.</li>
+    </ul>
+    <p><strong>Common challenges & considerations:</strong></p>
+    <ul>
+      <li><strong>Sampling bias:</strong> Naive uniform sampling might miss important structural information or rare but critical nodes. Advanced sampling strategies (e.g., importance sampling, historical sampling) exist to mitigate this.</li>
+      <li><strong>Hyperparameter tuning:</strong> Choosing optimal \(k_l\) values can be tricky; it's a trade-off between accuracy and efficiency.</li>
+      <li><strong>Overhead:</strong> The sampling process itself introduces overhead (CPU time for neighbor lookup, subgraph construction). Efficient implementations are crucial.</li>
+      <li><strong>Graph structure changes:</strong> If the graph is dynamic, sampling needs to adapt to changes in connectivity.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Beyond simple sampling</div>
+      <p style="font-size:14px;margin:0;">Many advanced techniques build on this core idea: <strong>GraphSAGE</strong> introduced the concept of neighbor sampling. <strong>PinSAGE</strong> (Pinterest) uses random walks for more sophisticated neighbor importance. <strong>Cluster-GCN</strong> samples subgraphs based on graph partitioning. <strong>GraphSAINT</strong> samples entire subgraphs (edges and nodes) rather than just neighbors of target nodes.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch Geometric Style)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2">from torch_geometric.nn import SAGEConv</div>
+      <div class="code-line" id="cl3">from torch_geometric.loader import NeighborLoader</div>
+      <div class="code-line" id="cl4">from torch_geometric.data import Data</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># 1. Define a dummy graph (large scale in real world)</div>
+      <div class="code-line" id="cl7">num_nodes = 10000</div>
+      <div class="code-line" id="cl8">num_features = 64</div>
+      <div class="code-line" id="cl9">num_classes = 10</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">x = torch.randn(num_nodes, num_features) # Node features</div>
+      <div class="code-line" id="cl12">edge_index = torch.randint(0, num_nodes, (2, 50000)) # Edges</div>
+      <div class="code-line" id="cl13">y = torch.randint(0, num_classes, (num_nodes,)) # Node labels</div>
+      <div class="code-line" id="cl14">data = Data(x=x, edge_index=edge_index, y=y)</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16"># 2. Define the GNN Model (e.g., a 2-layer GraphSAGE)</div>
+      <div class="code-line" id="cl17">class GraphSAGE(torch.nn.Module):</div>
+      <div class="code-line" id="cl18">    def __init__(self, in_channels, hidden_channels, out_channels):</div>
+      <div class="code-line" id="cl19">        super().__init__()</div>
+      <div class="code-line" id="cl20">        self.conv1 = SAGEConv(in_channels, hidden_channels)</div>
+      <div class="code-line" id="cl21">        self.conv2 = SAGEConv(hidden_channels, out_channels)</div>
+      <div class="code-line" id="cl22"></div>
+      <div class="code-line" id="cl23">    def forward(self, x, edge_index):</div>
+      <div class="code-line" id="cl24">        x = self.conv1(x, edge_index).relu()</div>
+      <div class="code-line" id="cl25">        x = self.conv2(x, edge_index)</div>
+      <div class="code-line" id="cl26">        return x</div>
+      <div class="code-line" id="cl27"></div>
+      <div class="code-line" id="cl28">model = GraphSAGE(num_features, 128, num_classes)</div>
+      <div class="code-line" id="cl29">optimizer = torch.optim.Adam(model.parameters(), lr=0.01)</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31"># 3. Create a NeighborLoader for mini-batch sampling</div>
+      <div class="code-line" id="cl32"># `num_neighbors` specifies [k1, k2, ..., kL] for each hop</div>
+      <div class="code-line" id="cl33"># `batch_size` is the number of target nodes per batch</div>
+      <div class="code-line" id="cl34">loader = NeighborLoader(</div>
+      <div class="code-line" id="cl35">    data,</div>
+      <div class="code-line" id="cl36">    num_neighbors=[10, 5], # Sample 10 neighbors for 1st hop, 5 for 2nd</div>
+      <div class="code-line" id="cl37">    batch_size=128,</div>
+      <div class="code-line" id="cl38">    input_nodes=None, # Sample from all nodes for training</div>
+      <div class="code-line" id="cl39">    shuffle=True,</div>
+      <div class="code-line" id="cl40">    num_workers=0,</div>
+      <div class="code-line" id="cl41">)</div>
+      <div class="code-line" id="cl42"></div>
+      <div class="code-line" id="cl43"># 4. Training loop with mini-batches</div>
+      <div class="code-line" id="cl44">for epoch in range(1, 3):</div>
+      <div class="code-line" id="cl45">    for batch_idx, batch_data in enumerate(loader):</div>
+      <div class="code-line" id="cl46">        # `batch_data` is a sampled subgraph (mini-batch graph)</div>
+      <div class="code-line" id="cl47">        # It contains `x`, `edge_index`, and `y` for the subgraph</div>
+      <div class="code-line" id="cl48">        # `batch_data.n_id` maps nodes in subgraph to original graph IDs</div>
+      <div class="code-line" id="cl49">        # `batch_data.batch_size` is the number of target nodes</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">        optimizer.zero_grad()</div>
+      <div class="code-line" id="cl52">        out = model(batch_data.x, batch_data.edge_index)</div>
+      <div class="code-line" id="cl53">        # Loss is computed only for the target nodes (first `batch_size` nodes)</div>
+      <div class="code-line" id="cl54">        loss = F.cross_entropy(out[:batch_data.batch_size], batch_data.y[:batch_data.batch_size])</div>
+      <div class="code-line" id="cl55">        loss.backward()</div>
+      <div class="code-line" id="cl56">        optimizer.step()</div>
+      <div class="code-line" id="cl57">        print(f"Epoch {epoch}, Batch {batch_idx}: Loss {loss.item():.4f}")</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG (for reproducible sampling) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentRng = mulberry32(1234); // Fixed seed for reproducibility across renders
+
+// ── GRAPH DATA ──
+const graphData = {
+  nodes: [
+    { id: 0, x: 200, y: 150, label: 'A' }, { id: 1, x: 350, y: 100, label: 'B' }, { id: 2, x: 500, y: 150, label: 'C' },
+    { id: 3, x: 250, y: 250, label: 'D' }, { id: 4, x: 450, y: 250, label: 'E' }, { id: 5, x: 350, y: 350, label: 'F' },
+    { id: 6, x: 100, y: 200, label: 'G' }, { id: 7, x: 600, y: 200, label: 'H' }, { id: 8, x: 150, y: 350, label: 'I' },
+    { id: 9, x: 550, y: 350, label: 'J' }, { id: 10, x: 350, y: 200, label: 'K' }, { id: 11, x: 200, y: 50, label: 'L' },
+    { id: 12, x: 500, y: 50, label: 'M' }, { id: 13, x: 100, y: 300, label: 'N' }, { id: 14, x: 600, y: 300, label: 'O' },
+  ],
+  edges: [
+    { source: 0, target: 1 }, { source: 0, target: 3 }, { source: 0, target: 6 }, { source: 0, target: 10 }, { source: 0, target: 11 },
+    { source: 1, target: 2 }, { source: 1, target: 10 }, { source: 1, target: 12 },
+    { source: 2, target: 4 }, { source: 2, target: 7 }, { source: 2, target: 10 }, { source: 2, target: 12 },
+    { source: 3, target: 5 }, { source: 3, target: 8 }, { source: 3, target: 10 }, { source: 3, target: 13 },
+    { source: 4, target: 5 }, { source: 4, target: 9 }, { source: 4, target: 10 }, { source: 4, target: 14 },
+    { source: 5, target: 10 },
+    { source: 6, target: 13 },
+    { source: 7, target: 14 },
+    { source: 8, target: 13 },
+    { source: 9, target: 14 },
+    { source: 10, target: 11 }, { source: 10, target: 12 }, { source: 10, target: 13 }, { source: 10, target: 14 },
+  ],
+  adj: new Map(),
+};
+
+// Build adjacency list
+graphData.nodes.forEach(node => graphData.adj.set(node.id, new Set()));
+graphData.edges.forEach(edge => {
+  graphData.adj.get(edge.source).add(edge.target);
+  graphData.adj.get(edge.target).add(edge.source); // Assuming undirected
+});
+
+// Target nodes for the batch (fixed for this explainer)
+const targetNodes = [0, 5, 7];
+
+// ── SAMPLING LOGIC ──
+function sampleNeighborsForNode(nodeId, numToSample, excludeNodes, rng) {
+  const allPossibleNeighbors = Array.from(graphData.adj.get(nodeId));
+  const availableNeighbors = allPossibleNeighbors.filter(n => !excludeNodes.has(n));
+  const shuffled = availableNeighbors.sort(() => rng() - 0.5);
+  return shuffled.slice(0, numToSample);
+}
+
+function getComputationGraph(targetNodeId, k1, k2, rng) {
+  const nodes = new Set([targetNodeId]);
+  const edges = new Set(); // Store as {u,v} objects, stringified for Set uniqueness
+
+  let currentHopNodes = new Set([targetNodeId]);
+  let nextHopNodes = new Set();
+
+  // Hop 1 sampling
+  for (let node of currentHopNodes) {
+    const sampled = sampleNeighborsForNode(node, k1, nodes, rng);
+    sampled.forEach(n => {
+      nodes.add(n);
+      edges.add(JSON.stringify({ u: node, v: n }));
+      nextHopNodes.add(n);
+    });
+  }
+  currentHopNodes = nextHopNodes;
+  nextHopNodes = new Set();
+
+  // Hop 2 sampling
+  for (let node of currentHopNodes) {
+    const sampled = sampleNeighborsForNode(node, k2, nodes, rng);
+    sampled.forEach(n => {
+      nodes.add(n);
+      edges.add(JSON.stringify({ u: node, v: n }));
+      nextHopNodes.add(n);
+    });
+  }
+
+  return {
+    nodes: Array.from(nodes),
+    edges: Array.from(edges).map(e => JSON.parse(e)),
+  };
+}
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Global Graph',
+    desc: 'This is our full graph. In real-world scenarios, it could have billions of nodes and edges, making full-batch training impossible due to memory constraints.',
+    mode: 'full_graph',
+    targetNodes: [], h1Nodes: [], h2Nodes: [],
+    codeLines: [6,7,8,9,10,11,12,13,14]
+  },
+  {
+    phase: 'setup', title: 'Select Target Nodes',
+    desc: `We start by selecting a small batch of <b>target nodes</b> (nodes ${targetNodes.join(', ')} in blue) for which we want to compute embeddings. This is analogous to selecting a mini-batch of data points in traditional ML.`,
+    mode: 'target_nodes',
+    targetNodes: targetNodes, h1Nodes: [], h2Nodes: [],
+    codeLines: [33,37,38]
+  },
+  {
+    phase: 'sample', title: '1-Hop Neighbors (Full)',
+    desc: `To compute the embedding for target node ${targetNodes[0]}, a 2-layer GNN needs information from its 2-hop neighborhood. First, we identify its direct (1-hop) neighbors (highlighted amber). Note how many there are!`,
+    mode: 'h1_full',
+    targetNodes: [targetNodes[0]], h1Nodes: Array.from(graphData.adj.get(targetNodes[0])), h2Nodes: [],
+    codeLines: [36]
+  },
+  {
+    phase: 'sample', title: 'Sample 1-Hop Neighbors (k₁)',
+    desc: `Instead of using all 1-hop neighbors, we <b>sample k₁=${document.getElementById('k1Slider').value}</b> of them. This limits the "neighbor explosion" at the first hop. Adjust the slider to see how the sampled neighbors change.`,
+    mode: 'h1_sampled',
+    targetNodes: [targetNodes[0]], h1Nodes: [], h2Nodes: [],
+    codeLines: [36]
+  },
+  {
+    phase: 'sample', title: '2-Hop Neighbors (Full from Sampled)',
+    desc: `Next, from the <b>sampled 1-hop neighbors</b>, we identify their direct neighbors (the 2-hop neighbors relative to the target node). If we didn't sample at hop 1, this set would be even larger.`,
+    mode: 'h2_full',
+    targetNodes: [targetNodes[0]], h1Nodes: [], h2Nodes: [],
+    codeLines: [36]
+  },
+  {
+    phase: 'sample', title: 'Sample 2-Hop Neighbors (k₂)',
+    desc: `Finally, we <b>sample k₂=${document.getElementById('k2Slider').value}</b> neighbors from each of the sampled 1-hop nodes. This forms the complete <b>computation graph</b> for target node ${targetNodes[0]}. Adjust k₁ and k₂ to see its size change.`,
+    mode: 'h2_sampled',
+    targetNodes: [targetNodes[0]], h1Nodes: [], h2Nodes: [],
+    codeLines: [36]
+  },
+  {
+    phase: 'construct', title: 'Batch of Computation Graphs',
+    desc: `We repeat the sampling process for all target nodes in our batch. Each target node (blue) has its own computation graph, consisting of its sampled 1-hop (amber) and 2-hop (purple) neighbors.`,
+    mode: 'individual_graphs',
+    targetNodes: targetNodes, h1Nodes: [], h2Nodes: [],
+    codeLines: [45,46]
+  },
+  {
+    phase: 'construct', title: 'Merge into Mini-Batch Graph',
+    desc: `All individual computation graphs are merged into a single <b>mini-batch graph</b>. Nodes and edges shared between multiple target nodes' graphs appear only once (green). This merged graph is what the GNN processes.`,
+    mode: 'merged_graph',
+    targetNodes: targetNodes, h1Nodes: [], h2Nodes: [],
+    codeLines: [46]
+  },
+  {
+    phase: 'compute', title: 'GNN Forward Pass & Backprop',
+    desc: `Features for all nodes in the mini-batch graph are fetched. The GNN layers then perform message passing on this subgraph. Loss is computed only for the target nodes (blue), and gradients are backpropagated through this efficient, localized structure.`,
+    mode: 'gnn_pass',
+    targetNodes: targetNodes, h1Nodes: [], h2Nodes: [],
+    codeLines: [51,52,53,54,55,56]
+  },
+];
+let step = 0;
+const totalSteps = steps.length;
+let k1 = parseInt(document.getElementById('k1Slider').value);
+let k2 = parseInt(document.getElementById('k2Slider').value);
+let showIndividualGraphs = document.getElementById('showIndividualGraphs').checked;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  k1 = 3; k2 = 3;
+  document.getElementById('k1Slider').value = k1;
+  document.getElementById('k2Slider').value = k2;
+  document.getElementById('k1Value').textContent = k1;
+  document.getElementById('k2Value').textContent = k2;
+  showIndividualGraphs = false;
+  document.getElementById('showIndividualGraphs').checked = false;
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {setup:'phase-setup', sample:'phase-sample', construct:'phase-construct', compute:'phase-compute'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [ {left:'$$',right:'$$',display:true}, {left:'\\(',right:'\\)',display:false} ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Update slider values in info card
+  if (s.mode === 'h1_sampled') {
+    document.getElementById('infoDesc').innerHTML = `Instead of using all 1-hop neighbors, we <b>sample k₁=${k1}</b> of them. This limits the "neighbor explosion" at the first hop. Adjust the slider to see how the sampled neighbors change.`;
+  } else if (s.mode === 'h2_sampled') {
+    document.getElementById('infoDesc').innerHTML = `Finally, we <b>sample k₂=${k2}</b> neighbors from each of the sampled 1-hop nodes. This forms the complete <b>computation graph</b> for target node ${targetNodes[0]}. Adjust k₁ and k₂ to see its size change.`;
+  }
+
+  // Hide/show sliders and toggle based on step
+  const sliderPanel = document.getElementById('sliderPanel');
+  if (s.mode === 'h1_sampled' || s.mode === 'h2_sampled' || s.mode === 'individual_graphs' || s.mode === 'merged_graph' || s.mode === 'gnn_pass') {
+    sliderPanel.style.display = 'flex';
+    document.getElementById('showIndividualGraphs').disabled = (s.mode === 'h1_full' || s.mode === 'h1_sampled' || s.mode === 'h2_full' || s.mode === 'h2_sampled');
+  } else {
+    sliderPanel.style.display = 'none';
+  }
+
+  drawCanvas(s);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(s) {
+  const canvas = document.getElementById('graphVizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const colors = getColors();
+  const NODE_RADIUS = 12;
+
+  // Reset RNG for consistent sampling across renders
+  currentRng = mulberry32(1234);
+
+  let highlightedNodes = new Set();
+  let highlightedEdges = new Set();
+  let fadedNodes = new Set();
+  let fadedEdges = new Set();
+  let nodeHops = new Map(); // To store the max hop distance for coloring (merged/gnn views)
+
+  let targetNodeColors = new Map(); // For individual graphs view
+
+  // Determine which nodes/edges to highlight based on step mode
+  if (s.mode === 'full_graph') {
+    // All nodes/edges are just normal
+  } else if (s.mode === 'target_nodes') {
+    s.targetNodes.forEach(id => highlightedNodes.add(id));
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => fadedEdges.add(JSON.stringify(edge)));
+  } else if (s.mode === 'h1_full') {
+    highlightedNodes.add(s.targetNodes[0]);
+    const h1Neighbors = Array.from(graphData.adj.get(s.targetNodes[0]));
+    h1Neighbors.forEach(n => {
+      highlightedNodes.add(n);
+      highlightedEdges.add(JSON.stringify({ u: s.targetNodes[0], v: n }));
+    });
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => { if (!highlightedEdges.has(JSON.stringify(edge))) fadedEdges.add(JSON.stringify(edge)); });
+  } else if (s.mode === 'h1_sampled') {
+    highlightedNodes.add(s.targetNodes[0]);
+    const compGraph = getComputationGraph(s.targetNodes[0], k1, 0, currentRng); // k2=0 for 1-hop only
+    compGraph.nodes.forEach(n => highlightedNodes.add(n));
+    compGraph.edges.forEach(e => highlightedEdges.add(JSON.stringify(e)));
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => { if (!highlightedEdges.has(JSON.stringify(edge))) fadedEdges.add(JSON.stringify(edge)); });
+  } else if (s.mode === 'h2_full') {
+    highlightedNodes.add(s.targetNodes[0]);
+    const sampled1Hop = sampleNeighborsForNode(s.targetNodes[0], k1, new Set([s.targetNodes[0]]), currentRng);
+    sampled1Hop.forEach(n => highlightedNodes.add(n));
+    sampled1Hop.forEach(n1 => {
+      const neighbors2 = Array.from(graphData.adj.get(n1));
+      neighbors2.filter(n => n !== s.targetNodes[0] && !sampled1Hop.includes(n)).forEach(n2 => {
+        highlightedNodes.add(n2);
+        highlightedEdges.add(JSON.stringify({ u: n1, v: n2 }));
+      });
+    });
+    const compGraph1 = getComputationGraph(s.targetNodes[0], k1, 0, currentRng); // Re-run for edges
+    compGraph1.edges.forEach(e => highlightedEdges.add(JSON.stringify(e)));
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => { if (!highlightedEdges.has(JSON.stringify(edge))) fadedEdges.add(JSON.stringify(edge)); });
+  } else if (s.mode === 'h2_sampled') {
+    highlightedNodes.add(s.targetNodes[0]);
+    const compGraph = getComputationGraph(s.targetNodes[0], k1, k2, currentRng);
+    compGraph.nodes.forEach(n => highlightedNodes.add(n));
+    compGraph.edges.forEach(e => highlightedEdges.add(JSON.stringify(e)));
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => { if (!highlightedEdges.has(JSON.stringify(edge))) fadedEdges.add(JSON.stringify(edge)); });
+  } else if (s.mode === 'individual_graphs' && showIndividualGraphs) {
+    let allNodesInBatch = new Set();
+    let allEdgesInBatch = new Set();
+    const nodeOffsets = new Map(); // To draw graphs side by side
+    const graphWidth = W / targetNodes.length;
+
+    targetNodes.forEach((targetId, idx) => {
+      currentRng = mulberry32(1234 + targetId); // Different seed for each target node
+      const compGraph = getComputationGraph(targetId, k1, k2, currentRng);
+      compGraph.nodes.forEach(n => allNodesInBatch.add(n));
+      compGraph.edges.forEach(e => allEdgesInBatch.add(JSON.stringify(e)));
+
+      // For drawing, adjust positions
+      compGraph.nodes.forEach(n => {
+        const originalNode = graphData.nodes.find(node => node.id === n);
+        const offsetX = (idx * graphWidth) + (graphWidth / 2) - originalNode.x;
+        nodeOffsets.set(n, { x: offsetX, y: 0 }); // Store offset
+      });
+    });
+
+    // Draw individual graphs
+    targetNodes.forEach((targetId, idx) => {
+      currentRng = mulberry32(1234 + targetId); // Re-seed for consistent sampling
+      const compGraph = getComputationGraph(targetId, k1, k2, currentRng);
+
+      const offset = nodeOffsets.get(targetId); // Use target node's offset
+      const centerX = (idx * graphWidth) + (graphWidth / 2); // Center of this graph's section
+      const centerY = H / 2;
+
+      // Draw edges for this subgraph
+      ctx.strokeStyle = colors.text3;
+      ctx.lineWidth = 1.5;
+      compGraph.edges.forEach(edge => {
+        const u = graphData.nodes.find(n => n.id === edge.u);
+        const v = graphData.nodes.find(n => n.id === edge.v);
+        if (u && v) {
+          ctx.beginPath();
+          ctx.moveTo(u.x + offset.x, u.y + offset.y);
+          ctx.lineTo(v.x + offset.x, v.y + offset.y);
+          ctx.stroke();
+        }
+      });
+
+      // Draw nodes for this subgraph
+      compGraph.nodes.forEach(nodeId => {
+        const node = graphData.nodes.find(n => n.id === nodeId);
+        if (node) {
+          const cx = node.x + offset.x;
+          const cy = node.y + offset.y;
+          let nodeColor = colors.text3;
+          let textColor = colors.bg2;
+
+          if (nodeId === targetId) {
+            nodeColor = colors.blue;
+            textColor = colors.blue_text;
+          } else {
+            // Determine if it's 1-hop or 2-hop by checking path from target
+            let q = [{ node: targetId, hop: 0 }];
+            let visited = new Set([targetId]);
+            let found = false;
+            while (q.length > 0 && !found) {
+              let { node: curr, hop: h } = q.shift();
+              if (h === 0) { // 1-hop from target
+                const neighbors = sampleNeighborsForNode(curr, k1, new Set([targetId]), mulberry32(1234 + targetId));
+                if (neighbors.includes(nodeId)) { nodeColor = colors.amber; textColor = colors.amber_text; found = true; }
+                neighbors.forEach(n => { if (!visited.has(n)) { visited.add(n); q.push({ node: n, hop: 1 }); } });
+              } else if (h === 1) { // 2-hop from target
+                const sampled1HopNodes = sampleNeighborsForNode(targetId, k1, new Set([targetId]), mulberry32(1234 + targetId));
+                const neighbors = sampleNeighborsForNode(curr, k2, new Set([targetId, ...sampled1HopNodes]), mulberry32(1234 + targetId));
+                if (neighbors.includes(nodeId)) { nodeColor = colors.purple; textColor = colors.purple_text; found = true; }
+                neighbors.forEach(n => { if (!visited.has(n)) { visited.add(n); q.push({ node: n, hop: 2 }); } });
+              }
+            }
+          }
+          ctx.beginPath();
+          ctx.arc(cx, cy, NODE_RADIUS, 0, Math.PI * 2);
+          ctx.fillStyle = nodeColor;
+          ctx.fill();
+          ctx.strokeStyle = colors.border;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = textColor;
+          ctx.font = '600 10px var(--sans)';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(node.label, cx, cy);
+        }
+      });
+    });
+    document.getElementById('infoNumbers').textContent = `Individual graphs: ${targetNodes.length} subgraphs`;
+    return; // Skip general drawing
+  }
+  else if (s.mode === 'merged_graph' || s.mode === 'gnn_pass' || (s.mode === 'individual_graphs' && !showIndividualGraphs)) {
+    let allNodesInBatch = new Set();
+    let allEdgesInBatch = new Set();
+
+    targetNodes.forEach(targetId => {
+      currentRng = mulberry32(1234 + targetId); // Consistent sampling for each target
+      const compGraph = getComputationGraph(targetId, k1, k2, currentRng);
+      compGraph.nodes.forEach(n => {
+        allNodesInBatch.add(n);
+        if (n === targetId) nodeHops.set(n, Math.max(nodeHops.get(n) || 0, 0));
+        else {
+          // Determine hop distance for coloring
+          let q = [{ node: targetId, hop: 0 }];
+          let visited = new Set([targetId]);
+          let dist = Infinity;
+          while (q.length > 0) {
+            let { node: curr, hop: h } = q.shift();
+            if (curr === n) { dist = h; break; }
+            if (h < 2) { // Max 2 hops for this explainer
+              const neighbors = Array.from(graphData.adj.get(curr));
+              neighbors.forEach(neighbor => {
+                if (!visited.has(neighbor) && compGraph.nodes.includes(neighbor)) { // Only consider nodes in this subgraph
+                  visited.add(neighbor);
+                  q.push({ node: neighbor, hop: h + 1 });
+                }
+              });
+            }
+          }
+          nodeHops.set(n, Math.max(nodeHops.get(n) || 0, dist));
+        }
+      });
+      compGraph.edges.forEach(e => allEdgesInBatch.add(JSON.stringify(e)));
+    });
+
+    highlightedNodes = allNodesInBatch;
+    highlightedEdges = allEdgesInBatch;
+
+    graphData.nodes.forEach(node => { if (!highlightedNodes.has(node.id)) fadedNodes.add(node.id); });
+    graphData.edges.forEach(edge => { if (!highlightedEdges.has(JSON.stringify(edge))) fadedEdges.add(JSON.stringify(edge)); });
+
+    document.getElementById('infoNumbers').textContent = `Nodes in merged batch: ${highlightedNodes.size}, Edges: ${highlightedEdges.size}`;
+  }
+
+
+  // Draw faded elements first
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.2;
+  fadedEdges.forEach(edgeStr => {
+    const edge = JSON.parse(edgeStr);
+    const u = graphData.nodes.find(n => n.id === edge.u);
+    const v = graphData.nodes.find(n => n.id === edge.v);
+    if (u && v) {
+      ctx.beginPath();
+      ctx.moveTo(u.x, u.y);
+      ctx.lineTo(v.x, v.y);
+      ctx.stroke();
+    }
+  });
+  fadedNodes.forEach(nodeId => {
+    const node = graphData.nodes.find(n => n.id === nodeId);
+    if (node) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = colors.text3;
+      ctx.fill();
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = colors.bg2;
+      ctx.font = '600 10px var(--sans)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(node.label, node.x, node.y);
+    }
+  });
+  ctx.globalAlpha = 1; // Reset alpha
+
+  // Draw highlighted edges
+  ctx.strokeStyle = colors.text2;
+  ctx.lineWidth = 2;
+  highlightedEdges.forEach(edgeStr => {
+    const edge = JSON.parse(edgeStr);
+    const u = graphData.nodes.find(n => n.id === edge.u);
+    const v = graphData.nodes.find(n => n.id === edge.v);
+    if (u && v) {
+      ctx.beginPath();
+      ctx.moveTo(u.x, u.y);
+      ctx.lineTo(v.x, v.y);
+      ctx.stroke();
+    }
+  });
+
+  // Draw highlighted nodes
+  highlightedNodes.forEach(nodeId => {
+    const node = graphData.nodes.find(n => n.id === nodeId);
+    if (node) {
+      let nodeColor = colors.text3;
+      let textColor = colors.bg2;
+
+      if (targetNodes.includes(nodeId)) {
+        nodeColor = colors.blue;
+        textColor = colors.blue_text;
+      } else if (s.mode === 'h1_full') {
+        if (s.h1Nodes.includes(nodeId)) { nodeColor = colors.amber; textColor = colors.amber_text; }
+      } else if (s.mode === 'h1_sampled') {
+        currentRng = mulberry32(1234); // Re-seed for consistency for single target
+        const sampled1Hop = sampleNeighborsForNode(s.targetNodes[0], k1, new Set([s.targetNodes[0]]), currentRng);
+        if (sampled1Hop.includes(nodeId)) { nodeColor = colors.amber; textColor = colors.amber_text; }
+      } else if (s.mode === 'h2_full') {
+        currentRng = mulberry32(1234); // Re-seed for consistency for single target
+        const sampled1Hop = sampleNeighborsForNode(s.targetNodes[0], k1, new Set([s.targetNodes[0]]), currentRng);
+        if (sampled1Hop.includes(nodeId)) { nodeColor = colors.amber; textColor = colors.amber_text; }
+        else {
+          let is2Hop = false;
+          sampled1Hop.forEach(n1 => {
+            const neighbors2 = Array.from(graphData.adj.get(n1));
+            if (neighbors2.includes(nodeId) && nodeId !== s.targetNodes[0] && !sampled1Hop.includes(nodeId)) {
+              is2Hop = true;
+            }
+          });
+          if (is2Hop) { nodeColor = colors.purple; textColor = colors.purple_text; }
+        }
+      } else if (s.mode === 'h2_sampled') {
+        currentRng = mulberry32(1234); // Re-seed for consistency for single target
+        const compGraph = getComputationGraph(s.targetNodes[0], k1, k2, currentRng);
+        if (compGraph.nodes.includes(nodeId)) {
+          let q = [{ node: s.targetNodes[0], hop: 0 }];
+          let visited = new Set([s.targetNodes[0]]);
+          let dist = Infinity;
+          while (q.length > 0) {
+            let { node: curr, hop: h } = q.shift();
+            if (curr === nodeId) { dist = h; break; }
+            if (h < 2) {
+              const neighbors = Array.from(graphData.adj.get(curr));
+              neighbors.forEach(neighbor => {
+                if (!visited.has(neighbor) && compGraph.nodes.includes(neighbor)) {
+                  visited.add(neighbor);
+                  q.push({ node: neighbor, hop: h + 1 });
+                }
+              });
+            }
+          }
+          if (dist === 1) { nodeColor = colors.amber; textColor = colors.amber_text; }
+          else if (dist === 2) { nodeColor = colors.purple; textColor = colors.purple_text; }
+        }
+      } else if (s.mode === 'merged_graph' || s.mode === 'gnn_pass' || (s.mode === 'individual_graphs' && !showIndividualGraphs)) {
+        // For merged graph, color based on hop distance from *any* target node
+        const maxHop = nodeHops.get(nodeId);
+        if (maxHop === 0) { nodeColor = colors.blue; textColor = colors.blue_text; } // Target node
+        else if (maxHop === 1) { nodeColor = colors.amber; textColor = colors.amber_text; }
+        else if (maxHop === 2) { nodeColor = colors.purple; textColor = colors.purple_text; }
+        else { nodeColor = colors.green; textColor = colors.green_text; } // Fallback for any other node in merged graph
+      }
+
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = nodeColor;
+      ctx.fill();
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = textColor;
+      ctx.font = '600 10px var(--sans)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(node.label, node.x, node.y);
+    }
+  });
+
+  // Info numbers update
+  if (s.mode === 'full_graph') {
+    document.getElementById('infoNumbers').textContent = `Nodes: ${graphData.nodes.length}, Edges: ${graphData.edges.length}`;
+  } else if (s.mode === 'target_nodes') {
+    document.getElementById('infoNumbers').textContent = `Target nodes: ${s.targetNodes.length}`;
+  } else if (s.mode === 'h1_full') {
+    const h1Count = Array.from(graphData.adj.get(s.targetNodes[0])).length;
+    document.getElementById('infoNumbers').textContent = `Target node: ${s.targetNodes[0]}, Full 1-hop neighbors: ${h1Count}`;
+  } else if (s.mode === 'h1_sampled') {
+    currentRng = mulberry32(1234);
+    const compGraph = getComputationGraph(s.targetNodes[0], k1, 0, currentRng);
+    document.getElementById('infoNumbers').textContent = `Target node: ${s.targetNodes[0]}, Sampled 1-hop neighbors: ${compGraph.nodes.length - 1} (k₁=${k1})`;
+  } else if (s.mode === 'h2_full') {
+    currentRng = mulberry32(1234);
+    const sampled1Hop = sampleNeighborsForNode(s.targetNodes[0], k1, new Set([s.targetNodes[0]]), currentRng);
+    let h2Count = new Set();
+    sampled1Hop.forEach(n1 => {
+      Array.from(graphData.adj.get(n1))
+        .filter(n => n !== s.targetNodes[0] && !sampled1Hop.includes(n))
+        .forEach(n2 => h2Count.add(n2));
+    });
+    document.getElementById('infoNumbers').textContent = `Target node: ${s.targetNodes[0]}, Full 2-hop neighbors (from sampled 1-hop): ${h2Count.size}`;
+  } else if (s.mode === 'h2_sampled') {
+    currentRng = mulberry32(1234);
+    const compGraph = getComputationGraph(s.targetNodes[0], k1, k2, currentRng);
+    const h1Count = sampleNeighborsForNode(s.targetNodes[0], k1, new Set([s.targetNodes[0]]), currentRng).length;
+    document.getElementById('infoNumbers').textContent = `Target node: ${s.targetNodes[0]}, Sampled 1-hop: ${h1Count}, Sampled 2-hop: ${compGraph.nodes.length - 1 - h1Count} (k₂=${k2}), Total nodes in comp. graph: ${compGraph.nodes.length}`;
+  }
+}
+
+// ── SLIDER / TOGGLE WIRING ──
+document.getElementById('k1Slider').addEventListener('input', e => {
+  k1 = parseInt(e.target.value);
+  document.getElementById('k1Value').textContent = k1;
+  render();
+});
+document.getElementById('k2Slider').addEventListener('input', e => {
+  k2 = parseInt(e.target.value);
+  document.getElementById('k2Value').textContent = k2;
+  render();
+});
+document.getElementById('showIndividualGraphs').addEventListener('change', e => {
+  showIndividualGraphs = e.target.checked;
+  render();
+});
+
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step]));
+</script>
+</body>
+</html>

@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoCo (Momentum Contrast): Momentum Encoder &amp; Queue — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-process{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-loss{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-update{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-result{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{width:16px;height:2px;border-radius:0;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>MoCo (Momentum Contrast)</h1>
+  <div class="subtitle">Self-supervised learning with a momentum encoder and a queue of negatives</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Self-Supervised Learning</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-complexity">O(batch_size) per step</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding MoCo</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> MoCo (Momentum Contrast) is a self-supervised learning method designed to learn powerful visual representations from unlabeled image data. It does this by framing the learning task as a dictionary look-up: an encoder learns to produce an "query" embedding that is similar to its corresponding "positive key" embedding (an augmented version of the same image), and dissimilar to a large, dynamic "dictionary" of "negative key" embeddings (from other images).</p>
+    <p><strong>Analogy:</strong> Imagine you're teaching a computer to identify different dog breeds. Instead of giving it labels, you show it many pictures. For each picture of a Golden Retriever, you also show it a slightly different picture of the *same* Golden Retriever (the positive pair). Then, you show it thousands of pictures of *other* dogs (the negative pairs). The goal is for the computer to learn to group all Golden Retrievers together, and keep them distinct from all other dogs. MoCo's innovation is how it manages to get those "thousands of other dogs" examples in a way that is both large and consistent.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">MoCo solves the "large and consistent dictionary" problem by decoupling the negative key embeddings from the current mini-batch. It uses two encoders: a query encoder (\(f_q\)) updated by backprop, and a key encoder (\(f_k\)) updated by a slow-moving exponential moving average (EMA) of \(f_q\)'s weights. Negative keys are stored in a large FIFO queue, providing a dynamic and diverse set of contrastive samples.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How MoCo Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Contrastive Learning Setup</h4>
+    <p>Contrastive learning aims to learn an encoder \(f\) such that similar inputs have similar representations, and dissimilar inputs have dissimilar representations. For an anchor input \(x\), we generate a "positive" sample \(x^+\) (e.g., another augmentation of \(x\)) and "negative" samples \(x_1^-, \dots, x_K^-\) (e.g., other images in the dataset). The goal is to maximize \( \operatorname{sim}(f(x), f(x^+)) \) and minimize \( \operatorname{sim}(f(x), f(x_i^-)) \).</p>
+
+    <h4>The Challenge: Large and Consistent Negatives</h4>
+    <p>Effective contrastive learning requires a large number of diverse negative samples to ensure the learned representations are generalizable. The naive approach is to use a very large batch size, but this is memory-intensive and often impractical. Smaller batches yield fewer negatives, leading to "model collapse" where the encoder learns trivial features.</p>
+
+    <h4>MoCo's Solution: Momentum Encoder + Queue</h4>
+    <p>MoCo addresses this by maintaining a large dictionary of negative keys as a queue. This dictionary is built on-the-fly, allowing for a dynamic and extensive set of negatives that are decoupled from the mini-batch size.</p>
+    <ul>
+      <li><strong>Query Encoder (\(f_q\)):</strong> This is the model whose representations we want to learn. It processes the "query" image and is updated via standard backpropagation.</li>
+      <li><strong>Key Encoder (\(f_k\)):</strong> This encoder generates the "positive key" and "negative key" embeddings. Crucially, \(f_k\) is a copy of \(f_q\) but its weights (\(\theta_k\)) are updated using a momentum-based exponential moving average (EMA) of \(f_q\)'s weights (\(\theta_q\)): \( \theta_k \leftarrow m \theta_k + (1-m) \theta_q \). This makes \(f_k\) evolve slowly and consistently.</li>
+      <li><strong>Memory Queue (Q):</strong> A FIFO (First-In, First-Out) queue stores a rolling window of negative key embeddings generated by \(f_k\) from previous mini-batches. When a new batch of keys is generated, the oldest keys in the queue are dequeued, and the new keys are enqueued. This maintains a large, up-to-date dictionary of negatives.</li>
+    </ul>
+
+    <h4>Design Decision: Why Momentum Update for \(f_k\)?</h4>
+    <p>If \(f_k\) were updated by direct backpropagation like \(f_q\), it would be too "reactive." The negative keys in the queue, being from previous batches, would quickly become inconsistent with the rapidly changing \(f_k\), leading to a less stable learning signal. The momentum update ensures that \(f_k\) provides a relatively consistent set of negative keys over time, while still gradually adapting to the evolving \(f_q\). This "slow-moving" consistency is vital for effective contrastive learning with a dynamic queue.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The momentum update for the key encoder and the FIFO queue together enable MoCo to maintain a large, dynamic, and consistent dictionary of negative samples. This is critical for achieving high-quality self-supervised representations without the memory burden of extremely large mini-batches.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The InfoNCE Loss Function</h4>
+    <p>MoCo uses the InfoNCE (Noise-Contrastive Estimation) loss, which is a common choice for contrastive learning. For a given query \(q\) (embedding of \(x^q\)), a positive key \(k_+\) (embedding of \(x^{k+}\)), and \(K\) negative keys \(k_i^-\) (from the queue), the loss is defined as:</p>
+    <div class="eq">$$ \mathcal{L}_q = -\log \frac{\exp(\operatorname{sim}(q, k_+) / \tau)}{\exp(\operatorname{sim}(q, k_+) / \tau) + \sum_{i=1}^K \exp(\operatorname{sim}(q, k_i^-) / \tau)} $$</div>
+    <p>Here, \(\operatorname{sim}(u, v)\) is typically the cosine similarity (normalized dot product) of the embeddings, and \(\tau\) is a temperature hyperparameter that scales the logits. This loss function encourages the query \(q\) to be more similar to its positive key \(k_+\) than to any of the negative keys \(k_i^-\).</p>
+
+    <h4>Momentum Update for the Key Encoder</h4>
+    <p>The parameters of the query encoder are denoted by \(\theta_q\), and those of the key encoder by \(\theta_k\). While \(\theta_q\) are updated by standard backpropagation, \(\theta_k\) are updated using an exponential moving average (EMA) of \(\theta_q\). After each training step, \(\theta_k\) is updated as follows:</p>
+    <div class="eq">$$ \theta_k \leftarrow m \theta_k + (1-m) \theta_q $$</div>
+    <p>where \(m \in [0, 1)\) is the momentum coefficient, typically set very close to 1 (e.g., 0.999 or 0.9999). A high momentum ensures that \(\theta_k\) changes very slowly, making the negative keys in the queue consistent over many training iterations, which is crucial for a stable learning signal.</p>
+
+    <h4>Queue Dynamics</h4>
+    <p>The queue \(Q\) acts as a dynamic dictionary. It has a fixed size \(K\) (e.g., 65536). In each training iteration:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>A mini-batch of images \(X_{batch}\) is passed through the key encoder \(f_k\) to generate a set of new key embeddings \(K_{new}\).</li>
+      <li>The oldest \(|X_{batch}|\) embeddings are removed from the front of the queue.</li>
+      <li>The new key embeddings \(K_{new}\) are added to the back of the queue.</li>
+    </ol>
+    <p>This FIFO mechanism ensures that the queue always contains a diverse and up-to-date set of negative samples, without requiring a huge batch size. The combination of the slow-moving momentum encoder and the dynamic queue allows MoCo to effectively leverage a large and consistent dictionary for self-supervised learning.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">➕ Simplified Similarity</div>
+      <p style="font-size:14px;margin:0;">For simplicity, the visualization uses a Euclidean distance-based similarity, where a smaller distance implies higher similarity. The core idea of contrasting positive and negative pairs remains the same.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the MoCo pipeline, observing the flow of images, embeddings, the momentum update, and the queue dynamics. Adjust the momentum coefficient to see its effect on the key encoder's update.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Momentum Coefficient (m)</div>
+          <input type="range" id="momentumSlider" min="0.0" max="0.999" step="0.001" value="0.999">
+          <div class="slider-value" id="momentumValue">0.999</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">High momentum (e.g., 0.999) means the key encoder updates very slowly.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Initial State</div>
+        <div class="info-desc" id="infoDesc">The query encoder (\(f_q\)) and key encoder (\(f_k\)) are initialized with the same weights. The queue \(Q\) is empty.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Query embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Positive key embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Negative key embedding</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Oldest key (dequeued)</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Momentum update</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use MoCo:</strong></p>
+    <ul>
+      <li>For self-supervised pre-training on large, unlabeled image or video datasets, where acquiring labels is expensive or impossible.</li>
+      <li>When computational resources (especially GPU memory) limit the use of very large batch sizes needed by other contrastive methods (like SimCLR).</li>
+      <li>To learn robust, general-purpose visual features that can then be fine-tuned for various downstream tasks (classification, detection, segmentation).</li>
+    </ul>
+    <p><strong>When NOT to use:</strong></p>
+    <ul>
+      <li>If you already have a fully labeled dataset and can perform supervised learning directly. MoCo is a pre-training strategy.</li>
+      <li>For very small datasets, where the benefits of a large negative queue might be diminished, or simpler self-supervised methods could be more efficient.</li>
+      <li>If the computational overhead of maintaining two encoders and a large queue (even if memory-efficient) is prohibitive for your setup.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">MoCo's core contribution is demonstrating that a large and consistent dictionary of negative samples is crucial for effective contrastive learning. By decoupling the dictionary from the mini-batch size through its momentum encoder and queue, MoCo enables training powerful self-supervised models efficiently, paving the way for many subsequent advancements in the field.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Snippet)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import copy</div>
+      <div class="code-line" id="cl3">from collections import deque</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5">class MoCo(nn.Module):</div>
+      <div class="code-line" id="cl6">    def __init__(self, base_encoder, dim=128, K=65536, m=0.999, T=0.07):</div>
+      <div class="code-line" id="cl7">        super().__init__()</div>
+      <div class="code-line" id="cl8">        self.K = K; self.m = m; self.T = T</div>
+      <div class="code-line" id="cl9"></div>
+      <div class="code-line" id="cl10">        # create the query encoder</div>
+      <div class="code-line" id="cl11">        self.encoder_q = base_encoder(num_classes=dim)</div>
+      <div class="code-line" id="cl12">        # create the key encoder (copy of query encoder)</div>
+      <div class="code-line" id="cl13">        self.encoder_k = copy.deepcopy(self.encoder_q)</div>
+      <div class="code-line" id="cl14"></div>
+      <div class="code-line" id="cl15">        # disable gradients for key encoder</div>
+      <div class="code-line" id="cl16">        for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):</div>
+      <div class="code-line" id="cl17">            param_k.data.copy_(param_q.data) # initialize key with query weights</div>
+      <div class="code-line" id="cl18">            param_k.requires_grad = False    # no gradient for key encoder</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">        # create the queue of negative keys</div>
+      <div class="code-line" id="cl21">        self.register_buffer("queue", torch.randn(dim, K)) # (D, K) tensor</div>
+      <div class="code-line" id="cl22">        self.queue = nn.functional.normalize(self.queue, dim=0)</div>
+      <div class="code-line" id="cl23">        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))</div>
+      <div class="code-line" id="cl24"></div>
+      <div class="code-line" id="cl25">    @torch.no_grad() # no gradients for key encoder update</div>
+      <div class="code-line" id="cl26">    def _momentum_update_key_encoder(self):</div>
+      <div class="code-line" id="cl27">        for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):</div>
+      <div class="code-line" id="cl28">            param_k.data = param_k.data * self.m + param_q.data * (1. - self.m) # EMA update</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30">    @torch.no_grad() # no gradients for queue update</div>
+      <div class="code-line" id="cl31">    def _dequeue_and_enqueue(self, keys):</div>
+      <div class="code-line" id="cl32">        batch_size = keys.shape[0]</div>
+      <div class="code-line" id="cl33">        ptr = int(self.queue_ptr)</div>
+      <div class="code-line" id="cl34">        # replace the oldest batch with new keys</div>
+      <div class="code-line" id="cl35">        self.queue[:, ptr:ptr + batch_size] = keys.T</div>
+      <div class="code-line" id="cl36">        ptr = (ptr + batch_size) % self.K  # move pointer</div>
+      <div class="code-line" id="cl37">        self.queue_ptr[0] = ptr</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">    def forward(self, im_q, im_k):</div>
+      <div class="code-line" id="cl40">        # compute query features</div>
+      <div class="code-line" id="cl41">        q = self.encoder_q(im_q)  # queries: NxC</div>
+      <div class="code-line" id="cl42">        q = nn.functional.normalize(q, dim=1)</div>
+      <div class="code-line" id="cl43"></div>
+      <div class="code-line" id="cl44">        # compute key features (no gradients)</div>
+      <div class="code-line" id="cl45">        with torch.no_grad():</div>
+      <div class="code-line" id="cl46">            self._momentum_update_key_encoder()  # update the key encoder</div>
+      <div class="code-line" id="cl47">            k = self.encoder_k(im_k)  # keys: NxC</div>
+      <div class="code-line" id="cl48">            k = nn.functional.normalize(k, dim=1)</div>
+      <div class="code-line" id="cl49"></div>
+      <div class="code-line" id="cl50">        # compute logits (dot products)</div>
+      <div class="code-line" id="cl51">        # Einstein sum notation: q (NxC), k (NxC), queue (CxK)</div>
+      <div class="code-line" id="cl52">        l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1) # N*1 positive logits</div>
+      <div class="code-line" id="cl53">        l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()]) # N*K negative logits</div>
+      <div class="code-line" id="cl54"></div>
+      <div class="code-line" id="cl55">        # logits and labels</div>
+      <div class="code-line" id="cl56">        logits = torch.cat([l_pos, l_neg], dim=1) / self.T</div>
+      <div class="code-line" id="cl57">        labels = torch.zeros(logits.shape[0], dtype=torch.long) # positive key is at index 0</div>
+      <div class="code-line" id="cl58"></div>
+      <div class="code-line" id="cl59">        # dequeue and enqueue</div>
+      <div class="code-line" id="cl60">        self._dequeue_and_enqueue(k)</div>
+      <div class="code-line" id="cl61"></div>
+      <div class="code-line" id="cl62">        return logits, labels</div>
+      <div class="code-line" id="cl63"></div>
+      <div class="code-line" id="cl64"># Example usage in a training loop:</div>
+      <div class="code-line" id="cl65"># model = MoCo(base_encoder=ResNet50).cuda()</div>
+      <div class="code-line" id="cl66"># optimizer = torch.optim.SGD(model.parameters(), lr=0.03)</div>
+      <div class="code-line" id="cl67"># criterion = nn.CrossEntropyLoss().cuda()</div>
+      <div class="code-line" id="cl68"># </div>
+      <div class="code-line" id="cl69"># for inputs_q, inputs_k in data_loader:</div>
+      <div class="code-line" id="cl70">#     logits, labels = model(inputs_q, inputs_k)</div>
+      <div class="code-line" id="cl71">#     loss = criterion(logits, labels)</div>
+      <div class="code-line" id="cl72">#     optimizer.zero_grad()</div>
+      <div class="code-line" id="cl73">#     loss.backward()</div>
+      <div class="code-line" id="cl74">#     optimizer.step()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILS ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const seededRng = mulberry32(12345);
+
+function randVec(dim, magnitude = 1) {
+  const vec = Array.from({ length: dim }, () => seededRng() * 2 - 1);
+  const norm = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
+  return vec.map(v => (v / norm) * magnitude);
+}
+
+function cosineSimilarity(v1, v2) {
+  let dot = 0;
+  let norm1 = 0;
+  let norm2 = 0;
+  for (let i = 0; i < v1.length; i++) {
+    dot += v1[i] * v2[i];
+    norm1 += v1[i] * v1[i];
+    norm2 += v2[i] * v2[i];
+  }
+  const magnitude = Math.sqrt(norm1) * Math.sqrt(norm2);
+  return magnitude === 0 ? 0 : dot / magnitude;
+}
+
+function euclideanDistance(v1, v2) {
+  let sumSq = 0;
+  for (let i = 0; i < v1.length; i++) {
+    sumSq += (v1[i] - v2[i]) * (v1[i] - v2[i]);
+  }
+  return Math.sqrt(sumSq);
+}
+
+// ── SIMULATION DATA ──
+const EMBED_DIM = 4;
+const QUEUE_SIZE = 6; // Small for visualization purposes
+const BATCH_SIZE = 2; // Mini-batch size for new keys
+
+let queryEncoderWeights = randVec(EMBED_DIM * EMBED_DIM, 0.5);
+let keyEncoderWeights = [...queryEncoderWeights]; // Initial copy
+
+let queue = [];
+for (let i = 0; i < QUEUE_SIZE; i++) {
+  queue.push({ id: `neg${i}`, embedding: randVec(EMBED_DIM, 1) });
+}
+
+let currentQueryImage = { id: 'queryA', embedding: randVec(EMBED_DIM, 1) };
+let currentPositiveImage = { id: 'posA', embedding: randVec(EMBED_DIM, 1) };
+let currentNegativeImages = [];
+for (let i = 0; i < BATCH_SIZE; i++) {
+  currentNegativeImages.push({ id: `newNeg${i}`, embedding: randVec(EMBED_DIM, 1) });
+}
+
+let queryEmbedding = randVec(EMBED_DIM, 1);
+let positiveKeyEmbedding = randVec(EMBED_DIM, 1);
+let newKeyEmbeddings = [];
+
+function simulateForwardPass(m, iteration = 0) {
+  const rng = mulberry32(1000 + iteration); // Seed for reproducible "randomness"
+  const smallNoise = () => (rng() - 0.5) * 0.1;
+
+  // Simulate query encoder processing
+  queryEmbedding = currentQueryImage.embedding.map(v => v + smallNoise());
+  queryEmbedding = randVec(EMBED_DIM, 1); // For easier visualization, new random vector each time
+
+  // Simulate key encoder processing
+  positiveKeyEmbedding = currentPositiveImage.embedding.map(v => v + smallNoise());
+  positiveKeyEmbedding = randVec(EMBED_DIM, 1); // New random vector each time
+
+  newKeyEmbeddings = [];
+  for (const img of currentNegativeImages) {
+    const embed = img.embedding.map(v => v + smallNoise());
+    newKeyEmbeddings.push({ id: img.id, embedding: randVec(EMBED_DIM, 1) }); // New random vector each time
+  }
+
+  // Simulate loss calculation (cosine similarity)
+  const q_k_pos_sim = cosineSimilarity(queryEmbedding, positiveKeyEmbedding);
+  const q_k_neg_sims = queue.concat(newKeyEmbeddings).map(neg => cosineSimilarity(queryEmbedding, neg.embedding));
+
+  // Simulate backprop update for query encoder weights
+  queryEncoderWeights = queryEncoderWeights.map(w => w + (rng() - 0.5) * 0.05);
+
+  // Simulate momentum update for key encoder weights
+  keyEncoderWeights = keyEncoderWeights.map((wk, i) => m * wk + (1 - m) * queryEncoderWeights[i]);
+
+  return {
+    queryEmbedding,
+    positiveKeyEmbedding,
+    newKeyEmbeddings,
+    q_k_pos_sim,
+    q_k_neg_sims,
+    queryEncoderWeights,
+    keyEncoderWeights
+  };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial State',
+    desc: 'The query encoder (\(f_q\)) and key encoder (\(f_k\)) are initialized with identical weights. The queue \(Q\) is pre-filled with some random negative keys for demonstration. No images have been processed yet.',
+    codeLines: [10, 11, 12, 13, 16, 17, 18, 20, 21, 22],
+    mode: 'init',
+    activeElements: ['f_q', 'f_k', 'queue']
+  },
+  {
+    phase: 'process', title: 'Input Mini-Batch',
+    desc: 'A mini-batch of images arrives. It contains a query image (\(x^q\)), its augmented positive counterpart (\(x^{k+}\)), and a few other images that will serve as new negative keys.',
+    codeLines: [39],
+    mode: 'input_batch',
+    activeElements: ['f_q', 'f_k', 'queue', 'query_img', 'pos_img', 'new_neg_imgs']
+  },
+  {
+    phase: 'process', title: 'Query Encoding',
+    desc: 'The query image (\(x^q\)) is passed through the query encoder (\(f_q\)) to produce its embedding \(q\). This encoder is the one whose weights will be updated by backpropagation.',
+    codeLines: [40, 41, 42],
+    mode: 'query_encode',
+    activeElements: ['f_q', 'query_img', 'query_embed']
+  },
+  {
+    phase: 'process', title: 'Key Encoding (Positive & New Negatives)',
+    desc: 'The positive image (\(x^{k+}\)) and the new negative images are passed through the key encoder (\(f_k\)) to produce their embeddings \(k_+\) and \(K_{new}\). Note that \(f_k\) does NOT receive gradients.',
+    codeLines: [44, 45, 47, 48],
+    mode: 'key_encode',
+    activeElements: ['f_k', 'pos_img', 'new_neg_imgs', 'pos_embed', 'new_neg_embeds']
+  },
+  {
+    phase: 'process', title: 'Queue Update: Dequeue Oldest, Enqueue Newest',
+    desc: 'The oldest negative keys (batch size equivalent) are removed from the front of the queue. The newly generated key embeddings (\(K_{new}\)) are added to the back of the queue. This keeps the queue dynamic and fresh.',
+    codeLines: [31, 32, 33, 34, 35, 36, 37],
+    mode: 'queue_update',
+    activeElements: ['f_k', 'queue', 'new_neg_embeds']
+  },
+  {
+    phase: 'loss', title: 'Contrastive Loss Calculation',
+    desc: 'The InfoNCE loss is computed. It pulls \(q\) closer to \(k_+\) and pushes \(q\) away from all keys in the queue (\(k_i^-\)), based on their similarity scores. A high similarity with \(k_+\) and low similarity with \(k_i^-\) is desired.',
+    codeLines: [50, 51, 52, 53, 56, 57],
+    mode: 'loss_calc',
+    activeElements: ['query_embed', 'pos_embed', 'queue', 'sim_pos', 'sim_negs', 'loss']
+  },
+  {
+    phase: 'update', title: 'Backpropagation & \(f_q\) Update',
+    desc: 'The loss is backpropagated through the query encoder (\(f_q\)). Its weights are updated using an optimizer (e.g., SGD, Adam) to improve the representation learning. The key encoder is untouched by this backprop step.',
+    codeLines: [65, 66, 67, 71, 72, 73, 74], // Simplified code lines for backprop
+    mode: 'backprop_q',
+    activeElements: ['f_q', 'query_embed', 'loss']
+  },
+  {
+    phase: 'update', title: 'Momentum Update for \(f_k\)',
+    desc: 'After \(f_q\) is updated, the key encoder (\(f_k\)) updates its weights. It does so by taking a slow-moving exponential moving average (EMA) of \(f_q\)\'s new weights. This ensures \(f_k\) stays consistent but slowly adapts. Adjust the momentum coefficient slider to see its effect!',
+    codeLines: [25, 26, 27, 28],
+    mode: 'momentum_update',
+    activeElements: ['f_q', 'f_k', 'momentum_line']
+  },
+  {
+    phase: 'result', title: 'Iteration Complete: Ready for Next Batch',
+    desc: 'One training iteration is complete. The encoders are updated, and the queue is refreshed. The process repeats for the next mini-batch, continuously learning better representations.',
+    codeLines: [59, 60],
+    mode: 'next_iter',
+    activeElements: ['f_q', 'f_k', 'queue']
+  },
+  {
+    phase: 'result', title: 'Summary: Large & Consistent Negatives',
+    desc: 'MoCo successfully maintains a large, dynamic dictionary of negative samples using the queue, while ensuring consistency via the momentum encoder. This combination is key to its effectiveness in self-supervised learning.',
+    codeLines: [],
+    mode: 'summary',
+    activeElements: ['f_q', 'f_k', 'queue']
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let momentumCoefficient = parseFloat(document.getElementById('momentumSlider').value);
+let currentIteration = 0; // To make simulation data change over time
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  currentIteration++; // Advance iteration for new simulated data
+  render();
+}
+function goTo(i) {
+  if (i < step) currentIteration -= (step - i); // Go back in iterations
+  else if (i > step) currentIteration += (i - step); // Go forward
+  step = i;
+  render();
+}
+function reset() {
+  step = 0;
+  currentIteration = 0;
+  momentumCoefficient = 0.999;
+  document.getElementById('momentumSlider').value = momentumCoefficient;
+  updateMomentumLabel();
+  render();
+}
+
+// ── SLIDER ──
+const momentumSlider = document.getElementById('momentumSlider');
+momentumSlider.addEventListener('input', () => {
+  momentumCoefficient = parseFloat(momentumSlider.value);
+  updateMomentumLabel();
+  render();
+});
+
+function updateMomentumLabel() {
+  document.getElementById('momentumValue').textContent = momentumCoefficient.toFixed(3);
+  const hint = document.getElementById('sliderHint');
+  if (momentumCoefficient >= 0.99) {
+    hint.textContent = `High momentum (e.g., ${momentumCoefficient.toFixed(3)}) means the key encoder updates very slowly.`;
+  } else if (momentumCoefficient <= 0.1) {
+    hint.textContent = `Low momentum (e.g., ${momentumCoefficient.toFixed(3)}) means the key encoder updates rapidly, almost like direct backprop.`;
+  } else {
+    hint.textContent = `Medium momentum (e.g., ${momentumCoefficient.toFixed(3)}) for a balance between consistency and adaptation.`;
+  }
+}
+
+// ── RENDER ──
+let simulatedData = null;
+
+function render() {
+  const s = steps[step];
+
+  // Simulate data for current iteration and momentum
+  simulatedData = simulateForwardPass(momentumCoefficient, currentIteration);
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = { setup: 'phase-setup', process: 'phase-process', loss: 'phase-loss', update: 'phase-update', result: 'phase-result' };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Slider visibility
+  document.getElementById('sliderPanel').style.display = (s.mode === 'momentum_update' || s.mode === 'summary') ? 'flex' : 'none';
+
+  // Canvas
+  drawCanvas(s.mode, s.activeElements, simulatedData);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blueMid: g('--blue-mid'), greenMid: g('--green-mid'), redMid: g('--red-mid'),
+    amberMid: g('--amber-mid'), purpleMid: g('--purple-mid'), cyanMid: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode, activeElements, data) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const PADDING = 20;
+  const ENCODER_W = 150, ENCODER_H = 80;
+  const EMBED_H = 20;
+  const QUEUE_ITEM_H = 20;
+  const QUEUE_W = 100;
+  const ARROW_SIZE = 8;
+  const FONT_SIZE = 12;
+
+  // Positions
+  const fqX = W * 0.2 - ENCODER_W / 2;
+  const fkX = W * 0.8 - ENCODER_W / 2;
+  const encoderY = H * 0.3;
+
+  const queueX = fkX + ENCODER_W + 50;
+  const queueY = PADDING;
+  const queueH = H - 2 * PADDING;
+
+  const inputImgY = PADDING;
+  const embedY = encoderY + ENCODER_H + 30;
+
+  // Helper to draw a box
+  function drawBox(x, y, w, h, label, color, isActive = true) {
+    ctx.globalAlpha = isActive ? 1 : 0.3;
+    ctx.fillStyle = colors.surface;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = colors.text;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + w / 2, y + h / 2 + FONT_SIZE / 3);
+    ctx.globalAlpha = 1;
+  }
+
+  // Helper to draw an arrow
+  function drawArrow(x1, y1, x2, y2, color, isActive = true) {
+    ctx.globalAlpha = isActive ? 1 : 0.3;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // Arrowhead
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ARROW_SIZE * Math.cos(angle - Math.PI / 6), y2 - ARROW_SIZE * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ARROW_SIZE * Math.cos(angle + Math.PI / 6), y2 - ARROW_SIZE * Math.sin(angle + Math.PI / 6));
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Helper to draw an image/embedding representation
+  function drawImageOrEmbedding(x, y, label, color, isActive = true, value = '') {
+    const size = 40;
+    ctx.globalAlpha = isActive ? 1 : 0.3;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(x, y, size, size, colors.radius / 2) : ctx.rect(x, y, size, size);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.font = `600 ${FONT_SIZE - 2}px ${colors.mono}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + size / 2, y + size / 2 + FONT_SIZE / 3 - 4);
+    if (value) {
+      ctx.font = `400 ${FONT_SIZE - 4}px ${colors.mono}`;
+      ctx.fillText(value, x + size / 2, y + size / 2 + FONT_SIZE / 3 + 6);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Helper to draw the queue
+  function drawQueue(x, y, w, h, queueData, activeIndices = [], dequeuedIndex = -1) {
+    ctx.globalAlpha = activeElements.includes('queue') ? 1 : 0.3;
+    ctx.fillStyle = colors.bg2;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 2;
+    ctx.roundRect ? ctx.roundRect(x, y, w, h, colors.radius) : ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Queue Q', x + w / 2, y - 10);
+    ctx.globalAlpha = 1;
+
+    const itemHeight = h / QUEUE_SIZE;
+    queueData.forEach((item, i) => {
+      const itemY = y + i * itemHeight;
+      const isActive = activeIndices.includes(i);
+      const isDequeued = dequeuedIndex === i;
+
+      ctx.globalAlpha = isActive ? 1 : 0.5;
+      ctx.fillStyle = isDequeued ? colors.redMid : colors.amberMid;
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1;
+      ctx.roundRect ? ctx.roundRect(x + 5, itemY + 2, w - 10, itemHeight - 4, colors.radius / 2) : ctx.rect(x + 5, itemY + 2, w - 10, itemHeight - 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = 'white';
+      ctx.font = `400 ${FONT_SIZE - 4}px ${colors.mono}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(item.id, x + w / 2, itemY + itemHeight / 2 + FONT_SIZE / 3 - 2);
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  // Draw Encoders
+  drawBox(fqX, encoderY, ENCODER_W, ENCODER_H, 'Query Encoder f_q', colors.blueMid, activeElements.includes('f_q'));
+  drawBox(fkX, encoderY, ENCODER_W, ENCODER_H, 'Key Encoder f_k', colors.greenMid, activeElements.includes('f_k'));
+
+  // Draw Queue
+  drawQueue(queueX, queueY + 30, QUEUE_W, queueH - 30, queue,
+    mode === 'queue_update' ? [QUEUE_SIZE - BATCH_SIZE, QUEUE_SIZE - 1] : [],
+    mode === 'queue_update' ? [0, BATCH_SIZE - 1] : []
+  );
+
+  // Draw Input Images (simulated)
+  const imgSize = 40;
+  const imgSpacing = 10;
+  const totalImgWidth = (1 + 1 + BATCH_SIZE) * imgSize + (2 + BATCH_SIZE - 1) * imgSpacing;
+  const imgStartX = W / 2 - totalImgWidth / 2;
+
+  drawImageOrEmbedding(imgStartX, inputImgY, currentQueryImage.id, colors.blueMid, activeElements.includes('query_img'), 'x^q');
+  drawImageOrEmbedding(imgStartX + imgSize + imgSpacing, inputImgY, currentPositiveImage.id, colors.greenMid, activeElements.includes('pos_img'), 'x^{k+}');
+  currentNegativeImages.forEach((img, i) => {
+    drawImageOrEmbedding(imgStartX + 2 * (imgSize + imgSpacing) + i * (imgSize + imgSpacing), inputImgY, img.id, colors.amberMid, activeElements.includes('new_neg_imgs'), 'x^-');
+  });
+
+  // Draw Embeddings and Arrows based on mode
+  if (mode === 'input_batch') {
+    drawArrow(imgStartX + imgSize / 2, inputImgY + imgSize, fqX + ENCODER_W / 2, encoderY, colors.blueMid, activeElements.includes('query_img'));
+    drawArrow(imgStartX + imgSize + imgSpacing + imgSize / 2, inputImgY + imgSize, fkX + ENCODER_W / 2, encoderY, colors.greenMid, activeElements.includes('pos_img'));
+    currentNegativeImages.forEach((img, i) => {
+      drawArrow(imgStartX + 2 * (imgSize + imgSpacing) + i * (imgSize + imgSpacing) + imgSize / 2, inputImgY + imgSize, fkX + ENCODER_W / 2, encoderY, colors.amberMid, activeElements.includes('new_neg_imgs'));
+    });
+  }
+
+  if (activeElements.includes('query_embed')) {
+    drawImageOrEmbedding(fqX + ENCODER_W / 2 - imgSize / 2, embedY, 'q', colors.blueMid, true, data.queryEmbedding[0].toFixed(2) + '...');
+    drawArrow(fqX + ENCODER_W / 2, encoderY + ENCODER_H, fqX + ENCODER_W / 2, embedY, colors.blueMid);
+  }
+
+  if (activeElements.includes('pos_embed')) {
+    drawImageOrEmbedding(fkX + ENCODER_W / 2 - imgSize / 2 - 50, embedY, 'k+', colors.greenMid, true, data.positiveKeyEmbedding[0].toFixed(2) + '...');
+    drawArrow(fkX + ENCODER_W / 2, encoderY + ENCODER_H, fkX + ENCODER_W / 2 - 50, embedY, colors.greenMid);
+  }
+
+  if (activeElements.includes('new_neg_embeds')) {
+    newKeyEmbeddings.forEach((embed, i) => {
+      drawImageOrEmbedding(fkX + ENCODER_W / 2 - imgSize / 2 + 50 + i * (imgSize + imgSpacing), embedY, embed.id, colors.amberMid, true, embed.embedding[0].toFixed(2) + '...');
+    });
+    drawArrow(fkX + ENCODER_W / 2, encoderY + ENCODER_H, fkX + ENCODER_W / 2 + 50, embedY, colors.amberMid);
+  }
+
+  if (mode === 'queue_update' || mode === 'loss_calc' || mode === 'summary' || mode === 'next_iter') {
+    // Show queue items flowing in
+    newKeyEmbeddings.forEach((embed, i) => {
+      drawImageOrEmbedding(fkX + ENCODER_W / 2 - imgSize / 2 + 50 + i * (imgSize + imgSpacing), embedY, embed.id, colors.amberMid, false, embed.embedding[0].toFixed(2) + '...');
+      drawArrow(fkX + ENCODER_W / 2 + 50 + i * (imgSize + imgSpacing) + imgSize / 2, embedY + imgSize / 2, queueX, queueY + queueH - (BATCH_SIZE - i) * (queueH / QUEUE_SIZE) - (queueH / QUEUE_SIZE) / 2, colors.amberMid, true);
+    });
+  }
+
+  if (mode === 'loss_calc') {
+    const lossBoxX = W / 2 - ENCODER_W / 2;
+    const lossBoxY = H * 0.75;
+    drawBox(lossBoxX, lossBoxY, ENCODER_W, ENCODER_H, 'InfoNCE Loss', colors.redMid, activeElements.includes('loss'));
+
+    ctx.globalAlpha = activeElements.includes('sim_pos') ? 1 : 0.3;
+    ctx.fillStyle = colors.greenMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(`Sim(q, k+) = ${data.q_k_pos_sim.toFixed(3)}`, lossBoxX + ENCODER_W / 2, lossBoxY - 10);
+    ctx.globalAlpha = 1;
+
+    ctx.globalAlpha = activeElements.includes('sim_negs') ? 1 : 0.3;
+    ctx.fillStyle = colors.amberMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(`Sim(q, k-) avg = ${data.q_k_neg_sims.reduce((a, b) => a + b, 0) / data.q_k_neg_sims.length.toFixed(3)}`, lossBoxX + ENCODER_W / 2, lossBoxY + ENCODER_H + 20);
+    ctx.globalAlpha = 1;
+
+    drawArrow(fqX + ENCODER_W / 2, embedY + imgSize, lossBoxX + ENCODER_W / 2, lossBoxY, colors.blueMid, activeElements.includes('query_embed'));
+    drawArrow(fkX + ENCODER_W / 2 - 50, embedY + imgSize, lossBoxX + ENCODER_W / 2, lossBoxY, colors.greenMid, activeElements.includes('pos_embed'));
+    drawArrow(queueX, queueY + queueH / 2, lossBoxX + ENCODER_W, lossBoxY + ENCODER_H / 2, colors.amberMid, activeElements.includes('queue'));
+  }
+
+  if (mode === 'backprop_q') {
+    const lossBoxX = W / 2 - ENCODER_W / 2;
+    const lossBoxY = H * 0.75;
+    drawBox(lossBoxX, lossBoxY, ENCODER_W, ENCODER_H, 'InfoNCE Loss', colors.redMid, activeElements.includes('loss'));
+    drawArrow(lossBoxX + ENCODER_W / 2, lossBoxY, fqX + ENCODER_W / 2, encoderY + ENCODER_H, colors.redMid, activeElements.includes('loss'));
+    ctx.fillStyle = colors.redMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText('Backprop', fqX + ENCODER_W / 2, encoderY + ENCODER_H + 20);
+
+    ctx.fillStyle = colors.blueMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(`f_q updated!`, fqX + ENCODER_W / 2, encoderY - 20);
+  }
+
+  if (mode === 'momentum_update') {
+    const queryWeightsLabel = `f_q weights: ${data.queryEncoderWeights[0].toFixed(3)}...`;
+    const keyWeightsLabel = `f_k weights: ${data.keyEncoderWeights[0].toFixed(3)}...`;
+
+    ctx.fillStyle = colors.blueMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(queryWeightsLabel, fqX + ENCODER_W / 2, encoderY - 20);
+
+    ctx.fillStyle = colors.greenMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(keyWeightsLabel, fkX + ENCODER_W / 2, encoderY - 20);
+
+    // Momentum update arrow
+    const lineStartX = fqX + ENCODER_W;
+    const lineStartY = encoderY + ENCODER_H / 2;
+    const lineEndX = fkX;
+    const lineEndY = encoderY + ENCODER_H / 2;
+
+    ctx.strokeStyle = colors.purpleMid;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(lineStartX, lineStartY);
+    ctx.lineTo(lineEndX, lineEndY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Arrowhead
+    const angle = Math.atan2(lineEndY - lineStartY, lineEndX - lineStartX);
+    ctx.fillStyle = colors.purpleMid;
+    ctx.beginPath();
+    ctx.moveTo(lineEndX, lineEndY);
+    ctx.lineTo(lineEndX - ARROW_SIZE * Math.cos(angle - Math.PI / 6), lineEndY - ARROW_SIZE * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(lineEndX, lineEndY);
+    ctx.lineTo(lineEndX - ARROW_SIZE * Math.cos(angle + Math.PI / 6), lineEndY - ARROW_SIZE * Math.sin(angle + Math.PI / 6));
+    ctx.fill();
+
+    ctx.fillStyle = colors.purpleMid;
+    ctx.font = `600 ${FONT_SIZE}px ${colors.sans}`;
+    ctx.fillText(`m = ${momentumCoefficient.toFixed(3)}`, W / 2, encoderY + ENCODER_H / 2 - 15);
+    ctx.fillText(`(1-m) = ${(1 - momentumCoefficient).toFixed(3)}`, W / 2, encoderY + ENCODER_H / 2 + 15);
+  }
+
+  // Info numbers
+  let infoNumbersText = '';
+  if (data) {
+    if (activeElements.includes('query_embed')) {
+      infoNumbersText += `Query Embed (q): [${data.queryEmbedding.map(v => v.toFixed(2)).join(', ')}]\n`;
+    }
+    if (activeElements.includes('pos_embed')) {
+      infoNumbersText += `Positive Key (k+): [${data.positiveKeyEmbedding.map(v => v.toFixed(2)).join(', ')}]\n`;
+    }
+    if (activeElements.includes('new_neg_embeds')) {
+      infoNumbersText += `New Keys (K_new): ${newKeyEmbeddings.length} embeddings\n`;
+    }
+    if (activeElements.includes('sim_pos')) {
+      infoNumbersText += `Sim(q, k+): ${data.q_k_pos_sim.toFixed(4)}\n`;
+    }
+    if (activeElements.includes('sim_negs')) {
+      infoNumbersText += `Sim(q, k-) Avg: ${(data.q_k_neg_sims.reduce((a, b) => a + b, 0) / data.q_k_neg_sims.length).toFixed(4)}\n`;
+    }
+    if (activeElements.includes('f_q') && activeElements.includes('f_k') && mode === 'momentum_update') {
+      infoNumbersText += `f_q weights (first 2): [${data.queryEncoderWeights[0].toFixed(3)}, ${data.queryEncoderWeights[1].toFixed(3)}]\n`;
+      infoNumbersText += `f_k weights (first 2): [${data.keyEncoderWeights[0].toFixed(3)}, ${data.keyEncoderWeights[1].toFixed(3)}]\n`;
+      const diff = euclideanDistance(data.queryEncoderWeights, data.keyEncoderWeights);
+      infoNumbersText += `Euclidean distance between f_q and f_k weights: ${diff.toFixed(4)}\n`;
+    }
+  }
+  document.getElementById('infoNumbers').textContent = infoNumbersText;
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+updateMomentumLabel();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode, steps[step].activeElements, simulatedData));
+</script>
+</body>
+</html>

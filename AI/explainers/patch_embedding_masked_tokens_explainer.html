@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patch Embedding & Masked Tokens (MAE) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:110px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-patches{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-embed{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-mask{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-reconstruct{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.mask{background:rgba(255,0,0,0.3);border:1px dashed var(--red-mid);}
+.legend-swatch.embed{background:var(--purple-mid);}
+.legend-swatch.pos{background:var(--cyan-mid);}
+.legend-swatch.reconstruct{background:var(--green-mid);}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:90px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Patch Embedding &amp; Masked Tokens (MAE)</h1>
+  <div class="subtitle">Converting images to sequences for Transformers, and self-supervised pre-training by reconstruction</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Computer Vision</span>
+    <span class="tag tag-category">Deep Learning</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Patch Embedding and MAE</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Vision Transformers (ViTs) adapt the Transformer architecture, originally designed for text, to image data. Since Transformers process sequences of tokens, images must first be converted into such a sequence. This is done via <strong>patch embedding</strong>: an image is divided into fixed-size, non-overlapping patches, each flattened into a vector and then linearly projected into a high-dimensional embedding space, much like words are embedded in NLP. Crucially, learnable <strong>positional embeddings</strong> are added to these patch embeddings to retain spatial information.</p>
+    <p><strong>Masked Autoencoders (MAE)</strong> build on this by introducing a powerful self-supervised pre-training objective. During training, a large portion of the image patches (e.g., 75%) are randomly masked out. The ViT encoder then processes only the *visible* patches. A lightweight decoder is then tasked with reconstructing the original pixel values of the *masked* patches. This forces the model to learn rich, semantic representations of images by understanding context and filling in missing information.</p>
+    <p><strong>Analogy:</strong> Imagine an image as a long sentence. Patch embedding is like a "visual tokenizer" that breaks the image into "visual words" (patches) and then translates each visual word into a numerical vector that a Transformer can understand. Masked tokens (MAE) is like playing a game of "visual fill-in-the-blanks": you hide most of the image, show only a few scattered pieces, and ask the model to guess what the hidden parts looked like. To do this well, the model must learn deep visual understanding.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Patch embedding is the core mechanism that allows Transformers to process images by converting them into sequences of fixed-size vectors. MAE is a highly effective self-supervised pre-training strategy that leverages this patch-based representation by reconstructing masked image regions, leading to powerful and efficient vision models.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>The Patch Embedding Pipeline</h4>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Image to Patches:</strong> An input image of size \((H, W, C)\) (Height, Width, Channels) is divided into a grid of non-overlapping square patches of size \((P, P, C)\). For example, a \(224 \times 224\) image with \(16 \times 16\) patches yields \((224/16) \times (224/16) = 14 \times 14 = 196\) patches.</li>
+      <li><strong>Flattening:</strong> Each individual patch \((P, P, C)\) is flattened into a 1D vector of size \(P \cdot P \cdot C\). For a \(16 \times 16\) patch with 3 channels, this is a vector of \(16 \cdot 16 \cdot 3 = 768\) elements.</li>
+      <li><strong>Linear Projection:</strong> Each flattened patch vector is then projected into a target embedding dimension \(D\) (e.g., 768 or 1024) using a learnable linear transformation. This is typically implemented as a convolutional layer with kernel size and stride equal to the patch size, effectively performing the flattening and projection in one step. The output is a sequence of \(N\) patch embeddings, where \(N = (H/P) \cdot (W/P)\).</li>
+      <li><strong>Positional Encoding:</strong> To retain the spatial information lost during flattening, learnable positional embeddings (one for each patch position) are added to the patch embeddings. These embeddings allow the Transformer to understand where each patch originated in the original image.</li>
+      <li><strong>Class Token (Optional):</strong> For classification tasks, a special learnable `[CLS]` token embedding is often prepended to the sequence of patch embeddings. The Transformer's output corresponding to this `[CLS]` token is then used for downstream classification.</li>
+    </ol>
+    <p>The final output is a sequence of \(N+1\) (if using `[CLS]` token) \(D\)-dimensional vectors, ready to be fed into a standard Transformer encoder.</p>
+
+    <h4>Masked Autoencoder (MAE) Pre-training</h4>
+    <p>MAE introduces sparsity and a reconstruction task:</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Masking Strategy:</strong> A very high proportion of patches (e.g., 75%) are randomly sampled and "masked out." Unlike NLP's `[MASK]` token, MAE often *removes* these patches entirely from the encoder input, making the input sequence much shorter.</li>
+      <li><strong>Encoder Input:</strong> The Transformer encoder only processes the remaining *visible* (unmasked) patches. This makes the encoder very efficient.</li>
+      <li><strong>Decoder Input:</strong> The decoder receives the encoder's output for the visible patches, along with *learnable mask tokens* for the positions of the masked patches. Crucially, positional embeddings are added to *all* tokens (visible and masked) to inform the decoder of their original locations.</li>
+      <li><strong>Reconstruction Target:</strong> The decoder's task is to reconstruct the *original pixel values* of the masked patches. The loss (typically Mean Squared Error) is computed only over these reconstructed masked patches. This forces the model to learn a rich understanding of image structure and context.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The patch embedding process converts a 2D image into a 1D sequence, enabling Transformer architectures to be applied to vision. MAE's high masking ratio and reconstruction-only-on-masked-patches objective creates a powerful self-supervision signal, making the encoder learn robust representations while being computationally efficient.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Patch Embedding Formalism</h4>
+    <p>Given an input image \(X \in \mathbb{R}^{H \times W \times C}\) and a patch size \(P\), we first divide \(X\) into \(N = (H/P) \times (W/P)\) non-overlapping patches. Each patch \(x_{i,j}\) (at grid position \((i,j)\)) has dimensions \(\mathbb{R}^{P \times P \times C}\). This patch is then flattened into a 1D vector \(x'_{i,j} \in \mathbb{R}^{P^2 C}\).</p>
+    <p>The linear projection maps this flattened vector to an embedding of dimension \(D\):</p>
+    <div class="eq">$$e_{i,j} = x'_{i,j} W_{proj} + b_{proj}$$</div>
+    <p>where \(W_{proj} \in \mathbb{R}^{P^2 C \times D}\) is the learnable projection matrix and \(b_{proj} \in \mathbb{R}^D\) is the bias. To retain spatial information, a learnable positional embedding \(p_{i,j} \in \mathbb{R}^D\) is added:</p>
+    <div class="eq">$$z_{i,j} = e_{i,j} + p_{i,j}$$</div>
+    <p>These \(z_{i,j}\) vectors, along with an optional `[CLS]` token, form the input sequence to the Transformer encoder.</p>
+
+    <h4>Masked Autoencoder (MAE) Objective</h4>
+    <p>For MAE, we randomly select a subset of patches \(\mathcal{M}\) (masked patches) and \(\mathcal{V}\) (visible patches), where \(\mathcal{M} \cup \mathcal{V}\) covers all patches. The encoder only receives the visible patches:</p>
+    <div class="eq">$$Z_{\mathcal{V}} = \text{Encoder}(\{z_{i,j} \mid (i,j) \in \mathcal{V}\})$$</div>
+    <p>The decoder then takes \(Z_{\mathcal{V}}\), plus learnable mask tokens for positions in \(\mathcal{M}\), each combined with its respective positional embedding \(p_{i,j}\). The objective is to reconstruct the original pixel values \(x_{i,j}\) for the masked patches, typically using Mean Squared Error (MSE) loss:</p>
+    <div class="eq">$$L_{\text{MAE}} = \sum_{(i,j) \in \mathcal{M}} \| \text{DecoderOutput}_{(i,j)} - x_{i,j}^{\text{original pixels}} \|_2^2$$</div>
+    <p>This objective forces the encoder to learn robust, non-local representations, as it cannot rely on local pixel correlations to reconstruct large masked regions. The high masking ratio encourages learning global context and strong semantic features.</p>
+
+    <div class="concept-box math">
+      <div class="concept-box-title">➗ Connection to NLP</div>
+      <p style="font-size:14px;margin:0;">This process is directly analogous to NLP's `Word2Vec` or `BERT` masking. Just as BERT predicts masked words using surrounding context, MAE predicts masked image patches using surrounding visual context. The key difference is that MAE reconstructs raw pixel values, not a discrete token ID, and uses a much higher masking ratio due to the inherent redundancy in image data.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the patch embedding process and observe how random masking works for self-supervised pre-training. Adjust the mask ratio to see its effect live.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel">
+        <div class="slider-group">
+          <div class="slider-label">Mask Ratio</div>
+          <input type="range" id="maskRatioSlider" min="0" max="0.9" step="0.05" value="0.75">
+          <div class="slider-value" id="maskRatioValue">75%</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Percentage of patches to randomly hide during MAE pre-training.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 8</div>
+        <div class="info-title" id="infoTitle">Initial Image</div>
+        <div class="info-desc" id="infoDesc">A sample 32x32 image. Vision Transformers break this into smaller fixed-size patches to process them as a sequence.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Image patch</div>
+        <div class="legend-item"><div class="legend-swatch embed"></div> Patch embedding</div>
+        <div class="legend-item"><div class="legend-swatch pos"></div> Positional encoding</div>
+        <div class="legend-item"><div class="legend-swatch mask"></div> Masked patch</div>
+        <div class="legend-item"><div class="legend-swatch reconstruct"></div> Reconstructed patch</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Patch Embedding & MAE:</strong></p>
+    <ul>
+      <li><strong>Vision Transformers (ViTs):</strong> Essential for any Transformer-based architecture applied to images.</li>
+      <li><strong>Self-supervised Pre-training:</strong> MAE is a highly effective method for pre-training large vision models on vast amounts of unlabeled image data, often outperforming supervised pre-training on ImageNet.</li>
+      <li><strong>Computational Efficiency:</strong> MAE's high masking ratio means the encoder processes a significantly smaller sequence, leading to faster pre-training, especially for large models.</li>
+      <li><strong>Scalability:</strong> Enables the scaling laws observed in NLP Transformers to be applied to computer vision.</li>
+    </ul>
+    <p><strong>Considerations & Limitations:</strong></p>
+    <ul>
+      <li><strong>Patch Size Choice:</strong> Smaller patches lead to longer sequences (higher computational cost) but potentially finer-grained representations. Larger patches reduce sequence length but might lose fine details.</li>
+      <li><strong>Positional Encodings:</strong> Crucial for maintaining spatial awareness. Learnable positional embeddings are common.</li>
+      <li><strong>Reconstruction Target:</strong> Reconstructing raw pixels is simple but might not be the most semantically rich target. Other MAE variants explore reconstructing features or discrete visual tokens.</li>
+      <li><strong>Fine-tuning:</strong> After MAE pre-training, the decoder is typically discarded, and the encoder is fine-tuned on downstream tasks with a classification head.</li>
+    </ul>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Broader Impact</div>
+      <p style="font-size:14px;margin:0;">Patch embedding and MAE represent a paradigm shift in computer vision, moving away from CNN-centric architectures towards Transformer-based models. This approach not only achieves state-of-the-art results but also highlights the power of self-supervised learning, enabling models to learn from raw data without costly human annotations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch-like Snippet)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn as nn</div>
+      <div class="code-line" id="cl2">import numpy as np</div>
+      <div class="code-line" id="cl3"></div>
+      <div class="code-line" id="cl4"># --- Configuration ---</div>
+      <div class="code-line" id="cl5">IMAGE_SIZE = 32</div>
+      <div class="code-line" id="cl6">PATCH_SIZE = 8</div>
+      <div class="code-line" id="cl7">IN_CHANNELS = 3</div>
+      <div class="code-line" id="cl8">EMBED_DIM = 768 # D</div>
+      <div class="code-line" id="cl9">MASK_RATIO = 0.75</div>
+      <div class="code-line" id="cl10"></div>
+      <div class="code-line" id="cl11">num_patches = (IMAGE_SIZE // PATCH_SIZE) ** 2</div>
+      <div class="code-line" id="cl12">patch_dim = IN_CHANNELS * PATCH_SIZE * PATCH_SIZE</div>
+      <div class="code-line" id="cl13"></div>
+      <div class="code-line" id="cl14"># --- 1. Patch Embedding Layer ---</div>
+      <div class="code-line" id="cl15"># This Conv2d acts as both patch extraction and linear projection</div>
+      <div class="code-line" id="cl16">patch_embed_layer = nn.Conv2d(</div>
+      <div class="code-line" id="cl17">    IN_CHANNELS, EMBED_DIM,</div>
+      <div class="code-line" id="cl18">    kernel_size=PATCH_SIZE, stride=PATCH_SIZE</div>
+      <div class="code-line" id="cl19">)</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21"># --- 2. Positional Embeddings ---</div>
+      <div class="code-line" id="cl22"># Learnable embeddings for each patch position + optional CLS token</div>
+      <div class="code-line" id="cl23">pos_embed = nn.Parameter(torch.randn(1, num_patches + 1, EMBED_DIM)) # +1 for CLS</div>
+      <div class="code-line" id="cl24">cls_token = nn.Parameter(torch.randn(1, 1, EMBED_DIM))</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># --- Forward Pass (simplified) ---</div>
+      <div class="code-line" id="cl27"># Input: (B, C, H, W) e.g., (1, 3, 32, 32)</div>
+      <div class="code-line" id="cl28">x = torch.randn(1, IN_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># Step A: Apply patch embedding (Conv2d)</div>
+      <div class="code-line" id="cl31"># Output: (B, EMBED_DIM, num_patches_h, num_patches_w)</div>
+      <div class="code-line" id="cl32">x = patch_embed_layer(x)</div>
+      <div class="code-line" id="cl33"></div>
+      <div class="code-line" id="cl34"># Step B: Flatten spatial dimensions to get sequence of patches</div>
+      <div class="code-line" id="cl35"># Output: (B, EMBED_DIM, num_patches) -> (B, num_patches, EMBED_DIM)</div>
+      <div class="code-line" id="cl36">x = x.flatten(2).transpose(1, 2)</div>
+      <div class="code-line" id="cl37"></div>
+      <div class="code-line" id="cl38"># Step C: Prepend CLS token and add positional embeddings</div>
+      <div class="code-line" id="cl39">x = torch.cat((cls_token, x), dim=1) # (B, num_patches+1, EMBED_DIM)</div>
+      <div class="code-line" id="cl40">x = x + pos_embed</div>
+      <div class="code-line" id="cl41"></div>
+      <div class="code-line" id="cl42"># --- MAE Masking (during training) ---</div>
+      <div class="code-line" id="cl43"># We assume x now contains embeddings for [CLS, patch1, ..., patchN]</div>
+      <div class="code-line" id="cl44"># MAE typically masks patches *before* adding CLS token and pos_embed to encoder</div>
+      <div class="code-line" id="cl45"># Here, we'll simplify and show masking on the full sequence for conceptual clarity.</div>
+      <div class="code-line" id="cl46"></div>
+      <div class="code-line" id="cl47">num_unmasked = int(num_patches * (1 - MASK_RATIO))</div>
+      <div class="code-line" id="cl48">noise = torch.rand(num_patches) # Random noise for masking</div>
+      <div class="code-line" id="cl49">ids_shuffle = torch.argsort(noise) # Shuffle patch indices</div>
+      <div class="code-line" id="cl50"></div>
+      <div class="code-line" id="cl51">ids_restore = torch.argsort(ids_shuffle) # To restore original order later</div>
+      <div class="code-line" id="cl52"></div>
+      <div class="code-line" id="cl53">ids_visible = ids_shuffle[:num_unmasked] # Indices of visible patches</div>
+      <div class="code-line" id="cl54">ids_masked = ids_shuffle[num_unmasked:]  # Indices of masked patches</div>
+      <div class="code-line" id="cl55"></div>
+      <div class="code-line" id="cl56"># Encoder input (excluding CLS token for simplicity in masking)</div>
+      <div class="code-line" id="cl57">x_patches = x[:, 1:, :] # (B, num_patches, EMBED_DIM)</div>
+      <div class="code-line" id="cl58">x_visible = x_patches[:, ids_visible, :] # Only visible patches go to encoder</div>
+      <div class="code-line" id="cl59"></div>
+      <div class="code-line" id="cl60"># For decoder, we need all positional embeddings + encoder output + mask tokens</div>
+      <div class="code-line" id="cl61"># (Simplified: assume encoder_output is just x_visible for demo)</div>
+      <div class="code-line" id="cl62">mask_tokens = nn.Parameter(torch.randn(1, 1, EMBED_DIM)) # Learnable mask token</div>
+      <div class="code-line" id="cl63">mask_tokens_repeated = mask_tokens.repeat(1, len(ids_masked), 1)</div>
+      <div class="code-line" id="cl64"></div>
+      <div class="code-line" id="cl65"># Combine encoder output and mask tokens, then add positional embeddings</div>
+      <div class="code-line" id="cl66"># This forms the full sequence for the decoder to process</div>
+      <div class="code-line" id="cl67">decoder_input = torch.cat([x_visible, mask_tokens_repeated], dim=1)</div>
+      <div class="code-line" id="cl68"># Add positional embeddings for all patches (visible + masked)</div>
+      <div class="code-line" id="cl69">decoder_pos_embed = pos_embed[:, 1:, :][:, ids_restore, :] # restore order</div>
+      <div class="code-line" id="cl70">decoder_input = decoder_input + decoder_pos_embed</div>
+      <div class="code-line" id="cl71"></div>
+      <div class="code-line" id="cl72"># ... Decoder processes decoder_input ...</div>
+      <div class="code-line" id="cl73"># ... and outputs reconstructed pixel values for masked patches.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── GLOBAL CONFIG ──
+const IMAGE_DIM = 32; // e.g., 32x32 pixels
+const PATCH_SIZE = 8; // e.g., 8x8 pixels
+const NUM_CHANNELS = 3; // RGB
+const EMBED_DIM = 768; // D, embedding dimension
+
+const GRID_DIM = IMAGE_DIM / PATCH_SIZE; // e.g., 4x4 grid
+const NUM_PATCHES = GRID_DIM * GRID_DIM; // e.g., 16 patches
+
+// ── DUMMY IMAGE DATA (procedural generation) ──
+function generateImage(dim, channels) {
+  const data = new Array(dim * dim * channels).fill(0);
+  for (let y = 0; y < dim; y++) {
+    for (let x = 0; x < dim; x++) {
+      const idx = (y * dim + x) * channels;
+      // Simple gradient pattern
+      data[idx] = Math.floor(255 * (x / dim));        // Red
+      data[idx + 1] = Math.floor(255 * (y / dim));    // Green
+      data[idx + 2] = Math.floor(255 * ((x + y) / (2 * dim))); // Blue
+    }
+  }
+  return data;
+}
+const IMAGE_PIXELS = generateImage(IMAGE_DIM, NUM_CHANNELS);
+
+// ── DUMMY EMBEDDING DATA (for visualization) ──
+// These are not real embeddings but illustrative vectors for visualization
+function generateEmbedding(dim, seed) {
+  const rng = mulberry32(seed);
+  return Array.from({ length: dim }, () => rng() * 2 - 1); // values between -1 and 1
+}
+function generatePositionalEmbedding(dim, x, y) {
+  const seed = x * 1000 + y; // unique seed for each position
+  const rng = mulberry32(seed);
+  return Array.from({ length: dim }, () => (rng() * 2 - 1) * 0.5); // smaller values
+}
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const PATCH_EMBEDDINGS = Array.from({ length: NUM_PATCHES }, (_, i) => generateEmbedding(EMBED_DIM, i + 100));
+const POS_EMBEDDINGS = Array.from({ length: NUM_PATCHES }, (_, i) => {
+  const px = i % GRID_DIM;
+  const py = Math.floor(i / GRID_DIM);
+  return generatePositionalEmbedding(EMBED_DIM, px, py);
+});
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Image (32x32 pixels)',
+    desc: `A sample ${IMAGE_DIM}x${IMAGE_DIM} image. Vision Transformers (ViTs) don't process images pixel-by-pixel. Instead, they first break the image into smaller, fixed-size patches.`,
+    codeLines: [4,5,6,7],
+    mode: 'image_only',
+    maskRatio: 0
+  },
+  {
+    phase: 'patches', title: `Divide into ${PATCH_SIZE}x${PATCH_SIZE} Patches`,
+    desc: `The image is divided into a grid of non-overlapping ${PATCH_SIZE}x${PATCH_SIZE} patches. This ${IMAGE_DIM}x${IMAGE_DIM} image becomes a sequence of ${GRID_DIM}x${GRID_DIM}=${NUM_PATCHES} patches. Each patch is treated as a "visual word".`,
+    codeLines: [11],
+    mode: 'patches_grid',
+    maskRatio: 0
+  },
+  {
+    phase: 'patches', title: 'Flattening Each Patch',
+    desc: `Each ${PATCH_SIZE}x${PATCH_SIZE}x${NUM_CHANNELS} patch is flattened into a 1D vector of size ${PATCH_SIZE*PATCH_SIZE*NUM_CHANNELS} elements. For example, the highlighted patch becomes a single long vector.`,
+    codeLines: [12],
+    mode: 'patch_flatten',
+    highlightPatch: 5,
+    maskRatio: 0
+  },
+  {
+    phase: 'embed', title: `Linear Projection to Embedding (Dim ${EMBED_DIM})`,
+    desc: `Each flattened patch vector is then linearly projected into a higher-dimensional embedding space (dimension ${EMBED_DIM}). This creates a sequence of ${NUM_PATCHES} patch embeddings. This is often done with a convolutional layer.`,
+    codeLines: [14,15,16,17,18,30,31,32],
+    mode: 'patch_embed',
+    highlightPatch: 5,
+    maskRatio: 0
+  },
+  {
+    phase: 'embed', title: 'Adding Positional Embeddings',
+    desc: `To retain spatial information, learnable positional embeddings are added to each patch embedding. This tells the Transformer where each patch originated in the image. An optional ` + '`[CLS]`' + ` token is also prepended.`,
+    codeLines: [21,22,23,24,38,39,40],
+    mode: 'pos_embed',
+    maskRatio: 0
+  },
+  {
+    phase: 'mask', title: 'MAE: Randomly Masking Patches',
+    desc: `For Masked Autoencoder (MAE) pre-training, a high percentage of patches (currently ${document.getElementById('maskRatioValue')?.textContent || '75%'}) are randomly selected and masked out. These masked patches are typically removed from the encoder input.`,
+    codeLines: [9,47,48,49,50,51,52,53,54],
+    mode: 'masking',
+    maskRatio: 0.75 // Default value for this step
+  },
+  {
+    phase: 'mask', title: 'Encoder Processes Visible Patches',
+    desc: `The Transformer encoder (e.g., a ViT) only processes the visible (unmasked) patches. This makes the encoder very efficient during pre-training. Masked patches are represented by special learnable tokens for the decoder.`,
+    codeLines: [56,57,58],
+    mode: 'encoder_input',
+    maskRatio: 0.75
+  },
+  {
+    phase: 'reconstruct', title: 'Decoder Reconstructs Masked Pixels',
+    desc: `A lightweight decoder receives the encoder's output for visible patches and learnable mask tokens for the masked positions (with positional embeddings). It then attempts to reconstruct the original pixel values of the masked patches. The loss is computed only on these reconstructed pixels.`,
+    codeLines: [60,61,62,63,64,65,66,67,68,69,70],
+    mode: 'reconstruction',
+    maskRatio: 0.75
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let currentMaskRatio = parseFloat(document.getElementById('maskRatioSlider')?.value || 0.75);
+let currentMask = []; // Stores indices of masked patches for a given step/maskRatio
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  document.getElementById('maskRatioSlider').value = 0.75; // Reset slider value
+  updateMaskRatioLabel();
+  render();
+}
+
+// ── SLIDER ──
+const maskRatioSlider = document.getElementById('maskRatioSlider');
+maskRatioSlider.addEventListener('input', () => {
+  updateMaskRatioLabel();
+  currentMaskRatio = parseFloat(maskRatioSlider.value);
+  if (steps[step].mode === 'masking' || steps[step].mode === 'encoder_input' || steps[step].mode === 'reconstruction') {
+    generateMask(); // Regenerate mask on slider change
+  }
+  drawCanvas(steps[step].mode);
+});
+
+function updateMaskRatioLabel() {
+  const p = parseFloat(maskRatioSlider.value);
+  document.getElementById('maskRatioValue').textContent = `${(p * 100).toFixed(0)}%`;
+}
+
+// ── MASK GENERATION ──
+function generateMask() {
+  const p = currentMaskRatio;
+  const numMasked = Math.round(NUM_PATCHES * p);
+  const allPatchIndices = Array.from({ length: NUM_PATCHES }, (_, i) => i);
+
+  // Fisher-Yates shuffle
+  for (let i = allPatchIndices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allPatchIndices[i], allPatchIndices[j]] = [allPatchIndices[j], allPatchIndices[i]];
+  }
+  currentMask = allPatchIndices.slice(0, numMasked);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup: 'phase-setup',
+    patches: 'phase-patches',
+    embed: 'phase-embed',
+    mask: 'phase-mask',
+    reconstruct: 'phase-reconstruct'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step + 1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\(', right: '\\)', display: false }
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines || []).forEach(i => {
+    const el = document.getElementById('cl' + i);
+    if (el) el.classList.add('active');
+  });
+
+  // Update slider visibility and value
+  const isMaskingStep = (s.mode === 'masking' || s.mode === 'encoder_input' || s.mode === 'reconstruction');
+  maskRatioSlider.parentElement.parentElement.style.display = isMaskingStep ? 'flex' : 'none';
+  if (isMaskingStep) {
+    maskRatioSlider.value = s.maskRatio;
+    currentMaskRatio = s.maskRatio;
+    updateMaskRatioLabel();
+    generateMask(); // Generate mask for this specific step's ratio
+  } else {
+    currentMaskRatio = parseFloat(maskRatioSlider.value); // Use current slider value if not a masking step
+  }
+
+  drawCanvas(s.mode, s.highlightPatch);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    redBg: g('--red-bg'), redBorder: g('--red-border')
+  };
+}
+
+function drawCanvas(mode, highlightPatch = -1) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Calculate image rendering size and position
+  const imageDisplaySize = Math.min(W * 0.4, H * 0.8);
+  const imageX = W * 0.05;
+  const imageY = (H - imageDisplaySize) / 2;
+
+  // Draw original image (background for all modes)
+  drawImage(ctx, imageX, imageY, imageDisplaySize, colors);
+
+  if (mode === 'image_only') {
+    // Just the image
+  } else if (mode === 'patches_grid') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+  } else if (mode === 'patch_flatten') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawHighlightPatch(ctx, imageX, imageY, imageDisplaySize, highlightPatch, colors.amber);
+    drawFlattenedPatch(ctx, imageX + imageDisplaySize + W * 0.05, H / 2, highlightPatch, colors);
+  } else if (mode === 'patch_embed') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawHighlightPatch(ctx, imageX, imageY, imageDisplaySize, highlightPatch, colors.amber);
+    drawPatchEmbeddings(ctx, imageX + imageDisplaySize + W * 0.05, imageY, imageDisplaySize, colors, highlightPatch);
+  } else if (mode === 'pos_embed') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawPatchEmbeddings(ctx, imageX + imageDisplaySize + W * 0.05, imageY, imageDisplaySize, colors, -1, true);
+  } else if (mode === 'masking') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawMaskedOverlay(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawPatchEmbeddings(ctx, imageX + imageDisplaySize + W * 0.05, imageY, imageDisplaySize, colors, -1, true, currentMask);
+  } else if (mode === 'encoder_input') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawMaskedOverlay(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawEncoderInput(ctx, imageX + imageDisplaySize + W * 0.05, imageY, imageDisplaySize, colors, currentMask);
+  } else if (mode === 'reconstruction') {
+    drawPatchGrid(ctx, imageX, imageY, imageDisplaySize, colors);
+    drawMaskedOverlay(ctx, imageX, imageY, imageDisplaySize, colors, 0.2); // Lighter mask
+    drawReconstruction(ctx, imageX, imageY, imageDisplaySize, colors, currentMask);
+  }
+}
+
+function drawImage(ctx, x, y, size, colors) {
+  const imageData = ctx.createImageData(IMAGE_DIM, IMAGE_DIM);
+  for (let i = 0; i < IMAGE_PIXELS.length; i++) {
+    imageData.data[i] = IMAGE_PIXELS[i];
+  }
+  ctx.putImageData(imageData, x, y, 0, 0, size, size); // Draw at scaled size
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, size, size);
+}
+
+function drawPatchGrid(ctx, x, y, size, colors) {
+  ctx.strokeStyle = colors.border2;
+  ctx.lineWidth = 1;
+  const patchDisplaySize = size / GRID_DIM;
+  for (let i = 0; i < GRID_DIM; i++) {
+    for (let j = 0; j < GRID_DIM; j++) {
+      ctx.strokeRect(x + j * patchDisplaySize, y + i * patchDisplaySize, patchDisplaySize, patchDisplaySize);
+    }
+  }
+}
+
+function drawHighlightPatch(ctx, x, y, size, patchIdx, color) {
+  if (patchIdx === -1) return;
+  const px = patchIdx % GRID_DIM;
+  const py = Math.floor(patchIdx / GRID_DIM);
+  const patchDisplaySize = size / GRID_DIM;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x + px * patchDisplaySize, y + py * patchDisplaySize, patchDisplaySize, patchDisplaySize);
+}
+
+function drawFlattenedPatch(ctx, x, y, patchIdx, colors) {
+  const patchData = [];
+  const startX = (patchIdx % GRID_DIM) * PATCH_SIZE;
+  const startY = Math.floor(patchIdx / GRID_DIM) * PATCH_SIZE;
+  for (let py = 0; py < PATCH_SIZE; py++) {
+    for (let px = 0; px < PATCH_SIZE; px++) {
+      const imgIdx = ((startY + py) * IMAGE_DIM + (startX + px)) * NUM_CHANNELS;
+      patchData.push(IMAGE_PIXELS[imgIdx]);
+      patchData.push(IMAGE_PIXELS[imgIdx + 1]);
+      patchData.push(IMAGE_PIXELS[imgIdx + 2]);
+    }
+  }
+
+  const barHeight = 6;
+  const barWidth = 100;
+  const totalBars = patchData.length / NUM_CHANNELS; // Each pixel is a "bar" here
+  const barsStartY = y - (totalBars * barHeight) / 2;
+
+  ctx.fillStyle = colors.text2;
+  ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillText('Flattened Patch Vector (' + PATCH_SIZE * PATCH_SIZE * NUM_CHANNELS + ' elements)', x, barsStartY - 20);
+
+  for (let i = 0; i < totalBars; i++) {
+    const r = patchData[i * NUM_CHANNELS];
+    const g = patchData[i * NUM_CHANNELS + 1];
+    const b = patchData[i * NUM_CHANNELS + 2];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, barsStartY + i * barHeight, barWidth, barHeight);
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x, barsStartY + i * barHeight, barWidth, barHeight);
+  }
+}
+
+function drawPatchEmbeddings(ctx, x, y, size, colors, highlightPatch = -1, showPositional = false, maskedIndices = []) {
+  const patchDisplaySize = size / GRID_DIM;
+  const embedWidth = 20; // Width of each embedding block
+  const embedHeight = 10; // Height of each embedding block
+  const embedGap = 4;
+  const startX = x + size * 0.05;
+  const startY = y;
+
+  ctx.fillStyle = colors.text2;
+  ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillText('Patch Embeddings (D=' + EMBED_DIM + ')', startX, startY - 20);
+
+  for (let i = 0; i < NUM_PATCHES; i++) {
+    const px = i % GRID_DIM;
+    const py = Math.floor(i / GRID_DIM);
+    const ex = startX + px * (embedWidth + embedGap);
+    const ey = startY + py * (embedHeight + embedGap);
+
+    const isMasked = maskedIndices.includes(i);
+    if (isMasked) {
+      ctx.fillStyle = `rgba(255,0,0,0.2)`;
+      ctx.fillRect(ex, ey, embedWidth, embedHeight);
+      ctx.strokeStyle = colors.redMid;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.strokeRect(ex, ey, embedWidth, embedHeight);
+      ctx.setLineDash([]);
+      continue;
+    }
+
+    const embedding = PATCH_EMBEDDINGS[i];
+    const posEmbedding = POS_EMBEDDINGS[i];
+
+    // Simple visualization of embedding: average value mapped to color
+    const avgVal = embedding.reduce((a, b) => a + b, 0) / EMBED_DIM;
+    const colorVal = Math.floor((avgVal + 1) / 2 * 255); // Map -1 to 1 to 0-255
+    ctx.fillStyle = `rgb(${colorVal}, ${255 - colorVal}, 128)`;
+    ctx.fillRect(ex, ey, embedWidth, embedHeight);
+
+    ctx.strokeStyle = colors.purpleMid;
+    ctx.lineWidth = 1;
+    if (i === highlightPatch) ctx.lineWidth = 2;
+    ctx.strokeRect(ex, ey, embedWidth, embedHeight);
+
+    if (showPositional) {
+      // Draw positional encoding as a small bar on top/bottom
+      const avgPosVal = posEmbedding.reduce((a, b) => a + b, 0) / EMBED_DIM;
+      const posColorVal = Math.floor((avgPosVal + 1) / 2 * 255);
+      ctx.fillStyle = colors.cyanMid;
+      ctx.fillRect(ex, ey - 3, embedWidth, 3);
+      ctx.fillRect(ex, ey + embedHeight, embedWidth, 3);
+    }
+  }
+}
+
+function drawMaskedOverlay(ctx, x, y, size, colors, alpha = 0.7) {
+  const patchDisplaySize = size / GRID_DIM;
+  ctx.fillStyle = `rgba(255,0,0,${alpha})`; // Reddish overlay for masked
+  ctx.strokeStyle = colors.redBorder;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 2]);
+
+  currentMask.forEach(patchIdx => {
+    const px = patchIdx % GRID_DIM;
+    const py = Math.floor(patchIdx / GRID_DIM);
+    ctx.fillRect(x + px * patchDisplaySize, y + py * patchDisplaySize, patchDisplaySize, patchDisplaySize);
+    ctx.strokeRect(x + px * patchDisplaySize, y + py * patchDisplaySize, patchDisplaySize, patchDisplaySize);
+  });
+  ctx.setLineDash([]);
+}
+
+function drawEncoderInput(ctx, x, y, size, colors, maskedIndices = []) {
+  const patchDisplaySize = size / GRID_DIM;
+  const embedWidth = 20;
+  const embedHeight = 10;
+  const embedGap = 4;
+  const startX = x + size * 0.05;
+  const startY = y;
+
+  ctx.fillStyle = colors.text2;
+  ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillText('Encoder Input (Visible Patches)', startX, startY - 20);
+
+  let visibleCount = 0;
+  for (let i = 0; i < NUM_PATCHES; i++) {
+    if (maskedIndices.includes(i)) continue; // Skip masked patches
+
+    const embedding = PATCH_EMBEDDINGS[i];
+    const posEmbedding = POS_EMBEDDINGS[i];
+
+    // Position patches in a more compact sequence
+    const ex = startX + visibleCount * (embedWidth + embedGap);
+    const ey = startY;
+
+    const avgVal = embedding.reduce((a, b) => a + b, 0) / EMBED_DIM;
+    const colorVal = Math.floor((avgVal + 1) / 2 * 255);
+    ctx.fillStyle = `rgb(${colorVal}, ${255 - colorVal}, 128)`;
+    ctx.fillRect(ex, ey, embedWidth, embedHeight);
+
+    ctx.strokeStyle = colors.purpleMid;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ex, ey, embedWidth, embedHeight);
+
+    // Draw positional encoding
+    ctx.fillStyle = colors.cyanMid;
+    ctx.fillRect(ex, ey - 3, embedWidth, 3);
+    ctx.fillRect(ex, ey + embedHeight, embedWidth, 3);
+
+    visibleCount++;
+  }
+}
+
+function drawReconstruction(ctx, x, y, size, colors, maskedIndices = []) {
+  const patchDisplaySize = size / GRID_DIM;
+
+  // Draw original image for visible patches
+  drawImage(ctx, x, y, size, colors);
+  drawPatchGrid(ctx, x, y, size, colors); // Grid over original image
+
+  // Draw reconstructed (original) pixels for masked areas
+  ctx.fillStyle = colors.greenMid;
+  ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+
+  currentMask.forEach(patchIdx => {
+    const px = patchIdx % GRID_DIM;
+    const py = Math.floor(patchIdx / GRID_DIM);
+    const patchX = x + px * patchDisplaySize;
+    const patchY = y + py * patchDisplaySize;
+
+    // Simulate reconstruction by drawing a slightly desaturated/blurred version of original patch
+    // For simplicity, just draw text "Reconstructed"
+    ctx.fillStyle = colors.greenMid;
+    ctx.fillRect(patchX, patchY, patchDisplaySize, patchDisplaySize);
+    ctx.fillStyle = 'white';
+    ctx.fillText('Reconstructed', patchX + patchDisplaySize / 2, patchY + patchDisplaySize / 2);
+    ctx.strokeStyle = colors.greenMid;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(patchX, patchY, patchDisplaySize, patchDisplaySize);
+  });
+  ctx.textAlign = 'left';
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+updateMaskRatioLabel(); // Set initial label for slider
+generateMask(); // Generate initial mask
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].mode, steps[step].highlightPatch));
+</script>
+</body>
+</html>

@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Interpretability: Feature Importance & Partial Dependence Plots (PDP) — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-importance{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-pdp{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-interact{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-result{background:var(--cyan-bg);color:var(--cyan-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.line{height:2px;width:16px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Global Interpretability: Feature Importance &amp; PDP</h1>
+  <div class="subtitle">Understanding how a black-box model makes decisions at a population level</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Explainable AI (XAI)</span>
+    <span class="tag tag-category">Machine Learning</span>
+    <span class="tag tag-complexity">O(N·M) per feature</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Global Interpretability</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Global interpretability aims to explain the overall behavior of a machine learning model across its entire dataset, rather than focusing on individual predictions. It answers questions like: "Which features are most important to the model?", "How does changing a feature's value, on average, affect the model's prediction?", or "Are there interactions between features?" This is crucial for understanding model biases, validating its logic, and building trust.</p>
+    <p><strong>Analogy:</strong> Imagine a complex expert system that predicts house prices. Local interpretability is asking, "Why did *this specific* house get *this specific* price?" Global interpretability is asking, "In general, what's the most important factor in house prices for this system: size, age, or location? And how much does price typically go up for every extra square foot, across all houses?"</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Global interpretability methods like <strong>Feature Importance</strong> (which features matter most) and <strong>Partial Dependence Plots (PDPs)</strong> (how a feature affects predictions on average) help us understand the model's learned function \(f(x)\) as a whole, rather than just explaining a single prediction.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How It Works: Feature Importance &amp; PDPs</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Permutation Feature Importance (PFI)</h4>
+    <p>PFI (Breiman, 2001, later refined by Fisher et al., 2018) measures how much a model's prediction error increases when the values of a single feature are randomly shuffled. If shuffling a feature significantly increases the error, that feature is important. If the error barely changes, the feature is not important. This method is model-agnostic (works for any model) and dataset-agnostic (works for any dataset).</p>
+    <p>The algorithm for PFI is:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Train a model \(f\) and calculate a baseline error \(e_{base}\) on a validation set.</li>
+      <li>For each feature \(j\):
+        <ol type="a">
+          <li>Create a copy of the validation set.</li>
+          <li>Randomly shuffle the values of feature \(j\) in this copy.</li>
+          <li>Calculate the model's error \(e_j\) on this shuffled dataset.</li>
+        </ol>
+      </li>
+      <li>The importance of feature \(j\) is \(e_j - e_{base}\) (or \(e_j / e_{base}\)).</li>
+    </ol>
+
+    <h4>Partial Dependence Plots (PDPs)</h4>
+    <p>A PDP shows the marginal effect of one or two features on the predicted outcome of a trained model. It visualizes how the prediction changes when a feature's value varies, while accounting for the average effect of all other features. This helps to visualize whether the relationship between the target feature and the prediction is linear, monotonic, or more complex.</p>
+    <p>The algorithm for a 1-way PDP for a feature \(x_S\) (where \(S\) is the subset of features we are interested in, and \(C\) are the complement features):</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Select a feature \(x_S\) for which to plot the partial dependence.</li>
+      <li>Define a grid of values for \(x_S\) (e.g., min to max, or quantiles).</li>
+      <li>For each grid value \(v\) of \(x_S\):
+        <ol type="a">
+          <li>For every instance \(x^{(i)}\) in the dataset, create a new instance where \(x_S\) is set to \(v\), and \(x_C\) retains its original values: \((v, x_C^{(i)})\).</li>
+          <li>Predict the outcome for all these modified instances using the model \(f\).</li>
+          <li>Average these predictions: \(\hat{f}_S(v) = \frac{1}{N} \sum_{i=1}^N f(v, x_C^{(i)})\).</li>
+        </ol>
+      </li>
+      <li>Plot the averaged predictions \(\hat{f}_S(v)\) against the grid values \(v\).</li>
+    </ol>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">Both PFI and PDPs are <strong>model-agnostic</strong>. They treat the model as a black box, only requiring access to its prediction function. This makes them highly versatile for understanding complex models like deep neural networks or ensemble methods.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Partial Dependence Function</h4>
+    <p>The partial dependence function for a subset of features \(x_S\) is defined as:</p>
+    <div class="eq">$$\hat{f}_S(x_S) = \mathbb{E}_{x_C}\left[f(x_S, x_C)\right]$$</div>
+    <p>where \(x_S\) are the features for which we want to plot the partial dependence, and \(x_C\) are the other features (complement). The expectation \(\mathbb{E}_{x_C}\) means we average the model's predictions over the marginal distribution of the features in \(x_C\).</p>
+    <p>In practice, since we usually don't know the true marginal distribution of \(x_C\), we approximate the expectation using the empirical distribution of \(x_C\) from our training (or a representative) dataset. For a dataset with \(N\) instances \(\{x^{(1)}, \dots, x^{(N)}\}\), the empirical partial dependence function is:</p>
+    <div class="eq">$$\hat{f}_{S}(x_S) = \frac{1}{N} \sum_{i=1}^N f(x_S, x_{C}^{(i)})$$</div>
+    <p>This formula is what's used in the algorithm: for a fixed value of \(x_S\), we iterate through all data points, replace their \(x_S\) values with the fixed one, make a prediction, and then average these predictions.</p>
+
+    <h4>Impact of Feature Interactions</h4>
+    <p>PDPs work best when the features in \(x_S\) do not strongly interact with the features in \(x_C\). If there are strong interactions, the average effect shown by a PDP might obscure important conditional relationships. For example, if "square footage" has a positive effect on price for new houses but a negative effect for very old houses, a single 1-way PDP for "square footage" (averaging over "age") might show a flat line, hiding the true conditional effects. This is where 2-way PDPs (plotting two features simultaneously) or Individual Conditional Expectation (ICE) plots can be more informative.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">PDPs can create "unrealistic" data points. When we fix \(x_S\) to a grid value and combine it with \(x_C\) from observed data, we might create combinations that never occur in reality (e.g., a 500 sq ft mansion). If the model extrapolates poorly to such regions, the PDP will be misleading. Always consider the feature distribution when interpreting PDPs.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Explore a simulated house price prediction model. See how feature importance is derived and how Partial Dependence Plots reveal the average effect of features, even with interactions.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="sliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Interaction Strength</div>
+          <input type="range" id="interactionSlider" min="0" max="1" step="0.05" value="0.2">
+          <div class="slider-value" id="interactionValue">0.20</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Controls how strongly 'Sq.Ft.' and 'Age' interact in the model.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Data &amp; Model</div>
+        <div class="info-desc" id="infoDesc">We're simulating a dataset of house prices based on Square Footage and Age. A "black-box" model predicts price from these two features.</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Sq.Ft. data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Age data</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Model prediction</div>
+        <div class="legend-item"><div class="legend-swatch line" style="background:var(--purple-mid)"></div> Partial Dependence Plot</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Feature Importance &amp; PDPs:</strong></p>
+    <ul>
+      <li>When you need to understand the overall behavior of a complex "black-box" model (e.g., deep neural networks, gradient boosting).</li>
+      <li>To identify which features drive predictions the most (Feature Importance).</li>
+      <li>To visualize the average directional relationship between a feature and the prediction (PDPs).</li>
+      <li>For model debugging, identifying unexpected relationships, or confirming domain knowledge.</li>
+      <li>To communicate model insights to non-technical stakeholders.</li>
+    </ul>
+    <p><strong>When to be cautious or use alternatives:</strong></p>
+    <ul>
+      <li><strong>Highly correlated features:</strong> PFI can give misleading results if features are highly correlated. Shuffling one feature might create unrealistic data points that the model has never seen. PDPs also suffer here.</li>
+      <li><strong>Strong interactions:</strong> A 1-way PDP averages out interactions, potentially hiding complex conditional effects. Consider 2-way PDPs or ICE plots for deeper insights into interactions.</li>
+      <li><strong>Extrapolation:</strong> PDPs can show model behavior in regions of the feature space that are sparse in the training data, leading to unreliable interpretations if the model extrapolates poorly.</li>
+      <li><strong>Local explanations:</strong> For explaining individual predictions, methods like SHAP or LIME are more appropriate.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Complementary Tools</div>
+      <p style="font-size:14px;margin:0;">Global interpretability methods complement local ones. PDPs show the "general rule," while local methods explain "why this specific exception happened." Using both provides a comprehensive understanding of your model.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Scikit-learn)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">from sklearn.ensemble import RandomForestRegressor</div>
+      <div class="code-line" id="cl2">from sklearn.inspection import permutation_importance, PartialDependenceDisplay</div>
+      <div class="code-line" id="cl3">import matplotlib.pyplot as plt</div>
+      <div class="code-line" id="cl4"></div>
+      <div class="code-line" id="cl5"># 1. Generate synthetic data</div>
+      <div class="code-line" id="cl6">np.random.seed(42)</div>
+      <div class="code-line" id="cl7">sq_ft = np.random.uniform(1000, 3000, 200)</div>
+      <div class="code-line" id="cl8">age = np.random.uniform(0, 50, 200)</div>
+      <div class="code-line" id="cl9"># True price function with interaction</div>
+      <div class="code-line" id="cl10">true_price = 100 + 0.15 * sq_ft - 2 * age + 0.0001 * sq_ft * age + np.random.normal(0, 20, 200)</div>
+      <div class="code-line" id="cl11"></div>
+      <div class="code-line" id="cl12">X = np.column_stack([sq_ft, age])</div>
+      <div class="code-line" id="cl13">y = true_price</div>
+      <div class="code-line" id="cl14">feature_names = ['Square Footage', 'Age']</div>
+      <div class="code-line" id="cl15"></div>
+      <div class="code-line" id="cl16"># 2. Train a black-box model</div>
+      <div class="code-line" id="cl17">model = RandomForestRegressor(n_estimators=50, random_state=42)</div>
+      <div class="code-line" id="cl18">model.fit(X, y)</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># 3. Calculate Permutation Feature Importance</div>
+      <div class="code-line" id="cl21">result = permutation_importance(model, X, y, n_repeats=10, random_state=42)</div>
+      <div class="code-line" id="cl22">sorted_idx = result.importances_mean.argsort()</div>
+      <div class="code-line" id="cl23">print("Feature Importances:")</div>
+      <div class="code-line" id="cl24">for i in sorted_idx:</div>
+      <div class="code-line" id="cl25">    print(f"  {feature_names[i]}: {result.importances_mean[i]:.3f} +/- {result.importances_std[i]:.3f}")</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27"># 4. Generate and plot Partial Dependence Plots</div>
+      <div class="code-line" id="cl28">fig, ax = plt.subplots(figsize=(10, 5))</div>
+      <div class="code-line" id="cl29">PartialDependenceDisplay.from_estimator(</div>
+      <div class="code-line" id="cl30">    model, X, features=[0, 1], feature_names=feature_names, ax=ax,</div>
+      <div class="code-line" id="cl31">    line_kw={"color": "purple", "alpha": 0.7}</div>
+      <div class="code-line" id="cl32">)</div>
+      <div class="code-line" id="cl33">ax.set_title("Partial Dependence Plots")</div>
+      <div class="code-line" id="cl34">plt.tight_layout()</div>
+      <div class="code-line" id="cl35">plt.show()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── DATA GENERATION & MODEL SIMULATION ──
+const N_SAMPLES = 200;
+const SQ_FT_MIN = 1000, SQ_FT_MAX = 3000;
+const AGE_MIN = 0, AGE_MAX = 50;
+const PRICE_BASE = 100;
+const NOISE_SCALE = 20;
+
+let data = [];
+let modelParams = {}; // Will be updated by slider
+
+function generateData(seed = 42) {
+  const rng = mulberry32(seed);
+  data = [];
+  for (let i = 0; i < N_SAMPLES; i++) {
+    const sq_ft = SQ_FT_MIN + rng() * (SQ_FT_MAX - SQ_FT_MIN);
+    const age = AGE_MIN + rng() * (AGE_MAX - AGE_MIN);
+    const true_price = PRICE_BASE + 0.15 * sq_ft - 2 * age + 0.0001 * sq_ft * age + (rng() - 0.5) * 2 * NOISE_SCALE;
+    data.push({ sq_ft, age, price: true_price });
+  }
+}
+
+// Simple linear model with interaction and non-linear terms
+// The "interaction strength" slider will control the coefficients of interaction/non-linear terms
+function predict(sq_ft, age, interactionStrength = 0.2) {
+  const b0 = PRICE_BASE;
+  const b_sq_ft = 0.15;
+  const b_age = -2;
+  const b_interaction = 0.0001 * interactionStrength * 5; // Scale interaction for visual effect
+  const b_sq_ft_sq = 0.00000005 * interactionStrength * 5; // Quadratic for sq_ft
+  const b_age_sq = 0.0005 * interactionStrength * 5; // Quadratic for age
+
+  return b0 +
+         b_sq_ft * sq_ft +
+         b_age * age +
+         b_interaction * sq_ft * age +
+         b_sq_ft_sq * sq_ft * sq_ft +
+         b_age_sq * age * age;
+}
+
+// ── FEATURE IMPORTANCE (Simplified for demo) ──
+function calculateFeatureImportance(interactionStrength) {
+  // For this demo, we'll simplify. Higher coefficients/interaction imply higher importance.
+  // In reality, this would be permutation importance on a trained model.
+  const sq_ft_impact = Math.abs(0.15 * (SQ_FT_MAX - SQ_FT_MIN)) + Math.abs(0.0001 * interactionStrength * 5 * (SQ_FT_MAX - SQ_FT_MIN) * AGE_MAX);
+  const age_impact = Math.abs(-2 * (AGE_MAX - AGE_MIN)) + Math.abs(0.0001 * interactionStrength * 5 * (AGE_MAX - AGE_MIN) * SQ_FT_MAX);
+
+  const total = sq_ft_impact + age_impact;
+  return {
+    sq_ft: sq_ft_impact / total,
+    age: age_impact / total
+  };
+}
+
+// ── PARTIAL DEPENDENCE PLOTS (PDP) ──
+function calculatePDP(featureName, interactionStrength, gridResolution = 20) {
+  const pdpData = [];
+  let gridValues;
+  let otherFeatureValues;
+
+  if (featureName === 'sq_ft') {
+    gridValues = Array.from({ length: gridResolution }, (_, i) => SQ_FT_MIN + i * (SQ_FT_MAX - SQ_FT_MIN) / (gridResolution - 1));
+    otherFeatureValues = data.map(d => d.age);
+  } else if (featureName === 'age') {
+    gridValues = Array.from({ length: gridResolution }, (_, i) => AGE_MIN + i * (AGE_MAX - AGE_MIN) / (gridResolution - 1));
+    otherFeatureValues = data.map(d => d.sq_ft);
+  } else {
+    return [];
+  }
+
+  for (const val of gridValues) {
+    let sumPredictions = 0;
+    for (let i = 0; i < N_SAMPLES; i++) {
+      const currentSqFt = featureName === 'sq_ft' ? val : otherFeatureValues[i];
+      const currentAge = featureName === 'age' ? val : otherFeatureValues[i];
+      sumPredictions += predict(currentSqFt, currentAge, interactionStrength);
+    }
+    pdpData.push({ x: val, y: sumPredictions / N_SAMPLES });
+  }
+  return pdpData;
+}
+
+// ── SEEDED RNG (for reproducible data) ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Data & Model',
+    desc: 'We\'re simulating a dataset of house prices based on Square Footage and Age. A "black-box" model predicts price from these two features. The model has some inherent interaction between features, controlled by the slider.',
+    canvasMode: 'data_scatter',
+    codeLines: [5,6,7,8,9,10,11,12,13,14]
+  },
+  {
+    phase: 'importance', title: 'Permutation Feature Importance',
+    desc: 'Feature Importance tells us which features the model relies on most. Here, "Square Footage" is the most important feature, followed by "Age". This is calculated by seeing how much the model\'s error increases when we randomly shuffle a feature\'s values.',
+    canvasMode: 'feature_importance',
+    codeLines: [20,21,22,23,24,25]
+  },
+  {
+    phase: 'pdp', title: 'Introducing Partial Dependence Plots (PDPs)',
+    desc: 'While feature importance tells us *what* matters, PDPs tell us *how* it matters. A PDP shows the average effect of a feature on the model\'s prediction, isolating it from other features.',
+    canvasMode: 'pdp_intro',
+    codeLines: []
+  },
+  {
+    phase: 'pdp', title: 'Calculating PDP for Square Footage',
+    desc: 'To get the PDP for Square Footage, we pick a specific Sq.Ft. value (e.g., 2000). Then, for every house in our dataset, we *force* its Sq.Ft. to be 2000 (keeping its original Age), predict the price, and average all these predictions. We repeat this for many Sq.Ft. values.',
+    canvasMode: 'pdp_sq_ft_calc',
+    codeLines: [27,28,29,30,31,32]
+  },
+  {
+    phase: 'pdp', title: 'PDP for Square Footage: The Curve',
+    desc: 'The resulting curve shows the marginal effect of Square Footage on predicted price. Here, as Sq.Ft. increases, the predicted price generally increases, which makes intuitive sense. The curve is not perfectly straight due to some non-linear terms and interactions in our simulated model.',
+    canvasMode: 'pdp_sq_ft_plot',
+    codeLines: [27,28,29,30,31,32]
+  },
+  {
+    phase: 'pdp', title: 'PDP for Age: The Curve',
+    desc: 'Similarly, for Age, we see that as houses get older, their predicted price tends to decrease. This is also a common real-world observation. Notice the slight curvature, reflecting the non-linear relationship in the model.',
+    canvasMode: 'pdp_age_plot',
+    codeLines: [27,28,29,30,31,32]
+  },
+  {
+    phase: 'interact', title: 'Interpreting PDPs',
+    desc: 'The slope of the PDP curve indicates the direction and magnitude of a feature\'s effect. A flat line means the feature has little average impact. Curvature suggests non-linear effects. These are *average* effects, so strong interactions might be obscured.',
+    canvasMode: 'pdp_both_plot',
+    codeLines: []
+  },
+  {
+    phase: 'interact', title: 'Feature Interaction Strength',
+    desc: 'Our model explicitly includes an interaction term (Sq.Ft. × Age). Use the slider below to adjust the "Interaction Strength." Watch how the PDP curves change: stronger interaction makes the individual PDPs less linear and potentially more complex, as the average effect becomes more pronounced.',
+    canvasMode: 'pdp_interactive',
+    codeLines: [9,10]
+  },
+  {
+    phase: 'result', title: 'Global Insights from PDPs',
+    desc: 'PDPs provide a powerful way to understand the global behavior of complex models. They help us identify trends, non-linearities, and even hint at interactions. By visualizing how predictions change with feature values, we gain confidence and insight into our black-box models.',
+    canvasMode: 'pdp_interactive',
+    codeLines: []
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+let interactionStrength = 0.2; // Default value from slider
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() {
+  step = 0;
+  interactionStrength = 0.2;
+  document.getElementById('interactionSlider').value = interactionStrength;
+  updateInteractionLabel();
+  generateData(); // Re-generate data on reset for fresh noise
+  render();
+}
+
+// ── SLIDER ──
+const interactionSlider = document.getElementById('interactionSlider');
+interactionSlider.addEventListener('input', () => {
+  interactionStrength = parseFloat(interactionSlider.value);
+  updateInteractionLabel();
+  if (steps[step].canvasMode.startsWith('pdp')) { // Only redraw PDPs if current mode is PDP
+    drawCanvas(steps[step].canvasMode);
+  }
+});
+
+function updateInteractionLabel() {
+  document.getElementById('interactionValue').textContent = interactionStrength.toFixed(2);
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  // Buttons
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  // Info card
+  const phaseMap = {
+    setup:'phase-setup', importance:'phase-importance', pdp:'phase-pdp',
+    interact:'phase-interact', result:'phase-result'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  // Slider visibility
+  document.getElementById('sliderPanel').style.display = (s.canvasMode === 'pdp_interactive') ? 'flex' : 'none';
+
+  // Canvas
+  drawCanvas(s.canvasMode);
+
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = {l:60, r:20, t:20, b:50};
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+
+  // --- Axes for scatter/PDP plots ---
+  const drawAxes = (xMin, xMax, yMin, yMax, xLabel, yLabel) => {
+    ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+
+    ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText(xLabel, W - pad.r - 20, H - pad.b + 30);
+    ctx.fillText(yLabel, pad.l - 15, pad.t + 5);
+
+    // X ticks
+    for (let v = xMin; v <= xMax; v += (xMax - xMin) / 4) {
+      const cx = pad.l + (v - xMin) / (xMax - xMin) * pw;
+      ctx.beginPath(); ctx.moveTo(cx, H - pad.b); ctx.lineTo(cx, H - pad.b + 5); ctx.stroke();
+      ctx.fillText(v.toFixed(0), cx - 10, H - pad.b + 18);
+    }
+    // Y ticks
+    for (let v = yMin; v <= yMax; v += (yMax - yMin) / 4) {
+      const cy = pad.t + (1 - (v - yMin) / (yMax - yMin)) * ph;
+      ctx.beginPath(); ctx.moveTo(pad.l - 5, cy); ctx.lineTo(pad.l, cy); ctx.stroke();
+      ctx.fillText(v.toFixed(0), pad.l - 45, cy + 4);
+    }
+  };
+
+  if (mode === 'data_scatter') {
+    const xMin = SQ_FT_MIN, xMax = SQ_FT_MAX, yMin = 0, yMax = 700;
+    drawAxes(xMin, xMax, yMin, yMax, 'Square Footage', 'Price');
+
+    // Draw data points
+    data.forEach(d => {
+      const cx = pad.l + (d.sq_ft - xMin) / (xMax - xMin) * pw;
+      const cy = pad.t + (1 - (d.price - yMin) / (yMax - yMin)) * ph;
+      ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = colors.blue; ctx.fill();
+    });
+
+    // Draw model prediction line (for average age)
+    ctx.strokeStyle = colors.green; ctx.lineWidth = 2;
+    ctx.beginPath();
+    const avgAge = data.reduce((sum, d) => sum + d.age, 0) / N_SAMPLES;
+    for (let x = xMin; x <= xMax; x += (xMax - xMin) / 100) {
+      const predY = predict(x, avgAge, interactionStrength);
+      const cx = pad.l + (x - xMin) / (xMax - xMin) * pw;
+      const cy = pad.t + (1 - (predY - yMin) / (yMax - yMin)) * ph;
+      if (x === xMin) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+
+  } else if (mode === 'feature_importance' || mode === 'pdp_intro') {
+    const importance = calculateFeatureImportance(interactionStrength);
+    const features = ['Square Footage', 'Age'];
+    const values = [importance.sq_ft, importance.age];
+
+    const barWidth = 60;
+    const gap = 40;
+    const totalWidth = features.length * barWidth + (features.length - 1) * gap;
+    const startX = (W - totalWidth) / 2;
+
+    ctx.fillStyle = colors.text2; ctx.font = '14px "DM Sans", system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Feature Importance', W / 2, pad.t);
+    ctx.fillText('Relative Importance', pad.l - 20, H / 2);
+    ctx.textAlign = 'left';
+
+    // X axis line
+    ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+
+    const maxVal = Math.max(...values);
+    for (let i = 0; i < features.length; i++) {
+      const x = startX + i * (barWidth + gap);
+      const barHeight = (values[i] / maxVal) * ph * 0.8; // Scale to fit
+      const y = H - pad.b - barHeight;
+
+      ctx.fillStyle = i === 0 ? colors.blue : colors.red;
+      ctx.fillRect(x, y, barWidth, barHeight);
+
+      ctx.fillStyle = colors.text; ctx.font = '12px "DM Sans", system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(features[i], x + barWidth / 2, H - pad.b + 20);
+      ctx.fillText(values[i].toFixed(2), x + barWidth / 2, y - 8);
+    }
+    ctx.textAlign = 'left';
+
+    if (mode === 'pdp_intro') {
+      ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('PDPs explain the *shape* of this importance', W / 2, H * 0.25);
+      // Arrow pointing down from feature importance to where PDP will be
+      ctx.strokeStyle = colors.purple; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(W / 2, H * 0.3);
+      ctx.lineTo(W / 2, H * 0.6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+  } else if (mode.startsWith('pdp')) {
+    const xMin = SQ_FT_MIN, xMax = SQ_FT_MAX, yMin = AGE_MIN, yMax = AGE_MAX;
+    const priceMin = 0, priceMax = 700;
+
+    // Split canvas for two PDPs
+    const halfW = W / 2;
+    const pdpPad = {l:40, r:20, t:20, b:50};
+    const pdpPW = halfW - pdpPad.l - pdpPad.r;
+    const pdpPH = H - pdpPad.t - pdpPad.b;
+
+    // --- PDP for Square Footage (Left) ---
+    const drawPDP = (ctx, xOffset, featureName, xLabel, yLabel, currentHighlightFeature = null) => {
+      const pdp = calculatePDP(featureName, interactionStrength);
+      const featureMin = featureName === 'sq_ft' ? SQ_FT_MIN : AGE_MIN;
+      const featureMax = featureName === 'sq_ft' ? SQ_FT_MAX : AGE_MAX;
+
+      ctx.save();
+      ctx.translate(xOffset, 0);
+
+      // Axes
+      ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pdpPad.l, pdpPad.t); ctx.lineTo(pdpPad.l, H - pdpPad.b); ctx.lineTo(pdpPW + pdpPad.l, H - pdpPad.b); ctx.stroke();
+
+      ctx.fillStyle = colors.text3; ctx.font = '11px "DM Sans", system-ui';
+      ctx.fillText(xLabel, pdpPW + pdpPad.l - 20, H - pdpPad.b + 30);
+      ctx.fillText(yLabel, pdpPad.l - 15, pdpPad.t + 5);
+
+      // X ticks
+      for (let v = featureMin; v <= featureMax; v += (featureMax - featureMin) / 4) {
+        const cx = pdpPad.l + (v - featureMin) / (featureMax - featureMin) * pdpPW;
+        ctx.beginPath(); ctx.moveTo(cx, H - pdpPad.b); ctx.lineTo(cx, H - pdpPad.b + 5); ctx.stroke();
+        ctx.fillText(v.toFixed(0), cx - 10, H - pdpPad.b + 18);
+      }
+      // Y ticks (for predicted price)
+      for (let v = priceMin; v <= priceMax; v += (priceMax - priceMin) / 4) {
+        const cy = pdpPad.t + (1 - (v - priceMin) / (priceMax - priceMin)) * pdpPH;
+        ctx.beginPath(); ctx.moveTo(pdpPad.l - 5, cy); ctx.lineTo(pdpPad.l, cy); ctx.stroke();
+        ctx.fillText(v.toFixed(0), pdpPad.l - 45, cy + 4);
+      }
+
+      // PDP curve
+      ctx.strokeStyle = colors.purple; ctx.lineWidth = 3;
+      ctx.beginPath();
+      pdp.forEach((point, i) => {
+        const cx = pdpPad.l + (point.x - featureMin) / (featureMax - featureMin) * pdpPW;
+        const cy = pdpPad.t + (1 - (point.y - priceMin) / (priceMax - priceMin)) * pdpPH;
+        if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+      });
+      ctx.stroke();
+
+      // Highlight calculation for specific steps
+      if (mode === 'pdp_sq_ft_calc' && featureName === 'sq_ft') {
+        const sampleSqFt = 2000;
+        const sampleX = pdpPad.l + (sampleSqFt - SQ_FT_MIN) / (SQ_FT_MAX - SQ_FT_MIN) * pdpPW;
+        const sampleY = pdp.reduce((closest, p) => Math.abs(p.x - sampleSqFt) < Math.abs(closest.x - sampleSqFt) ? p : closest, pdp[0]).y;
+        const sampleCY = pdpPad.t + (1 - (sampleY - priceMin) / (priceMax - priceMin)) * pdpPH;
+
+        ctx.strokeStyle = colors.amber; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+        ctx.beginPath(); ctx.moveTo(sampleX, H - pdpPad.b); ctx.lineTo(sampleX, sampleCY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(pdpPad.l, sampleCY); ctx.lineTo(sampleX, sampleCY); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath(); ctx.arc(sampleX, sampleCY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = colors.amber; ctx.fill();
+
+        ctx.fillStyle = colors.amber; ctx.font = '12px "DM Sans", system-ui';
+        ctx.fillText(`Avg. Prediction: ${sampleY.toFixed(0)}`, sampleX + 10, sampleCY - 10);
+        ctx.fillText(`Fixed Sq.Ft.: ${sampleSqFt}`, sampleX + 10, H - pdpPad.b + 10);
+
+        // Show individual data points for calculation (faded)
+        data.forEach((d, i) => {
+          const currentSqFt = sampleSqFt;
+          const currentAge = d.age;
+          const pred = predict(currentSqFt, currentAge, interactionStrength);
+          const cx = sampleX;
+          const cy = pdpPad.t + (1 - (pred - priceMin) / (priceMax - priceMin)) * pdpPH;
+          ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+          ctx.fillStyle = colors.blue; ctx.globalAlpha = 0.2; ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.restore();
+    };
+
+    if (mode === 'pdp_sq_ft_calc' || mode === 'pdp_sq_ft_plot') {
+      drawPDP(ctx, W/2 - pdpPW/2 - pdpPad.l, 'sq_ft', 'Square Footage', 'Predicted Price', 'sq_ft');
+    } else if (mode === 'pdp_age_plot') {
+      drawPDP(ctx, W/2 - pdpPW/2 - pdpPad.l, 'age', 'Age', 'Predicted Price', 'age');
+    } else if (mode === 'pdp_both_plot' || mode === 'pdp_interactive' || mode === 'interact') {
+      drawPDP(ctx, 0, 'sq_ft', 'Square Footage', 'Predicted Price');
+      drawPDP(ctx, halfW, 'age', 'Age', 'Predicted Price');
+      ctx.fillStyle = colors.text2; ctx.font = '12px "DM Sans", system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sq.Ft. PDP', halfW / 2, pad.t);
+      ctx.fillText('Age PDP', halfW + halfW / 2, pad.t);
+      ctx.textAlign = 'left';
+    }
+  }
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+generateData(); // Initialize data
+updateInteractionLabel();
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>

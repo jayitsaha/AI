@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saliency Maps & GradCAM for CNNs — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+.concept-box.danger{background:var(--red-bg);border:1px solid var(--red-border);}
+.concept-box.danger .concept-box-title{color:var(--red-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-controls-panel{display:flex;flex-wrap:wrap;gap:15px;background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1rem;}
+.control-group{display:flex;flex-direction:column;gap:5px;}
+.control-label{font-size:12px;font-weight:600;color:var(--text2);}
+.control-value{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--purple-mid);min-width:30px;text-align:right;}
+.control-flex-row{display:flex;align-items:center;gap:8px;}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+select{padding:6px 10px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;}
+input[type="radio"]{accent-color:var(--purple-mid);width:14px;height:14px;margin-right:4px;}
+.radio-group{display:flex;align-items:center;gap:12px;}
+.radio-group label{font-size:13px;color:var(--text2);}
+
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-saliency{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-gradcam{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-details{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+.legend-swatch.heatmap-grad{background:linear-gradient(to right, rgba(0,0,255,0.2), rgba(255,0,0,0.8));}
+.legend-swatch.heatmap-relu{background:linear-gradient(to right, rgba(0,255,0,0.2), rgba(255,255,0,0.8));}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .control-group{flex-direction:row;align-items:center;}
+  .control-label{min-width:80px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Saliency Maps &amp; GradCAM for CNNs</h1>
+  <div class="subtitle">Visualizing "what the network sees" to make a classification decision</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-category">Interpretability</span>
+    <span class="tag tag-complexity">Backprop (O(N))</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Saliency &amp; GradCAM</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What are they?</strong> Saliency maps and GradCAM (Gradient-weighted Class Activation Mapping) are techniques to make Convolutional Neural Networks (CNNs) more interpretable. They generate heatmaps that highlight the regions of an input image that were most important for a specific classification decision. This helps answer the question: "Why did the CNN say this image is a 'cat'?"</p>
+    <p><strong>Analogy:</strong> Imagine a doctor diagnosing a patient based on an X-ray. A Saliency map is like asking the doctor, "Which individual pixels in this X-ray would change your diagnosis the most if they were slightly different?" GradCAM is like asking, "Which *regions* (e.g., lung area, bone structure) in this X-ray are you focusing on when you make this diagnosis?" Saliency focuses on fine-grained input sensitivity; GradCAM focuses on broader, semantic regions in intermediate feature maps.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Both methods use <strong>gradients</strong> to trace importance. Saliency maps compute the gradient of the target class score with respect to the <strong>input pixels</strong>. GradCAM computes gradients with respect to <strong>intermediate feature maps</strong>, then uses these gradients to weight the feature maps themselves, providing a coarser, more semantic localization.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How They Work Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How They Work Internally</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Saliency Maps (Simonyan et al., 2013)</h4>
+    <p>Saliency maps are straightforward: after a forward pass, we compute the gradient of the score for a target class \(y_c\) with respect to the input image \(x\). That is, we calculate \(\frac{\partial y_c}{\partial x}\). The absolute values of these gradients, \(\left|\frac{\partial y_c}{\partial x}\right|\), are then used as a heatmap. A high absolute gradient value for a pixel means that a small change to that pixel would significantly affect the target class score. This reveals fine-grained pixel-level importance.</p>
+
+    <h4>GradCAM (Selvaraju et al., 2017)</h4>
+    <p>GradCAM works differently to provide a more "semantic" localization, often highlighting entire objects rather than just edges. It focuses on the feature maps \(A^k\) of a *final convolutional layer* (or any intermediate layer you choose). The steps are:</p>
+    <ol style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li>Perform a forward pass to get the feature maps \(A^k\) for a target convolutional layer and the raw score \(y_c\) for the desired class.</li>
+      <li>Compute the gradients of \(y_c\) with respect to each feature map \(A^k\): \(\frac{\partial y_c}{\partial A^k}\).</li>
+      <li>Global Average Pool (GAP) these gradients over their spatial dimensions to get "neuron importance weights" \(\alpha_k\). These weights represent the importance of each feature map \(A^k\) for the target class.</li>
+      <li>Compute a weighted sum of the feature maps using these \(\alpha_k\) weights: \(L_{GradCAM} = \sum_k \alpha_k A^k\).</li>
+      <li>Apply a ReLU activation to this sum: \(\operatorname{ReLU}(L_{GradCAM})\). This ensures we only consider features that positively influence the class.</li>
+      <li>Upsample the resulting heatmap to the input image's size and overlay it.</li>
+    </ol>
+    <p>GradCAM's strength is that it produces class-discriminative localization maps without requiring architectural changes or retraining, and it's applicable to a wide range of CNN architectures.</p>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Difference</div>
+      <p style="font-size:14px;margin:0;"><strong>Saliency</strong> shows pixel-level sensitivity by backpropagating gradients all the way to the input. <strong>GradCAM</strong> shows region-level importance by backpropagating gradients only to a chosen convolutional feature map layer, then weighting those feature maps themselves.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why They Work — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Saliency Map Equation</h4>
+    <p>Let \(y_c\) be the score for class \(c\) (e.g., the logit before softmax). The saliency map \(M_S\) for an input image \(x\) is given by:</p>
+    <div class="eq">$$M_S(x) = \left|\frac{\partial y_c}{\partial x}\right|$$</div>
+    <p>This is a vector whose dimensions match the input image. Each element \((i,j)\) of \(M_S(x)\) indicates how much a small change to pixel \((i,j)\) affects the score \(y_c\). The absolute value is taken because we are interested in the magnitude of influence, regardless of whether it increases or decreases the score.</p>
+
+    <h4>GradCAM Equations</h4>
+    <p>Let \(A^k\) denote the \(k\)-th feature map of a convolutional layer, with spatial dimensions \(h \times w\). Let \(y_c\) be the score for class \(c\).
+    First, we compute the gradients of \(y_c\) with respect to the feature map \(A^k\):</p>
+    <div class="eq">$$\frac{\partial y_c}{\partial A^k} = \left[\frac{\partial y_c}{\partial A^k_{ij}}\right]_{i,j}$$</div>
+    <p>Next, we compute the neuron importance weights \(\alpha_k^c\) for each feature map \(k\) and class \(c\) by globally averaging these gradients over their spatial dimensions \((i,j)\):</p>
+    <div class="eq">$$\alpha_k^c = \frac{1}{h \cdot w} \sum_{i=1}^h \sum_{j=1}^w \frac{\partial y_c}{\partial A^k_{ij}}$$</div>
+    <p>Finally, the GradCAM heatmap \(L_{GradCAM}^c\) is a weighted linear combination of the feature maps, followed by a ReLU operation to focus on positive contributions:</p>
+    <div class="eq">$$L_{GradCAM}^c = \operatorname{ReLU}\left(\sum_k \alpha_k^c A^k\right)$$</div>
+    <p>This \(L_{GradCAM}^c\) is typically upsampled to the input image size for visualization. The ReLU ensures that only features that *increase* the target class score are highlighted, making the map more intuitive.</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">Both methods rely on gradients, which can sometimes be noisy or suffer from saturation issues (e.g., if ReLU units are strongly saturated, gradients can be zero). This can lead to sparse or uninformative heatmaps. Variants like SmoothGrad (averaging over noisy inputs) or Guided Backpropagation (combining saliency with deconvolutional networks) address these limitations, but add complexity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Follow an 8x8 pixel image through a tiny CNN. Visualize Saliency maps (input gradients) and GradCAM heatmaps (feature map gradients) for a chosen class. All numbers, feature maps, and gradients are pre-computed for clarity.</p>
+
+    <div class="viz-container">
+      <div class="viz-controls-panel">
+        <div class="control-group">
+          <div class="control-label">Method</div>
+          <div class="radio-group">
+            <input type="radio" id="methodSaliency" name="method" value="saliency" checked disabled><label for="methodSaliency">Saliency</label>
+            <input type="radio" id="methodGradCAM" name="method" value="gradcam" disabled><label for="methodGradCAM">GradCAM</label>
+          </div>
+        </div>
+        <div class="control-group">
+          <div class="control-label">Target Class</div>
+          <select id="targetClassSelector" disabled>
+            <option value="0">Class 0 ("7")</option>
+            <option value="1">Class 1 ("L")</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <div class="control-label">Heatmap Opacity</div>
+          <div class="control-flex-row">
+            <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.7" disabled>
+            <div class="control-value" id="opacityValue">0.70</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">The Input Image &amp; Mini-CNN</div>
+        <div class="info-desc" id="infoDesc">We start with a simple 8x8 grayscale pixel image (a handwritten "7"). Our mini-CNN has two convolutional layers, followed by Global Average Pooling and a Dense layer for 2-class classification.</div>
+        <div class="info-details" id="infoDetails"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Input/Feature Map Pixels</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Feature Map Gradients</div>
+        <div class="legend-item"><div class="legend-swatch heatmap-grad"></div> Saliency Heatmap (gradient magnitude)</div>
+        <div class="legend-item"><div class="legend-swatch heatmap-relu"></div> GradCAM Heatmap (ReLU weighted sum)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to use Saliency Maps:</strong></p>
+    <ul>
+      <li>To understand fine-grained pixel importance.</li>
+      <li>For debugging models where specific textures or edges might be causing misclassifications.</li>
+      <li>When you need a quick, simple visualization of input sensitivity.</li>
+    </ul>
+    <p><strong>When to use GradCAM:</strong></p>
+    <ul>
+      <li>For understanding broader, semantic regions of importance (e.g., entire objects).</li>
+      <li>When working with deeper CNNs where pixel-level gradients might be too noisy.</li>
+      <li>To localize objects or parts of objects that drive a classification decision.</li>
+      <li>It's more robust to gradient saturation and provides visually smoother heatmaps.</li>
+    </ul>
+    <p><strong>Limitations to consider:</strong></p>
+    <ul>
+      <li>Both methods are "post-hoc" explanations; they don't guarantee causality.</li>
+      <li>Gradients can be noisy; advanced methods like SmoothGrad or Integrated Gradients can provide more stable explanations.</li>
+      <li>Saliency maps can sometimes highlight irrelevant background features if the model is sensitive to them.</li>
+      <li>GradCAM's resolution is limited by the chosen feature map's size.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 Big Picture</div>
+      <p style="font-size:14px;margin:0;">These techniques are crucial for building trust in AI systems. By showing *why* a decision was made, they enable developers to debug models, identify biases, and gain insights into the features learned by the network, moving beyond "black box" predictions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (PyTorch Example)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch</div>
+      <div class="code-line" id="cl1">import torch.nn.functional as F</div>
+      <div class="code-line" id="cl2"></div>
+      <div class="code-line" id="cl3"># Assume 'model' is a pre-trained CNN and 'img_tensor' is input</div>
+      <div class="code-line" id="cl4">img_tensor.requires_grad_(True) # Essential for gradient computation</div>
+      <div class="code-line" id="cl5"></div>
+      <div class="code-line" id="cl6"># --- Saliency Map ---</div>
+      <div class="code-line" id="cl7">output = model(img_tensor)</div>
+      <div class="code-line" id="cl8">target_class_score = output[:, target_class_idx]</div>
+      <div class="code-line" id="cl9">target_class_score.backward() # Compute gradients w.r.t. input</div>
+      <div class="code-line" id="cl10">saliency_map = img_tensor.grad.abs().squeeze().cpu().numpy()</div>
+      <div class="code-line" id="cl11"># Normalize and visualize saliency_map</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13"># --- GradCAM (simplified for a single target conv layer) ---</div>
+      <div class="code-line" id="cl14"># Register a hook to capture feature maps and gradients</div>
+      <div class="code-line" id="cl15">activations = None; gradients = None</div>
+      <div class="code-line" id="cl16">def save_activations(module, input, output): activations = output</div>
+      <div class="code-line" id="cl17">def save_gradients(module, grad_input, grad_output): gradients = grad_output[0]</div>
+      <div class="code-line" id="cl18">target_layer_handle_fwd = model.target_conv_layer.register_forward_hook(save_activations)</div>
+      <div class="code-line" id="cl19">target_layer_handle_bwd = model.target_conv_layer.register_backward_hook(save_gradients)</div>
+      <div class="code-line" id="cl20"></div>
+      <div class="code-line" id="cl21">output = model(img_tensor)</div>
+      <div class="code-line" id="cl22">target_class_score = output[:, target_class_idx]</div>
+      <div class="code-line" id="cl23">model.zero_grad()</div>
+      <div class="code-line" id="cl24">target_class_score.backward(retain_graph=True) # Retain graph for multiple calls if needed</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># Compute alpha_k (neuron importance weights)</div>
+      <div class="code-line" id="cl27">pooled_gradients = torch.mean(gradients, dim=[2, 3]) # Global average pool</div>
+      <div class="code-line" id="cl28">alpha_weights = pooled_gradients.squeeze()</div>
+      <div class="code-line" id="cl29"></div>
+      <div class="code-line" id="cl30"># Weighted sum of feature maps</div>
+      <div class="code-line" id="cl31">weighted_activations = activations.squeeze() * alpha_weights.unsqueeze(-1).unsqueeze(-1)</div>
+      <div class="code-line" id="cl32">cam = weighted_activations.sum(dim=0)</div>
+      <div class="code-line" id="cl33">cam = F.relu(cam) # Apply ReLU</div>
+      <div class="code-line" id="cl34"></div>
+      <div class="code-line" id="cl35"># Upsample and visualize CAM</div>
+      <div class="code-line" id="cl36">cam_heatmap = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=img_tensor.shape[2:], mode='bilinear', align_corners=False)</div>
+      <div class="code-line" id="cl37"># Normalize and overlay cam_heatmap</div>
+      <div class="code-line" id="cl38"></div>
+      <div class="code-line" id="cl39">target_layer_handle_fwd.remove() # Clean up hooks</div>
+      <div class="code-line" id="cl40">target_layer_handle_bwd.remove()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── UTILITY FUNCTIONS ──
+function createArray(dims, value = 0) {
+    if (dims.length === 0) return value;
+    const arr = new Array(dims[0]);
+    for (let i = 0; i < dims[0]; i++) {
+        arr[i] = createArray(dims.slice(1), value);
+    }
+    return arr;
+}
+
+function normalizeArray(arr) {
+    let min = Infinity, max = -Infinity;
+    function findMinMax(a) {
+        if (Array.isArray(a)) a.forEach(findMinMax);
+        else { min = Math.min(min, a); max = Math.max(max, a); }
+    }
+    findMinMax(arr);
+
+    if (max === min) return arr.map(v => Array.isArray(v) ? v.map(x => 0.5) : 0.5); // Avoid division by zero
+    
+    function normalize(a) {
+        if (Array.isArray(a)) return a.map(normalize);
+        else return (a - min) / (max - min);
+    }
+    return normalize(arr);
+}
+
+function sumArrays(arr1, arr2) {
+    if (!Array.isArray(arr1)) return arr1 + arr2;
+    return arr1.map((val, i) => sumArrays(val, arr2[i]));
+}
+
+function multiplyArrayScalar(arr, scalar) {
+    if (!Array.isArray(arr)) return arr * scalar;
+    return arr.map(val => multiplyArrayScalar(val, scalar));
+}
+
+function reluArray(arr) {
+    if (!Array.isArray(arr)) return Math.max(0, arr);
+    return arr.map(reluArray);
+}
+
+function upsample2D(data, targetSize) {
+    const originalSize = data.length;
+    const upsampled = createArray([targetSize, targetSize]);
+    const scale = targetSize / originalSize;
+
+    for (let i = 0; i < targetSize; i++) {
+        for (let j = 0; j < targetSize; j++) {
+            const originalI = Math.floor(i / scale);
+            const originalJ = Math.floor(j / scale);
+            upsampled[i][j] = data[originalI][originalJ];
+        }
+    }
+    return upsampled;
+}
+
+// ── PRE-COMPUTED DATA (SIMULATED CNN & GRADIENTS) ──
+// Input: 8x8 grayscale image (pixel values 0-255)
+const inputImage = [
+  [0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0],
+  [0,0,0,180,180,180,0,0],
+  [0,0,0,0,0,180,0,0],
+  [0,0,0,0,0,180,0,0],
+  [0,0,0,0,0,180,0,0],
+  [0,0,0,180,180,180,0,0],
+  [0,0,0,0,0,0,0,0],
+]; // A simple "7"
+
+// Example "L" for class 1
+const inputImageL = [
+  [0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0],
+  [0,0,0,180,0,0,0,0],
+  [0,0,0,180,0,0,0,0],
+  [0,0,0,180,0,0,0,0],
+  [0,0,0,180,0,0,0,0],
+  [0,0,0,180,180,180,0,0],
+  [0,0,0,0,0,0,0,0],
+];
+
+// Simplified CNN: 8x8 input -> Conv1 (6x6x2) -> Conv2 (4x4x4) -> GAP (1x1x4) -> Dense (2 logits)
+// All intermediate values and gradients are hardcoded to simulate a forward/backward pass
+// and ensure the visualization looks plausible.
+
+// CONV1 output (after ReLU, 6x6x2)
+const conv1_output = createArray([2, 6, 6]);
+// Fill with some plausible values (e.g., edges, blobs)
+for(let i=0; i<6; i++) for(let j=0; j<6; j++) {
+    conv1_output[0][i][j] = Math.max(0, Math.sin(i/2 + j/3) * 0.8 + Math.random()*0.2 + (i>2&&j>2?0.5:0)); // some pattern
+    conv1_output[1][i][j] = Math.max(0, Math.cos(i/3 - j/2) * 0.7 + Math.random()*0.3 + (i<4&&j<4?0.5:0));
+}
+
+// CONV2 output (after ReLU, 4x4x4) - This is the target layer for GradCAM
+const conv2_output = createArray([4, 4, 4]);
+for(let k=0; k<4; k++) for(let i=0; i<4; i++) for(let j=0; j<4; j++) {
+    conv2_output[k][i][j] = Math.max(0, Math.sin((i+k)/2 + (j+k)/2) * 0.6 + Math.random()*0.4 + (k===0 && i<2 && j<2 ? 0.8 : 0) + (k===1 && i>1 && j>1 ? 0.7 : 0));
+}
+
+// Logits for Class 0 ("7") and Class 1 ("L")
+const logits_for_7 = [5.2, -1.8]; // High score for "7", low for "L"
+const logits_for_L = [-2.5, 4.5]; // Low score for "7", high for "L"
+
+// Saliency Maps (absolute gradients w.r.t. input pixels)
+// For Class 0 ("7"): highlight the "7" shape
+const saliency_map_class0 = createArray([8, 8]);
+for(let i=0; i<8; i++) for(let j=0; j<8; j++) {
+    saliency_map_class0[i][j] = Math.max(0, Math.random()*0.1 + (inputImage[i][j]>0 ? 0.8 + Math.random()*0.2 : 0));
+}
+// For Class 1 ("L"): highlight the "L" shape (if input were "L") or "anti-7" (if input is "7")
+const saliency_map_class1 = createArray([8, 8]);
+for(let i=0; i<8; i++) for(let j=0; j<8; j++) {
+    saliency_map_class1[i][j] = Math.max(0, Math.random()*0.1 + (inputImageL[i][j]>0 ? 0.6 + Math.random()*0.2 : 0));
+}
+
+// Gradients w.r.t. CONV2 feature maps (dy_c / dAk, 4x4x4)
+const grad_conv2_class0 = createArray([4, 4, 4]);
+for(let k=0; k<4; k++) for(let i=0; i<4; i++) for(let j=0; j<4; j++) {
+    grad_conv2_class0[k][i][j] = (Math.random()*0.2 - 0.1) + (k===0 || k===2 ? 0.5 : -0.3) + (i<2&&j<2 ? 0.2 : 0);
+}
+const grad_conv2_class1 = createArray([4, 4, 4]);
+for(let k=0; k<4; k++) for(let i=0; i<4; i++) for(let j=0; j<4; j++) {
+    grad_conv2_class1[k][i][j] = (Math.random()*0.2 - 0.1) + (k===1 || k===3 ? 0.5 : -0.3) + (i>1&&j>1 ? 0.2 : 0);
+}
+
+// Alpha weights (Global Average Pool of gradients, 1x4)
+const alpha_weights_class0 = grad_conv2_class0.map(fm => fm.flat().reduce((sum, val) => sum + val, 0) / (4*4));
+const alpha_weights_class1 = grad_conv2_class1.map(fm => fm.flat().reduce((sum, val) => sum + val, 0) / (4*4));
+
+// GradCAM heatmaps (pre-computed weighted sum + ReLU, then upsampled to 8x8)
+function computeGradCAM(targetClassIdx) {
+    const alphas = targetClassIdx === 0 ? alpha_weights_class0 : alpha_weights_class1;
+    let weightedSum = createArray([4, 4], 0); // 4x4 spatial resolution
+
+    for (let k = 0; k < 4; k++) { // Iterate through each feature map
+        const alpha_k = alphas[k];
+        for (let i = 0; i < 4; i++) {
+            for (let j = 0; j < 4; j++) {
+                weightedSum[i][j] += alpha_k * conv2_output[k][i][j];
+            }
+        }
+    }
+    const cam = reluArray(weightedSum);
+    return upsample2D(cam, 8); // Upsample to input image size
+}
+const gradcam_heatmap_class0 = computeGradCAM(0);
+const gradcam_heatmap_class1 = computeGradCAM(1);
+
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'The Input Image & Mini-CNN',
+    desc: 'We start with a simple 8x8 grayscale pixel image (a handwritten "7"). Our mini-CNN has two convolutional layers, followed by Global Average Pooling and a Dense layer for 2-class classification.',
+    details: 'Input: 8x8 pixels (0-255 grayscale)\nCNN: Conv1 (3x3, 2 filters) -> ReLU -> Conv2 (3x3, 4 filters) -> ReLU -> GlobalAvgPool -> Dense (2 classes)',
+    canvasMode: 'input',
+    controls: {method:false, targetClass:false, opacity:false}
+  },
+  {
+    phase: 'setup', title: 'Forward Pass: Conv1 Activations',
+    desc: 'The input image passes through the first convolutional layer and ReLU. This layer extracts low-level features like edges or textures. We visualize the two 6x6 feature maps from this layer.',
+    details: `Input: 8x8\nConv1 Output: 2 feature maps, each 6x6.`,
+    canvasMode: 'conv1_output',
+    controls: {method:false, targetClass:false, opacity:false}
+  },
+  {
+    phase: 'setup', title: 'Forward Pass: Conv2 Activations & Logits',
+    desc: 'The activations then pass through the second convolutional layer (our target layer for GradCAM) and ReLU, followed by Global Average Pooling and a Dense layer to produce raw class scores (logits).',
+    details: `Conv2 Output: 4 feature maps, each 4x4.\nLogits: Class 0 ("7") = ${logits_for_7[0].toFixed(2)}, Class 1 ("L") = ${logits_for_7[1].toFixed(2)} (for input "7")`,
+    canvasMode: 'conv2_output',
+    controls: {method:false, targetClass:false, opacity:false}
+  },
+  {
+    phase: 'saliency', title: 'Saliency: Select Target Class',
+    desc: 'Saliency maps highlight input pixels important for a specific class. Select the target class (e.g., "Class 0" for "7") for which you want to compute the saliency.',
+    details: 'Saliency maps show pixel-level importance by computing gradients of the target class score w.r.t. input pixels.',
+    canvasMode: 'input',
+    controls: {method:true, targetClass:true, opacity:false}
+  },
+  {
+    phase: 'saliency', title: 'Saliency: Compute Input Gradients',
+    desc: 'We backpropagate the gradient of the selected class score (e.g., Class 0) all the way to the input pixels: \\(\\left|\\frac{\\partial y_c}{\\partial x}\\right|\\). High values indicate pixels that, if changed slightly, would most affect the score.',
+    details: 'Raw Gradients: (Absolute values shown)',
+    canvasMode: 'saliency_raw_grad',
+    controls: {method:true, targetClass:true, opacity:false}
+  },
+  {
+    phase: 'saliency', title: 'Saliency: Visualize Heatmap',
+    desc: 'The absolute gradients are normalized and overlaid as a heatmap on the input image. Red areas are most important for the selected class. Adjust opacity to see the underlying image.',
+    details: `Heatmap overlaid on input image.\nRed = High importance, Blue = Low importance.`,
+    canvasMode: 'saliency_heatmap',
+    controls: {method:true, targetClass:true, opacity:true}
+  },
+  {
+    phase: 'gradcam', title: 'GradCAM: Select Target Class & Layer',
+    desc: 'GradCAM provides a coarser, more semantic heatmap by focusing on an intermediate convolutional layer. Select a target class and observe the feature maps of the Conv2 layer.',
+    details: 'GradCAM uses gradients w.r.t. feature maps to weight them, then sums them up to highlight important regions.',
+    canvasMode: 'conv2_output',
+    controls: {method:true, targetClass:true, opacity:true}
+  },
+  {
+    phase: 'gradcam', title: 'GradCAM: Gradients w.r.t. Feature Maps',
+    desc: 'We compute gradients of the target class score (e.g., Class 0) with respect to each feature map in the Conv2 layer: \\(\\frac{\\partial y_c}{\\partial A^k}\\). These gradients indicate how much each feature map pixel contributes to the final score.',
+    details: 'Gradients w.r.t. Conv2 feature maps.',
+    canvasMode: 'gradcam_fm_grad',
+    controls: {method:true, targetClass:true, opacity:true}
+  },
+  {
+    phase: 'gradcam', title: 'GradCAM: Alpha Weights & Weighted Sum',
+    desc: 'Each feature map\'s gradients are globally averaged to get an importance weight \\(\\alpha_k^c\\). Then, feature maps are summed, weighted by these \\(\\alpha_k^c\\) values, and a ReLU is applied to focus on positive contributions.',
+    details: `\\(\\alpha_k^c = \\text{GAP}(\\frac{\\partial y_c}{\\partial A^k})\\)\nWeighted Sum: \\(L_{GradCAM}^c = \\operatorname{ReLU}(\\sum_k \\alpha_k^c A^k)\\)`,
+    canvasMode: 'gradcam_weighted_sum',
+    controls: {method:true, targetClass:true, opacity:true}
+  },
+  {
+    phase: 'result', title: 'GradCAM: Visualize Heatmap',
+    desc: 'The final GradCAM heatmap is upsampled to the input image size and overlaid. Yellow areas are most important for the selected class. Compare with the pixel-level saliency map.',
+    details: `Heatmap overlaid on input image.\nYellow = High importance, Green = Low importance.`,
+    canvasMode: 'gradcam_heatmap',
+    controls: {method:true, targetClass:true, opacity:true}
+  }
+];
+
+let currentStep = 0;
+const totalSteps = steps.length;
+let targetClassIndex = 0; // 0 for "7", 1 for "L"
+let method = 'saliency'; // 'saliency' or 'gradcam'
+let opacity = 0.7;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < currentStep) d.classList.add('done');
+    if (i === currentStep) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = currentStep + dir;
+  if (next < 0 || next >= totalSteps) return;
+  currentStep = next;
+  render();
+}
+function goTo(i) { currentStep = i; render(); }
+function reset() {
+  currentStep = 0;
+  targetClassIndex = 0;
+  method = 'saliency';
+  opacity = 0.7;
+  document.getElementById('targetClassSelector').value = '0';
+  document.getElementById('methodSaliency').checked = true;
+  document.getElementById('opacitySlider').value = '0.7';
+  document.getElementById('opacityValue').textContent = '0.70';
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  const s = steps[currentStep];
+
+  // Update controls
+  document.getElementById('btnPrev').disabled = currentStep === 0;
+  document.getElementById('btnNext').disabled = currentStep === totalSteps - 1;
+
+  document.getElementById('methodSaliency').disabled = !s.controls.method;
+  document.getElementById('methodGradCAM').disabled = !s.controls.method;
+  document.getElementById('targetClassSelector').disabled = !s.controls.targetClass;
+  document.getElementById('opacitySlider').disabled = !s.controls.opacity;
+
+  // Sync method radio buttons with current step's method if applicable
+  if(s.controls.method) {
+      if (method === 'saliency') document.getElementById('methodSaliency').checked = true;
+      else document.getElementById('methodGradCAM').checked = true;
+  }
+
+  // Info card
+  const phaseMap = {setup:'phase-setup', saliency:'phase-saliency', gradcam:'phase-gradcam', result:'phase-result'};
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${currentStep+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+
+  // Update description with dynamic values if needed
+  let desc = s.desc;
+  let details = s.details;
+  if (s.canvasMode === 'saliency_raw_grad' || s.canvasMode === 'gradcam_fm_grad') {
+      details = `Target Class: Class ${targetClassIndex} ("${targetClassIndex===0?'7':'L'}")\n` + details;
+  }
+  if (s.canvasMode === 'gradcam_fm_grad') {
+      details += `\nAlpha weights for Class ${targetClassIndex}: [${(targetClassIndex===0 ? alpha_weights_class0 : alpha_weights_class1).map(a => a.toFixed(2)).join(', ')}]`;
+  }
+  if (s.canvasMode === 'conv2_output') {
+      details = `Conv2 Output: 4 feature maps, each 4x4.\nLogits: Class 0 ("7") = ${logits_for_7[0].toFixed(2)}, Class 1 ("L") = ${logits_for_7[1].toFixed(2)} (for input "7")`;
+  }
+
+
+  document.getElementById('infoDesc').innerHTML = desc;
+  document.getElementById('infoDetails').textContent = details;
+
+
+  // Re-render KaTeX in the info card
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  // Code highlight (not used in this explainer but kept for consistency)
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  // (s.codeLines||[]).forEach(i => {
+  //   const el = document.getElementById('cl'+i);
+  //   if(el) el.classList.add('active');
+  // });
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const c = getColors();
+  ctx.clearRect(0, 0, W, H);
+
+  const cellSize = Math.min(W, H) / 10; // Base cell size for 8x8 grid
+
+  // Helper to draw a single 2D grid (e.g., input image, feature map)
+  function drawGrid(data, startX, startY, gridWidth, gridHeight, maxValue = 255, normalize=false, colorScale='grayscale') {
+      const rows = data.length;
+      const cols = data[0].length;
+      const cellW = gridWidth / cols;
+      const cellH = gridHeight / rows;
+
+      let normalizedData = data;
+      if (normalize) normalizedData = normalizeArray(data);
+
+      for (let i = 0; i < rows; i++) {
+          for (let j = 0; j < cols; j++) {
+              const val = normalize ? normalizedData[i][j] : data[i][j] / maxValue;
+              let color;
+              if (colorScale === 'grayscale') {
+                  const shade = Math.floor(val * 255);
+                  color = `rgb(${shade},${shade},${shade})`;
+              } else if (colorScale === 'heatmap-grad') { // Blue to Red for gradients
+                  const r = Math.floor(val * 255);
+                  const b = Math.floor((1 - val) * 255);
+                  color = `rgb(${r},0,${b})`;
+              } else if (colorScale === 'heatmap-relu') { // Green to Yellow for GradCAM
+                  const r = Math.floor(val * 255);
+                  const g = Math.floor(val * 255);
+                  const b = Math.floor((1 - val) * 100); // Less blue for yellow-ish
+                  color = `rgb(${r},${g},${b})`;
+              } else { // Default to grayscale
+                  const shade = Math.floor(val * 255);
+                  color = `rgb(${shade},${shade},${shade})`;
+              }
+              ctx.fillStyle = color;
+              ctx.fillRect(startX + j * cellW, startY + i * cellH, cellW, cellH);
+          }
+      }
+      ctx.strokeStyle = c.border;
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= rows; i++) {
+          ctx.beginPath(); ctx.moveTo(startX, startY + i * cellH); ctx.lineTo(startX + gridWidth, startY + i * cellH); ctx.stroke();
+      }
+      for (let j = 0; j <= cols; j++) {
+          ctx.beginPath(); ctx.moveTo(startX + j * cellW, startY); ctx.lineTo(startX + j * cellW, startY + gridHeight); ctx.stroke();
+      }
+  }
+
+  // Helper to draw a stack of feature maps
+  function drawFeatureMaps(data, startX, startY, fmSize, labelPrefix, maxVal=1.0, normalize=true, colorScale='grayscale') {
+      const numFMs = data.length;
+      const fmWidth = fmSize;
+      const fmHeight = fmSize;
+      const spacing = fmSize / 4;
+
+      ctx.font = '600 11px ' + c.sans;
+      ctx.fillStyle = c.text2;
+      ctx.textAlign = 'center';
+
+      for (let k = 0; k < numFMs; k++) {
+          const x = startX + k * (fmWidth + spacing);
+          const y = startY;
+          drawGrid(data[k], x, y, fmWidth, fmHeight, maxVal, normalize, colorScale);
+          ctx.fillText(`${labelPrefix}${k}`, x + fmWidth / 2, y + fmHeight + 15);
+      }
+      ctx.textAlign = 'left';
+  }
+
+  // Current method and target class
+  const currentMethod = method; // Use global state
+  const currentTargetClass = targetClassIndex; // Use global state
+  const currentOpacity = opacity; // Use global state
+
+  // --- Drawing logic based on mode ---
+  if (mode === 'input') {
+      const inputGridSize = cellSize * 8;
+      drawGrid(inputImage, (W - inputGridSize) / 2, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+      ctx.fillStyle = c.text;
+      ctx.font = '600 14px ' + c.sans;
+      ctx.textAlign = 'center';
+      ctx.fillText('Input Image (8x8)', W / 2, (H - inputGridSize) / 2 - 15);
+  }
+  else if (mode === 'conv1_output') {
+      const inputGridSize = cellSize * 8;
+      const fm1Size = cellSize * 6;
+      const totalFm1Width = fm1Size * 2 + fm1Size / 4; // 2 FMs + spacing
+
+      drawGrid(inputImage, W/2 - inputGridSize - 20, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText('Input Image', W/2 - inputGridSize - 20 + inputGridSize/2, (H - inputGridSize) / 2 - 15);
+
+      ctx.fillText('→', W/2 - 10, H/2);
+
+      drawFeatureMaps(conv1_output, W/2 + 20, (H - fm1Size) / 2, fm1Size, 'FM', 1.0, true);
+      ctx.fillText('Conv1 Output (6x6x2)', W/2 + 20 + totalFm1Width/2, (H - fm1Size) / 2 - 15);
+  }
+  else if (mode === 'conv2_output') {
+      const inputGridSize = cellSize * 8;
+      const fm1Size = cellSize * 6;
+      const fm2Size = cellSize * 4;
+      const totalFm1Width = fm1Size * 2 + fm1Size / 4;
+      const totalFm2Width = fm2Size * 4 + fm2Size / 4 * 3;
+
+      drawGrid(inputImage, W/2 - inputGridSize - totalFm1Width/2 - 40, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText('Input', W/2 - inputGridSize - totalFm1Width/2 - 40 + inputGridSize/2, (H - inputGridSize) / 2 - 15);
+
+      ctx.fillText('→', W/2 - totalFm1Width/2 - 20, H/2);
+
+      drawFeatureMaps(conv1_output, W/2 - totalFm1Width/2, (H - fm1Size) / 2, fm1Size, 'FM', 1.0, true);
+      ctx.fillText('Conv1 Output', W/2 - totalFm1Width/2 + totalFm1Width/2, (H - fm1Size) / 2 - 15);
+
+      ctx.fillText('→', W/2 + totalFm1Width/2 + 20, H/2);
+
+      drawFeatureMaps(conv2_output, W/2 + totalFm1Width/2 + 40, (H - fm2Size) / 2, fm2Size, 'FM', 1.0, true);
+      ctx.fillText('Conv2 Output (4x4x4)', W/2 + totalFm1Width/2 + 40 + totalFm2Width/2, (H - fm2Size) / 2 - 15);
+  }
+  else if (mode === 'saliency_raw_grad') {
+      const inputGridSize = cellSize * 8;
+      const gradientData = currentTargetClass === 0 ? saliency_map_class0 : saliency_map_class1;
+      const gradientGridSize = cellSize * 8;
+
+      drawGrid(inputImage, W/2 - inputGridSize - 20, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText('Input Image', W/2 - inputGridSize - 20 + inputGridSize/2, (H - inputGridSize) / 2 - 15);
+
+      ctx.fillText('→ ∂y/∂x', W/2 - 10, H/2);
+
+      drawGrid(gradientData, W/2 + 20, (H - gradientGridSize) / 2, gradientGridSize, gradientGridSize, 1.0, true, 'heatmap-grad');
+      ctx.fillText(`Saliency Gradients (Class ${currentTargetClass})`, W/2 + 20 + gradientGridSize/2, (H - gradientGridSize) / 2 - 15);
+  }
+  else if (mode === 'saliency_heatmap') {
+      const inputGridSize = cellSize * 8;
+      const gradientData = currentTargetClass === 0 ? saliency_map_class0 : saliency_map_class1;
+      const normalizedGradient = normalizeArray(gradientData);
+
+      drawGrid(inputImage, (W - inputGridSize) / 2, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+
+      ctx.globalAlpha = currentOpacity;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+          for (let j = 0; j < 8; j++) {
+              const val = normalizedGradient[i][j];
+              const r = Math.floor(val * 255);
+              const b = Math.floor((1 - val) * 255);
+              ctx.fillStyle = `rgb(${r},0,${b})`; // Blue to Red heatmap
+              ctx.fillRect((W - inputGridSize) / 2 + j * cellSize, (H - inputGridSize) / 2 + i * cellSize, cellSize, cellSize);
+          }
+      }
+      ctx.globalAlpha = 1.0;
+
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText(`Saliency Heatmap (Class ${currentTargetClass})`, W / 2, (H - inputGridSize) / 2 - 15);
+  }
+  else if (mode === 'gradcam_fm_grad') {
+      const fm2Size = cellSize * 4;
+      const totalFm2Width = fm2Size * 4 + fm2Size / 4 * 3;
+
+      drawFeatureMaps(conv2_output, W/2 - totalFm2Width - 20, (H - fm2Size) / 2, fm2Size, 'FM', 1.0, true);
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText('Conv2 Activations', W/2 - totalFm2Width - 20 + totalFm2Width/2, (H - fm2Size) / 2 - 15);
+
+      ctx.fillText('→ ∂y/∂Aᵏ', W/2 - 10, H/2);
+
+      const gradientData = currentTargetClass === 0 ? grad_conv2_class0 : grad_conv2_class1;
+      drawFeatureMaps(gradientData, W/2 + 20, (H - fm2Size) / 2, fm2Size, 'Grad', 1.0, true, 'heatmap-grad');
+      ctx.fillText(`Gradients w.r.t. Conv2 FMs (Class ${currentTargetClass})`, W/2 + 20 + totalFm2Width/2, (H - fm2Size) / 2 - 15);
+  }
+  else if (mode === 'gradcam_weighted_sum') {
+      const fm2Size = cellSize * 4;
+      const totalFm2Width = fm2Size * 4 + fm2Size / 4 * 3;
+      const gradientData = currentTargetClass === 0 ? grad_conv2_class0 : grad_conv2_class1;
+      const alphas = currentTargetClass === 0 ? alpha_weights_class0 : alpha_weights_class1;
+
+      drawFeatureMaps(conv2_output, W/2 - totalFm2Width - 20, (H - fm2Size) / 2, fm2Size, 'FM', 1.0, true);
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText('Conv2 Activations', W/2 - totalFm2Width - 20 + totalFm2Width/2, (H - fm2Size) / 2 - 15);
+
+      ctx.fillText('x α + ReLU', W/2 - 10, H/2);
+
+      const gradcamHeatmap = currentTargetClass === 0 ? gradcam_heatmap_class0 : gradcam_heatmap_class1;
+      const downsampledHeatmap = upsample2D(gradcamHeatmap, 4); // Show at 4x4 resolution
+      drawGrid(downsampledHeatmap, W/2 + 20, (H - fm2Size) / 2, fm2Size, fm2Size, 1.0, true, 'heatmap-relu');
+      ctx.fillText(`GradCAM Sum (4x4, Class ${currentTargetClass})`, W/2 + 20 + fm2Size/2, (H - fm2Size) / 2 - 15);
+
+      ctx.fillStyle = c.text2; ctx.font = '11px ' + c.mono;
+      ctx.fillText(`α weights: [${alphas.map(a => a.toFixed(2)).join(', ')}]`, W/2 + 20, (H - fm2Size) / 2 + fm2Size + 25);
+  }
+  else if (mode === 'gradcam_heatmap') {
+      const inputGridSize = cellSize * 8;
+      const gradcamHeatmap = currentTargetClass === 0 ? gradcam_heatmap_class0 : gradcam_heatmap_class1;
+      const normalizedHeatmap = normalizeArray(gradcamHeatmap);
+
+      drawGrid(inputImage, (W - inputGridSize) / 2, (H - inputGridSize) / 2, inputGridSize, inputGridSize);
+
+      ctx.globalAlpha = currentOpacity;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+          for (let j = 0; j < 8; j++) {
+              const val = normalizedHeatmap[i][j];
+              const r = Math.floor(val * 255);
+              const g = Math.floor(val * 255);
+              const b = Math.floor((1 - val) * 100); // Less blue for yellow-ish
+              ctx.fillStyle = `rgb(${r},${g},${b})`; // Green to Yellow heatmap
+              ctx.fillRect((W - inputGridSize) / 2 + j * cellSize, (H - inputGridSize) / 2 + i * cellSize, cellSize, cellSize);
+          }
+      }
+      ctx.globalAlpha = 1.0;
+
+      ctx.fillStyle = c.text; ctx.font = '600 14px ' + c.sans; ctx.textAlign = 'center';
+      ctx.fillText(`GradCAM Heatmap (Class ${currentTargetClass})`, W / 2, (H - inputGridSize) / 2 - 15);
+  }
+}
+
+// ── EVENT LISTENERS ──
+document.getElementById('methodSaliency').addEventListener('change', () => {
+  method = 'saliency';
+  const currentStepPhase = steps[currentStep].phase;
+  if (currentStepPhase === 'gradcam' || currentStepPhase === 'result') {
+      // If user switches method while in GradCAM steps, jump to Saliency heatmap step
+      currentStep = steps.findIndex(s => s.canvasMode === 'saliency_heatmap');
+  }
+  render();
+});
+document.getElementById('methodGradCAM').addEventListener('change', () => {
+  method = 'gradcam';
+  const currentStepPhase = steps[currentStep].phase;
+  if (currentStepPhase === 'saliency' || currentStepPhase === 'setup') {
+      // If user switches method while in Saliency steps, jump to GradCAM feature map grad step
+      currentStep = steps.findIndex(s => s.canvasMode === 'gradcam_fm_grad');
+  }
+  render();
+});
+
+document.getElementById('targetClassSelector').addEventListener('change', (e) => {
+  targetClassIndex = parseInt(e.target.value);
+  render();
+});
+
+document.getElementById('opacitySlider').addEventListener('input', (e) => {
+  opacity = parseFloat(e.target.value);
+  document.getElementById('opacityValue').textContent = opacity.toFixed(2);
+  drawCanvas(steps[currentStep].canvasMode); // Redraw canvas only for immediate feedback
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+window.addEventListener('resize', () => drawCanvas(steps[currentStep].canvasMode));
+</script>
+</body>
+</html>
