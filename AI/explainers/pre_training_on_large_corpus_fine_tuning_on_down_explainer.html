@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-training on Large Corpus, Fine-tuning on Downstream Task — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root {
+  --bg: #f9f8f5;        --bg2: #f0efe9;
+  --surface: #ffffff;
+  --border: rgba(0,0,0,0.12);  --border2: rgba(0,0,0,0.22);
+  --text: #1a1a18;      --text2: #6b6b65;   --text3: #9c9a92;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --blue-bg:#E6F1FB;  --blue-border:#85B7EB;  --blue-text:#042C53;  --blue-mid:#185FA5;
+  --green-bg:#EAF3DE; --green-border:#97C459; --green-text:#173404; --green-mid:#3B6D11;
+  --amber-bg:#FAEEDA; --amber-border:#EF9F27; --amber-text:#412402; --amber-mid:#854F0B;
+  --red-bg:#FCEBEB;   --red-border:#F09595;   --red-text:#501313;   --red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;  --cyan-border:#4DD0E1;  --cyan-text:#006064;  --cyan-mid:#00ACC1;
+  --radius: 10px;      --radius-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#18181a; --bg2:#222224; --surface:#2a2a2d;
+    --border:rgba(255,255,255,0.1); --border2:rgba(255,255,255,0.2);
+    --text:#e8e6de; --text2:#9c9a92; --text3:#666460;
+    --blue-bg:#0c2a45;   --blue-border:#378ADD;  --blue-text:#B5D4F4;  --blue-mid:#85B7EB;
+    --green-bg:#172a0a;  --green-border:#639922; --green-text:#C0DD97; --green-mid:#97C459;
+    --amber-bg:#2e1c05;  --amber-border:#BA7517; --amber-text:#FAC775; --amber-mid:#EF9F27;
+    --red-bg:#3a0a0a;    --red-border:#E24B4A;   --red-text:#F7C1C1;   --red-mid:#A32D2D;
+    --purple-bg:#1e1a45; --purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+    --cyan-bg:#004D54;   --cyan-border:#26C6DA;  --cyan-text:#B2EBF2;  --cyan-mid:#4DD0E1;
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Stats readout (live computed numbers) */
+.stats-row{display:flex;gap:12px;align-items:stretch;justify-content:center;flex-wrap:wrap;margin:1rem 0;}
+.stat-chip{background:var(--bg2);border-radius:var(--radius);padding:8px 16px;text-align:center;min-width:120px;border-left:3px solid var(--text2);}
+.stat-chip .stat-label{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:4px;}
+.stat-chip .stat-value{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text);}
+.stat-chip.hl-blue{border-left-color:var(--blue-mid);} .stat-chip.hl-blue .stat-value{color:var(--blue-mid);}
+.stat-chip.hl-green{border-left-color:var(--green-mid);} .stat-chip.hl-green .stat-value{color:var(--green-mid);}
+.stat-chip.hl-red{border-left-color:var(--red-mid);} .stat-chip.hl-red .stat-value{color:var(--red-mid);}
+.stat-chip.hl-amber{border-left-color:var(--amber-mid);} .stat-chip.hl-amber .stat-value{color:var(--amber-mid);}
+.stat-chip.hl-purple{border-left-color:var(--purple-mid);} .stat-chip.hl-purple .stat-value{color:var(--purple-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-pretrain{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-transfer{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-finetune{background:var(--green-bg);color:var(--green-mid);}
+.info-phase.phase-result{background:var(--amber-bg);color:var(--amber-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border-radius:var(--radius);border:1px solid var(--cyan-border);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .stat-chip{min-width:90px;padding:6px 10px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Pre-training on a Large Corpus, Fine-tuning on a Downstream Task</h1>
+  <div class="subtitle">The two-stage transfer-learning paradigm behind modern deep learning</div>
+  <div class="tags">
+    <span class="tag tag-foundational">Foundational</span>
+    <span class="tag tag-category">Transfer Learning</span>
+    <span class="tag tag-category">Deep Learning</span>
+    <span class="tag tag-complexity">Pre-train once, fine-tune many</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Pre-train &rarr; Fine-tune</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Instead of training a fresh model from random weights on every new task, you train ONE large model once on a huge, cheap-to-collect corpus (raw text, images, audio — usually with a <em>self-supervised</em> objective that needs no human labels), then re-use that model's learned weights as the starting point for many smaller, labeled downstream tasks. Stage 1 is expensive and generic; stage 2 is cheap and specific.</p>
+    <p><strong>Analogy:</strong> Think of pre-training as four years of a broad liberal-arts education — you learn to read, reason, and write about almost anything. Fine-tuning is a two-week specialized internship at a law firm: you don't relearn how to read, you just adapt your general skills to legal documents. Someone who skipped college and jumped straight into the internship would need vastly more time and examples to reach the same competence.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">Pre-training learns a reusable <em>representation function</em> \(f_\theta(x)\) — a mapping from raw input to a feature space where semantically similar things sit close together. Fine-tuning just learns a thin task-specific mapping on top of (or a small perturbation of) that representation: $$\hat{y} = g_\phi\big(f_\theta(x)\big), \qquad \theta_{\text{init}} = \theta_{\text{pretrained}}$$ instead of \(\theta_{\text{init}} = \) random.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How the Two-Stage Pipeline Works</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Stage 1 — Pre-training on a large, general corpus</h4>
+    <p>A large model (transformer, ResNet, etc.) is trained on a massive unlabeled or weakly-labeled corpus using a <em>self-supervised</em> pretext task — one where the label is manufactured from the data itself, so no human annotation is needed: predict a masked word (BERT), predict the next token (GPT), match an image to a caption (CLIP), or reconstruct a corrupted patch (MAE). The point is not the pretext task itself but the byproduct: to solve it well, the model is forced to learn syntax, world knowledge, object shapes, and other transferable structure buried in the data.</p>
+
+    <h4>Stage 2 — Fine-tuning on a small, labeled downstream task</h4>
+    <p>The pre-trained weights \(\theta_{\text{pretrained}}\) become the <em>initialization</em> for a new, smaller supervised task (sentiment classification, medical image segmentation, question answering). A small task-specific head \(g_\phi\) is attached, and the whole thing (or part of it) is trained further on task data \(D_{\text{task}}\), which is typically orders of magnitude smaller than the pre-training corpus.</p>
+
+    <h4>Full fine-tuning vs. feature extraction</h4>
+    <p>There are two knobs for how much of \(\theta\) you let move:</p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:0.75rem;">
+      <li><strong>Feature extraction (frozen backbone):</strong> freeze \(\theta\), only train the new head \(\phi\). Fast, cheap, needs very little data, but capped in accuracy if the downstream domain is far from the pre-training distribution.</li>
+      <li><strong>Full fine-tuning:</strong> let gradients flow into every pre-trained layer too, usually with a much smaller learning rate than pre-training used. Higher ceiling, but more compute, more data needed to avoid overfitting, and risk of catastrophic forgetting.</li>
+      <li><strong>Partial / gradual unfreezing:</strong> a middle ground — keep early (generic) layers frozen, fine-tune later (task-specific) layers, often unfreezing progressively from the top down.</li>
+    </ul>
+
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">The transferred weights act as a strong <strong>prior</strong> over the function space. Fine-tuning is not "learning from scratch with a head start" — it is <strong>local optimization</strong> around an already-good solution, which is why it needs far fewer downstream examples and far fewer gradient steps to converge.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Pre-training objective (self-supervised)</h4>
+    <p>For masked-language-model-style pre-training, we maximize the likelihood of masked tokens \(x_i\) given their context \(x_{\setminus M}\):</p>
+    <div class="eq">$$\mathcal{L}_{\text{pretrain}}(\theta) = -\mathbb{E}_{x \sim \mathcal{D}_{\text{corpus}}} \sum_{i \in M} \log p_\theta\!\left(x_i \mid x_{\setminus M}\right)$$</div>
+    <p>Because \(\mathcal{D}_{\text{corpus}}\) is huge (billions of tokens/images), \(\theta_{\text{pretrained}} = \arg\min_\theta \mathcal{L}_{\text{pretrain}}(\theta)\) is a well-regularized solution — it hasn't overfit to any one narrow task.</p>
+
+    <h4>Fine-tuning as constrained / warm-started optimization</h4>
+    <p>Fine-tuning minimizes a downstream loss starting from \(\theta_{\text{pretrained}}\) instead of a random draw, often with an explicit penalty for drifting too far (implicitly via small learning rate, or explicitly via a regularizer):</p>
+    <div class="eq">$$\mathcal{L}_{\text{finetune}}(\theta,\phi) = \sum_{(x,y)\in D_{\text{task}}} \ell\big(g_\phi(f_\theta(x)),\, y\big) \; + \; \lambda \sum_i F_i\,(\theta_i - \theta_i^{*})^2$$</div>
+    <p>The quadratic term (as in Elastic Weight Consolidation) penalizes moving parameters that were important for the pre-trained solution (high Fisher information \(F_i\)) far from their pre-trained value \(\theta_i^{*}\) — this is one formal way to fight <strong>catastrophic forgetting</strong>.</p>
+
+    <h4>Sample-efficiency: why fewer labels are needed</h4>
+    <p>A standard learning-theory bound says generalization error shrinks roughly as \(\epsilon(n) \approx \epsilon_\infty + c/n^{\alpha}\) for \(n\) labeled examples. Pre-training does not change \(n\) — it changes the <em>starting point</em> and effectively the <em>effective hypothesis space</em>, shrinking both \(\epsilon_\infty\) and \(c\), so the fine-tuned curve sits strictly below the from-scratch curve at every \(n\):</p>
+    <div class="eq">$$\epsilon_{\text{finetune}}(n) \ll \epsilon_{\text{scratch}}(n) \quad \text{especially for small } n$$</div>
+
+    <h4>Learning-rate warmup</h4>
+    <p>Fine-tuning typically uses a linear warmup followed by decay, with a peak learning rate 10–100&times; smaller than pre-training's:</p>
+    <div class="eq">$$\eta(t) = \eta_{\max}\cdot\min\!\left(\frac{t}{t_{\text{warmup}}}, 1\right)\cdot\text{decay}(t)$$</div>
+    <p>Warmup prevents the very first noisy gradients (before the new head \(\phi\) has settled) from taking a large, destructive step in the pre-trained backbone; the low peak rate then keeps updates local, preserving most of \(\theta_{\text{pretrained}}\).</p>
+
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;"><strong>Catastrophic forgetting:</strong> a learning rate that's too high (or too many epochs) during full fine-tuning overwrites the general-purpose features the model spent enormous compute learning, collapsing performance on anything outside the narrow fine-tuning distribution — and often overfitting the small downstream set in the process. Small LR + warmup + partial freezing are the standard defenses.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">Step through the full pipeline: a giant unlabeled corpus, self-supervised pre-training, the learned feature space, transfer, freeze-vs-fine-tune, LR warmup, catastrophic forgetting, and the resulting sample-efficiency win.</p>
+
+    <div class="viz-container">
+      <!-- Live stats readout -->
+      <div id="statsViz"></div>
+
+      <!-- Canvas -->
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-pretrain" id="infoPhase">PRE-TRAIN</span>
+        <div class="info-step" id="infoStep">Step 1 of 9</div>
+        <div class="info-title" id="infoTitle">The Large Unlabeled Corpus</div>
+        <div class="info-desc" id="infoDesc">Loading...</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Pre-training / backbone</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Transfer / frozen</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Fine-tuned model</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> From-scratch (baseline)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> New task head</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>When to fine-tune fully vs. just extract features:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Downstream task is small and close to the pre-training domain &rarr; freeze the backbone, train only the head (fast, cheap, low forgetting risk)</li>
+      <li>Downstream task is larger or far from pre-training domain (e.g., medical images from natural-image pretraining) &rarr; full or gradual fine-tuning with a small LR</li>
+      <li>Very small downstream data (few-shot) &rarr; freeze most layers, or use adapters/LoRA to update a tiny fraction of parameters</li>
+    </ul>
+    <p><strong>Guardrails against catastrophic forgetting:</strong></p>
+    <ul style="font-size:14px;padding-left:1.5rem;margin-bottom:1rem;">
+      <li>Use a fine-tuning learning rate 10&ndash;100&times; smaller than the pre-training rate</li>
+      <li>Warm up the LR over the first few hundred steps so the randomly-initialized head doesn't send destructive gradients into the backbone</li>
+      <li>Few epochs — downstream data is small, so it's easy to overfit and drift far from \(\theta_{\text{pretrained}}\)</li>
+      <li>Discriminative/layer-wise learning rates: smaller for early (generic) layers, larger for late (task-specific) layers</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Big Picture</div>
+      <p style="font-size:14px;margin:0;">Pre-training amortizes an enormous one-time compute cost across an unbounded number of downstream tasks. Every task after the first is nearly free in data and compute compared to training from scratch — this is precisely why foundation models (BERT, GPT, CLIP, ResNet/ImageNet backbones) reshaped the field: the expensive step now only has to happen once.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import torch, torch.nn as nn</div>
+      <div class="code-line" id="cl1"></div>
+      <div class="code-line" id="cl2"># ── STAGE 1: Pre-train on a large unlabeled corpus ──</div>
+      <div class="code-line" id="cl3">backbone = TransformerEncoder(layers=24, dim=1024)</div>
+      <div class="code-line" id="cl4">mlm_head = nn.Linear(1024, vocab_size)</div>
+      <div class="code-line" id="cl5">opt = torch.optim.AdamW(backbone.parameters(), lr=1e-4)</div>
+      <div class="code-line" id="cl6">for batch in huge_unlabeled_corpus:      # billions of tokens</div>
+      <div class="code-line" id="cl7">    x_masked, targets = mask_tokens(batch)</div>
+      <div class="code-line" id="cl8">    logits = mlm_head(backbone(x_masked))</div>
+      <div class="code-line" id="cl9">    loss = nn.functional.cross_entropy(logits, targets)</div>
+      <div class="code-line" id="cl10">    loss.backward(); opt.step(); opt.zero_grad()</div>
+      <div class="code-line" id="cl11">torch.save(backbone.state_dict(), "pretrained_backbone.pt")</div>
+      <div class="code-line" id="cl12"></div>
+      <div class="code-line" id="cl13"># ── STAGE 2: Fine-tune on a small labeled downstream task ──</div>
+      <div class="code-line" id="cl14">backbone.load_state_dict(torch.load("pretrained_backbone.pt"))</div>
+      <div class="code-line" id="cl15">task_head = nn.Linear(1024, num_classes)      # new, randomly init</div>
+      <div class="code-line" id="cl16"></div>
+      <div class="code-line" id="cl17"># Option A: feature extraction — freeze the backbone</div>
+      <div class="code-line" id="cl18">for p in backbone.parameters(): p.requires_grad = False</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20"># Option B: full fine-tuning — small LR + warmup</div>
+      <div class="code-line" id="cl21">opt = torch.optim.AdamW([</div>
+      <div class="code-line" id="cl22">    {"params": backbone.parameters(), "lr": 2e-5},   # 5-50x smaller</div>
+      <div class="code-line" id="cl23">    {"params": task_head.parameters(), "lr": 1e-3},</div>
+      <div class="code-line" id="cl24">])</div>
+      <div class="code-line" id="cl25">sched = get_linear_warmup_schedule(opt, warmup_steps=200)</div>
+      <div class="code-line" id="cl26"></div>
+      <div class="code-line" id="cl27">for epoch in range(3):                    # few epochs, small dataset</div>
+      <div class="code-line" id="cl28">    for x, y in small_labeled_task_data:   # thousands, not billions</div>
+      <div class="code-line" id="cl29">        logits = task_head(backbone(x))</div>
+      <div class="code-line" id="cl30">        loss = nn.functional.cross_entropy(logits, y)</div>
+      <div class="code-line" id="cl31">        loss.backward(); opt.step(); sched.step(); opt.zero_grad()</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ══════════════════════════════════════════════════════════════
+// DATA + LIVE MATH (all numbers below are computed from formulas,
+// not hard-coded per-frame — only the formula coefficients are fixed)
+// ══════════════════════════════════════════════════════════════
+
+// Deterministic PRNG so the "random" scatter is stable across renders
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Pre-training loss: falls from ~4.2 nats to ~1.3 nats over 3e5 steps (log-ish decay + noise)
+function pretrainLoss(step) {
+  const base = 1.25 + 3.0 * Math.exp(-step / 60000);
+  const noise = 0.04 * Math.sin(step / 900);
+  return Math.max(1.05, base + noise);
+}
+const PRETRAIN_TOTAL_STEPS = 300000;
+
+// Fine-tune loss curves (per epoch-step, 0..60): pretrained-init vs from-scratch-init
+function finetuneLossPretrained(t) { return 0.32 + 1.05 * Math.exp(-t / 7); }
+function finetuneLossScratch(t)    { return 0.85 + 2.35 * Math.exp(-t / 26); }
+const FT_STEPS = 60;
+
+// Downstream accuracy vs. number of labeled examples n (log scale), sigmoid-ish saturating curves
+function accFinetuned(n) { return 96 * (1 - Math.exp(-n / 45)); }
+function accScratch(n)   { return 94 * (1 - Math.exp(-n / 1400)); }
+function samplesToReach(targetAcc, fn, maxN) {
+  for (let n = 1; n <= maxN; n *= 1.05) { if (fn(n) >= targetAcc) return Math.round(n); }
+  return maxN;
+}
+
+// LR warmup+decay schedule for fine-tuning (peak much lower than pre-training's 1e-4)
+const FT_WARMUP = 200, FT_TOTAL = 2000, FT_PEAK_LR = 2e-5, PRETRAIN_LR = 1e-4;
+function ftLR(t) {
+  if (t < FT_WARMUP) return FT_PEAK_LR * (t / FT_WARMUP);
+  const prog = (t - FT_WARMUP) / (FT_TOTAL - FT_WARMUP);
+  return FT_PEAK_LR * 0.5 * (1 + Math.cos(Math.PI * Math.min(prog, 1)));
+}
+
+// Catastrophic forgetting: retention (%) of ORIGINAL pre-training-task performance during fine-tuning
+function retentionAggressive(t) { return 100 * Math.exp(-t / 14); }               // high LR, no warmup
+function retentionSafe(t)       { return 100 * (0.86 + 0.14 * Math.exp(-t / 40)); } // warmup + small LR
+const FORGET_STEPS = 60;
+
+// Embedding-space clusters learned during pre-training (semantic groupings)
+const CLUSTER_DEFS = [
+  { name: 'animals',  cx: 0.26, cy: 0.28, color: 'blue'   },
+  { name: 'vehicles', cx: 0.74, cy: 0.26, color: 'green'  },
+  { name: 'emotion',  cx: 0.28, cy: 0.74, color: 'amber'  },
+  { name: 'code',     cx: 0.75, cy: 0.72, color: 'purple' },
+];
+const EMB_POINTS = (() => {
+  const rnd = mulberry32(42);
+  const pts = [];
+  CLUSTER_DEFS.forEach((c, ci) => {
+    for (let i = 0; i < 11; i++) {
+      const ang = rnd() * Math.PI * 2, rad = rnd() * 0.09;
+      pts.push({ cx: c.cx, cy: c.cy, dx: Math.cos(ang) * rad, dy: Math.sin(ang) * rad, cluster: ci, jphase: rnd() * Math.PI * 2 });
+    }
+  });
+  return pts;
+})();
+function clusterSeparation() {
+  // avg inter-cluster centroid distance / avg intra-cluster radius (a crude silhouette proxy), computed live
+  let interSum = 0, interN = 0;
+  for (let i = 0; i < CLUSTER_DEFS.length; i++)
+    for (let j = i + 1; j < CLUSTER_DEFS.length; j++) {
+      const a = CLUSTER_DEFS[i], b = CLUSTER_DEFS[j];
+      interSum += Math.hypot(a.cx - b.cx, a.cy - b.cy); interN++;
+    }
+  const avgIntra = 0.09 * 0.6;
+  return (interSum / interN) / avgIntra;
+}
+
+// Corpus token stream words
+const CORPUS_WORDS = ['the','of','and','to','function','class','import','however','because','neuron',
+  'photosynthesis','const','sonnet','error','king','queen','river','galaxy','integral','democracy',
+  'python','tensor','gradient','molecule','history','render','async','poem','bridge','ocean'];
+
+// ── STEPS ──
+const steps = [
+  {
+    phase: 'pretrain', title: 'Stage 1: The Large Unlabeled Corpus',
+    desc: 'A giant, cheap-to-collect corpus — web text, books, code, images — streams into the model \\(f_\\theta\\). No human labels are used yet; the corpus alone is the training signal.',
+    codeLines: [2,3,4,5,6], canvasMode: 'corpus'
+  },
+  {
+    phase: 'pretrain', title: 'Self-Supervised Objective Drives the Loss Down',
+    desc: 'Training minimizes \\(\\mathcal{L}_{\\text{pretrain}}(\\theta) = -\\mathbb{E}\\sum_{i\\in M}\\log p_\\theta(x_i\\mid x_{\\setminus M})\\) (e.g. masked-token prediction) across hundreds of thousands of steps. The loss falls steadily as the model absorbs syntax, facts, and structure.',
+    codeLines: [7,8,9,10], canvasMode: 'pretrain_loss'
+  },
+  {
+    phase: 'pretrain', title: 'A Reusable Feature Space Emerges',
+    desc: 'By the end of pre-training, \\(f_\\theta\\) maps raw inputs into a feature space where semantically related concepts cluster together — even though no cluster labels were ever given. This geometric structure is the transferable asset.',
+    codeLines: [11], canvasMode: 'embedding_space'
+  },
+  {
+    phase: 'transfer', title: 'Stage 2: Transfer — Attach a New Task Head',
+    desc: 'The pre-trained backbone weights \\(\\theta_{\\text{pretrained}}\\) are loaded as the initialization. A small, randomly-initialized head \\(g_\\phi\\) is attached on top for the downstream task (e.g. sentiment classes instead of vocabulary tokens).',
+    codeLines: [13,14,15], canvasMode: 'transfer_arch'
+  },
+  {
+    phase: 'transfer', title: 'Full Fine-tuning vs. Feature Extraction',
+    desc: 'Feature extraction freezes the whole backbone (only \\(\\phi\\) trains — cheap, low forgetting risk). Full fine-tuning unlocks backbone layers too so gradients reshape them — higher ceiling, more compute, more forgetting risk. Gradual unfreezing sits in between.',
+    codeLines: [17,18,20], canvasMode: 'freeze_vs_full'
+  },
+  {
+    phase: 'finetune', title: 'Learning-Rate Warmup Protects the Backbone',
+    desc: 'Fine-tuning uses \\(\\eta(t)=\\eta_{\\max}\\cdot\\min(t/t_{\\text{warmup}},1)\\cdot\\text{decay}(t)\\) with a peak \\(\\eta_{\\max}\\) far below the pre-training rate. Warmup stops noisy early gradients (from the random head) from blowing up the pre-trained weights.',
+    codeLines: [21,22,23,24,25], canvasMode: 'lr_warmup'
+  },
+  {
+    phase: 'finetune', title: 'Catastrophic Forgetting: LR Choice Matters',
+    desc: 'With an aggressive LR and no warmup, performance on the ORIGINAL pre-training distribution collapses fast — the model overwrites its general features. With warmup + a small LR, most of that knowledge is retained while the new task is still learned.',
+    codeLines: [26,27,28,29,30,31], canvasMode: 'forgetting'
+  },
+  {
+    phase: 'result', title: 'The Sample-Efficiency Payoff',
+    desc: 'Because fine-tuning starts near a good solution, the fine-tuned model reaches high downstream accuracy with a small fraction of the labeled examples a from-scratch model would need. The gap is largest exactly where labels are scarcest.',
+    codeLines: [], canvasMode: 'sample_efficiency'
+  },
+  {
+    phase: 'result', title: 'Putting It All Together',
+    desc: 'One expensive pre-training run amortizes across many cheap fine-tuning runs: higher final accuracy, far fewer labels, and far less wall-clock time than training every downstream task from scratch.',
+    codeLines: [], canvasMode: 'summary'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+const PHASE_MAP = { pretrain: 'phase-pretrain', transfer: 'phase-transfer', finetune: 'phase-finetune', result: 'phase-result' };
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; render(); }
+
+// ── STATS CHIP HELPERS ──
+function chip(label, value, hl) {
+  return `<div class="stat-chip hl-${hl||'blue'}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+}
+function renderStats(mode) {
+  const el = document.getElementById('statsViz');
+  let html = '<div class="stats-row">';
+  if (mode === 'corpus') {
+    html += chip('corpus size', '~820B tokens', 'blue') + chip('vocab', '50,257', 'blue') + chip('labels used', '0 (self-supervised)', 'green');
+  } else if (mode === 'pretrain_loss') {
+    const s = Math.round((performance.now()/40) % PRETRAIN_TOTAL_STEPS);
+    const loss = pretrainLoss(s);
+    html += chip('step', s.toLocaleString(), 'blue') + chip('loss', loss.toFixed(3), 'amber') + chip('perplexity', Math.exp(loss).toFixed(1), 'purple');
+  } else if (mode === 'embedding_space') {
+    html += chip('clusters found', CLUSTER_DEFS.length, 'purple') + chip('points plotted', EMB_POINTS.length, 'blue') + chip('separation score', clusterSeparation().toFixed(2)+'x', 'green');
+  } else if (mode === 'transfer_arch') {
+    html += chip('backbone params', '340.2M', 'blue') + chip('new head params', '1,536', 'amber') + chip('% weights transferred', '99.6%', 'green');
+  } else if (mode === 'freeze_vs_full') {
+    html += chip('feature-extract trainable', '0.5%', 'purple') + chip('full fine-tune trainable', '100%', 'green') + chip('gradual unfreeze trainable', '18%', 'amber');
+  } else if (mode === 'lr_warmup') {
+    const t = Math.round((performance.now()/30) % FT_TOTAL);
+    html += chip('step', t, 'blue') + chip('current LR', ftLR(t).toExponential(2), 'amber') + chip('pretrain LR ratio', '1 / ' + Math.round(PRETRAIN_LR/Math.max(ftLR(t),1e-9)), 'purple');
+  } else if (mode === 'forgetting') {
+    html += chip('retention @ step 60 (aggressive)', retentionAggressive(FORGET_STEPS).toFixed(1)+'%', 'red') + chip('retention @ step 60 (warmup)', retentionSafe(FORGET_STEPS).toFixed(1)+'%', 'green');
+  } else if (mode === 'sample_efficiency') {
+    const nFT = samplesToReach(90, accFinetuned, 20000);
+    const nSC = samplesToReach(90, accScratch, 20000);
+    html += chip('labels for 90% (fine-tuned)', nFT.toLocaleString(), 'green') + chip('labels for 90% (scratch)', nSC.toLocaleString(), 'red') + chip('savings', Math.round(nSC/nFT)+'x fewer', 'purple');
+  } else if (mode === 'summary') {
+    html += chip('final acc (fine-tuned)', accFinetuned(2000).toFixed(1)+'%', 'green') + chip('final acc (scratch)', accScratch(2000).toFixed(1)+'%', 'red') + chip('compute saved', '~40x', 'purple');
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ── RENDER (step-driven UI) ──
+function render() {
+  const s = steps[step];
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  document.getElementById('infoPhase').className = 'info-phase ' + PHASE_MAP[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if (el) el.classList.add('active');
+  });
+
+  renderStats(s.canvasMode);
+  updateDots();
+}
+
+// ── SHARED CANVAS HELPERS ──
+function cssVar(cs, name) { return cs.getPropertyValue(name).trim(); }
+function drawAxes(ctx, pad, W, H, borderC) {
+  ctx.strokeStyle = borderC; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke();
+}
+
+// ── CANVAS DRAWING (topic-specific, live-animated) ──
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, rect.width * dpr);
+  canvas.height = Math.max(1, rect.height * dpr);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const t = performance.now();
+
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cssVar(cs,'--bg2'), textC = cssVar(cs,'--text'), text2 = cssVar(cs,'--text2'), text3 = cssVar(cs,'--text3');
+  const blueMid = cssVar(cs,'--blue-mid'), greenMid = cssVar(cs,'--green-mid'), redMid = cssVar(cs,'--red-mid');
+  const amberMid = cssVar(cs,'--amber-mid'), purpleMid = cssVar(cs,'--purple-mid'), borderC = cssVar(cs,'--border2');
+  const blueBg = cssVar(cs,'--blue-bg'), greenBg = cssVar(cs,'--green-bg'), amberBg = cssVar(cs,'--amber-bg'), purpleBg = cssVar(cs,'--purple-bg');
+  const colorOf = { blue: blueMid, green: greenMid, amber: amberMid, purple: purpleMid, red: redMid };
+
+  ctx.clearRect(0, 0, W, H);
+  const pad = { l: 50, r: 20, t: 24, b: 40 };
+
+  if (mode === 'corpus') {
+    ctx.fillStyle = text3; ctx.font = '600 12px "DM Sans", system-ui';
+    ctx.fillText('Raw corpus (no labels)', 14, 20);
+    // backbone box
+    const bx = W*0.62, by = H*0.28, bw = W*0.32, bh = H*0.5;
+    ctx.fillStyle = blueBg; ctx.strokeStyle = blueMid; ctx.lineWidth = 2;
+    roundRect(ctx, bx, by, bw, bh, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = blueMid; ctx.font = '700 13px "DM Sans", system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('Backbone', bx+bw/2, by+bh/2-6);
+    ctx.font = '600 11px "JetBrains Mono", monospace';
+    ctx.fillText('f_θ(x)', bx+bw/2, by+bh/2+14);
+    ctx.textAlign = 'left';
+    // streaming tokens
+    const rnd = mulberry32(7);
+    for (let i = 0; i < 26; i++) {
+      const speed = 0.00006 + (i % 5) * 0.000012;
+      const phase = (t * speed + i / 26) % 1;
+      const laneY = pad.t + 18 + (i % 8) * ((H - pad.t - 28) / 8);
+      const x = 10 + phase * (bx - 30);
+      const word = CORPUS_WORDS[(i*7) % CORPUS_WORDS.length];
+      const fade = phase > 0.85 ? (1 - (phase-0.85)/0.15) : 1;
+      ctx.globalAlpha = Math.max(0, fade) * 0.9;
+      ctx.fillStyle = purpleMid; ctx.font = '11px "JetBrains Mono", monospace';
+      ctx.fillText(word, x, laneY);
+      ctx.globalAlpha = 1;
+    }
+    // pulse arrow into box
+    const pulse = 0.5 + 0.5*Math.sin(t/300);
+    ctx.strokeStyle = blueMid; ctx.lineWidth = 2; ctx.globalAlpha = 0.5 + pulse*0.5;
+    ctx.beginPath(); ctx.moveTo(bx-14, by+bh/2); ctx.lineTo(bx-2, by+bh/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx-8, by+bh/2-5); ctx.lineTo(bx-2,by+bh/2); ctx.lineTo(bx-8,by+bh/2+5); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = text2; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('web text · books · code · images  →  self-supervised training', 14, H-14);
+  }
+
+  else if (mode === 'pretrain_loss') {
+    drawAxes(ctx, pad, W, H, borderC);
+    ctx.fillStyle = text3; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('pre-training step (log)', W-pad.r-130, H-pad.b+30);
+    ctx.save(); ctx.translate(14, H/2); ctx.rotate(-Math.PI/2); ctx.fillText('loss', 0, 0); ctx.restore();
+    const xMin = Math.log10(1), xMax = Math.log10(PRETRAIN_TOTAL_STEPS);
+    const yMin = 1.0, yMax = 4.3;
+    const toX = s => pad.l + (Math.log10(Math.max(1,s)) - xMin) / (xMax - xMin) * (W-pad.l-pad.r);
+    const toY = v => pad.t + (1 - (v - yMin)/(yMax - yMin)) * (H-pad.t-pad.b);
+    ctx.strokeStyle = blueMid; ctx.lineWidth = 2.5; ctx.beginPath();
+    for (let s = 1; s <= PRETRAIN_TOTAL_STEPS; s *= 1.05) {
+      const x = toX(s), y = toY(pretrainLoss(s));
+      s === 1 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    // moving marker (animated)
+    const curStep = (t/40) % PRETRAIN_TOTAL_STEPS;
+    const mx = toX(curStep), my = toY(pretrainLoss(curStep));
+    ctx.fillStyle = amberMid; ctx.beginPath(); ctx.arc(mx,my,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = text2; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('masked-token prediction loss over the pre-training run', pad.l+10, pad.t+14);
+  }
+
+  else if (mode === 'embedding_space') {
+    ctx.fillStyle = text3; ctx.font = '11px "DM Sans", system-ui';
+    ctx.fillText('learned representation space (2D projection)', 14, 20);
+    CLUSTER_DEFS.forEach((c, ci) => {
+      const cx = pad.l + c.cx*(W-pad.l-pad.r), cy = pad.t + c.cy*(H-pad.t-pad.b);
+      ctx.fillStyle = colorOf[c.color]; ctx.globalAlpha = 0.12;
+      ctx.beginPath(); ctx.arc(cx, cy, 62, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    });
+    EMB_POINTS.forEach(p => {
+      const wob = 1 + 0.06*Math.sin(t/500 + p.jphase);
+      const cx = pad.l + (p.cx + p.dx*wob)*(W-pad.l-pad.r);
+      const cy = pad.t + (p.cy + p.dy*wob)*(H-pad.t-pad.b);
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2);
+      ctx.fillStyle = colorOf[CLUSTER_DEFS[p.cluster].color]; ctx.fill();
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    CLUSTER_DEFS.forEach(c => {
+      const cx = pad.l + c.cx*(W-pad.l-pad.r), cy = pad.t + c.cy*(H-pad.t-pad.b);
+      ctx.fillStyle = colorOf[c.color]; ctx.font = '600 11px "DM Sans", system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(c.name, cx, cy - 72);
+      ctx.textAlign = 'left';
+    });
+  }
+
+  else if (mode === 'transfer_arch') {
+    const boxW = W*0.30, boxH = H*0.42, y0 = H*0.14;
+    const x1 = W*0.06, x2 = W*0.64;
+    ctx.fillStyle = blueBg; ctx.strokeStyle = blueMid; ctx.lineWidth = 2;
+    roundRect(ctx, x1, y0, boxW, boxH, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = blueMid; ctx.font = '700 12px "DM Sans", system-ui'; ctx.textAlign='center';
+    ctx.fillText('Pre-trained', x1+boxW/2, y0+boxH/2-16);
+    ctx.fillText('Backbone θ', x1+boxW/2, y0+boxH/2+2);
+    ctx.font='11px "DM Sans", system-ui'; ctx.fillText('(24 layers, 340M params)', x1+boxW/2, y0+boxH/2+22);
+    ctx.textAlign='left';
+
+    ctx.fillStyle = amberBg; ctx.strokeStyle = amberMid;
+    roundRect(ctx, x2, y0, boxW, boxH*0.55, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = amberMid; ctx.font='700 12px "DM Sans", system-ui'; ctx.textAlign='center';
+    ctx.fillText('New Head φ', x2+boxW/2, y0+boxH*0.55/2-4);
+    ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('(random init)', x2+boxW/2, y0+boxH*0.55/2+16);
+    ctx.textAlign='left';
+
+    // combined model box below
+    const cy0 = y0+boxH+38, cw = boxW*2.2, cx0 = (x1+x2+boxW-cw)/2;
+    ctx.fillStyle = greenBg; ctx.strokeStyle = greenMid;
+    roundRect(ctx, cx0, cy0, cw, H-cy0-16, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = greenMid; ctx.font='700 12px "DM Sans", system-ui'; ctx.textAlign='center';
+    ctx.fillText('Combined model for the downstream task', cx0+cw/2, cy0+(H-cy0-16)/2+4);
+    ctx.textAlign='left';
+
+    // animated transfer arrows
+    const pulse = 0.4 + 0.6*(0.5+0.5*Math.sin(t/260));
+    [[x1+boxW/2, y0+boxH, cx0+cw*0.32, cy0], [x2+boxW/2, y0+boxH*0.55, cx0+cw*0.68, cy0]].forEach(([ax,ay,bx,by]) => {
+      ctx.strokeStyle = purpleMid; ctx.lineWidth = 2; ctx.globalAlpha = pulse;
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx-6,by-8); ctx.lineTo(bx,by); ctx.lineTo(bx+6,by-8); ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = text2; ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('weights copied, not re-initialized  →  99.6% of parameters transferred', 14, H-4);
+  }
+
+  else if (mode === 'freeze_vs_full') {
+    const n = 7, colW = (W-pad.l-pad.r)/2 - 20;
+    ['Feature extraction', 'Full fine-tuning'].forEach((label, gi) => {
+      const gx = pad.l + gi*(colW+40);
+      ctx.fillStyle = text2; ctx.font='700 12px "DM Sans", system-ui';
+      ctx.fillText(label, gx, pad.t);
+      for (let li = 0; li < n; li++) {
+        const lh = (H-pad.t-pad.b-30)/n - 4;
+        const ly = pad.t + 20 + li*((H-pad.t-pad.b-30)/n);
+        const frozen = gi === 0 ? true : li < 3; // full FT: bottom 3 still frozen-ish base, top unlocked
+        ctx.fillStyle = frozen ? purpleBg : greenBg;
+        ctx.strokeStyle = frozen ? purpleMid : greenMid; ctx.lineWidth = 1.5;
+        roundRect(ctx, gx, ly, colW, lh, 5); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = frozen ? purpleMid : greenMid; ctx.font='10px "JetBrains Mono", monospace';
+        ctx.fillText((frozen?'🔒 ':'🔓 ')+'layer '+(li+1), gx+8, ly+lh/2+3);
+        if (!frozen) {
+          const pulse = (0.5+0.5*Math.sin(t/220 + li)) ;
+          ctx.strokeStyle = greenMid; ctx.globalAlpha = 0.3+0.5*pulse; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(gx+colW-14, ly+lh); ctx.lineTo(gx+colW-14, ly); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(gx+colW-19, ly+6); ctx.lineTo(gx+colW-14,ly); ctx.lineTo(gx+colW-9,ly+6); ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    });
+    ctx.fillStyle = text3; ctx.font='10px "DM Sans", system-ui';
+    ctx.fillText('🔒 frozen (no gradient)      🔓 trainable (gradient flows up)', pad.l, H-8);
+  }
+
+  else if (mode === 'lr_warmup') {
+    drawAxes(ctx, pad, W, H, borderC);
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('fine-tuning step', W-pad.r-90, H-pad.b+30);
+    ctx.save(); ctx.translate(14,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('learning rate', 0,0); ctx.restore();
+    const toX = s => pad.l + (s/FT_TOTAL)*(W-pad.l-pad.r);
+    const yMax = FT_PEAK_LR*1.15;
+    const toY = v => pad.t + (1 - v/yMax)*(H-pad.t-pad.b);
+    // reference dashed line: pretraining LR would be off-scale, show scaled note instead
+    ctx.strokeStyle = blueMid; ctx.lineWidth = 2.5; ctx.beginPath();
+    for (let s = 0; s <= FT_TOTAL; s += 4) {
+      const x = toX(s), y = toY(ftLR(s));
+      s === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    // warmup region shade
+    ctx.fillStyle = amberMid; ctx.globalAlpha = 0.12;
+    ctx.fillRect(toX(0), pad.t, toX(FT_WARMUP)-toX(0), H-pad.t-pad.b);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = amberMid; ctx.font='600 11px "DM Sans", system-ui';
+    ctx.fillText('warmup', toX(20), pad.t+16);
+    // moving marker
+    const curT = (t/30) % FT_TOTAL;
+    const mx = toX(curT), my = toY(ftLR(curT));
+    ctx.fillStyle = greenMid; ctx.beginPath(); ctx.arc(mx,my,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='white'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = text2; ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('peak fine-tune LR = ' + FT_PEAK_LR.toExponential(0) + '  (pre-train LR was ' + PRETRAIN_LR.toExponential(0) + ')', pad.l+10, pad.t+16);
+  }
+
+  else if (mode === 'forgetting') {
+    drawAxes(ctx, pad, W, H, borderC);
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('fine-tuning step', W-pad.r-90, H-pad.b+30);
+    ctx.save(); ctx.translate(14,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('original-task retention %', 0,0); ctx.restore();
+    const toX = s => pad.l + (s/FORGET_STEPS)*(W-pad.l-pad.r);
+    const toY = v => pad.t + (1 - v/100)*(H-pad.t-pad.b);
+    [[retentionAggressive, redMid, 'aggressive LR, no warmup'], [retentionSafe, greenMid, 'warmup + small LR']].forEach(([fn,color,label], i) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.beginPath();
+      for (let s = 0; s <= FORGET_STEPS; s += 0.5) {
+        const x = toX(s), y = toY(fn(s));
+        s === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = color; ctx.font='600 11px "DM Sans", system-ui';
+      ctx.fillText(label, pad.l+10, pad.t+14+i*16);
+    });
+    const curT = ((t/60) % FORGET_STEPS);
+    ['aggressive','safe'].forEach((k,i) => {
+      const fn = i===0?retentionAggressive:retentionSafe, color = i===0?redMid:greenMid;
+      const mx = toX(curT), my = toY(fn(curT));
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(mx,my,4,0,Math.PI*2); ctx.fill();
+    });
+  }
+
+  else if (mode === 'sample_efficiency') {
+    drawAxes(ctx, pad, W, H, borderC);
+    ctx.fillStyle = text3; ctx.font='11px "DM Sans", system-ui';
+    ctx.fillText('labeled examples n (log)', W-pad.r-130, H-pad.b+30);
+    ctx.save(); ctx.translate(14,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('downstream accuracy %', 0,0); ctx.restore();
+    const nMin = 1, nMax = 20000;
+    const xMin = Math.log10(nMin), xMax = Math.log10(nMax);
+    const toX = n => pad.l + (Math.log10(n)-xMin)/(xMax-xMin)*(W-pad.l-pad.r);
+    const toY = v => pad.t + (1 - v/100)*(H-pad.t-pad.b);
+    [[accFinetuned, greenMid, 'fine-tuned from pretrained'], [accScratch, redMid, 'trained from scratch']].forEach(([fn,color,label], i) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.beginPath();
+      for (let n = nMin; n <= nMax; n *= 1.04) {
+        const x = toX(n), y = toY(fn(n));
+        n === nMin ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = color; ctx.font='600 11px "DM Sans", system-ui';
+      ctx.fillText(label, pad.l+10, pad.t+14+i*16);
+    });
+    // 90% target line + moving n-marker sweeping
+    ctx.strokeStyle = text3; ctx.setLineDash([4,4]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.l, toY(90)); ctx.lineTo(W-pad.r, toY(90)); ctx.stroke();
+    ctx.setLineDash([]);
+    const sweepN = nMin * Math.pow(nMax/nMin, (0.5+0.5*Math.sin(t/1400)));
+    ctx.strokeStyle = purpleMid; ctx.globalAlpha=0.6; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(toX(sweepN), pad.t); ctx.lineTo(toX(sweepN), H-pad.b); ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+
+  else if (mode === 'summary') {
+    const items = [
+      { label: 'Final accuracy', ft: accFinetuned(2000), sc: accScratch(2000), unit: '%', max: 100 },
+      { label: 'Labels needed (90% acc)', ft: samplesToReach(90,accFinetuned,20000), sc: samplesToReach(90,accScratch,20000), unit: '', max: 20000, invert: true },
+      { label: 'Relative compute cost', ft: 2.4, sc: 100, unit: 'x', max: 100, invert: true },
+    ];
+    const rowH = (H-pad.t-pad.b)/items.length;
+    const grow = Math.min(1, (t % 4000)/1200);
+    items.forEach((it, i) => {
+      const y = pad.t + i*rowH + 8;
+      ctx.fillStyle = text2; ctx.font='600 12px "DM Sans", system-ui';
+      ctx.fillText(it.label, pad.l, y+2);
+      const barY = y + 14, barH = 14, barMaxW = W-pad.l-pad.r-90;
+      const ftFrac = Math.min(1, it.ft/it.max), scFrac = Math.min(1, it.sc/it.max);
+      ctx.fillStyle = greenMid; ctx.fillRect(pad.l+90, barY, barMaxW*ftFrac*grow, barH*0.42);
+      ctx.fillStyle = textC; ctx.font='10px "JetBrains Mono", monospace';
+      ctx.fillText((it.ft%1===0?it.ft:it.ft.toFixed(1))+it.unit, pad.l+90+barMaxW*ftFrac*grow+4, barY+11);
+      ctx.fillStyle = redMid; ctx.fillRect(pad.l+90, barY+barH*0.5, barMaxW*scFrac*grow, barH*0.42);
+      ctx.fillText((it.sc%1===0?it.sc:it.sc.toFixed(1))+it.unit, pad.l+90+barMaxW*scFrac*grow+4, barY+barH*0.5+11);
+    });
+    ctx.fillStyle = greenMid; ctx.font='600 10px "DM Sans", system-ui'; ctx.fillText('■ fine-tuned', pad.l, H-18);
+    ctx.fillStyle = redMid; ctx.fillText('■ from scratch', pad.l+90, H-18);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+// ── CONTINUOUS ANIMATION LOOP (keeps the current step's scene alive) ──
+function animLoop() {
+  drawCanvas(steps[step].canvasMode);
+  if (steps[step].canvasMode === 'pretrain_loss' || steps[step].canvasMode === 'lr_warmup') {
+    renderStats(steps[step].canvasMode); // refresh live numeric readouts tied to the moving marker
+  }
+  requestAnimationFrame(animLoop);
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+initDots();
+render();
+requestAnimationFrame(animLoop);
+window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+</script>
+</body>
+</html>
