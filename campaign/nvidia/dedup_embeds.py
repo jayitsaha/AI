@@ -4,29 +4,36 @@ add-branch only inspected the first 100 blocks. Paginate ALL blocks, keep exactl
 correct (/PersonalSkillUp/) explainer embed per page, delete the rest.
   python3 dedup_embeds.py [START] [END]   env: SLEEP (default 0.34)
 """
-import json,os,sys,ssl,time,urllib.request,urllib.error
+import json,os,sys,time,subprocess
+# macOS system Python's ssl is LibreSSL 2.8.3, on which urllib/requests read-timeouts
+# don't fire and hang on certain Notion responses. curl (own TLS) is the only reliable path.
 AI=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TOK=os.environ["NOTION_API_TOKEN"]; ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+TOK=os.environ["NOTION_API_TOKEN"]
 ids=json.load(open(os.path.join(AI,"topic_page_ids.json"))); topics=list(ids.keys())
 WRONG="https://jayitsaha.github.io/AI/explainers/"
 BASE ="https://jayitsaha.github.io/PersonalSkillUp/AI/explainers/"
 START=int(sys.argv[1]) if len(sys.argv)>1 else 0
 END  =int(sys.argv[2]) if len(sys.argv)>2 else len(topics)
 SLEEP=float(os.environ.get("SLEEP","0.34"))
-H={"Authorization":f"Bearer {TOK}","Notion-Version":"2022-06-28","Content-Type":"application/json"}
+HDR=["-H",f"Authorization: Bearer {TOK}","-H","Notion-Version: 2022-06-28","-H","Content-Type: application/json"]
 
 def api(method,url,body=None):
     for k in range(6):
+        cmd=["curl","-s","--max-time","25","-X",method,*HDR,"-w","\n%{http_code}"]
+        if body is not None: cmd+=["-d",json.dumps(body)]
+        cmd.append(url)
         try:
-            data=json.dumps(body).encode() if body is not None else None
-            req=urllib.request.Request(url,data=data,method=method,headers=H)
-            return json.loads(urllib.request.urlopen(req,timeout=40,context=ctx).read())
-        except urllib.error.HTTPError as e:
-            if e.code in(429,409,502,503,504) and k<5: time.sleep(2*(k+1)); continue
+            out=subprocess.run(cmd,capture_output=True,text=True,timeout=30).stdout
+        except subprocess.TimeoutExpired:
+            if k<5: time.sleep(1.0); continue
             raise
-        except Exception:
-            if k<5: time.sleep(1.5); continue
-            raise
+        nl=out.rfind("\n"); code=out[nl+1:].strip(); payload=out[:nl]
+        if code in("429","409","502","503","504") and k<5: time.sleep(min(6,1.2*(k+1))); continue
+        if not code.startswith("2"):
+            if k<5: time.sleep(1.0); continue
+            raise RuntimeError(f"HTTP {code}: {payload[:120]}")
+        return json.loads(payload) if payload.strip() else {}
+    raise RuntimeError("retries exhausted")
 
 def all_kids(pid):
     out=[]; cur=None
@@ -66,6 +73,6 @@ for i in range(START,END):
             except Exception: err+=1
         pages_hit+=1
     except Exception: err+=1
-    if (i-START)%25==0: print(f"[{i}] pages_with_dupes={pages_hit} deleted={deduped} urlfixed={urlfixed} clean={clean} err={err}",flush=True)
+    if (i-START)%10==0: print(f"[{i}] pages_with_dupes={pages_hit} deleted={deduped} urlfixed={urlfixed} clean={clean} err={err}",flush=True)
     time.sleep(SLEEP)
 print(f"DONE {START}-{END}: pages_with_dupes={pages_hit} embeds_deleted={deduped} urlfixed={urlfixed} clean_single={clean} err={err}",flush=True)
