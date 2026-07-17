@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Importance: Permutation, Drop-Column, SHAP — Interactive Explainer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ]
+  });"></script>
+<style>
+:root{
+  --bg:#f9f8f5; --bg2:#f0efe9; --surface:#fff;
+  --border:rgba(0,0,0,.12); --border2:rgba(0,0,0,.22);
+  --text:#1a1a18; --text2:#6b6b65; --text3:#9c9a92;
+  --mono:'JetBrains Mono','Fira Code',monospace; --sans:'DM Sans',system-ui,sans-serif;
+  --blue-bg:#E6F1FB;--blue-border:#85B7EB;--blue-text:#042C53;--blue-mid:#185FA5;
+  --green-bg:#EAF3DE;--green-border:#97C459;--green-text:#173404;--green-mid:#3B6D11;
+  --amber-bg:#FAEEDA;--amber-border:#EF9F27;--amber-text:#412402;--amber-mid:#854F0B;
+  --red-bg:#FCEBEB;--red-border:#F09595;--red-text:#501313;--red-mid:#A32D2D;
+  --purple-bg:#EEEDFE;--purple-border:#AFA9EC;--purple-text:#26215C;--purple-mid:#534AB7;
+  --cyan-bg:#E0F7FA;--cyan-border:#4DD0E1;--cyan-text:#006064;--cyan-mid:#00ACC1;
+  --radius:10px;--radius-lg:14px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#18181a;--bg2:#222224;--surface:#2a2a2d;
+  --border:rgba(255,255,255,.1);--border2:rgba(255,255,255,.2);
+  --text:#e8e6de;--text2:#9c9a92;--text3:#666460;
+  --blue-bg:#0c2a45;--blue-border:#378ADD;--blue-text:#B5D4F4;--blue-mid:#85B7EB;
+  --green-bg:#172a0a;--green-border:#639922;--green-text:#C0DD97;--green-mid:#97C459;
+  --amber-bg:#2e1c05;--amber-border:#BA7517;--amber-text:#FAC775;--amber-mid:#EF9F27;
+  --red-bg:#3a0a0a;--red-border:#E24B4A;--red-text:#F7C1C1;--red-mid:#A32D2D;
+  --purple-bg:#1e1a45;--purple-border:#7F77DD;--purple-text:#CECBF6;--purple-mid:#AFA9EC;
+  --cyan-bg:#004D54;--cyan-border:#26C6DA;--cyan-text:#B2EBF2;--cyan-mid:#4DD0E1;
+}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.65;padding:1.5rem;max-width:960px;margin:0 auto;}
+
+/* Header */
+.header{margin-bottom:2rem;}
+.header h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px;}
+.header .subtitle{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;}
+.tag-foundational{background:var(--green-bg);color:var(--green-mid);}
+.tag-intermediate{background:var(--amber-bg);color:var(--amber-mid);}
+.tag-category{background:var(--blue-bg);color:var(--blue-mid);}
+.tag-complexity{background:var(--cyan-bg);color:var(--cyan-mid);}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1rem;}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:1rem;cursor:pointer;user-select:none;}
+.section-number{width:28px;height:28px;background:var(--blue-bg);color:var(--blue-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.section-title{font-size:18px;font-weight:700;color:var(--text);}
+.section-toggle{margin-left:auto;color:var(--text3);font-size:18px;transition:transform 0.3s;}
+.section-toggle.open{transform:rotate(180deg);}
+.section-body{overflow:hidden;transition:max-height 0.4s ease;}
+.section-body.collapsed{max-height:0 !important;padding-top:0;padding-bottom:0;}
+.section-body p{margin-bottom:0.75rem;font-size:14px;color:var(--text);}
+.section-body h4{font-size:14px;font-weight:700;margin:1rem 0 0.5rem;color:var(--text);}
+.section-body ul{font-size:14px;padding-left:1.5rem;margin-bottom:1rem;}
+.section-body li{margin-bottom:4px;}
+
+/* Concept boxes */
+.concept-box{border-radius:var(--radius);padding:1rem 1.25rem;margin:1rem 0;}
+.concept-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
+.concept-box.insight{background:var(--green-bg);border:1px solid var(--green-border);}
+.concept-box.insight .concept-box-title{color:var(--green-mid);}
+.concept-box.warning{background:var(--amber-bg);border:1px solid var(--amber-border);}
+.concept-box.warning .concept-box-title{color:var(--amber-mid);}
+.concept-box.key-concept{background:var(--blue-bg);border:1px solid var(--blue-border);}
+.concept-box.key-concept .concept-box-title{color:var(--blue-mid);}
+.concept-box.math{background:var(--cyan-bg);border:1px solid var(--cyan-border);}
+.concept-box.math .concept-box-title{color:var(--cyan-mid);}
+
+/* Visualization area */
+.viz-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;margin:1rem 0;}
+.viz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;margin-bottom:1rem;}
+.viz-canvas-wrap canvas{width:100%;height:100%;border-radius:var(--radius);background:var(--bg2);}
+
+/* Slider panel */
+.slider-panel{display:flex;flex-direction:column;gap:10px;background:var(--bg2);padding:14px 18px;border-radius:var(--radius);margin-bottom:1rem;}
+.slider-group{display:flex;align-items:center;gap:12px;}
+.slider-label{font-size:13px;font-weight:600;min-width:150px;}
+.slider-value{font-family:var(--mono);font-size:14px;font-weight:600;min-width:50px;color:var(--purple-mid);}
+input[type="range"]{appearance:none;-webkit-appearance:none;flex:1;height:6px;border-radius:3px;background:var(--border2);outline:none;}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;}
+input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--purple-mid);cursor:pointer;border:none;}
+.slider-hint{font-size:11px;color:var(--text3);}
+
+/* Info card */
+.info-card{background:var(--bg2);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1rem;min-height:80px;}
+.info-phase{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:20px;margin-bottom:6px;}
+.info-phase.phase-setup{background:var(--blue-bg);color:var(--blue-mid);}
+.info-phase.phase-permutation{background:var(--amber-bg);color:var(--amber-mid);}
+.info-phase.phase-dropcolumn{background:var(--red-bg);color:var(--red-mid);}
+.info-phase.phase-shap{background:var(--purple-bg);color:var(--purple-mid);}
+.info-phase.phase-summary{background:var(--green-bg);color:var(--green-mid);}
+.info-step{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.info-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.info-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.info-numbers{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-line;}
+
+/* Controls */
+.controls{display:flex;justify-content:center;gap:10px;margin-top:1rem;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 20px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all 0.2s;}
+.btn:hover{background:var(--bg2);border-color:var(--purple-border);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple-mid);}
+.btn-primary:hover{background:var(--purple-border);color:white;}
+.progress-wrap{display:flex;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border2);transition:all 0.25s;cursor:pointer;}
+.dot:hover{transform:scale(1.2);}
+.dot.active{background:var(--purple-mid);transform:scale(1.3);}
+.dot.done{background:var(--green-mid);}
+.kbd-hint{text-align:center;margin-top:0.75rem;font-size:11px;color:var(--text3);}
+
+/* Code panel */
+.code-panel{margin-top:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.8;overflow-x:auto;}
+.code-line{padding:1px 6px;border-radius:4px;transition:background 0.25s;white-space:pre;color:var(--text2);}
+.code-line.active{background:var(--green-bg);color:var(--green-text);font-weight:500;}
+
+/* Legend */
+.legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1rem;font-size:11px;color:var(--text2);}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-swatch{width:12px;height:12px;border-radius:3px;}
+
+/* Equation */
+.eq{text-align:center;padding:14px 20px;background:var(--cyan-bg);border:1px solid var(--cyan-border);border-radius:var(--radius);margin:0.75rem 0;color:var(--cyan-text);overflow-x:auto;}
+
+@media(max-width:640px){
+  body{padding:1rem;}
+  .header h1{font-size:22px;}
+  .slider-label{min-width:110px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Feature Importance: Permutation, Drop-Column, SHAP</h1>
+  <div class="subtitle">Understanding which features drive model predictions, and how different methods reveal different insights</div>
+  <div class="tags">
+    <span class="tag tag-intermediate">Intermediate</span>
+    <span class="tag tag-category">Explainable AI</span>
+    <span class="tag tag-category">Model Interpretability</span>
+    <span class="tag tag-complexity">O(F*N*M) to O(F*2^F*M)</span>
+  </div>
+</div>
+
+<!-- CARD 1: Understanding -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">1</div>
+    <div class="section-title">Understanding Feature Importance</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p><strong>What is it?</strong> Feature importance quantifies how much each input feature contributes to a model's predictions. It's crucial for understanding model behavior, debugging, feature selection, and gaining trust from stakeholders. Different methods exist, each with its own assumptions and interpretations.</p>
+    <p><strong>Analogy:</strong> Imagine a doctor diagnosing a patient based on several symptoms (fever, cough, rash, fatigue). If the doctor says "fever is the most important symptom," what does that mean? Does it mean if the fever were absent, the diagnosis would change a lot? Or that if we randomly swapped fever values between patients, the diagnosis would break? Or that fever, in combination with other symptoms, adds the most unique diagnostic power? Each interpretation points to a different importance metric.</p>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 If you remember one thing</div>
+      <p style="font-size:14px;margin:0;">No single "true" feature importance exists. Permutation importance measures how much model performance drops when a feature's signal is randomized. Drop-column importance measures how much performance drops when a feature is entirely absent (requiring retraining). SHAP values measure a feature's average marginal contribution to an individual prediction across all possible feature combinations.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 2: How It Works Internally -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">2</div>
+    <div class="section-title">How Each Method Works</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>1. Permutation Importance (Model-agnostic, Post-hoc)</h4>
+    <p>This method (Breiman, 2001; Fisher et al., 2018) measures the increase in prediction error when a single feature's values are randomly shuffled. Shuffling breaks the relationship between that feature and the target, while keeping the distribution of the feature itself intact. If the model relies heavily on that feature, shuffling it will significantly degrade performance.</p>
+    <ul>
+      <li><strong>Steps:</strong>
+        <ol>
+          <li>Train a model and record its baseline performance (e.g., R² or accuracy) on a validation set.</li>
+          <li>For each feature:
+            <ol>
+              <li>Randomly shuffle the values of that single feature across the validation set.</li>
+              <li>Re-evaluate the model's performance on this modified dataset.</li>
+              <li>The importance is the difference (or ratio) between the new performance and the baseline.</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+      <li><strong>Pros:</strong> Model-agnostic, easy to implement, intuitive.
+      <li><strong>Cons:</strong> Can overstate importance for correlated features (as shuffling one also breaks the signal of its correlated partners). Computationally intensive if many features or large dataset.</li>
+    </ul>
+
+    <h4>2. Drop-Column Importance (Model-specific, Pre-hoc)</h4>
+    <p>This method assesses importance by retraining the model after removing one feature at a time. It directly answers: "How much does this feature contribute to the model's predictive power if we couldn't use it at all?"</p>
+    <ul>
+      <li><strong>Steps:</strong>
+        <ol>
+          <li>Train the full model and record its baseline performance.</li>
+          <li>For each feature:
+            <ol>
+              <li>Remove that feature from the training data.</li>
+              <li>Retrain a new model on the reduced dataset.</li>
+              <li>Evaluate the new model's performance.</li>
+              <li>The importance is the difference (or ratio) between the new performance and the baseline.</li>
+            </ol>
+          </li>
+        </ol>
+      </li>
+      <li><strong>Pros:</strong> Directly measures the value of a feature in a new, reduced model.
+      <li><strong>Cons:</strong> Extremely computationally expensive (requires retraining the model \(F\) times for \(F\) features). Can be misleading for correlated features (if a strong correlated feature remains, the drop might be small).</li>
+    </ul>
+
+    <h4>3. SHAP (SHapley Additive exPlanations) Values (Local & Global)</h4>
+    <p>SHAP (Lundberg & Lee, 2017) connects optimal credit allocation from game theory (Shapley values) with local explanations. For an individual prediction, SHAP values tell us how to fairly distribute the "credit" for the prediction among the input features. Each SHAP value is a feature's contribution to the prediction, pushing it from the baseline (average) prediction to the actual prediction for that instance.</p>
+    <ul>
+      <li><strong>Steps (conceptual for local explanation):</strong>
+        <ol>
+          <li>For a given prediction, SHAP calculates the marginal contribution of each feature value across all possible combinations of features.</li>
+          <li>The SHAP value for a feature is its average marginal contribution.</li>
+          <li>For global importance, average the absolute SHAP values across many predictions.</li>
+        </ol>
+      </li>
+      <li><strong>Pros:</strong> Provides local (per-prediction) explanations, theoretically well-founded (satisfies desirable properties like consistency, efficiency), handles correlated features better than permutation importance.
+      <li><strong>Cons:</strong> Computationally very expensive for exact calculation (exponential in features); approximations (KernelSHAP, TreeSHAP) are used in practice. Interpretation can be complex.</li>
+    </ul>
+    <div class="concept-box key-concept">
+      <div class="concept-box-title">🔑 Key Property</div>
+      <p style="font-size:14px;margin:0;">SHAP values are <strong>additive</strong>: the sum of the SHAP values for all features equals the difference between the model's output for that instance and the expected (baseline) output. This allows for a "force plot" visualization showing how features push the prediction up or down from the average.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 3: The Math / Why It Works -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">3</div>
+    <div class="section-title">Why It Works — The Math</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <h4>Permutation Importance Formula</h4>
+    <p>Let \(L(y, \hat{y})\) be a loss function (e.g., MSE or 1-Accuracy). Let \(M\) be the trained model, \(D\) be the validation dataset, and \(P_0 = L(y_D, M(D))\) be the baseline performance. For a feature \(j\), let \(D_{j}^{\text{shuffled}}\) be the dataset \(D\) with feature \(j\) column permuted. The permutation importance \(PI_j\) is:</p>
+    <div class="eq">$$PI_j = L(y_D, M(D_{j}^{\text{shuffled}})) - P_0$$</div>
+    <p>A larger positive value of \(PI_j\) indicates greater importance, as it means shuffling feature \(j\) significantly increased the loss (degraded performance). This is robust because it doesn't require retraining and evaluates the feature's role within the *already trained* model context.</p>
+
+    <h4>Drop-Column Importance Formula</h4>
+    <p>Let \(M\) be the full model trained on all features \(X\), and \(P_0 = L(y, M(X))\) be its baseline performance. For a feature \(j\), let \(X_{-j}\) denote the feature set \(X\) with feature \(j\) removed. Let \(M_{-j}\) be a new model trained on \(X_{-j}\). The drop-column importance \(DCI_j\) is:</p>
+    <div class="eq">$$DCI_j = L(y, M_{-j}(X_{-j})) - P_0$$</div>
+    <p>Similar to permutation importance, a higher \(DCI_j\) indicates a more important feature. The key difference is that \(M_{-j}\) is a *new model* that has adapted to the absence of feature \(j\), while permutation importance uses the *original model* with a corrupted feature.</p>
+
+    <h4>SHAP Values (Shapley Values)</h4>
+    <p>For a prediction \(f(x)\) for a specific instance \(x\), the SHAP value \(\phi_j(x)\) for feature \(j\) is its contribution to the prediction, derived from cooperative game theory. It's defined as:</p>
+    <div class="eq">$$\phi_j(x) = \sum_{S \subseteq F \setminus \{j\}} \frac{|S|!(|F| - |S| - 1)!}{|F|!} [f_S(x_S \cup \{x_j\}) - f_S(x_S)]$$</div>
+    <p>where \(F\) is the set of all features, \(S\) is a subset of features excluding \(j\), \(f_S(x_S)\) is the model's prediction using only features in \(S\), and \(f_S(x_S \cup \{x_j\})\) is the prediction using features in \(S\) plus feature \(j\). This formula calculates the average marginal contribution of feature \(j\) across all possible coalitions \(S\). The key additive property is:</p>
+    <div class="eq">$$f(x) = E[f(X)] + \sum_{j=1}^{|F|} \phi_j(x)$$</div>
+    <p>where \(E[f(X)]\) is the average model output (baseline prediction). This means SHAP values sum up to the difference between the actual prediction and the average prediction.</p>
+    <div class="concept-box warning">
+      <div class="concept-box-title">⚠️ Common Pitfall</div>
+      <p style="font-size:14px;margin:0;">For highly correlated features, permutation importance can be misleading. If features A and B are perfectly correlated and both important, shuffling A breaks the signal for both. The model then performs poorly, and A gets high importance. But if B is still present, shuffling A might not be as impactful as if B were also absent. SHAP values are designed to mitigate this by considering feature contributions in all possible contexts (coalitions).</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 4: Interactive Visualization -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">4</div>
+    <div class="section-title">Interactive Walkthrough</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;">We'll use a simple linear regression model predicting a target from three features: `Size`, `Bedrooms`, and `Location_Score`. Adjust the correlation between `Size` and `Bedrooms` to see its effect on importance metrics.</p>
+
+    <div class="viz-container">
+      <div class="slider-panel" id="correlationSliderPanel">
+        <div class="slider-group">
+          <div class="slider-label">Correlation between Size & Bedrooms</div>
+          <input type="range" id="correlationSlider" min="0" max="0.95" step="0.05" value="0.7">
+          <div class="slider-value" id="correlationValue">0.70</div>
+        </div>
+        <div class="slider-hint" id="sliderHint">Higher correlation might make individual feature importance harder to discern.</div>
+      </div>
+
+      <div class="viz-canvas-wrap">
+        <canvas id="vizCanvas"></canvas>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card" id="infoCard">
+        <span class="info-phase phase-setup" id="infoPhase">SETUP</span>
+        <div class="info-step" id="infoStep">Step 1 of 10</div>
+        <div class="info-title" id="infoTitle">Initial Setup: Data & Model</div>
+        <div class="info-desc" id="infoDesc">Generating a synthetic dataset with 3 features and a target. A linear regression model is trained on this data.</div>
+        <div class="info-numbers" id="infoNumbers"></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="btnPrev" onclick="go(-1)" disabled>← Prev</button>
+        <button class="btn btn-primary" id="btnNext" onclick="go(1)">Next →</button>
+        <button class="btn" onclick="reset()">Reset</button>
+      </div>
+      <div class="progress-wrap" id="progressDots"></div>
+      <div class="kbd-hint">Use ← → arrow keys to navigate (R to reset)</div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-mid)"></div> Baseline feature</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--amber-mid)"></div> Permuted feature</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--red-mid)"></div> Dropped feature</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--green-mid)"></div> Positive SHAP contribution</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--purple-mid)"></div> Negative SHAP contribution</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 5: Key Takeaways -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">5</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="section-toggle open">▼</div>
+  </div>
+  <div class="section-body">
+    <table class="cmp">
+      <tr><th>Method</th><th>Interpretation</th><th>Pros</th><th>Cons</th></tr>
+      <tr><td><strong>Permutation Importance</strong></td><td>"How much does model performance drop if I randomly shuffle this feature?"</td><td>Model-agnostic, easy to implement, intuitive.</td><td>Can overstate importance for correlated features.</td></tr>
+      <tr><td><strong>Drop-Column Importance</strong></td><td>"How much does model performance drop if I retrain without this feature?"</td><td>Directly measures feature value in a reduced model.</td><td>Very computationally expensive (retrain \(F\) times).</td></tr>
+      <tr><td><strong>SHAP Values</strong></td><td>"How much does this feature contribute to this specific prediction, relative to the average prediction?" (local) / "Average absolute contribution across all predictions" (global)</td><td>Theoretically sound, additive, provides local explanations, handles correlation better.</td><td>Computationally expensive (approximations used).</td></tr>
+    </table>
+    <p><strong>When to use which:</strong></p>
+    <ul>
+      <li><strong>Permutation Importance:</strong> A good default for a quick, model-agnostic understanding of feature impact on a *trained* model. Useful for feature selection if you're not planning to retrain.</li>
+      <li><strong>Drop-Column Importance:</strong> Best when you need to understand the inherent value of a feature *if it were truly unavailable* for model training. Rarely used due to high computational cost, but provides a different perspective from permutation.</li>
+      <li><strong>SHAP Values:</strong> For deep insights, especially for individual predictions (e.g., explaining why a loan was denied). Aggregated SHAP provides robust global importance. The go-to for rigorous interpretability.</li>
+    </ul>
+    <p><strong>General considerations:</strong></p>
+    <ul>
+      <li><strong>Correlated Features:</strong> All methods struggle to some extent with highly correlated features. Permutation importance tends to split importance among correlated features or assign low importance to redundant ones. SHAP tries to fairly distribute credit.</li>
+      <li><strong>Model Complexity:</strong> For simple linear models, feature coefficients already give a sense of importance. For complex models (ensembles, deep learning), these methods become indispensable.</li>
+    </ul>
+    <div class="concept-box insight">
+      <div class="concept-box-title">💡 The Interplay</div>
+      <p style="font-size:14px;margin:0;">Permutation importance measures how critical a feature is to the *current model's* predictive process. Drop-column measures its value for *building a new model*. SHAP measures its *causal contribution* to each prediction. Using a combination of these methods often yields the most comprehensive understanding.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CARD 6: Code Trace -->
+<div class="card">
+  <div class="section-header" onclick="toggleSection(this)">
+    <div class="section-number">6</div>
+    <div class="section-title">Code Trace (Python Scikit-learn & SHAP)</div>
+    <div class="section-toggle">▼</div>
+  </div>
+  <div class="section-body collapsed" style="max-height:0;">
+    <div class="code-panel" id="codePanel">
+      <div class="code-line" id="cl0">import numpy as np</div>
+      <div class="code-line" id="cl1">import pandas as pd</div>
+      <div class="code-line" id="cl2">from sklearn.linear_model import LinearRegression</div>
+      <div class="code-line" id="cl3">from sklearn.model_selection import train_test_split</div>
+      <div class="code-line" id="cl4">from sklearn.metrics import mean_squared_error</div>
+      <div class="code-line" id="cl5">from sklearn.inspection import permutation_importance</div>
+      <div class="code-line" id="cl6">import shap</div>
+      <div class="code-line" id="cl7"></div>
+      <div class="code-line" id="cl8"># 1. Generate synthetic data</div>
+      <div class="code-line" id="cl9">np.random.seed(42)</div>
+      <div class="code-line" id="cl10">n_samples = 100</div>
+      <div class="code-line" id="cl11">X = pd.DataFrame({</div>
+      <div class="code-line" id="cl12">    'Size': np.random.rand(n_samples) * 100 + 1000,</div>
+      <div class="code-line" id="cl13">    'Bedrooms': np.random.randint(1, 5, n_samples),</div>
+      <div class="code-line" id="cl14">    'Location_Score': np.random.rand(n_samples) * 10</div>
+      <div class="code-line" id="cl15">})</div>
+      <div class="code-line" id="cl16"># Introduce correlation between Size and Bedrooms</div>
+      <div class="code-line" id="cl17">X['Bedrooms'] = X['Bedrooms'] + X['Size']/500 * 2 # make correlated</div>
+      <div class="code-line" id="cl18">y = 0.05 * X['Size'] + 10 * X['Bedrooms'] + 5 * X['Location_Score'] + np.random.randn(n_samples) * 50</div>
+      <div class="code-line" id="cl19"></div>
+      <div class="code-line" id="cl20">X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)</div>
+      <div class="code-line" id="cl21"></div>
+      <div class="code-line" id="cl22"># 2. Train model</div>
+      <div class="code-line" id="cl23">model = LinearRegression().fit(X_train, y_train)</div>
+      <div class="code-line" id="cl24">baseline_mse = mean_squared_error(y_val, model.predict(X_val))</div>
+      <div class="code-line" id="cl25"></div>
+      <div class="code-line" id="cl26"># 3. Permutation Importance</div>
+      <div class="code-line" id="cl27">perm_imp = permutation_importance(model, X_val, y_val, n_repeats=10, random_state=42, scoring='neg_mean_squared_error')</div>
+      <div class="code-line" id="cl28">perm_importance_values = -perm_imp.importances_mean / baseline_mse # relative increase in MSE</div>
+      <div class="code-line" id="cl29">print("Permutation Importance:", dict(zip(X.columns, perm_importance_values)))</div>
+      <div class="code-line" id="cl30"></div>
+      <div class="code-line" id="cl31"># 4. Drop-Column Importance (conceptual, requires retraining)</div>
+      <div class="code-line" id="cl32">drop_importance_values = {}</div>
+      <div class="code-line" id="cl33">for col in X.columns:</div>
+      <div class="code-line" id="cl34">    X_train_dropped = X_train.drop(columns=[col])</div>
+      <div class="code-line" id="cl35">    X_val_dropped = X_val.drop(columns=[col])</div>
+      <div class="code-line" id="cl36">    model_dropped = LinearRegression().fit(X_train_dropped, y_train)</div>
+      <div class="code-line" id="cl37">    mse_dropped = mean_squared_error(y_val, model_dropped.predict(X_val_dropped))</div>
+      <div class="code-line" id="cl38">    drop_importance_values[col] = (mse_dropped - baseline_mse) / baseline_mse</div>
+      <div class="code-line" id="cl39">print("Drop-Column Importance:", drop_importance_values)</div>
+      <div class="code-line" id="cl40"></div>
+      <div class="code-line" id="cl41"># 5. SHAP Values (for a single prediction)</div>
+      <div class="code-line" id="cl42">explainer = shap.Explainer(model, X_train)</div>
+      <div class="code-line" id="cl43">shap_values = explainer(X_val.iloc[[0]]) # explain first validation sample</div>
+      <div class="code-line" id="cl44">print("SHAP values for first validation sample:", dict(zip(X.columns, shap_values.values[0])))</div>
+      <div class="code-line" id="cl45">print("Expected value (baseline):", explainer.expected_value)</div>
+      <div class="code-line" id="cl46">print("Sum of SHAP values + Expected Value:", np.sum(shap_values.values[0]) + explainer.expected_value)</div>
+      <div class="code-line" id="cl47">print("Actual prediction:", model.predict(X_val.iloc[[0]]))</div>
+      <div class="code-line" id="cl48"></div>
+      <div class="code-line" id="cl49"># Global SHAP importance (mean absolute SHAP)</div>
+      <div class="code-line" id="cl50">global_shap_values = explainer(X_val)</div>
+      <div class="code-line" id="cl51">global_shap_importance = np.abs(global_shap_values.values).mean(0)</div>
+      <div class="code-line" id="cl52">print("Global SHAP Importance:", dict(zip(X.columns, global_shap_importance)))</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SECTION TOGGLE ──
+function toggleSection(el) {
+  const body = el.nextElementSibling;
+  const toggle = el.querySelector('.section-toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}
+
+// ── SEEDED RNG ──
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let currentRNG = mulberry32(42);
+function rand() { return currentRNG(); }
+function randGaussian() {
+  let u = 0, v = 0;
+  while(u === 0) u = rand();
+  while(v === 0) v = rand();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+function shuffleArray(array, rng) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// ── LINEAR REGRESSION MODEL ──
+class LinearRegressionModel {
+  constructor() {
+    this.weights = [];
+    this.bias = 0;
+  }
+
+  fit(X, y) {
+    const n = X.length;
+    const d = X[0].length;
+
+    // Add bias term to X (prepend a column of 1s)
+    const X_b = X.map(row => [1, ...row]); // [1, x1, x2, x3]
+
+    // Convert to matrix for pseudo-inverse (X^T X)^-1 X^T y
+    const X_matrix = math.matrix(X_b);
+    const y_matrix = math.reshape(math.matrix(y), [n, 1]);
+
+    const XT = math.transpose(X_matrix);
+    const XT_X = math.multiply(XT, X_matrix);
+    const XT_X_inv = math.inv(XT_X);
+    const XT_X_inv_XT = math.multiply(XT_X_inv, XT);
+    const beta = math.multiply(XT_X_inv_XT, y_matrix);
+
+    this.bias = beta.get([0, 0]);
+    this.weights = beta.toArray().slice(1).map(arr => arr[0]); // [w1, w2, w3]
+  }
+
+  predict(X) {
+    return X.map(row => {
+      let prediction = this.bias;
+      for (let i = 0; i < row.length; i++) {
+        prediction += row[i] * this.weights[i];
+      }
+      return prediction;
+    });
+  }
+}
+
+// ── METRICS ──
+function meanSquaredError(y_true, y_pred) {
+  let sum_sq_err = 0;
+  for (let i = 0; i < y_true.length; i++) {
+    sum_sq_err += Math.pow(y_true[i] - y_pred[i], 2);
+  }
+  return sum_sq_err / y_true.length;
+}
+
+// ── DATA GENERATION ──
+const N_SAMPLES = 100;
+const FEATURE_NAMES = ['Size', 'Bedrooms', 'Location_Score'];
+let globalCorrelation = 0.7; // Initial value
+
+function generateData(correlation, seed = 42) {
+  currentRNG = mulberry32(seed); // Reset RNG for consistent data
+  const X_data = [];
+  const y_data = [];
+
+  for (let i = 0; i < N_SAMPLES; i++) {
+    const size = rand() * 100 + 1000; // ~1000-1100
+    let bedrooms_base = randGaussian() * 0.5 + 2.5; // ~2-3 bedrooms
+    const location_score = rand() * 10; // ~0-10
+
+    // Introduce correlation between Size and Bedrooms
+    const bedrooms = bedrooms_base + correlation * (size - 1050) / 100 * 2; // Adjust bedrooms based on size
+    const bedrooms_clamped = Math.max(1, Math.min(5, Math.round(bedrooms)));
+
+    X_data.push([size, bedrooms_clamped, location_score]);
+    
+    // True relationship for y
+    const y_val = 0.05 * size + 10 * bedrooms_clamped + 5 * location_score + randGaussian() * 50;
+    y_data.push(y_val);
+  }
+  return { X: X_data, y: y_data };
+}
+
+// ── GLOBAL STATE FOR VIZ ──
+let currentData = {};
+let trainedModel = null;
+let baselineMSE = 0;
+let permutationImportances = [];
+let dropColumnImportances = [];
+let shapValuesInstance = null;
+let shapExpectedValue = 0;
+let globalShapImportances = [];
+
+function setupSimulation(correlation) {
+  currentData = generateData(correlation);
+
+  // Train a new model
+  trainedModel = new LinearRegressionModel();
+  trainedModel.fit(currentData.X, currentData.y);
+
+  // Calculate baseline MSE
+  const y_pred_baseline = trainedModel.predict(currentData.X);
+  baselineMSE = meanSquaredError(currentData.y, y_pred_baseline);
+
+  // Calculate Permutation Importance
+  permutationImportances = [];
+  for (let i = 0; i < FEATURE_NAMES.length; i++) {
+    const X_shuffled = currentData.X.map(row => [...row]); // Deep copy
+    const col_values = X_shuffled.map(row => row[i]);
+    const shuffled_col_values = shuffleArray(col_values, mulberry32(42 + i)); // Consistent shuffle seed
+    for (let j = 0; j < N_SAMPLES; j++) {
+      X_shuffled[j][i] = shuffled_col_values[j];
+    }
+    const y_pred_shuffled = trainedModel.predict(X_shuffled);
+    const mse_shuffled = meanSquaredError(currentData.y, y_pred_shuffled);
+    permutationImportances.push((mse_shuffled - baselineMSE) / baselineMSE);
+  }
+
+  // Calculate Drop-Column Importance (conceptual, re-training is simulated)
+  dropColumnImportances = [];
+  for (let i = 0; i < FEATURE_NAMES.length; i++) {
+    const X_dropped = currentData.X.map(row => row.filter((_, idx) => idx !== i));
+    const model_dropped = new LinearRegressionModel();
+    model_dropped.fit(X_dropped, currentData.y);
+    const y_pred_dropped = model_dropped.predict(X_dropped);
+    const mse_dropped = meanSquaredError(currentData.y, y_pred_dropped);
+    dropColumnImportances.push((mse_dropped - baselineMSE) / baselineMSE);
+  }
+
+  // Calculate SHAP Values (simplified for visualization)
+  // For a linear model, SHAP values are very straightforward: (feature_value - feature_mean) * weight
+  // The expected value is the mean prediction.
+  const featureMeans = Array(FEATURE_NAMES.length).fill(0);
+  for (let i = 0; i < N_SAMPLES; i++) {
+    for (let j = 0; j < FEATURE_NAMES.length; j++) {
+      featureMeans[j] += currentData.X[i][j];
+    }
+  }
+  for (let j = 0; j < FEATURE_NAMES.length; j++) {
+    featureMeans[j] /= N_SAMPLES;
+  }
+
+  shapExpectedValue = trainedModel.predict(currentData.X.map(row => featureMeans)).reduce((a,b)=>a+b,0) / N_SAMPLES;
+  // Pick a specific instance for local SHAP explanation (e.g., the first one)
+  const instance_idx = 0;
+  const instance_X = currentData.X[instance_idx];
+  const instance_y_pred = trainedModel.predict([instance_X])[0];
+
+  shapValuesInstance = [];
+  for (let i = 0; i < FEATURE_NAMES.length; i++) {
+    const contribution = (instance_X[i] - featureMeans[i]) * trainedModel.weights[i];
+    shapValuesInstance.push(contribution);
+  }
+
+  // For global SHAP, average absolute SHAP values across all samples
+  globalShapImportances = Array(FEATURE_NAMES.length).fill(0);
+  for (let i = 0; i < N_SAMPLES; i++) {
+    const current_instance_X = currentData.X[i];
+    for (let j = 0; j < FEATURE_NAMES.length; j++) {
+      const contribution = (current_instance_X[j] - featureMeans[j]) * trainedModel.weights[j];
+      globalShapImportances[j] += Math.abs(contribution);
+    }
+  }
+  for (let j = 0; j < FEATURE_NAMES.length; j++) {
+    globalShapImportances[j] /= N_SAMPLES;
+  }
+}
+
+// ── STEP DEFINITIONS ──
+const steps = [
+  {
+    phase: 'setup', title: 'Initial Setup: Data & Model',
+    desc: `We're using a synthetic dataset with ${N_SAMPLES} samples and ${FEATURE_NAMES.length} features: <b>${FEATURE_NAMES.join(', ')}</b>. A simple linear regression model has been trained. The goal is to understand how each feature contributes to its predictions.`,
+    codeLines: [8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
+    canvasMode: 'data_model'
+  },
+  {
+    phase: 'setup', title: 'Baseline Model Performance',
+    desc: `First, we evaluate the trained model on the original (unmodified) validation data. This gives us a <b>baseline Mean Squared Error (MSE)</b>. All importance calculations will compare performance against this baseline.`,
+    codeLines: [24],
+    canvasMode: 'baseline_performance'
+  },
+  {
+    phase: 'permutation', title: 'Permutation Importance: Shuffling "Size"',
+    desc: `To find the importance of 'Size', we randomly shuffle its values across the dataset. The model then makes predictions using this corrupted 'Size' feature. If 'Size' is important, performance should drop significantly.`,
+    codeLines: [26,27],
+    canvasMode: 'perm_x1'
+  },
+  {
+    phase: 'permutation', title: 'Permutation Importance: Shuffling "Bedrooms"',
+    desc: `Now we repeat the process for 'Bedrooms'. Notice how shuffling 'Bedrooms' might affect performance differently, especially if it's correlated with 'Size'.`,
+    codeLines: [26,27],
+    canvasMode: 'perm_x2'
+  },
+  {
+    phase: 'permutation', title: 'Permutation Importance: Shuffling "Location_Score"',
+    desc: `Finally, for 'Location_Score'. This feature is less correlated with others, so its individual impact might be clearer.`,
+    codeLines: [26,27],
+    canvasMode: 'perm_x3'
+  },
+  {
+    phase: 'summary', title: 'Summary: Permutation Importance Scores',
+    desc: `Here's a bar chart of the permutation importance for all features. Higher bars mean a greater increase in MSE when that feature is shuffled, indicating higher importance.`,
+    codeLines: [28,29],
+    canvasMode: 'perm_summary'
+  },
+  {
+    phase: 'dropcolumn', title: 'Drop-Column Importance: Removing "Size"',
+    desc: `For drop-column importance, we conceptually retrain a *new* model entirely without the 'Size' feature. This measures the inherent value of 'Size' to the model's predictive power. This is computationally expensive!`,
+    codeLines: [31,32,33,34,35,36,37],
+    canvasMode: 'drop_x1'
+  },
+  {
+    phase: 'summary', title: 'Summary: Drop-Column Importance Scores',
+    desc: `Similar to permutation, higher bars indicate greater importance. Compare these values to permutation importance. Differences can highlight how the model adapts to missing features vs. corrupted features.`,
+    codeLines: [38,39],
+    canvasMode: 'drop_summary'
+  },
+  {
+    phase: 'shap', title: 'SHAP Values: Explaining an Individual Prediction',
+    desc: `SHAP values explain how each feature contributes to a *single prediction*, pushing it from the average model output (baseline) to the actual prediction for that instance. Positive SHAP values increase the prediction, negative values decrease it.`,
+    codeLines: [41,42,43,44,45,46,47],
+    canvasMode: 'shap_individual'
+  },
+  {
+    phase: 'shap', title: 'Summary: Global SHAP Importance',
+    desc: `To get a global view, we average the absolute SHAP values across many predictions. This provides a robust measure of overall feature importance, balancing individual contributions across the dataset.`,
+    codeLines: [49,50,51,52],
+    canvasMode: 'shap_global'
+  }
+];
+
+let step = 0;
+const totalSteps = steps.length;
+
+// ── INIT DOTS ──
+function initDots() {
+  const wrap = document.getElementById('progressDots');
+  wrap.innerHTML = '';
+  for (let i = 0; i < totalSteps; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => goTo(i);
+    wrap.appendChild(d);
+  }
+}
+
+function updateDots() {
+  const dots = document.querySelectorAll('.dot');
+  dots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < step) d.classList.add('done');
+    if (i === step) d.classList.add('active');
+  });
+}
+
+// ── NAVIGATION ──
+function go(dir) {
+  const next = step + dir;
+  if (next < 0 || next >= totalSteps) return;
+  step = next;
+  render();
+}
+function goTo(i) { step = i; render(); }
+function reset() { step = 0; globalCorrelation = 0.7; document.getElementById('correlationSlider').value = 0.7; setupSimulation(globalCorrelation); render(); }
+
+// ── RENDER ──
+function render() {
+  const s = steps[step];
+
+  document.getElementById('btnPrev').disabled = step === 0;
+  document.getElementById('btnNext').disabled = step === totalSteps - 1;
+
+  const phaseMap = {
+    setup:'phase-setup', permutation:'phase-permutation', dropcolumn:'phase-dropcolumn',
+    shap:'phase-shap', summary:'phase-summary'
+  };
+  document.getElementById('infoPhase').className = 'info-phase ' + phaseMap[s.phase];
+  document.getElementById('infoPhase').textContent = s.phase.toUpperCase();
+  document.getElementById('infoStep').textContent = `Step ${step+1} of ${totalSteps}`;
+  document.getElementById('infoTitle').textContent = s.title;
+  document.getElementById('infoDesc').innerHTML = s.desc;
+
+  if (typeof renderMathInElement === 'function') {
+    renderMathInElement(document.getElementById('infoCard'), {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ]
+    });
+  }
+
+  document.querySelectorAll('.code-line').forEach(cl => cl.classList.remove('active'));
+  (s.codeLines||[]).forEach(i => {
+    const el = document.getElementById('cl'+i);
+    if(el) el.classList.add('active');
+  });
+
+  document.getElementById('correlationSliderPanel').style.display = (step < 8) ? 'flex' : 'none';
+
+  drawCanvas(s.canvasMode);
+  updateDots();
+}
+
+// ── CANVAS DRAWING ──
+function getColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = name => cs.getPropertyValue(name).trim();
+  return {
+    text: g('--text'), text2: g('--text2'), text3: g('--text3'),
+    border: g('--border2'), bg2: g('--bg2'),
+    blue: g('--blue-mid'), green: g('--green-mid'), red: g('--red-mid'),
+    amber: g('--amber-mid'), purple: g('--purple-mid'), cyan: g('--cyan-mid'),
+    redBg: g('--red-bg'), greenBg: g('--green-bg'), amberBg: g('--amber-bg'), purpleBg: g('--purple-bg')
+  };
+}
+
+function drawCanvas(mode) {
+  const canvas = document.getElementById('vizCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const colors = getColors();
+
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = {l:20, r:20, t:20, b:20};
+  const drawAreaW = W - pad.l - pad.r;
+  const drawAreaH = H - pad.t - pad.b;
+
+  // Helper to draw a feature box
+  function drawFeatureBox(x, y, width, height, label, value, color, highlight = false, shuffled = false, dropped = false) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(x, y, width, height, colors.radius) : ctx.rect(x, y, width, height);
+    ctx.fill();
+    ctx.stroke();
+
+    if (highlight) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.roundRect ? ctx.roundRect(x, y, width, height, colors.radius) : ctx.rect(x, y, width, height);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = colors.text;
+    ctx.font = '600 14px var(--sans)';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + width / 2, y + height / 3);
+
+    ctx.fillStyle = colors.text2;
+    ctx.font = '12px var(--mono)';
+    ctx.fillText(value, x + width / 2, y + height * 2 / 3 + 4);
+
+    if (shuffled) {
+        ctx.fillStyle = colors.text;
+        ctx.font = '600 12px var(--sans)';
+        ctx.fillText('SHUFFLED', x + width / 2, y + height * 2 / 3 + 20);
+    }
+    if (dropped) {
+        ctx.fillStyle = colors.text;
+        ctx.font = '600 12px var(--sans)';
+        ctx.fillText('DROPPED', x + width / 2, y + height * 2 / 3 + 20);
+    }
+  }
+
+  // Helper to draw a bar chart
+  function drawBarChart(data, labels, title, unit, highlightIdx = -1) {
+    const barPad = {l:50, r:20, t:40, b:60};
+    const barAreaW = W - barPad.l - barPad.r;
+    const barAreaH = H - barPad.t - barPad.b;
+    const barWidth = (barAreaW / labels.length) * 0.6;
+    const barGap = (barAreaW / labels.length) * 0.4;
+
+    const maxVal = Math.max(...data.map(Math.abs), 0.1); // Ensure min height for small bars
+
+    // X axis
+    ctx.strokeStyle = colors.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(barPad.l, H - barPad.b); ctx.lineTo(W - barPad.r, H - barPad.b); ctx.stroke();
+
+    ctx.fillStyle = colors.text; ctx.font = '600 16px var(--sans)';
+    ctx.textAlign = 'center'; ctx.fillText(title, W/2, barPad.t/2 + 10);
+
+    data.forEach((val, i) => {
+      const x = barPad.l + i * (barWidth + barGap) + barGap / 2;
+      const h = (Math.abs(val) / maxVal) * barAreaH * 0.8;
+      const y = H - barPad.b - h;
+
+      const barColor = val >= 0 ? colors.green : colors.purple;
+
+      ctx.fillStyle = barColor;
+      ctx.roundRect ? ctx.roundRect(x, y, barWidth, h, 5) : ctx.rect(x, y, barWidth, h);
+      ctx.fill();
+
+      if (i === highlightIdx) {
+        ctx.strokeStyle = colors.amber;
+        ctx.lineWidth = 3;
+        ctx.roundRect ? ctx.roundRect(x, y, barWidth, h, 5) : ctx.rect(x, y, barWidth, h);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = colors.text; ctx.font = '12px var(--mono)';
+      ctx.fillText(val.toFixed(3), x + barWidth / 2, y - 8);
+
+      ctx.fillStyle = colors.text2; ctx.font = '12px var(--sans)';
+      ctx.fillText(labels[i], x + barWidth / 2, H - barPad.b + 20);
+    });
+
+    ctx.fillStyle = colors.text3; ctx.font = '11px var(--sans)';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Relative ${unit} Increase`, barPad.l, barPad.t + 15);
+  }
+
+  // --- Common elements for feature display ---
+  const featureBoxWidth = drawAreaW / 4;
+  const featureBoxHeight = 60;
+  const featureY = pad.t + drawAreaH * 0.2;
+  const modelBoxY = featureY + featureBoxHeight + 40;
+  const outputBoxY = modelBoxY + featureBoxHeight + 40;
+
+  const featureValues = currentData.X[0]; // Example values for visualization
+  const featureColors = [colors.blue, colors.blue, colors.blue];
+
+  // --- Mode-specific drawing ---
+  if (mode === 'data_model' || mode === 'baseline_performance' ||
+      mode.startsWith('perm_') || mode.startsWith('drop_')) {
+
+    // Draw input features
+    FEATURE_NAMES.forEach((name, i) => {
+      const x = pad.l + i * featureBoxWidth + (drawAreaW - FEATURE_NAMES.length * featureBoxWidth) / 2;
+      drawFeatureBox(x, featureY, featureBoxWidth * 0.8, featureBoxHeight,
+                     name, featureValues[i].toFixed(2), featureColors[i]);
+    });
+
+    // Draw Model box
+    const modelBoxX = W / 2 - featureBoxWidth / 2;
+    ctx.fillStyle = colors.blueBg; ctx.strokeStyle = colors.blueBorder; ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(modelBoxX, modelBoxY, featureBoxWidth, featureBoxHeight, colors.radius) : ctx.rect(modelBoxX, modelBoxY, featureBoxWidth, featureBoxHeight);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = colors.blueText; ctx.font = '600 16px var(--sans)';
+    ctx.textAlign = 'center'; ctx.fillText('Trained Model', W / 2, modelBoxY + featureBoxHeight / 2 + 5);
+
+    // Draw arrows from features to model
+    ctx.strokeStyle = colors.text3; ctx.lineWidth = 1.5;
+    FEATURE_NAMES.forEach((_, i) => {
+      const startX = pad.l + i * featureBoxWidth + (drawAreaW - FEATURE_NAMES.length * featureBoxWidth) / 2 + featureBoxWidth * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(startX, featureY + featureBoxHeight);
+      ctx.lineTo(W / 2, modelBoxY);
+      ctx.stroke();
+    });
+    // Draw arrow from model to output
+    ctx.beginPath();
+    ctx.moveTo(W / 2, modelBoxY + featureBoxHeight);
+    ctx.lineTo(W / 2, outputBoxY);
+    ctx.stroke();
+
+    // Draw Output box
+    ctx.fillStyle = colors.greenBg; ctx.strokeStyle = colors.greenBorder; ctx.lineWidth = 1;
+    ctx.roundRect ? ctx.roundRect(modelBoxX, outputBoxY, featureBoxWidth, featureBoxHeight, colors.radius) : ctx.rect(modelBoxX, outputBoxY, featureBoxWidth, featureBoxHeight);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = colors.greenText; ctx.font = '600 16px var(--sans)';
+    ctx.textAlign = 'center'; ctx.fillText('Prediction', W / 2, outputBoxY + featureBoxHeight / 2 + 5);
+
+    let mseToDisplay = baselineMSE;
+    let infoNumbersText = `Baseline MSE: ${baselineMSE.toFixed(2)}\n`;
+
+    if (mode === 'baseline_performance') {
+      ctx.fillStyle = colors.text; ctx.font = '14px var(--sans)';
+      ctx.fillText(`Baseline MSE: ${baselineMSE.toFixed(2)}`, W / 2, outputBoxY + featureBoxHeight + 25);
+    } else if (mode.startsWith('perm_')) {
+      const featureIdx = mode === 'perm_x1' ? 0 : (mode === 'perm_x2' ? 1 : 2);
+      const X_shuffled = currentData.X.map(row => [...row]); // Deep copy
+      const col_values = X_shuffled.map(row => row[featureIdx]);
+      const shuffled_col_values = shuffleArray(col_values, mulberry32(42 + featureIdx)); // Consistent shuffle seed
+      for (let j = 0; j < N_SAMPLES; j++) {
+        X_shuffled[j][featureIdx] = shuffled_col_values[j];
+      }
+      const y_pred_shuffled = trainedModel.predict(X_shuffled);
+      mseToDisplay = meanSquaredError(currentData.y, y_pred_shuffled);
+
+      infoNumbersText += `Shuffled MSE: ${mseToDisplay.toFixed(2)}\n`;
+      infoNumbersText += `Permutation Importance: ${permutationImportances[featureIdx].toFixed(3)}`;
+
+      const x = pad.l + featureIdx * featureBoxWidth + (drawAreaW - FEATURE_NAMES.length * featureBoxWidth) / 2;
+      drawFeatureBox(x, featureY, featureBoxWidth * 0.8, featureBoxHeight,
+                     FEATURE_NAMES[featureIdx], featureValues[featureIdx].toFixed(2),
+                     colors.amberBg, true, true);
+      ctx.fillStyle = colors.text; ctx.font = '14px var(--sans)';
+      ctx.fillText(`MSE with shuffled ${FEATURE_NAMES[featureIdx]}: ${mseToDisplay.toFixed(2)}`, W / 2, outputBoxY + featureBoxHeight + 25);
+    } else if (mode.startsWith('drop_')) {
+      const featureIdx = mode === 'drop_x1' ? 0 : (mode === 'drop_x2' ? 1 : 2); // Not using x2,x3 for drop vis
+      const X_dropped = currentData.X.map(row => row.filter((_, idx) => idx !== featureIdx));
+      const model_dropped = new LinearRegressionModel();
+      model_dropped.fit(X_dropped, currentData.y);
+      const y_pred_dropped = model_dropped.predict(X_dropped);
+      mseToDisplay = meanSquaredError(currentData.y, y_pred_dropped);
+
+      infoNumbersText += `Dropped MSE: ${mseToDisplay.toFixed(2)}\n`;
+      infoNumbersText += `Drop-Column Importance: ${dropColumnImportances[featureIdx].toFixed(3)}`;
+
+      const x = pad.l + featureIdx * featureBoxWidth + (drawAreaW - FEATURE_NAMES.length * featureBoxWidth) / 2;
+      drawFeatureBox(x, featureY, featureBoxWidth * 0.8, featureBoxHeight,
+                     FEATURE_NAMES[featureIdx], 'N/A',
+                     colors.redBg, true, false, true);
+      ctx.fillStyle = colors.text; ctx.font = '14px var(--sans)';
+      ctx.fillText(`MSE with ${FEATURE_NAMES[featureIdx]} dropped: ${mseToDisplay.toFixed(2)}`, W / 2, outputBoxY + featureBoxHeight + 25);
+    }
+    document.getElementById('infoNumbers').textContent = infoNumbersText;
+
+  } else if (mode === 'perm_summary') {
+    drawBarChart(permutationImportances, FEATURE_NAMES, 'Permutation Importance', 'MSE');
+    document.getElementById('infoNumbers').textContent =
+      `Baseline MSE: ${baselineMSE.toFixed(2)}\n` +
+      FEATURE_NAMES.map((name, i) => `${name}: ${permutationImportances[i].toFixed(3)}`).join('\n');
+  } else if (mode === 'drop_summary') {
+    drawBarChart(dropColumnImportances, FEATURE_NAMES, 'Drop-Column Importance', 'MSE');
+    document.getElementById('infoNumbers').textContent =
+      `Baseline MSE: ${baselineMSE.toFixed(2)}\n` +
+      FEATURE_NAMES.map((name, i) => `${name}: ${dropColumnImportances[i].toFixed(3)}`).join('\n');
+  } else if (mode === 'shap_individual') {
+    const instance_idx = 0;
+    const instance_X = currentData.X[instance_idx];
+    const instance_y_pred = trainedModel.predict([instance_X])[0];
+
+    const basePrediction = shapExpectedValue;
+    const finalPrediction = instance_y_pred;
+
+    const barHeight = drawAreaH / (FEATURE_NAMES.length + 2); // +2 for base and final
+    const startY = pad.t + barHeight;
+    const centerX = W / 2;
+
+    // Draw baseline
+    ctx.fillStyle = colors.text2; ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'right'; ctx.fillText('E[f(X)] (Baseline)', centerX - 10, startY + barHeight / 2 + 5);
+    ctx.textAlign = 'left'; ctx.fillText(basePrediction.toFixed(2), centerX + 10, startY + barHeight / 2 + 5);
+
+    let currentOffset = 0; // Cumulative offset from centerX for bar stacking
+
+    // Draw feature contributions
+    shapValuesInstance.forEach((shap_val, i) => {
+      const y = startY + (i + 1) * barHeight;
+      const barColor = shap_val >= 0 ? colors.green : colors.purple;
+      const barDirection = shap_val >= 0 ? 1 : -1;
+      const maxShapAbs = Math.max(...shapValuesInstance.map(Math.abs), 0.1);
+      const barLength = Math.abs(shap_val) / maxShapAbs * (drawAreaW / 3);
+
+      ctx.fillStyle = barColor;
+      ctx.fillRect(centerX + currentOffset, y, barDirection * barLength, barHeight * 0.8);
+
+      ctx.fillStyle = colors.text2; ctx.font = '14px var(--sans)';
+      ctx.textAlign = 'right'; ctx.fillText(FEATURE_NAMES[i], centerX + currentOffset - 10, y + barHeight / 2 + 5);
+      ctx.textAlign = 'left'; ctx.fillText(shap_val.toFixed(2), centerX + currentOffset + barDirection * barLength + 10, y + barHeight / 2 + 5);
+
+      currentOffset += barDirection * barLength;
+    });
+
+    // Draw final prediction
+    const finalY = startY + (FEATURE_NAMES.length + 1) * barHeight;
+    ctx.fillStyle = colors.text2; ctx.font = '14px var(--sans)';
+    ctx.textAlign = 'right'; ctx.fillText('f(x) (Final Prediction)', centerX - 10, finalY + barHeight / 2 + 5);
+    ctx.textAlign = 'left'; ctx.fillText(finalPrediction.toFixed(2), centerX + 10, finalY + barHeight / 2 + 5);
+
+    document.getElementById('infoNumbers').textContent =
+      `Expected Value E[f(X)]: ${shapExpectedValue.toFixed(2)}\n` +
+      `Actual Prediction f(x): ${instance_y_pred.toFixed(2)}\n` +
+      FEATURE_NAMES.map((name, i) => `SHAP(${name}): ${shapValuesInstance[i].toFixed(2)}`).join('\n') +
+      `\nSum of SHAP + E[f(X)]: ${(shapValuesInstance.reduce((a,b)=>a+b,0) + shapExpectedValue).toFixed(2)}`;
+
+  } else if (mode === 'shap_global') {
+    drawBarChart(globalShapImportances, FEATURE_NAMES, 'Global SHAP Importance (Mean Absolute SHAP)', 'Absolute SHAP Value');
+    document.getElementById('infoNumbers').textContent =
+      FEATURE_NAMES.map((name, i) => `${name}: ${globalShapImportances[i].toFixed(3)}`).join('\n');
+  }
+}
+
+// ── SLIDER ──
+const correlationSlider = document.getElementById('correlationSlider');
+correlationSlider.addEventListener('input', () => {
+  globalCorrelation = parseFloat(correlationSlider.value);
+  document.getElementById('correlationValue').textContent = globalCorrelation.toFixed(2);
+  setupSimulation(globalCorrelation); // Recalculate everything
+  render();
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'r' || e.key === 'R') reset();
+});
+
+// ── INIT ──
+// Load math.js for matrix operations in LinearRegressionModel
+const script = document.createElement('script');
+script.src = "https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.1/math.min.js";
+script.onload = () => {
+  setupSimulation(globalCorrelation); // Initial data generation and model training
+  initDots();
+  render();
+  window.addEventListener('resize', () => drawCanvas(steps[step].canvasMode));
+};
+document.head.appendChild(script);
+
+</script>
+</body>
+</html>
